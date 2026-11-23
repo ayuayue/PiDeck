@@ -57,9 +57,9 @@ func parseOfficialPlugins(raw []byte) ([]marketEntry, error) {
 		sum := sha256.Sum256([]byte(host + "/" + p.Repo + "/" + p.ID + "/" + p.Subpath))
 		entry := marketEntry{ID: "repo-" + hex.EncodeToString(sum[:8]), Name: p.Name, Description: p.Description,
 			Version: p.Version, Author: p.Author, URL: address, Runtime: firstNonEmpty(p.Runtime, "pideck-electron"), External: true}
-		// A Lite entry must explicitly name both its runtime and manifest.
+		// A V2 entry must explicitly name both its runtime and manifest.
 		// host remains the code forge; it never grants runtime compatibility.
-		if p.Runtime == litePluginRuntime && validCatalogSegment(p.ID) && isHTTPURL(p.URL) {
+		if p.Runtime == v2PluginRuntime && validCatalogSegment(p.ID) && isHTTPURL(p.URL) {
 			entry.ID, entry.URL, entry.External = p.ID, p.URL, false
 		}
 		if seen[entry.ID] {

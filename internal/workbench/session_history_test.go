@@ -85,7 +85,7 @@ func TestSessionFileMessagesCache(t *testing.T) {
 func TestSessionPaintsFromFile(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	raw, err := json.Marshal(config{Version: 1, Workspaces: []workspaceCfg{{Path: workspace, Name: "FileProject"}},
 		Theme: "system", SidebarOpen: true, ScanPi: false})
 	if err != nil {

@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-lite/assets"
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/assets"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/desktop"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -38,7 +38,7 @@ func (a *app) setupDesktop() {
 	a.tray = desktop.NewTray(a.cx, desktop.TrayOptions{
 		Icon:     icon,
 		Template: template,
-		Tooltip:  "PiDeck Lite",
+		Tooltip:  "PiDeck V2",
 		Menu:     a.trayMenu,
 	})
 	a.setupNotifications()
@@ -96,7 +96,7 @@ func (a *app) attachMainWindow() {
 		w.Hide()
 		if !a.trayHinted {
 			a.trayHinted = true
-			a.notifyDesktop("pideck:tray-hint", "PiDeck Lite 仍在运行", "点托盘图标可以重新打开窗口。", nil)
+			a.notifyDesktop("pideck:tray-hint", "PiDeck V2 仍在运行", "点托盘图标可以重新打开窗口。", nil)
 		}
 	})
 }
@@ -150,9 +150,9 @@ func (a *app) updateTray() {
 		return
 	}
 	n := len(a.runningSessions())
-	tip := "PiDeck Lite"
+	tip := "PiDeck V2"
 	if n > 0 {
-		tip = apptext.T("PiDeck Lite · %d 个会话运行中", n)
+		tip = apptext.T("PiDeck V2 · %d 个会话运行中", n)
 	}
 	a.tray.SetTooltip(tip)
 }
@@ -165,7 +165,7 @@ func (a *app) syncRunState() {
 	}
 	if len(a.runningSessions()) > 0 {
 		if a.keepAwake == nil {
-			a.keepAwake = a.cx.KeepAwake("PiDeck Lite: an agent is running", core.KeepAwakeOptions{})
+			a.keepAwake = a.cx.KeepAwake("PiDeck V2: an agent is running", core.KeepAwakeOptions{})
 		}
 		a.cx.SetTaskProgress(core.TaskProgress{State: core.TaskProgressIndeterminate})
 		return
@@ -206,7 +206,7 @@ func (a *app) notifyTurnDone(s *session) {
 	if body == "" {
 		body = "这一轮已完成。"
 	}
-	a.notifyDesktop(sessionNotificationPrefix+s.ID, "PiDeck Lite · "+s.title.GetUntracked(), body, nil)
+	a.notifyDesktop(sessionNotificationPrefix+s.ID, "PiDeck V2 · "+s.title.GetUntracked(), body, nil)
 }
 
 // notifyDesktop posts a system notification. The ID is what a press reports

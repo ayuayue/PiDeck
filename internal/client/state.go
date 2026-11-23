@@ -1,18 +1,18 @@
 package client
 
-// The phone build: it connects to a desktop PiDeck Lite server and browses
+// The phone build: it connects to a desktop PiDeck V2 server and browses
 // its projects, sessions and transcripts. The same package builds the
 // desktop; Root picks this screen on iOS and Android (or with
-// PIDECK_LITE_MOBILE=1 for a preview on a desktop).
+// PIDECK_V2_MOBILE=1 for a preview on a desktop).
 
 import (
 	"os"
 	"strings"
 
-	"example.com/pideck-lite/internal/alerts"
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/remotewire"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/alerts"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/microphone"
 )
@@ -269,7 +269,7 @@ type mobileApp struct {
 func newMobileApp(cx *core.Scope) *mobileApp {
 	cx.SetAppearance(core.AppearanceSystem)
 	cx.SetTheme(viewkit.Theme())
-	setting := strings.TrimSpace(os.Getenv("PIDECK_LITE_LANG"))
+	setting := strings.TrimSpace(os.Getenv("PIDECK_V2_LANG"))
 	apptext.SetLanguage(apptext.ResolveLanguage(setting, cx.Env().Locale()))
 	a := &mobileApp{
 		cx:                  cx,
@@ -279,7 +279,7 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		busy:                core.NewSignal(cx, false),
 		err:                 core.NewSignal(cx, ""),
 		connected:           core.NewSignal(cx, false),
-		serverName:          core.NewSignal(cx, "PiDeck Lite"),
+		serverName:          core.NewSignal(cx, "PiDeck V2"),
 		desktopVersion:      core.NewSignal(cx, ""),
 		state:               core.NewSignalFunc(cx, remotewire.Snapshot{}, nil),
 		active:              core.NewSignal(cx, ""),

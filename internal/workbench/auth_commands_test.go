@@ -62,8 +62,8 @@ func TestProviderDialogAuthState(t *testing.T) {
 	}
 	home := t.TempDir()
 	cfgDir := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
-	t.Setenv("PIDECK_LITE_PI_CONFIG", cfgDir)
+	t.Setenv("PIDECK_V2_HOME", home)
+	t.Setenv("PIDECK_V2_PI_CONFIG", cfgDir)
 	t.Setenv("PI_CODING_AGENT_DIR", cfgDir)
 	body := `{"providers":{"acme":{"api":"openai-completions","baseUrl":"https://acme.example/v1","models":[{"id":"a1"}]}}}`
 	if err := os.WriteFile(filepath.Join(cfgDir, "models.json"), []byte(body), 0o600); err != nil {

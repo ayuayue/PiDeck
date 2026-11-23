@@ -15,9 +15,9 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-lite/internal/appinfo"
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/appinfo"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/desktop"
 	"github.com/nsgo-dev/nsgo/updater"
 )
@@ -33,13 +33,13 @@ const (
 // trayMenu is what the tray icon's menu shows.
 func (a *app) trayMenu() []desktop.MenuItem {
 	items := []desktop.MenuItem{
-		{Label: apptext.T("PiDeck Lite %s", appinfo.Version), Disabled: true},
+		{Label: apptext.T("PiDeck V2 %s", appinfo.Version), Disabled: true},
 		{Label: apptext.T("检查更新…"), OnSelect: func() {
 			a.showMainWindow()
 			updater.Check(a.cx)
 		}},
 		{Separator: true},
-		{Label: apptext.T("显示 PiDeck Lite"), OnSelect: a.showMainWindow},
+		{Label: apptext.T("显示 PiDeck V2"), OnSelect: a.showMainWindow},
 		{Label: apptext.T("新建会话"), OnSelect: func() {
 			a.showMainWindow()
 			a.newSession(a.activeWS.GetUntracked())

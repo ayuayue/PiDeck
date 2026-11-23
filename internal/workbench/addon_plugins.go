@@ -28,7 +28,7 @@ import (
 type plugin struct {
 	SchemaVersion int `yaml:"schemaVersion" json:"schemaVersion"`
 	// Runtime names the host contract; it is independent of the registry's
-	// code-hosting source. Missing identity fields use the legacy Lite v2
+	// code-hosting source. Missing identity fields use the legacy V2 v2
 	// interpretation without rewriting the user's manifest.
 	Runtime     string        `yaml:"runtime" json:"runtime"`
 	ID          string        `yaml:"id" json:"id"`

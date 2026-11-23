@@ -1,26 +1,26 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 export default function localTools(pi: ExtensionAPI) {
-  const url = process.env.PIDECK_LITE_MEMORY_URL;
-  const token = process.env.PIDECK_LITE_MEMORY_TOKEN;
+  const url = process.env.PIDECK_V2_MEMORY_URL;
+  const token = process.env.PIDECK_V2_MEMORY_TOKEN;
   if (url && token && typeof pi.registerMcpServer === "function") {
-    pi.registerMcpServer("pideck-lite-memory", {
+    pi.registerMcpServer("pideck-v2-memory", {
       url,
       headers: { Authorization: `Bearer ${token}` },
       exposure: "direct",
     });
   }
-  const browserURL = process.env.PIDECK_LITE_BROWSER_URL;
-  const browserToken = process.env.PIDECK_LITE_BROWSER_TOKEN;
+  const browserURL = process.env.PIDECK_V2_BROWSER_URL;
+  const browserToken = process.env.PIDECK_V2_BROWSER_TOKEN;
   if (browserURL && browserToken && typeof pi.registerMcpServer === "function") {
-    pi.registerMcpServer("pideck-lite-browser", {
+    pi.registerMcpServer("pideck-v2-browser", {
       url: browserURL,
       headers: { Authorization: `Bearer ${browserToken}` },
       exposure: "direct",
     });
   }
 
-  if (process.env.PIDECK_LITE_TRACE !== "1") return;
+  if (process.env.PIDECK_V2_TRACE !== "1") return;
   let previous = "";
   pi.on("context_with_system", (event, ctx) => {
     const user = ctx.sessionManager.getBranch().findLast(
@@ -44,6 +44,6 @@ export default function localTools(pi: ExtensionAPI) {
     const key = `${user.id}\n${text}`;
     if (key === previous) return;
     previous = key;
-    pi.appendEntry("pideck-lite-trajectory", { entry: user.id, time: user.message.timestamp, system: text });
+    pi.appendEntry("pideck-v2-trajectory", { entry: user.id, time: user.message.timestamp, system: text });
   });
 }

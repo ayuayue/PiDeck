@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-lite/internal/relaywire"
+	"example.com/pideck-v2/internal/relaywire"
 	"golang.org/x/net/websocket"
 )
 

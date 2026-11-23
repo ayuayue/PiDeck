@@ -14,7 +14,7 @@ import (
 	"strconv"
 	"strings"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -60,7 +60,7 @@ func builtinCommands() []appCommand {
 		{ID: "memory", Label: "智能体记忆", Group: "会话", Icon: lucide.BookOpen,
 			Run: func(a *app) { a.openPane(paneMemory) }},
 		{ID: "activity", Label: "活动", Group: "会话", Icon: lucide.Activity,
-			Run: func(a *app) { a.openPane(paneActivity) }},
+			Run: func(a *app) { a.openRailTab(railTabActivity) }},
 		{ID: "new-session", Label: "新建会话", Group: "会话", Shortcut: "mod+n", Icon: lucide.SquarePen,
 			Run: func(a *app) { a.newSession(a.activeWS.Get()) }},
 		{ID: "chat-session", Label: "新建对话（不绑定项目）", Group: "会话", Shortcut: "mod+shift+n", Icon: lucide.MessageCircle,
@@ -78,8 +78,6 @@ func builtinCommands() []appCommand {
 			Run: func(a *app) { a.openTaskForm() }},
 		{ID: "favorites", Label: "收藏夹…", Group: "会话", Icon: lucide.Star,
 			Run: func(a *app) { a.openFavorites() }},
-		{ID: "drafts", Label: "草稿本", Group: "会话", Icon: lucide.BookOpen,
-			Run: func(a *app) { a.openDrafts(false) }},
 		{ID: "browser", Label: "浏览器", Group: "工具", Icon: lucide.Globe,
 			Run: func(a *app) { a.openPane(paneBrowser) }},
 		{ID: "notifications", Label: "通知历史", Group: "应用", Icon: lucide.Bell,

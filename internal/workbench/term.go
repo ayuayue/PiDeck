@@ -277,7 +277,7 @@ func (h *terminalHost) start(tab *termTab) {
 	tab.find.Set(sgt.SearchStatus{})
 	opts := sgt.Options{
 		Dir: tab.Cwd,
-		Env: []string{"PIDECK_LITE=1"},
+		Env: []string{"PIDECK_V2=1"},
 		OnTitle: func(title string) {
 			// A shell often starts by naming its own executable; the
 			// tab's own name serves better than a truncated path.

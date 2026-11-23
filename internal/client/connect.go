@@ -1,9 +1,9 @@
 package client
 
-// The phone build: it connects to a desktop PiDeck Lite server and browses
+// The phone build: it connects to a desktop PiDeck V2 server and browses
 // its projects, sessions and transcripts. The same package builds the
 // desktop; Root picks this screen on iOS and Android (or with
-// PIDECK_LITE_MOBILE=1 for a preview on a desktop).
+// PIDECK_V2_MOBILE=1 for a preview on a desktop).
 
 import (
 	"bytes"
@@ -17,12 +17,12 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-lite/assets"
-	"example.com/pideck-lite/internal/appinfo"
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/relaywire"
-	"example.com/pideck-lite/internal/remotewire"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/assets"
+	"example.com/pideck-v2/internal/appinfo"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/relaywire"
+	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/liyue201/goqr"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -99,7 +99,7 @@ func (a *mobileApp) connectView(cx *core.Scope) core.Node {
 		core.Image{Source: core.ImageSource{Data: assets.LogoPNG}, ResizeMode: core.Contain, Label: "PiDeck",
 			Style: core.Style{Width: core.Pt(64), Height: core.Pt(64), CornerRadius: 18, AlignSelf: core.AlignCenter}},
 		core.View{Style: core.Style{Gap: 4, AlignItems: core.AlignCenter}, Children: []core.Node{
-			ui.Text("PiDeck Lite", 24, ui.Bold, colors.Text),
+			ui.Text("PiDeck V2", 24, ui.Bold, colors.Text),
 			ui.Text(apptext.T("连接电脑上的会话"), 13, ui.Regular, colors.Muted),
 		}},
 		card,

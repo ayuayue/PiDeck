@@ -19,7 +19,7 @@ import (
 func TestNotificationOpensSession(t *testing.T) {
 	home := editorWorkspace(t)
 	workspace := editorWorkspace(t)
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	raw, err := json.Marshal(config{Version: 1, Workspaces: []workspaceCfg{{Path: workspace, Name: "NotifyProject"}},
 		Theme: "system", SidebarOpen: true})
 	if err != nil {
@@ -43,7 +43,7 @@ func TestNotificationOpensSession(t *testing.T) {
 	ws := built.workspaces.GetUntracked()[0]
 	s := built.makeSession(sessionMeta{ID: "notify-a", Cwd: ws.Path, Title: "通知会话", Updated: time.Now()}, ws.Target)
 	built.setupNotifications()
-	built.notifyDesktop(sessionNotificationPrefix+s.ID, "PiDeck Lite", "回答好了", nil)
+	built.notifyDesktop(sessionNotificationPrefix+s.ID, "PiDeck V2", "回答好了", nil)
 	screen.Advance(100 * time.Millisecond)
 	if len(screen.Notifications) != 1 || screen.Notifications[0].ID != "session:notify-a" {
 		t.Fatalf("notifications = %v, want session:notify-a", screen.Notifications)

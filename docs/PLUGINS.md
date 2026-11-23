@@ -1,7 +1,7 @@
-# PiDeck Lite 插件审计与实现方案
+# PiDeck V2 插件审计与实现方案
 
 首轮审计日期：2026-11-20，使用 NSGo `a4a00f7f38b3`。2026-11-21 续作基于
-`go.mod` 当前锁定的 `c70af8a79201` 验证。不把框架具备的能力算成 Lite 已经开放的 API。
+`go.mod` 当前锁定的 `c70af8a79201` 验证。不把框架具备的能力算成 V2 已经开放的 API。
 
 ## 结论与本轮边界
 
@@ -75,8 +75,8 @@
 ```json
 {
   "schemaVersion": 2,
-  "runtime": "pideck-lite",
-  "id": "lite-review-kit",
+  "runtime": "pideck-v2",
+  "id": "v2-review-kit",
   "name": "代码审查工具箱",
   "version": "1.0.0",
   "contributes": {}
@@ -84,9 +84,9 @@
 ```
 
 - `runtime` 是执行契约，不能拿表示 GitHub/AtomGit 的 `host` 代替，也不能只靠名称、标签或 ID 前缀授权。
-- 已有 Lite 清单没有这两个字段时，按 v2 / pideck-lite 读取，不重写文件；旧 prompts/内联 themes 仍可用。
+- 已有清单没有这两个字段时，按 v2 / pideck-v2 读取，不重写文件；旧 prompts/内联 themes 仍可用。
 - 显式指定其他 runtime 或未知 schemaVersion 时在插件设置页显示错误，贡献项不生效。
-- 插件 ID 仍是安装、设置、键位与 persona 引用的稳定身份；示例使用 `lite-` 前缀方便人辨认，
+- 插件 ID 仍是安装、设置、键位与 persona 引用的稳定身份；示例使用 `v2-` 前缀方便人辨认，
   机器判定看 runtime。开发模式、正式渠道、桌面/客户端都不应靠改 ID 混用同一份授权。
 
 ## 复用 pideck-plugins 市场
@@ -108,23 +108,23 @@
       "subpath": "plugins/project-notes"
     },
     {
-      "id": "lite-review-kit",
+      "id": "v2-review-kit",
       "name": "代码审查工具箱",
       "version": "1.0.0",
-      "runtime": "pideck-lite",
+      "runtime": "pideck-v2",
       "repo": "owner/plugin-repository",
-      "url": "https://example.com/lite-review-kit.json"
+      "url": "https://example.com/v2-review-kit.json"
     }
   ]
 }
 ```
 
-Lite 的「官方索引」优先取 GitHub Pages 的混合索引，失败时尝试原有 GitHub 和 AtomGit v1 源。
-混合索引要求每条声明 `runtime`。`pideck-lite` 条目带清单下载地址，可以安装、更新。
+V2 的「官方索引」优先取 GitHub Pages 的混合索引，失败时尝试原有 GitHub 和 AtomGit v1 源。
+混合索引要求每条声明 `runtime`。`pideck-v2` 条目带清单下载地址，可以安装、更新。
 `pideck-electron` 条目保留项目入口。旧官方 v1 和自定义 `{plugins:[{id,name,url}]}` 或数组仍可读取。
 
-市场构建从原 v1 派生 Electron 条目，从 PiDeck Lite 公开仓库的固定提交派生三套 Lite 示例，下载地址同样固定到
-这个提交。市场侧检查清单标识、必填字段、ID 冲突和单文件分发条件，实际安装时由 Lite 校验 ID、版本和各项贡献。
+市场构建从原 v1 派生 Electron 条目，从 PiDeck V2 公开仓库的固定提交派生三套 V2 示例，下载地址同样固定到
+这个提交。市场侧检查清单标识、必填字段、ID 冲突和单文件分发条件，实际安装时由 V2 校验 ID、版本和各项贡献。
 市场仓库发布后，在线官方索引即可显示这三套示例。资源包与自动更新仍需另行验证内容摘要、签名和更新策略。
 
 当前 HTTP 下载有超时与硬体积上限，写入是原子文件替换；**市场仍只下载一个清单**，不会顺带下载
@@ -138,9 +138,9 @@ Lite 的「官方索引」优先取 GitHub Pages 的混合索引，失败时尝�
 
 | 例子 | 完整使用路径 | 六类贡献 |
 | --- | --- | --- |
-| `lite-ui-basics.json` | 四种设置控件 → 准备提示词 → 切换雾蓝/恢复系统 → 查看键位 → 讲解员 persona → 计划完成显示大纲 | 全部 |
-| `lite-review-kit.json` | 选审查范围/重点 → 准备或主动发送审查 → Git 面板 → 审查员 persona → 提交后刷新 Git | 全部 |
-| `lite-writing-kit.json` | 配置读者/风格 → 准备写作任务 → 文档 persona → 文档主题 → 计划完成显示大纲 | 全部 |
+| `v2-ui-basics.json` | 四种设置控件 → 准备提示词 → 切换雾蓝/恢复系统 → 查看键位 → 讲解员 persona → 计划完成显示大纲 | 全部 |
+| `v2-review-kit.json` | 选审查范围/重点 → 准备或主动发送审查 → Git 面板 → 审查员 persona → 提交后刷新 Git | 全部 |
+| `v2-writing-kit.json` | 配置读者/风格 → 准备写作任务 → 文档 persona → 文档主题 → 计划完成显示大纲 | 全部 |
 
 源文件位于 `internal/workbench/plugin_examples/`。这些清单内容与用户创建的插件一样属于可编辑内容；
 宿主的按钮、说明、错误和计数补齐六个翻译目录。三个例子的快捷键互不冲突，且只占空闲键。
@@ -150,11 +150,11 @@ Lite 的「官方索引」优先取 GitHub Pages 的混合索引，失败时尝�
 
 以 Magpie `2a2a8d734210` 为准，社区插件已经可以定义自己的界面。内置扩展、社区界面和社区功能分别有各自的入口。
 
-| 扩展 | Magpie 已实现的能力 | Lite 可借鉴的做法 |
+| 扩展 | Magpie 已实现的能力 | V2 可借鉴的做法 |
 | --- | --- | --- |
 | 内置插件 | Go `pluginrt` 管理服务依赖、配置 schema、启停和反向清理。Gateway、Sessions 等内置插件通过 `page` 插槽提供 Web 页面 | 在宿主整理清楚扩展点、状态归属和停用清理，再开放接口 |
-| 社区 UI | `package.json` 的 `magpie.page` 提供独立 HTML 页面，`magpie.panels` 可放进 Agents、Usage、Settings 或提供商编辑器。宿主通过沙箱 iframe、受限消息桥与读取权限提供主题、配置和数据。页面可按允许列表替换内置页 | 保留命名插槽、可预览的权限和单组件失败回退。Lite 用 NSGo 原生树承载首个面板 |
-| 社区功能 | OpenCode 兼容的 Bun/npm 宿主可提供 provider 与工具。工具可经受控 MCP 入口提供给智能体，插件进程按本机用户权限运行 | 先让 Lite 的函数由用户触发，复用宿主有界数据。单独处理智能体工具注册和授权 |
+| 社区 UI | `package.json` 的 `magpie.page` 提供独立 HTML 页面，`magpie.panels` 可放进 Agents、Usage、Settings 或提供商编辑器。宿主通过沙箱 iframe、受限消息桥与读取权限提供主题、配置和数据。页面可按允许列表替换内置页 | 保留命名插槽、可预览的权限和单组件失败回退。V2 用 NSGo 原生树承载首个面板 |
+| 社区功能 | OpenCode 兼容的 Bun/npm 宿主可提供 provider 与工具。工具可经受控 MCP 入口提供给智能体，插件进程按本机用户权限运行 | 先让 V2 的函数由用户触发，复用宿主有界数据。单独处理智能体工具注册和授权 |
 
 Magpie 的社区页面可以独立安装，无需启动 Bun。以本机的 CodeBuddy 导入为例，它使用 provider 扩展点；同一市场还
 有 Day card 这类自定义界面。需要核对页面和面板的声明格式时，可直接查看上游的 `panel-plugin` fixture。
@@ -173,8 +173,8 @@ Magpie 的社区页面可以独立安装，无需启动 Bun。以本机的 CodeB
   创建的函数运行时。`Plugin.Interrupt` 可从后台停止函数，`Close` 由宿主引擎线程负责。
 - `core.Catch` 在宿主视图内捕获失败并回退。移除视图会释放该作用域的订阅和回调，宿主发起的后台工作仍由宿主负责取消。
 
-Lite 可以保留 v2 的命令、设置、主题、键位、事件和智能体，再用独立运行时标识分发签名 NSGo 包。
-`pkg.Contents.Extra` 可以携带签名覆盖的 Lite Host API 版本与组件导出声明；权限申请由包的 `Capabilities` 声明。
+V2 可以保留 v2 的命令、设置、主题、键位、事件和智能体，再用独立运行时标识分发签名 NSGo 包。
+`pkg.Contents.Extra` 可以携带签名覆盖的 V2 Host API 版本与组件导出声明；权限申请由包的 `Capabilities` 声明。
 市场标识用于发现和选择安装流程。
 生产接入属于新的外部契约，需要更新项目的插件边界和运行授权流程。
 
@@ -235,7 +235,7 @@ go test ./internal/workbench -run '^(TestPluginPreview|TestNSGoPlugin)' -count=1
 ## 实施顺序与验收
 
 - 第一阶段：明确身份、修好声明式链路、三套离线例子、UI/函数验证例子与回归测试。
-- 第二阶段：市场仓库按原 v1 与混合 v2 双入口分发，Lite 已接入优先读取与旧源回退。还需要发布市场仓库的提交，在线确认收录与安装。资源包、摘要和更新策略另行验收。
+- 第二阶段：市场仓库按原 v1 与混合 v2 双入口分发，V2 已接入优先读取与旧源回退。还需要发布市场仓库的提交，在线确认收录与安装。资源包、摘要和更新策略另行验收。
 - 第三阶段：桌面内置示例已接入 UI、函数、临时权限与释放。外部包仍需经明确的 v3 契约设计，
   接入发布者信任、安装授权、撤销、禁用清理与失败恢复。
 - 第四阶段：按实际需求补充 API，而不是一次开放所有宿主能力；客户端/浏览器支持另做隔离与预算验收。
@@ -320,12 +320,12 @@ go test -mod=readonly ./internal/workbench -run '^TestTokenDanceSettingsRows$' -
 
 ### 混合市场索引与命名视图验证（2026-11-21）
 
-- Lite 仓库的 `go tool nsgo check`、会话统计示例的独立类型检查、插件专项和 Windows x64 构建通过。
+- V2 仓库的 `go tool nsgo check`、会话统计示例的独立类型检查、插件专项和 Windows x64 构建通过。
   最终 `go tool nsgo test -- -short -count=1 -timeout=20m` 为 **675 通过、0 失败、55 跳过**。
   最终门禁保留了示例生成的 `.nsgo` 缓存，架构扫描与测试嵌入都排除了它。首轮曾遇到 pi 认证测试的 Windows 临时目录清理失败；
   基线和本次代码各独立复跑三次均通过，最终完整套件也通过。
 - `pideck-plugins` 的本地 `codex/lite-plugin-registry` 分支（`47cfe72`）通过原有插件校验、打包、混合索引测试和网站构建，
-  生成 4 个 Electron 条目及 3 个 Lite 条目。用实际生成的索引和 Lite 安装器验证了三套清单，六类贡献均可加载。
+  生成 4 个 Electron 条目及 3 个 V2 条目。用实际生成的索引和 V2 安装器验证了三套清单，六类贡献均可加载。
   市场提交未推送，线上仍待部署。
 
 ### 桌面内置预览验证（2026-11-21）

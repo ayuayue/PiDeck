@@ -10,7 +10,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"example.com/pideck-lite/extensions"
+	"example.com/pideck-v2/extensions"
 )
 
 // askExtensionName is the file pi loads.

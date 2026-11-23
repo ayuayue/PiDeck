@@ -7,14 +7,14 @@ package workbench
 
 import (
 	"context"
-	"example.com/pideck-lite/internal/remotewire"
+	"example.com/pideck-v2/internal/remotewire"
 	"os"
 	"sync"
 	"time"
 
-	"example.com/pideck-lite/internal/alerts"
-	"example.com/pideck-lite/internal/sessionimport"
-	"example.com/pideck-lite/internal/volcvoice"
+	"example.com/pideck-v2/internal/alerts"
+	"example.com/pideck-v2/internal/sessionimport"
+	"example.com/pideck-v2/internal/volcvoice"
 	"github.com/nsgo-dev/nsgo/base/textview"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -56,7 +56,6 @@ type app struct {
 	// favMu guards the list the dialog reads.
 	favOpen             *core.Signal[bool]
 	reviewOpen          *core.Signal[bool]
-	drafts              draftLibrary
 	draftsAtStart       map[string]storedSessionDraft
 	pendingTabs         []string // saved tabs waiting for their remote history scan
 	pendingActive       string
@@ -72,6 +71,7 @@ type app struct {
 	reduceEffects       *core.Signal[bool]
 	codeWrap            *core.Signal[bool]
 	preview             *core.Signal[*filePreview]
+	previewAudio        *previewPlayer
 	notifications       *notificationHistory
 	translation         *core.Signal[*translationDraft]
 	promptTemplate      *core.Signal[*promptTemplateForm]
@@ -313,11 +313,22 @@ type app struct {
 	events eventBus
 	inHook bool
 
-	workspaces   *core.Signal[[]*workspace]
-	activeWS     *core.Signal[string]
-	tabs         *core.Signal[[]string]
-	activeID     *core.Signal[string]
-	activityOpen *core.Signal[bool]
+	workspaces *core.Signal[[]*workspace]
+	activeWS   *core.Signal[string]
+	tabs       *core.Signal[[]string]
+	activeID   *core.Signal[string]
+	// railTab is the rail's visible column: activity, chat or projects.
+	railTab *core.Signal[string]
+	// hoveredProject is the project row the pointer rests on, by key, so
+	// its actions can show while it is hovered.
+	hoveredProject *core.Signal[string]
+	// projectMoreOpen is the project whose row menu is open, by key: its
+	// trigger stays out while the menu is, so the pointer can reach it.
+	projectMoreOpen *core.Signal[string]
+	// addProjectOpen is the add-project menu beside the project count.
+	addProjectOpen *core.Signal[bool]
+	// railMoreOpen folds 更多 open and shut.
+	railMoreOpen *core.Signal[bool]
 	// activePane is the split pane filling the work area, "" for the
 	// session's own view.
 	activePane *core.Signal[string]

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -18,7 +18,7 @@ func TestCrashScreenFallback(t *testing.T) {
 	if nsgotest.Target() != "" {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	panics := 0
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return core.Catch{

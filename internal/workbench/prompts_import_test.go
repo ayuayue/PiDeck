@@ -85,7 +85,7 @@ func TestPromptImportUI(t *testing.T) {
 	}))
 	defer srv.Close()
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
 	app.Press("id:rail-palette")
 	app.Type("label:命令", "提示词库")

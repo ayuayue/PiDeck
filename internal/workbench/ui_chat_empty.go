@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"time"
 
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -116,7 +116,7 @@ func (a *app) welcome() core.Node {
 			Children: []core.Node{
 				core.View{Style: core.Style{AlignItems: core.AlignCenter, Gap: 14, MaxWidth: core.Pt(420)}, Children: []core.Node{
 					a.brandMark(64, "welcome-logo"),
-					core.Text{Content: "PiDeck Lite", Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 22, FontWeight: ui.Bold, LetterSpacing: 0.4},
+					core.Text{Content: "PiDeck V2", Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 22, FontWeight: ui.Bold, LetterSpacing: 0.4},
 						StyleFunc: ui.Colored(colors.Text)},
 					core.Text{Content: sub, Style: core.Style{FontSize: 13, TextAlign: core.TextAlignCenter, LineHeight: 20}, StyleFunc: ui.Colored(colors.Muted)},
 					core.View{Style: core.Style{Direction: core.Row, Gap: 8}, Children: []core.Node{

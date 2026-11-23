@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -65,7 +65,7 @@ func (a *app) balanceAccountsSettings() core.Node {
 			}()
 		}
 		field := func(label, id string, s *core.Signal[string], masked bool) core.Node {
-			return setRow(label, "", core.Input{Value: s.Get, OnChange: s.Set, Disabled: busy.Get, Label: apptext.T(label), TestID: id, Masked: masked, Style: draftFieldStyle(colors).Merge(core.Style{Width: core.Pt(210)})})
+			return setRow(label, "", core.Input{Value: s.Get, OnChange: s.Set, Disabled: busy.Get, Label: apptext.T(label), TestID: id, Masked: masked, Style: panelFieldStyle(colors).Merge(core.Style{Width: core.Pt(210)})})
 		}
 		return core.View{Children: []core.Node{
 			setGroup("独立余额账户", setRow("余额多账号", "每个账户使用自己的接口和凭据，不改动 pi 的登录信息。",

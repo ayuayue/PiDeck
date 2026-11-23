@@ -23,8 +23,8 @@ func TestNativeBrowserApprovalRoundTrip(t *testing.T) {
 		t.Skip("requires a native WebView")
 	}
 	home, project := t.TempDir(), t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
-	t.Setenv("PIDECK_LITE_PI_CONFIG", t.TempDir())
+	t.Setenv("PIDECK_V2_HOME", home)
+	t.Setenv("PIDECK_V2_PI_CONFIG", t.TempDir())
 	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(`{"scanPi":false,"telemetryEnabled":false,"autoModelCatalog":false}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -115,12 +115,12 @@ func TestNativeSupplementScreens(t *testing.T) {
 	if nsgotest.Target() == "" {
 		t.Skip("native screenshot fixture")
 	}
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
-	t.Setenv("PIDECK_LITE_PI_CONFIG", t.TempDir())
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_PI_CONFIG", t.TempDir())
 	var a *app
 	screen := nsgotest.Start(t, func(cx *core.Scope) core.Node { a = newApp(cx); return a.view() }, nsgotest.Size(1280, 860))
 	t.Cleanup(a.closeDiag)
-	for _, pane := range []string{paneMemory, paneDrafts, paneVideo} {
+	for _, pane := range []string{paneMemory, paneVideo} {
 		onNativeUI(t, screen, a, func() { a.openPane(pane) })
 		shot(screen, "supplement/"+pane)
 	}

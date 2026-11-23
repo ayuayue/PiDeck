@@ -17,8 +17,8 @@ import (
 	"unicode"
 	"unicode/utf16"
 
-	"example.com/pideck-lite/internal/appinfo"
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/appinfo"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/core"
 	"golang.org/x/image/draw"
 	_ "golang.org/x/image/webp"
@@ -33,7 +33,7 @@ const (
 	logoSourceMax    = 12 << 20
 	logoDataMax      = 1_500_000
 	logoPixelsMax    = 40_000_000
-	appRepoURL       = "https://github.com/ayuayue/PiDeck-Lite"
+	appRepoURL       = "https://github.com/ayuayue/PiDeck-V2"
 )
 
 // These are pi's official 4×4 TUI pixels and fixed brand colors. Keep the

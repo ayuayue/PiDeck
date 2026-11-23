@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -175,7 +175,7 @@ func (a *app) drawerFiles() core.Node {
 			core.View{Style: core.Style{Gap: 4, Padding: core.Edges{Top: 2, Bottom: 20, Right: 2, Left: 2}}, Children: []core.Node{
 				head,
 				search,
-				core.Text{Content: apptext.T("点文件在编辑器里打开，点目录展开；右键可插入 @ 路径。"), Style: core.Style{FontSize: 10.5, LineHeight: 15}, StyleFunc: ui.Colored(colors.Faint)},
+				core.Text{Content: apptext.T("点文件打开预览或编辑器，点目录展开；右键可插入 @ 路径。"), Style: core.Style{FontSize: 10.5, LineHeight: 15}, StyleFunc: ui.Colored(colors.Faint)},
 				core.Show{When: func() bool { return strings.TrimSpace(a.filesQuery.Get()) != "" }, Then: func(*core.Scope) core.Node { return core.Dynamic(func(*core.Scope) core.Node { return hits() }) }},
 				core.Show{When: func() bool { return strings.TrimSpace(a.filesQuery.Get()) == "" }, Then: func(*core.Scope) core.Node {
 					return core.Group{

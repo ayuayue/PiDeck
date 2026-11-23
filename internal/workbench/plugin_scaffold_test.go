@@ -81,7 +81,7 @@ func TestNewPlugin(t *testing.T) {
 		t.Fatal(err)
 	}
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	app := startApp(t, dir, 1280, 860)
 
 	app.Press("id:rail-palette")

@@ -1,6 +1,6 @@
-# PiDeck Lite architecture
+# PiDeck V2 architecture
 
-PiDeck Lite has one Go program with two hosts. The desktop host owns pi and ACP processes, files, Git, terminals and the loopback HTTP service. Android, iOS and Web run the client host and use that HTTP API. Both hosts render with NSGo.
+PiDeck V2 has one Go program with two hosts. The desktop host owns pi and ACP processes, files, Git, terminals and the loopback HTTP service. Android, iOS and Web run the client host and use that HTTP API. Both hosts render with NSGo.
 
 ## Package boundaries
 
@@ -15,6 +15,7 @@ Dependencies point down this list. A package may import a package below it when 
 | `internal/sessionimport` | External transcript readers and pi JSONL writer | `apptext` |
 | `internal/alerts` | Notification sounds: embedded sounds, default per moment, one decoded player | `assets`, NSGo |
 | `internal/volcvoice` | Speech to text at Volcano Engine's flash endpoint, one WAV in and one transcript out | standard library |
+| `internal/officedoc` | Read-only words and cells of .docx and .xlsx files | standard library |
 | `internal/viewkit` | Display helpers shared by the hosts | `apptext`, NSGo |
 | `internal/crashlog` | Crash reports | `appinfo` |
 | `internal/remotewire` | JSON transport types | standard library |

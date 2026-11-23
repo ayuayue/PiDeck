@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-lite/internal/remotewire"
+	"example.com/pideck-v2/internal/remotewire"
 )
 
 func transcriptImageRef(turn, step, tool, index int, start time.Time) string {

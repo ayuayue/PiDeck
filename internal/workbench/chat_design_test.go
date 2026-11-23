@@ -105,9 +105,9 @@ func TestChatDesignThemeAndNarrowScreens(t *testing.T) {
 func chatDesignFixture(t *testing.T, size float64) (*app, *nsgotest.App, *session) {
 	t.Helper()
 	home, project := t.TempDir(), t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
-	t.Setenv("PIDECK_LITE_PI_CONFIG", t.TempDir())
-	t.Setenv("PIDECK_LITE_LANG", "zh-CN")
+	t.Setenv("PIDECK_V2_HOME", home)
+	t.Setenv("PIDECK_V2_PI_CONFIG", t.TempDir())
+	t.Setenv("PIDECK_V2_LANG", "zh-CN")
 	raw, err := json.Marshal(config{Version: configVersion, Theme: "light", ChatFont: size,
 		ScanPi: false, AutoModelCatalog: false, SidebarOpen: true,
 		Workspaces: []workspaceCfg{{Path: project, Name: "Design reference", Expanded: true}}})

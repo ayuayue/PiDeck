@@ -20,7 +20,7 @@ func TestBuiltinChat(t *testing.T) {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
 	home := editorWorkspace(t)
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
 	app.WaitFor("id:welcome-chat", 5*time.Second)
 	app.Press("id:welcome-chat")

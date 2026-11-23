@@ -17,7 +17,7 @@ import (
 func writePiFile(t *testing.T, name, body string) string {
 	t.Helper()
 	dir := t.TempDir()
-	t.Setenv("PIDECK_LITE_PI_CONFIG", dir)
+	t.Setenv("PIDECK_V2_PI_CONFIG", dir)
 	path := filepath.Join(dir, name)
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)

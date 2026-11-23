@@ -22,7 +22,7 @@ import (
 )
 
 // Editable sources and signing tools belong to tests. Only the prebuilt
-// session-tools package ships in Lite; keys below are never saved.
+// session-tools package ships in V2; keys below are never saved.
 //
 //go:embed plugin_examples/nsgo-ui plugin_examples/nsgo-functions plugin_examples/nsgo-session-tools
 var nsgoPluginExampleSources embed.FS
@@ -74,7 +74,7 @@ func signedNSGoExample(t *testing.T, dir, entry string) (ed25519.PublicKey, []by
 	if err != nil {
 		t.Fatal(err)
 	}
-	cert, err := pkg.Certify(root, public, []string{"dev.pideck.lite.examples.*"}, time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
+	cert, err := pkg.Certify(root, public, []string{"dev.pideck.v2.examples.*"}, time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}

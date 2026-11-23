@@ -5,7 +5,7 @@
  *
  * 把 GitHub Release 的正文与附件同步到 AtomGit 的同名 Release。
  *
- * 约定沿用 PiDeck 的那份脚本（同一套接口与旗标），但只保留 Lite 用得到的部分：
+ * 约定沿用 PiDeck 的那份脚本（同一套接口与旗标），但只保留 V2 用得到的部分：
  * 没有 Electron 的 sidecar/runtime 资产筛选，也不做交互式勾选。
  *
  * 1. 凭证只从环境变量来（ATOMGIT_TOKEN、GH_TOKEN），绝不硬编码，也不写进仓库。
@@ -40,8 +40,8 @@ const tags = (arg("--tags", "") || arg("--tag", ""))
 	.split(",")
 	.map((t) => t.trim())
 	.filter(Boolean);
-const ghRepo = arg("--gh-repo", "ayuayue/PiDeck-Lite");
-const atomgitRepo = arg("--atomgit-repo", "ayuayue/PiDeck-Lite");
+const ghRepo = arg("--gh-repo", "ayuayue/PiDeck-V2");
+const atomgitRepo = arg("--atomgit-repo", "ayuayue/PiDeck-V2");
 const apiBase = arg("--api-base", "https://api.atomgit.com/api/v5");
 const token = process.env.ATOMGIT_TOKEN || arg("--token", "");
 const ghToken = process.env.GH_TOKEN || process.env.GITHUB_TOKEN || "";
@@ -307,7 +307,7 @@ async function syncTag(tag, latestTag, tmpDir) {
 async function main() {
 	const latestTag = await githubLatestTag();
 	if (latestTag) console.log(`🔎 GitHub latest: ${latestTag}`);
-	const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pideck-lite-sync-"));
+	const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pideck-v2-sync-"));
 	let failures = [];
 	try {
 		for (const tag of tags) {

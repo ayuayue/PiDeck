@@ -7,17 +7,16 @@ package workbench
 import (
 	"fmt"
 
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/viewkit"
-	"github.com/nsgo-dev/nsgo/base"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// gitBlameDialog lists a file's line ranges by commit; a press opens the
-// commit's patch.
-func (a *app) gitBlameDialog() core.Node {
+// blamePane lists a file's line ranges by commit; a press opens the
+// commit's patch beside it.
+func (a *app) blamePane() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
 		_ = a.gitBlameRev.Get()
@@ -33,11 +32,8 @@ func (a *app) gitBlameDialog() core.Node {
 			}
 			commit := gitCommit{Hash: b.Hash, Short: b.short(), Author: b.Author, Subject: b.Subject, Date: b.When}
 			rows = append(rows, core.View{
-				OnPress: func(core.PressEvent) {
-					a.gitBlameOpen.Set(false)
-					a.gitShowCommit(commit)
-				},
-				Role: core.RoleButton, Label: span + " " + b.Subject, TestID: "blame-row",
+				OnPress: func(core.PressEvent) { a.gitShowCommit(commit) },
+				Role:    core.RoleButton, Label: span + " " + b.Subject, TestID: "blame-row",
 				StyleFunc: func() core.Style {
 					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(30),
 						Padding: core.Symmetric(0, 6), CornerRadius: 6, Transition: viewkit.PressMotion,
@@ -66,21 +62,14 @@ func (a *app) gitBlameDialog() core.Node {
 			body = core.Text{Content: apptext.T("这个文件还没有提交记录。"), Style: core.Style{FontSize: 11, Padding: core.All(8)},
 				StyleFunc: ui.Colored(colors.Faint)}
 		default:
-			body = core.Scroll{Style: core.Style{MaxHeight: core.Pt(420)}, Children: []core.Node{
+			body = core.Scroll{Style: ui.FillRest, Children: []core.Node{
 				core.View{Style: core.Style{Gap: 1}, Children: rows}}}
 		}
-		return ui.Dialog{
-			Open:         a.gitBlameOpen.Get,
-			OnOpenChange: func(open bool, _ base.Reason) { a.gitBlameOpen.Set(open) },
-			Title:        apptext.T("追溯"),
-			Description:  a.gitBlamePath.Get(),
-			TestID:       "git-blame",
-			Style:        core.Style{Width: a.dialogWidth(), MaxHeight: core.Pt(560)},
-			Children:     []core.Node{body},
-			Footer: []core.Node{
-				ui.Button{Text: apptext.T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
-					OnPress: func() { a.gitBlameOpen.Set(false) }},
-			},
-		}
+		return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)},
+			Children: []core.Node{
+				a.paneHeader("追溯", a.gitBlamePath.Get()),
+				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Padding: core.Symmetric(10, 0)},
+					Children: []core.Node{body}},
+			}}
 	})
 }

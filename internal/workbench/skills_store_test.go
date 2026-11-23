@@ -30,7 +30,7 @@ description: 团队的发布检查清单
 
 func TestSkillIndexAndInstall(t *testing.T) {
 	cfgDir := t.TempDir()
-	t.Setenv("PIDECK_LITE_PI_CONFIG", cfgDir)
+	t.Setenv("PIDECK_V2_PI_CONFIG", cfgDir)
 	body := "---\nname: 团队技能\ndescription: 发布检查\n---\n\n# 团队技能\n\n发布前逐项检查。\n"
 	var srvURL string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -81,7 +81,7 @@ func TestSkillIndexAndInstall(t *testing.T) {
 }
 
 func TestSkillInstallRejectsEmpty(t *testing.T) {
-	t.Setenv("PIDECK_LITE_PI_CONFIG", t.TempDir())
+	t.Setenv("PIDECK_V2_PI_CONFIG", t.TempDir())
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("  \n"))
 	}))
@@ -116,8 +116,8 @@ func TestSkillStoreDialog(t *testing.T) {
 	srvURL = srv.URL
 	home := t.TempDir()
 	cfgDir := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
-	t.Setenv("PIDECK_LITE_PI_CONFIG", cfgDir)
+	t.Setenv("PIDECK_V2_HOME", home)
+	t.Setenv("PIDECK_V2_PI_CONFIG", cfgDir)
 	app := nsgotest.Start(t, Root, nsgotest.Size(1280, 860))
 	app.Press("label:设置")
 	app.WaitFor("id:settings-tab-resources", 5*time.Second)

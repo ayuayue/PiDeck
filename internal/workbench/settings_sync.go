@@ -24,11 +24,11 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 )
 
 const (
-	settingsSyncFile  = "pideck-lite-settings.pidecksync"
+	settingsSyncFile  = "pideck-v2-settings.pidecksync"
 	settingsSyncMagic = "PDLSYNC\x01"
 	settingsSyncLimit = backupTotalLimit + 2<<20
 	gistSyncLimit     = 720 << 10
@@ -117,7 +117,7 @@ func (t settingsSyncTarget) upload(ctx context.Context, blob []byte) (string, er
 		path, method := "https://api.github.com/gists", http.MethodPost
 		payload := map[string]any{"files": map[string]any{settingsSyncFile: map[string]string{"content": base64.StdEncoding.EncodeToString(blob)}}}
 		if t.id == "" {
-			payload["public"], payload["description"] = false, "PiDeck Lite encrypted settings"
+			payload["public"], payload["description"] = false, "PiDeck V2 encrypted settings"
 		} else {
 			path, method = path+"/"+t.id, http.MethodPatch
 		}

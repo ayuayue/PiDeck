@@ -20,7 +20,7 @@ import (
 func TestSettingsPageScrolls(t *testing.T) {
 	home := editorWorkspace(t)
 	workspace := editorWorkspace(t)
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	raw, err := json.Marshal(config{Version: 1, Workspaces: []workspaceCfg{{Path: workspace, Name: "ScrollProject"}},
 		Theme: "system", SidebarOpen: true})
 	if err != nil {
@@ -64,7 +64,7 @@ func TestGitHistoryScrolls(t *testing.T) {
 		run("commit", "-q", "-m", fmt.Sprintf("commit %d", i+1))
 	}
 	home := editorWorkspace(t)
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	raw, err := json.Marshal(config{Version: 1, Workspaces: []workspaceCfg{{Path: workspace, Name: "GitProject", Expanded: true}},
 		Theme: "system", SidebarOpen: true})
 	if err != nil {

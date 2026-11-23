@@ -19,8 +19,8 @@ import (
 	"strconv"
 	"strings"
 
-	"example.com/pideck-lite/internal/remotewire"
-	"example.com/pideck-lite/internal/volcvoice"
+	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck-v2/internal/volcvoice"
 )
 
 // handler routes the phone's small API.
@@ -86,7 +86,7 @@ func (h *remoteHost) handlePing(w http.ResponseWriter, r *http.Request) {
 	}
 	host, _ := os.Hostname()
 	writeRemoteJSON(w, http.StatusOK, map[string]any{
-		"name": "PiDeck Lite", "version": pideckVersion, "host": host, "os": runtime.GOOS,
+		"name": "PiDeck V2", "version": pideckVersion, "host": host, "os": runtime.GOOS,
 	})
 }
 

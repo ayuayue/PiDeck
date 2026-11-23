@@ -129,7 +129,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: pideck-lite-android-arm64
+          name: pideck-v2-android-arm64
           path: dist/releases/*.apk
           if-no-files-found: error
 
@@ -153,7 +153,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: pideck-lite-ios-simulator
+          name: pideck-v2-ios-simulator
           path: dist/*ios_simulator*/*.app
           if-no-files-found: error
 
@@ -224,4 +224,4 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-        run: go build -o "$RUNNER_TEMP/pideck-lite" .
+        run: go build -o "$RUNNER_TEMP/pideck-v2" .

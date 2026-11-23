@@ -13,7 +13,7 @@ import (
 )
 
 // mobileStoreKey is where localStorage keeps remote.json's content.
-const mobileStoreKey = "pideck-lite.remote"
+const mobileStoreKey = "pideck-v2.remote"
 
 func readMobileStore(*core.Scope) ([]byte, error) {
 	v := js.Global().Get("localStorage").Call("getItem", mobileStoreKey)

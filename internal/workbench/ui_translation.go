@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -113,7 +113,7 @@ func (a *app) translationDialog() core.Node {
 				}},
 				core.Input{Value: d.source.Get, OnChange: d.source.Set, Multiline: true, Disabled: d.busy.Get,
 					Placeholder: apptext.T("输入或粘贴需要翻译的文字"), Label: apptext.T("原文"), TestID: "translation-source",
-					Style: draftFieldStyle(colors).Merge(core.Style{Height: core.Pt(120), Padding: core.All(8)})},
+					Style: panelFieldStyle(colors).Merge(core.Style{Height: core.Pt(120), Padding: core.All(8)})},
 				core.Show{When: d.busy.Get, Then: func(*core.Scope) core.Node { return ui.Spinner{Size: 15} }},
 				core.Show{When: func() bool { return d.output.Get() != "" }, Then: func(*core.Scope) core.Node {
 					return core.Scroll{Style: core.Style{MaxHeight: core.Pt(230)}, Children: []core.Node{

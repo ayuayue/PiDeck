@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"example.com/pideck-lite/assets"
+	"example.com/pideck-v2/assets"
 )
 
 func TestParsePiExtensionManifest(t *testing.T) {
@@ -48,7 +48,7 @@ func TestPiExtensionContentMatches(t *testing.T) {
 	}
 }
 
-func TestBundledExtensionNamesLeaveOutLiteOnlyFiles(t *testing.T) {
+func TestBundledExtensionNamesLeaveOutV2OnlyFiles(t *testing.T) {
 	names := bundledExtensionNames()
 	for _, want := range []string{"pi-deck-ask-question.ts", "pi-deck-todo.ts", "pi-deck-todo-state.ts", "pi-deck-trash-guard.ts"} {
 		if !names[want] {
@@ -64,7 +64,7 @@ func TestBundledExtensionNamesLeaveOutLiteOnlyFiles(t *testing.T) {
 
 func TestInstallBundledSkillsKeepsExistingCopy(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("PIDECK_LITE_PI_CONFIG", dir)
+	t.Setenv("PIDECK_V2_PI_CONFIG", dir)
 	pideckSkillPath = ""
 	defer func() { pideckSkillPath = "" }()
 

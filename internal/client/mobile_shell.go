@@ -10,11 +10,11 @@ import (
 	"fmt"
 	"strings"
 
-	"example.com/pideck-lite/assets"
-	"example.com/pideck-lite/internal/appinfo"
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/remotewire"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/assets"
+	"example.com/pideck-v2/internal/appinfo"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -121,13 +121,13 @@ func (a *mobileApp) railBrand(cx *core.Scope) core.Node {
 						StyleFunc: ui.Colored(colors.Text)},
 					core.View{StyleFunc: func() core.Style {
 						return core.Style{Padding: core.Symmetric(1, 5), CornerRadius: 4, BorderWidth: 1, BorderColor: colors.Border()}
-					}, Children: []core.Node{core.Text{Content: "lite", Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9},
+					}, Children: []core.Node{core.Text{Content: "v2", Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9},
 						StyleFunc: ui.Colored(colors.Faint)}}},
 				}},
 				core.Text{ContentFunc: func() string {
 					name := strings.TrimSpace(a.serverName.Get())
 					if name == "" {
-						name = "PiDeck Lite"
+						name = "PiDeck V2"
 					}
 					return apptext.T("电脑") + " · " + name
 				}, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle, Style: core.Style{FontSize: 10},
@@ -341,7 +341,7 @@ func (a *mobileApp) pageHeader(cx *core.Scope, title, subtitle string, actions .
 func (a *mobileApp) initView(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	return core.View{Style: ui.FillRest, StyleFunc: ui.Filled(colors.Background), Children: []core.Node{
-		a.pageHeader(cx, "PiDeck Lite", a.serverName.Get()),
+		a.pageHeader(cx, "PiDeck V2", a.serverName.Get()),
 		a.appNotice(cx),
 		core.Scroll{Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pct(100), Padding: core.Edges{Top: 24, Right: 20, Bottom: 20, Left: 20},

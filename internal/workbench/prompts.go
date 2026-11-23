@@ -19,8 +19,8 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-lite/assets"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/assets"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/ui"
 	yaml "go.yaml.in/yaml/v3"
 )

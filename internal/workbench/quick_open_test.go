@@ -97,7 +97,7 @@ func TestQuickOpenRecents(t *testing.T) {
 		}
 	}
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	app := startApp(t, dir, 1280, 860)
 	app.Key("mod+j")
 	app.WaitFor("id:drawer-tab-files", 5*time.Second)

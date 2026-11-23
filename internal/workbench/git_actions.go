@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
@@ -287,7 +287,7 @@ func (a *app) openBlame(path string) {
 	a.gitBlamePath.Set(path)
 	a.gitBlame = nil
 	a.gitBlameErr.Set("")
-	a.gitBlameOpen.Set(true)
+	a.openPane(paneBlame)
 	a.gitBlameRev.Update(func(n int) int { return n + 1 })
 	go func() {
 		ranges, err := readFileBlame(t, dir, path)
@@ -314,7 +314,7 @@ func (a *app) openFileHistory(path string) {
 	a.gitFileHistoryPath.Set(path)
 	a.gitFileHistory = nil
 	a.gitFileHistoryErr.Set("")
-	a.gitFileHistoryOpen.Set(true)
+	a.openPane(paneFileHistory)
 	a.gitFileHistoryRev.Update(func(n int) int { return n + 1 })
 	go func() {
 		commits, err := readFileHistory(t, dir, path, 50)

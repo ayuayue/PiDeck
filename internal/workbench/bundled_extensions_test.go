@@ -13,7 +13,7 @@ import (
 )
 
 func TestBundledExtensionInstallsWhenPiHasNone(t *testing.T) {
-	t.Setenv("PIDECK_LITE_PI_CONFIG", t.TempDir())
+	t.Setenv("PIDECK_V2_PI_CONFIG", t.TempDir())
 	dir := t.TempDir()
 	body := []byte("export default function () {}\n")
 
@@ -32,7 +32,7 @@ func TestBundledExtensionInstallsWhenPiHasNone(t *testing.T) {
 
 func TestBundledExtensionSkipsWhatPiLoads(t *testing.T) {
 	piDir := t.TempDir()
-	t.Setenv("PIDECK_LITE_PI_CONFIG", piDir)
+	t.Setenv("PIDECK_V2_PI_CONFIG", piDir)
 	piExtensions := filepath.Join(piDir, "extensions")
 	if err := os.MkdirAll(piExtensions, 0o755); err != nil {
 		t.Fatalf("make pi extensions dir: %v", err)
@@ -61,7 +61,7 @@ func TestBundledExtensionSkipsWhatPiLoads(t *testing.T) {
 }
 
 func TestBundledExtensionReusesMatchingCopy(t *testing.T) {
-	t.Setenv("PIDECK_LITE_PI_CONFIG", t.TempDir())
+	t.Setenv("PIDECK_V2_PI_CONFIG", t.TempDir())
 	dir := t.TempDir()
 	body := []byte("// same build\n")
 
@@ -73,7 +73,7 @@ func TestBundledExtensionReusesMatchingCopy(t *testing.T) {
 }
 
 func TestInstallBundledExtensionsWritesTodoAsOneGroup(t *testing.T) {
-	t.Setenv("PIDECK_LITE_PI_CONFIG", t.TempDir())
+	t.Setenv("PIDECK_V2_PI_CONFIG", t.TempDir())
 	dir := t.TempDir()
 
 	installBundledExtensions(dir)
@@ -98,7 +98,7 @@ func TestInstallBundledExtensionsWritesTodoAsOneGroup(t *testing.T) {
 
 func TestInstallBundledExtensionsSkipsTodoAsOneGroup(t *testing.T) {
 	piDir := t.TempDir()
-	t.Setenv("PIDECK_LITE_PI_CONFIG", piDir)
+	t.Setenv("PIDECK_V2_PI_CONFIG", piDir)
 	piExtensions := filepath.Join(piDir, "extensions")
 	if err := os.MkdirAll(piExtensions, 0o755); err != nil {
 		t.Fatalf("make pi extensions dir: %v", err)
@@ -124,7 +124,7 @@ func TestInstallBundledExtensionsSkipsTodoAsOneGroup(t *testing.T) {
 
 func TestBundledExtensionArgsSkipCopyAddedAfterInstall(t *testing.T) {
 	piDir := t.TempDir()
-	t.Setenv("PIDECK_LITE_PI_CONFIG", piDir)
+	t.Setenv("PIDECK_V2_PI_CONFIG", piDir)
 	dir := t.TempDir()
 	installBundledExtensions(dir)
 	defer func() { bundledExtensionPaths = nil }()

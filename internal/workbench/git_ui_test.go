@@ -35,7 +35,7 @@ func TestGitDrawer(t *testing.T) {
 	// The workspace is in the config, so the test needs no folder picker
 	// and runs the same in a window as headless.
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	raw, err := json.Marshal(config{Version: 1, Workspaces: []workspaceCfg{{Path: dir, Expanded: true}},
 		Theme: "system", SidebarOpen: true, ScanPi: true})
 	if err != nil {
@@ -61,7 +61,8 @@ func TestGitDrawer(t *testing.T) {
 	waitApp(app, "id:git-diff", 20*time.Second)
 	app.Advance(300 * time.Millisecond)
 	shot(app, "40-git-diff")
-	app.Press("id:git-diff >> role:button 关闭")
+	// The patch is a pane now: its tab closes it.
+	app.Press("id:pane-tab-close-diff")
 	app.WaitForGone("id:git-diff", 5*time.Second)
 	// The action sits inside a scrolling row. Pointer hit testing can land
 	// on the row around it as the drawer settles, so activate the control

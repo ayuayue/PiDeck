@@ -17,7 +17,7 @@ import (
 
 func TestPiSettingsRoundTrip(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("PIDECK_LITE_PI_CONFIG", dir)
+	t.Setenv("PIDECK_V2_PI_CONFIG", dir)
 	path := filepath.Join(dir, "settings.json")
 	body := `{"unknown":{"x":1},"retry":{"enabled":true,"maxRetries":3,"provider":{"maxRetries":2}},
 		"compaction":{"enabled":false,"reserveTokens":1000}}`
@@ -64,8 +64,8 @@ func TestPiSettingsControls(t *testing.T) {
 	}
 	home := t.TempDir()
 	cfgDir := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
-	t.Setenv("PIDECK_LITE_PI_CONFIG", cfgDir)
+	t.Setenv("PIDECK_V2_HOME", home)
+	t.Setenv("PIDECK_V2_PI_CONFIG", cfgDir)
 	path := filepath.Join(cfgDir, "settings.json")
 	if err := os.WriteFile(path, []byte(`{"quietStartup":false}`), 0o600); err != nil {
 		t.Fatal(err)

@@ -44,7 +44,7 @@ func TestProjectGroups(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "config.json"), raw, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
 	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:置顶")) > 0 })
 	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:工作")) > 0 })
@@ -60,7 +60,7 @@ func TestAddingAndRemovingProjectRefreshRail(t *testing.T) {
 	home := t.TempDir()
 	first := t.TempDir()
 	second := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	cfg := config{Version: 1, Theme: "system", SidebarOpen: true,
 		Workspaces: []workspaceCfg{{Path: first, Expanded: true, Added: time.Now()}}}
 	raw, err := json.Marshal(cfg)
@@ -84,6 +84,8 @@ func TestAddingAndRemovingProjectRefreshRail(t *testing.T) {
 		return []core.Directory{{Name: name, Path: second}}
 	}
 	app.Press("id:add-project")
+	app.WaitFor("text:本地目录…", 5*time.Second)
+	app.Press("text:本地目录…")
 	app.Settle()
 	rows := app.Query("id:project-row")
 	if len(rows) != 2 {
@@ -112,7 +114,7 @@ func TestAddingAndRemovingProjectRefreshRail(t *testing.T) {
 func TestProjectSortMenusChooseAnOrder(t *testing.T) {
 	home := t.TempDir()
 	project := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	t.Setenv("PI_CODING_AGENT_SESSION_DIR", t.TempDir())
 	raw, err := json.Marshal(config{Version: 1, Theme: "system", SidebarOpen: true, ScanPi: false,
 		Workspaces: []workspaceCfg{{Path: project, Expanded: true, Added: time.Now()}}})

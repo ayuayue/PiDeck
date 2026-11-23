@@ -22,7 +22,7 @@ import (
 	"sync"
 	"time"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 )
 
 // providerInfo is one provider pi can talk to.
@@ -44,10 +44,10 @@ type providerInfo struct {
 	Credential credentialInfo
 }
 
-// piConfigDir is pi's own configuration folder. PIDECK_LITE_PI_CONFIG
+// piConfigDir is pi's own configuration folder. PIDECK_V2_PI_CONFIG
 // points it elsewhere, for a test or a portable install.
 func piConfigDir() string {
-	if dir := strings.TrimSpace(os.Getenv("PIDECK_LITE_PI_CONFIG")); dir != "" {
+	if dir := strings.TrimSpace(os.Getenv("PIDECK_V2_PI_CONFIG")); dir != "" {
 		return dir
 	}
 	home, err := os.UserHomeDir()

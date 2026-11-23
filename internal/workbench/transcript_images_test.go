@@ -48,7 +48,7 @@ func TestTranscriptAttachmentFromClosedSession(t *testing.T) {
 	if len(refs) != 2 || refs[0] == refs[1] {
 		t.Fatalf("attachment references: %v", refs)
 	}
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	var host *remoteHost
 	screen := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		a := newApp(cx)

@@ -19,14 +19,14 @@ import (
 func TestMain(m *testing.M) {
 	// Tests drive the Chinese source strings; a language switch test sets
 	// the config itself, which wins over this.
-	os.Setenv("PIDECK_LITE_LANG", "zh-CN")
+	os.Setenv("PIDECK_V2_LANG", "zh-CN")
 	// UI tests must not scan the developer's real session library in the
 	// background. Tests of external sessions supply their own fixtures.
-	os.Setenv("PI_CODING_AGENT_SESSION_DIR", filepath.Join(os.TempDir(), fmt.Sprintf("pideck-lite-test-%d", os.Getpid()), "pi-sessions"))
+	os.Setenv("PI_CODING_AGENT_SESSION_DIR", filepath.Join(os.TempDir(), fmt.Sprintf("pideck-v2-test-%d", os.Getpid()), "pi-sessions"))
 	// Starting the app installs the bundled skills under pi's config dir;
 	// keep that out of the developer's real ~/.pi/agent.
-	if piConfig, err := os.MkdirTemp("", fmt.Sprintf("pideck-lite-pi-config-%d", os.Getpid())); err == nil {
-		os.Setenv("PIDECK_LITE_PI_CONFIG", piConfig)
+	if piConfig, err := os.MkdirTemp("", fmt.Sprintf("pideck-v2-pi-config-%d", os.Getpid())); err == nil {
+		os.Setenv("PIDECK_V2_PI_CONFIG", piConfig)
 	}
 	nsgotest.Main(m)
 }
@@ -34,9 +34,9 @@ func TestMain(m *testing.M) {
 // TestWelcome checks the first screen: the wordmark, the rail and the
 // invitation to add a workspace.
 func TestWelcome(t *testing.T) {
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
-	app.Find(`text:"PiDeck Lite"`)
+	app.Find(`text:"PiDeck V2"`)
 	app.Find("text:添加工作区")
 	app.Find("text:导入会话")
 }
@@ -44,7 +44,7 @@ func TestWelcome(t *testing.T) {
 // TestWorkspacePicker adds the current folder through the browser and
 // checks both the system picker and the app's own browser add it.
 func TestWorkspacePicker(t *testing.T) {
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
 	// The system's picker answers with the current folder (headless only:
 	// a real window opens the platform's own dialog).
@@ -72,7 +72,7 @@ func TestWorkspacePicker(t *testing.T) {
 
 // TestScreens captures the first screens on a platform.
 func TestScreens(t *testing.T) {
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	app := nsgotest.Start(t, Root, nsgotest.Size(1320, 860))
 	shot(app, "01-welcome")
 	app.Press("id:rail-palette")
@@ -88,7 +88,7 @@ func TestScreens(t *testing.T) {
 // chat, composer and drawer.
 func TestSessionScreens(t *testing.T) {
 	requirePi(t)
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	t.Cleanup(closeAllPi)
 	app := nsgotest.Start(t, Root, nsgotest.Size(1320, 860))
 	dir, err := os.Getwd()

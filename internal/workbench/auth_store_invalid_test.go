@@ -12,7 +12,7 @@ func TestAuthRejectsNonObjectDocuments(t *testing.T) {
 	for _, body := range []string{"null", "[]", "42", `"text"`, "true", "{"} {
 		t.Run(body, func(t *testing.T) {
 			dir := t.TempDir()
-			t.Setenv("PIDECK_LITE_PI_CONFIG", dir)
+			t.Setenv("PIDECK_V2_PI_CONFIG", dir)
 			path := filepath.Join(dir, "auth.json")
 			if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 				t.Fatal(err)
@@ -46,7 +46,7 @@ func TestAuthRejectsNonObjectDocuments(t *testing.T) {
 
 func TestAuthEntriesIgnoreNonObjectProviders(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("PIDECK_LITE_PI_CONFIG", dir)
+	t.Setenv("PIDECK_V2_PI_CONFIG", dir)
 	body := `{
 		"acme": {"type":"api_key", "key":"existing-api-key"},
 		"null": null, "array": [], "number": 42, "string": "text", "boolean": true
@@ -67,7 +67,7 @@ func TestReplaceAuthKeyRejectsNonObjectProviders(t *testing.T) {
 	for _, value := range []string{"null", "[]", "42", `"text"`, "true"} {
 		t.Run(value, func(t *testing.T) {
 			dir := t.TempDir()
-			t.Setenv("PIDECK_LITE_PI_CONFIG", dir)
+			t.Setenv("PIDECK_V2_PI_CONFIG", dir)
 			path := filepath.Join(dir, "auth.json")
 			body := `{"acme": ` + value + `, "other":{"type":"oauth","refresh":"retained-token"}}`
 			if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
@@ -91,7 +91,7 @@ func TestAuthEmptyDocumentsAcceptKey(t *testing.T) {
 	for _, body := range []string{"missing", "", " \n\t", "{}"} {
 		t.Run(body, func(t *testing.T) {
 			dir := t.TempDir()
-			t.Setenv("PIDECK_LITE_PI_CONFIG", dir)
+			t.Setenv("PIDECK_V2_PI_CONFIG", dir)
 			if body != "missing" {
 				if err := os.WriteFile(filepath.Join(dir, "auth.json"), []byte(body), 0o600); err != nil {
 					t.Fatal(err)

@@ -16,7 +16,7 @@ import (
 	"testing"
 )
 
-const module = "example.com/pideck-lite/"
+const module = "example.com/pideck-v2/"
 
 // Dependencies point from application hosts toward smaller reusable packages.
 // Tests follow the same rule so a test helper cannot reconnect isolated hosts.
@@ -32,6 +32,7 @@ var dependencies = map[string][]string{
 	"internal/architecture":  {},
 	"internal/appinfo":       {},
 	"internal/apptext":       {},
+	"internal/officedoc":     {},
 	"internal/crashlog":      {"internal/appinfo"},
 	"internal/relaywire":     {},
 	"internal/relay":         {"internal/relaywire"},
@@ -45,7 +46,7 @@ var dependencies = map[string][]string{
 	},
 	"internal/workbench": {
 		"assets", "extensions", "webassets", "internal/alerts", "internal/appinfo", "internal/apptext",
-		"internal/crashlog", "internal/relaywire", "internal/remotewire", "internal/schedule",
+		"internal/crashlog", "internal/officedoc", "internal/relaywire", "internal/remotewire", "internal/schedule",
 		"internal/sessionimport", "internal/viewkit", "internal/volcvoice",
 	},
 }

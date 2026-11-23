@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/viewkit"
 )
 
 // authCheckResult is pi's answer for one provider.

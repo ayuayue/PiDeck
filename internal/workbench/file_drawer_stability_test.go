@@ -16,8 +16,8 @@ func TestFileDrawerKeepsControlsAcrossBackgroundRefresh(t *testing.T) {
 	if nsgotest.Target() != "" {
 		t.Skip("driven headless; native runs verify pixels")
 	}
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
-	t.Setenv("PIDECK_LITE_PI_CONFIG", t.TempDir())
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_PI_CONFIG", t.TempDir())
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "note.txt"), []byte("hello"), 0o600); err != nil {
 		t.Fatal(err)

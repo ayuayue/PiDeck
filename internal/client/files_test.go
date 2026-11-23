@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-lite/internal/remotewire"
+	"example.com/pideck-v2/internal/remotewire"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
@@ -25,9 +25,9 @@ func TestMobileFiles(t *testing.T) {
 		reply := func(v any) { _ = json.NewEncoder(w).Encode(v) }
 		switch {
 		case r.URL.Path == "/api/ping":
-			reply(map[string]any{"name": "PiDeck Lite", "host": "desk"})
+			reply(map[string]any{"name": "PiDeck V2", "host": "desk"})
 		case r.URL.Path == "/api/state":
-			reply(remotewire.Snapshot{Name: "PiDeck Lite", Projects: []remotewire.Project{{
+			reply(remotewire.Snapshot{Name: "PiDeck V2", Projects: []remotewire.Project{{
 				Path: "/tmp/project", Name: "电脑项目",
 				Sessions: []remotewire.Session{{ID: "s1", Title: "会话一", Status: "idle", Updated: time.Now().UnixMilli()}},
 			}}})
@@ -49,8 +49,8 @@ func TestMobileFiles(t *testing.T) {
 	}))
 	defer server.Close()
 
-	t.Setenv("PIDECK_LITE_MOBILE", "1")
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_MOBILE", "1")
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	app := nsgotest.Start(t, Root, nsgotest.Size(420, 860))
 	app.WaitFor("id:mobile-server", 10*time.Second)
 	app.Type("id:mobile-server", server.URL)

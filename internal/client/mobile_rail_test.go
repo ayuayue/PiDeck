@@ -15,14 +15,14 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-lite/internal/remotewire"
+	"example.com/pideck-v2/internal/remotewire"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
 func TestMobileRail(t *testing.T) {
 	const token = "phone-token"
 	var mu sync.Mutex
-	state := remotewire.Snapshot{Name: "PiDeck Lite", Host: "desk", Projects: []remotewire.Project{{
+	state := remotewire.Snapshot{Name: "PiDeck V2", Host: "desk", Projects: []remotewire.Project{{
 		Path: "/tmp/project", Name: "电脑项目", Sessions: []remotewire.Session{
 			{ID: "s1", Title: "电脑上的会话", Status: "idle", Updated: time.Now().UnixMilli()},
 		},
@@ -41,7 +41,7 @@ func TestMobileRail(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/ping", func(w http.ResponseWriter, r *http.Request) {
 		if check(w, r) {
-			reply(w, map[string]any{"name": "PiDeck Lite", "host": "desk"})
+			reply(w, map[string]any{"name": "PiDeck V2", "host": "desk"})
 		}
 	})
 	mux.HandleFunc("/api/state", func(w http.ResponseWriter, r *http.Request) {
@@ -123,9 +123,9 @@ func TestMobileRail(t *testing.T) {
 	defer server.Close()
 
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_MOBILE", "1")
-	t.Setenv("PIDECK_LITE_HOME", home)
-	t.Setenv("PIDECK_LITE_LANG", "zh-CN")
+	t.Setenv("PIDECK_V2_MOBILE", "1")
+	t.Setenv("PIDECK_V2_HOME", home)
+	t.Setenv("PIDECK_V2_LANG", "zh-CN")
 	app := nsgotest.Start(t, Root, nsgotest.Size(420, 860))
 	app.WaitFor("id:mobile-server", 10*time.Second)
 	app.Type("id:mobile-server", server.URL)
@@ -248,7 +248,7 @@ func shortHostForTest(server string) string {
 // for both columns, as the desktop does.
 func TestMobileWideRail(t *testing.T) {
 	const token = "phone-token"
-	state := remotewire.Snapshot{Name: "PiDeck Lite", Host: "desk", Projects: []remotewire.Project{{
+	state := remotewire.Snapshot{Name: "PiDeck V2", Host: "desk", Projects: []remotewire.Project{{
 		Path: "/tmp/project", Name: "电脑项目", Sessions: []remotewire.Session{
 			{ID: "s1", Title: "电脑上的会话", Updated: time.Now().UnixMilli()},
 		},
@@ -256,9 +256,9 @@ func TestMobileWideRail(t *testing.T) {
 	server := newTestHTTPServer(t, token, state, remotewire.Transcript{ID: "s1", Title: "电脑上的会话"})
 	defer server.Close()
 
-	t.Setenv("PIDECK_LITE_MOBILE", "1")
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
-	t.Setenv("PIDECK_LITE_LANG", "zh-CN")
+	t.Setenv("PIDECK_V2_MOBILE", "1")
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_LANG", "zh-CN")
 	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
 	app.WaitFor("id:mobile-server", 10*time.Second)
 	app.Type("id:mobile-server", server.URL)

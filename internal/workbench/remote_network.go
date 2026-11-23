@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/viewkit"
 )
 
 // withUI runs fn on the graph's goroutine, waiting briefly for it.

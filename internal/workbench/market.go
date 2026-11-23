@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 	yaml "go.yaml.in/yaml/v3"
 )
 
@@ -83,12 +83,12 @@ func fetchPluginIndex(ctx context.Context, rawURL string) ([]marketEntry, error)
 		if e.ID == "" || e.Name == "" || !isHTTPURL(e.URL) || seen[e.ID] {
 			continue
 		}
-		// The legacy custom index is a Lite index. A mixed index must name
+		// The legacy custom index is a V2 index. A mixed index must name
 		// foreign runtimes explicitly; unknown runtimes stay discovery-only.
 		if e.Runtime == "" {
-			e.Runtime = litePluginRuntime
+			e.Runtime = v2PluginRuntime
 		}
-		e.External = e.Runtime != litePluginRuntime
+		e.External = e.Runtime != v2PluginRuntime
 		seen[e.ID] = true
 		out = append(out, e)
 		if len(out) >= 200 {
@@ -112,7 +112,7 @@ var marketID = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 // installMarketPlugin downloads one manifest and writes it into plugins/.
 func (a *app) installMarketPlugin(entry marketEntry) (plugin, error) {
 	var out plugin
-	if entry.External || (entry.Runtime != "" && entry.Runtime != litePluginRuntime) {
+	if entry.External || (entry.Runtime != "" && entry.Runtime != v2PluginRuntime) {
 		return out, errors.New(apptext.T("插件清单不兼容：%s", firstNonEmpty(entry.Runtime, "unknown")))
 	}
 	dir := a.pluginsDir()

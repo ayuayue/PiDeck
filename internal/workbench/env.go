@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/viewkit"
 )
 
 // targetKind is where the agent runs.
@@ -79,7 +79,7 @@ func (t target) shortLabel() string {
 
 // remoteDir is where pi keeps a remote target's sessions: the app's own
 // folder under the target user's home, expanded by its shell.
-const remoteDir = `$HOME/.pideck-lite/sessions`
+const remoteDir = `$HOME/.pideck-v2/sessions`
 
 // command builds the process that runs pi with args in dir, for a session
 // named by id in the app's store, or for an existing session file.

@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-lite/assets"
+	"example.com/pideck-v2/assets"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -120,7 +120,7 @@ func TestBrandPopoverAndSettings(t *testing.T) {
 		t.Skip("headless picker and persistence coverage")
 	}
 	dir := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", dir)
+	t.Setenv("PIDECK_V2_HOME", dir)
 	var built *app
 	screen := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		built = newApp(cx)
@@ -215,7 +215,7 @@ func TestQuitSavesNameStillTypedInTheField(t *testing.T) {
 		t.Skip("headless quit and persistence coverage")
 	}
 	dir := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", dir)
+	t.Setenv("PIDECK_V2_HOME", dir)
 	var built *app
 	screen := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		built = newApp(cx)
@@ -242,7 +242,7 @@ func TestQuitSavesNameStillTypedInTheField(t *testing.T) {
 // This is also the native screenshot fixture: a long name at the smallest
 // rail width, the version panel, and both shipped appearances.
 func TestBrandScreens(t *testing.T) {
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	var built *app
 	screen := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		built = newApp(cx)

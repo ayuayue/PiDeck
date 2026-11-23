@@ -18,8 +18,8 @@ import (
 	"sync"
 	"time"
 
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/schedule"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/schedule"
 	"github.com/nsgo-dev/nsgo/ui"
 	"github.com/nsgo-dev/nsgo/ui/chat"
 )

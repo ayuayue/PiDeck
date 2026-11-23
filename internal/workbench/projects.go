@@ -17,9 +17,15 @@ type projectGroup struct {
 	Projects []*workspace
 }
 
-// projectGroups returns the rail's groups in display order.
+// projectGroups returns the rail's groups in display order. The built-in
+// chat is not a project: it has the rail's chat column.
 func (a *app) projectGroups() []projectGroup {
-	list := append([]*workspace(nil), a.workspaces.GetUntracked()...)
+	var list []*workspace
+	for _, w := range a.workspaces.GetUntracked() {
+		if w != nil && !w.Chat {
+			list = append(list, w)
+		}
+	}
 	a.sortProjects(list)
 	var pinned, rest []*workspace
 	for _, w := range list {

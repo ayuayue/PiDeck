@@ -2,22 +2,23 @@
 
 package workbench
 
-// The window: a rail of projects and sessions, a bar of session tabs, the
-// chat, and a drawer for the session's numbers and the project's files.
+// The rail's project column: its heading, the projects grouped as the user
+// sorted them, and each project's sessions when it is open.
 
 import (
 	"fmt"
 	"strings"
 
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// projectList is the workspace tree: pinned first, then the named groups.
+// projectList is the project column: its heading, then the workspace tree
+// with the pinned projects first and the named groups after.
 func (a *app) projectList() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = a.projectsRev.Get()
@@ -26,8 +27,8 @@ func (a *app) projectList() core.Node {
 		// removing one changes nothing the revision counts.
 		_ = a.workspaces.Get()
 		groups := a.projectGroups()
+		out := []core.Node{a.projectHeader()}
 		showHeaders := len(groups) > 1 || (len(groups) == 1 && groups[0].Name != "未分组")
-		var out []core.Node
 		for _, g := range groups {
 			if showHeaders {
 				out = append(out, a.groupLabel(g.Name))
@@ -41,15 +42,64 @@ func (a *app) projectList() core.Node {
 	})
 }
 
+// projectHeader is the column's heading: how many projects there are, and
+// the way to add one.
+func (a *app) projectHeader() core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		colors := ui.ColorsOf(cx)
+		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6,
+			Padding: core.Edges{Top: 4, Right: 4, Bottom: 2, Left: 8}}, Children: []core.Node{
+			ui.Text(apptext.T("项目"), 10, ui.Semibold, colors.Faint),
+			core.View{Style: core.Style{FlexGrow: 1}},
+			core.Text{ContentFunc: func() string { return fmt.Sprint(a.projectTotal()) }, TestID: "project-total",
+				Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
+			a.addProjectMenu(),
+		}}
+	})
+}
+
+// addProjectMenu adds a project: a folder on this machine by default, or
+// one on an SSH host or in a WSL distribution.
+func (a *app) addProjectMenu() core.Node {
+	colors := ui.ColorsOf(a.cx)
+	return ui.Menu{
+		Open: a.addProjectOpen.Get, OnOpenChange: func(open bool, _ base.Reason) { a.addProjectOpen.Set(open) },
+		Placement: core.PlaceBottom, Align: core.AlignEnd,
+		Trigger: ui.Button{Icon: lucide.Plus, Label: apptext.T("添加项目"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+			Side: 22, IconSize: 12, Tint: func() core.Color { return colors.Faint() }},
+		TestID: "add-project",
+		Children: []core.Node{
+			ui.MenuItem{Text: apptext.T("本地目录…"), Icon: lucide.FolderPlus, TestID: "add-project-local",
+				OnSelect: func() { a.pickNative("workspace") }},
+			ui.MenuItem{Text: apptext.T("SSH 主机上的目录…"), Icon: lucide.Server, TestID: "add-project-ssh",
+				OnSelect: func() { a.openTargetDialog(targetSSH) }},
+			ui.MenuItem{Text: apptext.T("WSL 里的目录…"), Icon: lucide.Terminal, TestID: "add-project-wsl",
+				OnSelect: func() { a.openTargetDialog(targetWSL) }},
+		},
+	}
+}
+
 // workspaceBlock is one project and, when open, its sessions.
 func (a *app) workspaceBlock(w func() *workspace) core.Node {
 	colors := ui.ColorsOf(a.cx)
+	hovered := func() bool { return a.hoveredProject.Get() == w().key() }
 	return core.View{Style: core.Style{Gap: 2}, Children: []core.Node{
 		base.ContextMenu{
 			Trigger: core.View{
 				OnPress: func(core.PressEvent) {
 					a.animateNextLayout()
+					// The project the rail points at is also where a new
+					// session starts, so a click selects as well as opens.
+					a.activeWS.Set(projectWireKey(w()))
 					w().Expanded.Update(func(v bool) bool { return !v })
+				},
+				// The row's actions follow the pointer: the way to start a
+				// session stays out, the rest of the menu appears on hover.
+				OnMouseEnter: func(core.MouseEvent) { a.hoveredProject.Set(w().key()) },
+				OnMouseLeave: func(core.MouseEvent) {
+					if a.hoveredProject.GetUntracked() == w().key() {
+						a.hoveredProject.Set("")
+					}
 				},
 				Role: core.RoleButton, LabelFunc: func() string { return w().label() }, TestID: "project-row",
 				StyleFunc: func() core.Style {
@@ -84,6 +134,10 @@ func (a *app) workspaceBlock(w func() *workspace) core.Node {
 						}}
 					}},
 					a.projectCount(w()),
+					a.projectNewSessionButton(w),
+					core.Show{When: func() bool {
+						return hovered() || a.projectMoreOpen.Get() == w().key()
+					}, Then: func(*core.Scope) core.Node { return a.projectMoreMenu(w) }},
 				}},
 			Children:   a.projectMenuItems(w),
 			PopupStyle: core.Style{MinWidth: core.Pt(196)},
@@ -144,6 +198,46 @@ func (a *app) workspaceBlock(w func() *workspace) core.Node {
 			})
 		}},
 	}}
+}
+
+// projectNewSessionButton starts a session in this project, on the row.
+func (a *app) projectNewSessionButton(w func() *workspace) core.Node {
+	colors := ui.ColorsOf(a.cx)
+	return core.View{
+		OnPress: func(core.PressEvent) { a.newProjectSession(w()) },
+		Role:    core.RoleButton, Label: apptext.T("在此新建会话"), TestID: "project-new-session",
+		StyleFunc: func() core.Style {
+			return core.Style{Width: core.Pt(20), Height: core.Pt(20), CornerRadius: 5, FlexShrink: 0,
+				AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Transition: viewkit.PressMotion,
+				Hover: &core.Style{Background: colors.Pressed()}, Active: &core.Style{Background: colors.Pressed()}}
+		}, Children: []core.Node{ui.IconOf(lucide.Plus, 11, colors.Faint)}}
+}
+
+// projectMoreMenu is the project's menu on the row, the same as its
+// right-click menu. It stays out while it is open, even with the pointer
+// gone to the popup.
+func (a *app) projectMoreMenu(w func() *workspace) core.Node {
+	colors := ui.ColorsOf(a.cx)
+	key := w().key()
+	return ui.Menu{
+		Open:         func() bool { return a.projectMoreOpen.Get() == key },
+		OnOpenChange: func(open bool, _ base.Reason) { a.setProjectMoreOpen(key, open) },
+		Placement:    core.PlaceBottom, Align: core.AlignEnd,
+		Trigger: ui.Button{Icon: lucide.Ellipsis, Label: apptext.T("更多项目操作"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+			Side: 20, IconSize: 12, Tint: func() core.Color { return colors.Faint() }},
+		TestID: "project-more-menu", Children: a.projectMenuItems(w),
+	}
+}
+
+// setProjectMoreOpen opens or closes one project's row menu.
+func (a *app) setProjectMoreOpen(key string, open bool) {
+	if open {
+		a.projectMoreOpen.Set(key)
+		return
+	}
+	if a.projectMoreOpen.GetUntracked() == key {
+		a.projectMoreOpen.Set("")
+	}
 }
 
 // projectVisibleCount is how many of a project's sessions the rail shows:

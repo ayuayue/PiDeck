@@ -19,7 +19,7 @@ import (
 
 func TestReviewPaneRenders(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	// No project: the pane then never reaches gh, which is what lets this
 	// test run without a login.
 	raw, err := json.Marshal(config{Version: 1, Theme: "system", SidebarOpen: true, ScanPi: false})
@@ -83,7 +83,7 @@ func TestReviewPaneRenders(t *testing.T) {
 
 func TestReviewPatchDialog(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	raw, err := json.Marshal(config{Version: 1, Theme: "system", SidebarOpen: true, ScanPi: false})
 	if err != nil {
 		t.Fatal(err)
@@ -94,12 +94,13 @@ func TestReviewPatchDialog(t *testing.T) {
 	var built *app
 	screen := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		built = newApp(cx)
-		return core.View{Style: core.Style{FlexGrow: 1}, Children: []core.Node{built.reviewPatchDialog()}}
+		return core.View{Style: core.Style{FlexGrow: 1}, Children: []core.Node{built.reviewPatchPane()}}
 	}, nsgotest.Size(1100, 800))
 	built.review.state.Set(reviewState{Checked: true, Patch: "@@ -1 +1 @@\n-old line\n+new line\n", Detail: &reviewDetail{
 		Item: reviewItem{Kind: reviewPR, Number: 12, Title: "Add a review pane"},
 	}})
 	built.review.patchOpen.Set(true)
+	built.activePane.Set(paneReviewPatch)
 	screen.Settle()
 	screen.WaitFor("text:#12 Add a review pane", 10*time.Second)
 	screen.WaitFor("text:复制补丁", 2*time.Second)

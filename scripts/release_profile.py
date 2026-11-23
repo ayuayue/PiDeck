@@ -11,9 +11,9 @@ def profile(text: str, version: str) -> str:
     if not re.search(r"-dev(?:\.|$)", version):
         return text
     replacements = {
-        "name: PiDeck Lite\n": "name: PiDeck Lite Dev\n",
-        "id: dev.nsgo.pidecklite\n": "id: dev.nsgo.pidecklite.dev\n",
-        "[pideck-lite]": "[pideck-lite-dev]",
+        "name: PiDeck V2\n": "name: PiDeck V2 Dev\n",
+        "id: dev.nsgo.pideckv2\n": "id: dev.nsgo.pideckv2.dev\n",
+        "[pideck-v2]": "[pideck-v2-dev]",
         "/releases/latest/download/": "/releases/download/dev/",
     }
     for before, after in replacements.items():

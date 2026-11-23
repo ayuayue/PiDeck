@@ -17,7 +17,7 @@ func TestMobileDraftToolPreservesConcurrentInput(t *testing.T) {
 	}
 	for _, action := range []string{"edit", "send", "switch", "predict"} {
 		t.Run(action, func(t *testing.T) {
-			t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+			t.Setenv("PIDECK_V2_HOME", t.TempDir())
 			release := make(chan struct{})
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				<-release
@@ -74,7 +74,7 @@ func TestMobileDraftChangeDoesNotCrossConnections(t *testing.T) {
 	if nsgotest.Target() != "" {
 		t.Skip("headless state regression")
 	}
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	var a *mobileApp
 	screen := nsgotest.Start(t, func(cx *core.Scope) core.Node { a = newMobileApp(cx); return core.View{} }, nsgotest.Size(390, 800))
 	old, next := &remoteClient{}, &remoteClient{}

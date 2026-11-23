@@ -42,8 +42,8 @@ func TestDelegationHistoryShowsOriginalResults(t *testing.T) {
 	if nsgotest.Target() != "" {
 		t.Skip("driven headless; native runs verify pixels")
 	}
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
-	t.Setenv("PIDECK_LITE_PI_CONFIG", t.TempDir())
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_PI_CONFIG", t.TempDir())
 	var a *app
 	var s *session
 	screen := nsgotest.Start(t, func(cx *core.Scope) core.Node {

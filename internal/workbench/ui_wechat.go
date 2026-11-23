@@ -5,7 +5,7 @@ package workbench
 import (
 	"strings"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -89,7 +89,7 @@ func (a *app) wechatSettings() core.Node {
 			}),
 			core.Show{When: h.needCode.Get, Then: func(*core.Scope) core.Node {
 				return core.View{Style: core.Style{Gap: 6}, Children: []core.Node{
-					core.Input{Value: h.verify.Get, OnChange: h.verify.Set, Label: apptext.T("微信验证码"), TestID: "wechat-code", Style: draftFieldStyle(colors)},
+					core.Input{Value: h.verify.Get, OnChange: h.verify.Set, Label: apptext.T("微信验证码"), TestID: "wechat-code", Style: panelFieldStyle(colors)},
 					ui.Button{Text: apptext.T("提交验证码"), Size: ui.SizeSmall, Variant: ui.ButtonSecondary, TestID: "wechat-code-submit", OnPress: func() {
 						code := strings.TrimSpace(h.verify.GetUntracked())
 						if code != "" && len(code) <= 16 {

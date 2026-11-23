@@ -6,8 +6,8 @@ package workbench
 // chat, and a drawer for the session's numbers and the project's files.
 
 import (
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -47,7 +47,7 @@ func (a *app) targetDialog() core.Node {
 			for _, d := range env.WSL {
 				options = append(options, d.Name)
 			}
-			label, hint = apptext.T("WSL 发行版"), apptext.T("在 Windows 上通过 wsl.exe 运行 pi；会话存在该发行版的 ~/.pideck-lite/sessions。")
+			label, hint = apptext.T("WSL 发行版"), apptext.T("在 Windows 上通过 wsl.exe 运行 pi；会话存在该发行版的 ~/.pideck-v2/sessions。")
 			placeholder = "$HOME/project 或 /mnt/c/Users/you/project"
 		}
 		if len(options) == 0 {

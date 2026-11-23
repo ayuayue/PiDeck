@@ -13,8 +13,8 @@ func TestNativeMobileDraftChangeScreens(t *testing.T) {
 	if nsgotest.Target() == "" {
 		t.Skip("native narrow-window screenshot fixture")
 	}
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
-	t.Setenv("PIDECK_LITE_LANG", "en-US")
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_LANG", "en-US")
 	var a *mobileApp
 	screen := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		a = newMobileApp(cx)

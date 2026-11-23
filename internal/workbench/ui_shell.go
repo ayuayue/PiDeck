@@ -6,7 +6,7 @@ package workbench
 // chat, and a drawer for the session's numbers and the project's files.
 
 import (
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/desktop"
@@ -42,7 +42,6 @@ func (a *app) view() core.Node {
 		a.transcriptImageDialog(),
 		a.trajectoryDialog(),
 		a.delegationDialog(),
-		a.filePreviewDialog(),
 		a.visionDialog(),
 		a.translationDialog(),
 		a.promptTemplateDialog(),
@@ -50,8 +49,6 @@ func (a *app) view() core.Node {
 		a.settingsSyncDialog(),
 		a.confirmDialog(),
 		a.remoteQRDialog(),
-		a.reviewPatchDialog(),
-		a.gitDiffDialog(),
 		a.gitNewBranchDialog(),
 		a.gitStashDialog(),
 		a.gitTagsDialog(),
@@ -69,8 +66,6 @@ func (a *app) view() core.Node {
 		a.tdKeyDialog(),
 		a.tdRechargeDialog(),
 		a.supportDialog(),
-		a.gitFileHistoryDialog(),
-		a.gitBlameDialog(),
 		a.terminalRenameDialog(),
 		a.gotoLineDialog(),
 		a.quickOpenDialog(),

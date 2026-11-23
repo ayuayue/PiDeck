@@ -108,7 +108,7 @@ func TestPluginMarketUI(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(workspace, "note.txt"), []byte("hello"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	app := openApp(t, workspace, 1280, 860)
 	app.Press("label:设置")
 	app.Press("id:settings-tab-addons")

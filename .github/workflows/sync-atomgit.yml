@@ -1,6 +1,6 @@
 name: 同步到 AtomGit
 
-# AtomGit 上的 ayuayue/PiDeck-Lite 是国内可达的镜像：
+# AtomGit 上的 ayuayue/PiDeck-V2 是国内可达的镜像：
 # - 应用的公告读取先走它的 contents 接口（GitHub raw 只兜底）；
 # - 发版后把 Release 正文与安装包附件同步过去，国内用户也能从 AtomGit 下载。
 # 仓库最初由 GitHub 导入，之后由这里推送，避免两边分叉。
@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       tags:
-        description: "要同步的 Release Tag：auto = GitHub 最新 Release；也可填 v0.2.0 或用逗号分隔多个"
+        description: "要同步的 Release Tag：auto = GitHub 最新 Release；也可填 v2.0.0 或用逗号分隔多个"
         required: false
         type: string
         default: auto
@@ -77,7 +77,7 @@ jobs:
           # shellcheck disable=SC2016  # 这段是 git 的凭据助手，$ATOMGIT_TOKEN 由它在运行时展开
           push() {
             git -c credential.helper='!f() { echo username=ayuayue; echo "password=${ATOMGIT_TOKEN}"; }; f' \
-              push https://atomgit.com/ayuayue/PiDeck-Lite.git "$@"
+              push https://atomgit.com/ayuayue/PiDeck-V2.git "$@"
           }
           # 标签触发时 HEAD 是标签所在的提交；主分支按 origin/main 推。
           git fetch --no-tags origin main

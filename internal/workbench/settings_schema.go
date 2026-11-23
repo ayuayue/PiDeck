@@ -10,7 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/viewkit"
 )
 
 // settingField declares one app setting.

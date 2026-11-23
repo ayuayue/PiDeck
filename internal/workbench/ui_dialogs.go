@@ -8,7 +8,7 @@ package workbench
 import (
 	"runtime"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -121,4 +121,11 @@ func modKey() string {
 		return "⌘"
 	}
 	return "Ctrl+"
+}
+
+// panelFieldStyle is a form field inside a pane: the surface, hairline and
+// measure every editor shares, so the panes' fields line up.
+func panelFieldStyle(colors ui.Colors) core.Style {
+	return core.Style{MinHeight: core.Pt(34), Padding: core.Symmetric(6, 10), CornerRadius: ui.RadiusControl,
+		Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), Color: colors.Text(), FontSize: 13}
 }

@@ -6,16 +6,16 @@ package workbench
 // views read; pi's events are folded in here, on the UI thread.
 
 import (
-	"example.com/pideck-lite/internal/remotewire"
+	"example.com/pideck-v2/internal/remotewire"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"example.com/pideck-lite/extensions"
-	"example.com/pideck-lite/internal/alerts"
-	"example.com/pideck-lite/internal/crashlog"
-	"example.com/pideck-lite/internal/sessionimport"
-	"example.com/pideck-lite/internal/volcvoice"
+	"example.com/pideck-v2/extensions"
+	"example.com/pideck-v2/internal/alerts"
+	"example.com/pideck-v2/internal/crashlog"
+	"example.com/pideck-v2/internal/sessionimport"
+	"example.com/pideck-v2/internal/volcvoice"
 	"github.com/nsgo-dev/nsgo/base/textview"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -31,7 +31,11 @@ func newApp(cx *core.Scope) *app {
 		activeWS:               core.NewSignal(cx, ""),
 		tabs:                   core.NewSignalFunc(cx, []string{}, nil),
 		activeID:               core.NewSignal(cx, ""),
-		activityOpen:           core.NewSignal(cx, false),
+		railTab:                core.NewSignal(cx, railTabProjects),
+		hoveredProject:         core.NewSignal(cx, ""),
+		projectMoreOpen:        core.NewSignal(cx, ""),
+		addProjectOpen:         core.NewSignal(cx, false),
+		railMoreOpen:           core.NewSignal(cx, false),
 		activePane:             core.NewSignal(cx, ""),
 		filter:                 core.NewSignal(cx, ""),
 		sidebar:                core.NewSignal(cx, true),
@@ -223,7 +227,6 @@ func newApp(cx *core.Scope) *app {
 		favModels:              core.NewSignalFunc(cx, []string(nil), nil),
 		favOpen:                core.NewSignal(cx, false),
 		reviewOpen:             core.NewSignal(cx, false),
-		drafts:                 newDraftLibrary(cx),
 		browser:                newBrowserState(cx),
 		preview:                core.NewSignal(cx, (*filePreview)(nil)),
 		notifications:          newNotificationHistory(cx),
@@ -398,7 +401,7 @@ func newApp(cx *core.Scope) *app {
 	}
 
 	dataDir := cx.DataDir()
-	if custom := os.Getenv("PIDECK_LITE_HOME"); custom != "" {
+	if custom := os.Getenv("PIDECK_V2_HOME"); custom != "" {
 		dataDir = custom
 	}
 	a.dataDir = dataDir
@@ -414,7 +417,6 @@ func newApp(cx *core.Scope) *app {
 	a.memory = newMemoryView(cx, newMemoryStore(st.dir))
 	a.localToolsExtension = installLocalToolsExtension(st.dir)
 	a.organization.Set(st.organization)
-	a.drafts.items.Set(readDraftLibrary(st.dir))
 	a.draftsAtStart = readSessionDrafts(st.dir)
 	// The ask extension travels with the app: pi loads it with -e, and its
 	// questions reach the card.

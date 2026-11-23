@@ -26,7 +26,7 @@ func readTrajectory(file, entry string, started time.Time) ([]string, error) {
 			CustomType string          `json:"customType"`
 			Data       savedTrajectory `json:"data"`
 		}
-		if json.Unmarshal(line, &row) != nil || row.Type != "custom" || row.CustomType != "pideck-lite-trajectory" || row.Data.Entry == "" || row.Data.System == "" || len(row.Data.System) > 128<<10 {
+		if json.Unmarshal(line, &row) != nil || row.Type != "custom" || row.CustomType != "pideck-v2-trajectory" || row.Data.Entry == "" || row.Data.System == "" || len(row.Data.System) > 128<<10 {
 			return nil
 		}
 		if entry != "" && row.Data.Entry != entry {

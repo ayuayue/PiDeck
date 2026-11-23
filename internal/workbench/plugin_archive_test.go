@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
@@ -232,22 +232,22 @@ func TestPluginArchiveUIUpdatesMarketAndRestoresSettings(t *testing.T) {
 		t.Skip("headless UI contract; platform runs are for pixels")
 	}
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	st, err := newStore(home)
 	if err != nil {
 		t.Fatal(err)
 	}
-	st.edit(func(c *config) { c.PluginSettings = map[string]string{"lite-ui-basics/detailed": "false"} })
+	st.edit(func(c *config) { c.PluginSettings = map[string]string{"v2-ui-basics/detailed": "false"} })
 	a := &app{st: st}
 	var example marketEntry
 	for _, entry := range builtinPluginExamples() {
-		if entry.ID == "lite-ui-basics" {
+		if entry.ID == "v2-ui-basics" {
 			example = entry
 			break
 		}
 	}
 	if example.ID == "" {
-		t.Fatal("lite-ui-basics example is missing")
+		t.Fatal("v2-ui-basics example is missing")
 	}
 	if _, err := a.installMarketPlugin(example); err != nil {
 		t.Fatal(err)
@@ -255,16 +255,16 @@ func TestPluginArchiveUIUpdatesMarketAndRestoresSettings(t *testing.T) {
 	screen := nsgotest.Start(t, Root, nsgotest.Size(1280, 900))
 	screen.Press("label:设置")
 	screen.Press("id:settings-tab-addons")
-	screen.WaitFor("id:plugin-uninstall-lite-ui-basics", 10*time.Second)
-	screen.Press("id:plugin-uninstall-lite-ui-basics")
-	screen.WaitForGone("id:plugin-toggle-lite-ui-basics", 5*time.Second)
+	screen.WaitFor("id:plugin-uninstall-v2-ui-basics", 10*time.Second)
+	screen.Press("id:plugin-uninstall-v2-ui-basics")
+	screen.WaitForGone("id:plugin-toggle-v2-ui-basics", 5*time.Second)
 	item := onlyArchivedPlugin(t, a)
 	screen.Press("id:plugin-market-open")
-	screen.WaitFor("id:market-install-lite-ui-basics", 5*time.Second)
+	screen.WaitFor("id:market-install-v2-ui-basics", 5*time.Second)
 	screen.Press("id:market-close")
 	screen.Press("id:" + archivedPluginTestID(item))
-	screen.WaitFor("id:plugin-toggle-lite-ui-basics", 5*time.Second)
-	setting := screen.WaitFor("id:plugin-setting-lite-ui-basics-detailed", 5*time.Second)
+	screen.WaitFor("id:plugin-toggle-v2-ui-basics", 5*time.Second)
+	setting := screen.WaitFor("id:plugin-setting-v2-ui-basics-detailed", 5*time.Second)
 	if setting.Props.Checked {
 		t.Fatal("restored plugin reset the saved setting to its default")
 	}

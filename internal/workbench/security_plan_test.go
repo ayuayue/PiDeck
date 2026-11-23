@@ -85,7 +85,7 @@ func TestSecurityPolicySnapshot(t *testing.T) {
 
 func TestInstallOfficialPromptsToPi(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("PIDECK_LITE_PI_CONFIG", dir)
+	t.Setenv("PIDECK_V2_PI_CONFIG", dir)
 	pack, err := officialPromptPack()
 	if err != nil {
 		t.Fatal(err)
@@ -109,7 +109,7 @@ func TestInstallOfficialPromptsToPi(t *testing.T) {
 }
 
 func TestInstallOfficialPromptsRejectsBadSlug(t *testing.T) {
-	t.Setenv("PIDECK_LITE_PI_CONFIG", t.TempDir())
+	t.Setenv("PIDECK_V2_PI_CONFIG", t.TempDir())
 	pack := promptPack{Prompts: []promptPackEntry{{Slug: "../escape", Title: "x", Body: "y"}}}
 	if _, _, err := installOfficialPromptsToPi(pack); err == nil {
 		t.Fatal("path traversal slug was accepted")

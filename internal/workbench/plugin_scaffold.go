@@ -36,7 +36,7 @@ func pluginTemplate(id, name, desc string) ([]byte, error) {
 		desc = name + " 的示例插件。"
 	}
 	doc := map[string]any{
-		"schemaVersion": litePluginSchema, "runtime": litePluginRuntime,
+		"schemaVersion": v2PluginSchema, "runtime": v2PluginRuntime,
 		"id": id, "name": name, "version": "0.1.0", "description": desc,
 		"contributes": map[string]any{
 			"commands": []any{map[string]any{
@@ -83,7 +83,7 @@ func (a *app) createPlugin(id, name, desc string) (string, error) {
 	}
 	readme := "# " + name + "\n\n" + strings.TrimSpace(desc) + "\n\n" +
 		"这个文件夹里的 `plugin.json` 就是这个插件：命令、设置、主题、键位、钩子和智能体都写在 `contributes` 里。\n" +
-		"改完保存，回到 PiDeck Lite 执行「重新加载」，命令面板里就能看到它。\n"
+		"改完保存，回到 PiDeck V2 执行「重新加载」，命令面板里就能看到它。\n"
 	if err := writeFileAtomic(filepath.Join(path, "README.md"), []byte(readme), 0o644); err != nil {
 		return "", err
 	}

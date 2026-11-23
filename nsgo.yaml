@@ -1,8 +1,8 @@
-name: PiDeck Lite
-id: dev.nsgo.pidecklite
-version: 0.2.0
+name: PiDeck V2
+id: dev.nsgo.pideckv2
+version: 2.0.0
 appearance: light
-url_schemes: [pideck-lite]
+url_schemes: [pideck-v2]
 
 # Direct updates: the app reads appcast-<target>.xml next to the release
 # and verifies its EdDSA signature with the public key below; updates.pub
@@ -10,7 +10,7 @@ url_schemes: [pideck-lite]
 # of the repository; CI gets it as NSGO_UPDATES_KEY.
 updates:
   key: EHRrpwXBqCbUcC53NQZXBFa2C1D4EhF9BQ8FxMqieIY=
-  feed: https://github.com/ayuayue/PiDeck-Lite/releases/latest/download/
+  feed: https://github.com/ayuayue/PiDeck-V2/releases/latest/download/
   automatic: true
 
 icon:
@@ -35,9 +35,9 @@ dev:
 
 apple:
   info:
-    NSLocalNetworkUsageDescription: "连接同一局域网内电脑上的 PiDeck Lite。"
+    NSLocalNetworkUsageDescription: "连接同一局域网内电脑上的 PiDeck V2。"
     NSMicrophoneUsageDescription: "将你主动录制的语音转写到消息草稿。"
-    NSCameraUsageDescription: "扫描你对准的二维码以连接电脑上的 PiDeck Lite。"
+    NSCameraUsageDescription: "扫描你对准的二维码以连接电脑上的 PiDeck V2。"
 
 i18n:
   dir: locales

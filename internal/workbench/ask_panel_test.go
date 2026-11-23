@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-lite/internal/remotewire"
+	"example.com/pideck-v2/internal/remotewire"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -116,7 +116,7 @@ func TestAskWire(t *testing.T) {
 func newAskApp(t *testing.T) (*app, *nsgotest.App, *session) {
 	t.Helper()
 	home, dir := t.TempDir(), t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	raw, _ := json.Marshal(config{Version: 1, Workspaces: []workspaceCfg{{Path: dir, Name: "Ask"}},
 		Theme: "system", SidebarOpen: true})
 	if err := os.WriteFile(filepath.Join(home, "config.json"), raw, 0o644); err != nil {

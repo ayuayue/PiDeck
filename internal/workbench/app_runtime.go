@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -32,6 +32,13 @@ func (a *app) activeWorkspace() *workspace {
 		return list[0]
 	}
 	return nil
+}
+
+// activeProjectKey is the active project's key, "" when there is none:
+// what a per-project entry is scoped to. It keeps the target prefix older
+// entries were stored with.
+func (a *app) activeProjectKey() string {
+	return trustKey(a.activeWorkspace())
 }
 
 // busy reports whether a turn is in flight, including a prompt that was

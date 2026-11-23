@@ -20,7 +20,7 @@ import (
 func TestSessionNameSortUsesOneHeading(t *testing.T) {
 	home := t.TempDir()
 	project := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	t.Setenv("PI_CODING_AGENT_SESSION_DIR", t.TempDir())
 	raw, err := json.Marshal(config{Version: 1, Theme: "system", SidebarOpen: true, ScanPi: false,
 		SessionSort: "name",

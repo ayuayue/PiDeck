@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"strings"
 
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/base/editor"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -150,8 +150,14 @@ func (a *app) editorBody() core.Node {
 					ui.Icon(lucide.FileX, 22, colors.Faint),
 					core.Text{Content: msg, MaxLines: 3, Style: core.Style{FontSize: 12, MaxWidth: core.Pt(420)},
 						StyleFunc: ui.Colored(colors.Muted)},
-					ui.Button{Text: apptext.T("重新读取"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
-						OnPress: func() { a.editor.load(f) }},
+					core.View{Style: core.Style{Direction: core.Row, Gap: 8}, Children: []core.Node{
+						ui.Button{Text: apptext.T("重新读取"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+							OnPress: func() { a.editor.load(f) }},
+						// A file the editor refuses is still the system's to open: a
+						// binary, or one past the editor's size.
+						ui.Button{Text: apptext.T("在系统应用中打开"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+							TestID: "editor-open-native", OnPress: func() { a.cx.OpenURL(fileURL(f.Path), nil) }},
+					}},
 				}}
 		}
 		return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Background: colors.Background()},
@@ -240,9 +246,15 @@ func (a *app) fileMenuItems(root string, node fileNode) []core.Node {
 			a.menuRow(a.cx, lucide.Trash, "移到回收站", "", false, func() { a.trashFile(node.Path) }),
 		}
 	}
-	return []core.Node{
+	items := make([]core.Node, 0, 12)
+	if kind := filePreviewKind(node.Path); kind != "" {
+		items = append(items, a.menuRow(a.cx, lucide.Eye, "预览", "", false, func() { a.openFilePreview(node.Path, kind) }))
+	}
+	return append(items,
 		a.menuRow(a.cx, lucide.FileCode, "在编辑器中打开", "", false, func() {
-			a.openEditorFile(root, node.Path)
+			a.activePane.Set("")
+			a.editor.openFile(root, node.Path)
+			a.rememberFile(node.Path)
 		}),
 		a.menuRow(a.cx, lucide.PencilLine, "重命名", "", false, func() { a.renameFileNode(node.Path) }),
 		a.menuSeparator(a.cx),
@@ -262,7 +274,7 @@ func (a *app) fileMenuItems(root string, node fileNode) []core.Node {
 		a.menuRow(a.cx, lucide.EyeOff, "加入 .gitignore", "", false, func() { a.ignorePath(node.Path) }),
 		a.menuSeparator(a.cx),
 		a.menuRow(a.cx, lucide.Trash, "移到回收站", "", false, func() { a.trashFile(node.Path) }),
-	}
+	)
 }
 
 // mentionFile puts an @path in the composer.

@@ -20,7 +20,7 @@ import (
 // description.
 func TestReadSkills(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("PIDECK_LITE_PI_CONFIG", dir)
+	t.Setenv("PIDECK_V2_PI_CONFIG", dir)
 	skillDir := filepath.Join(dir, "skills", "image-gen")
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -43,7 +43,7 @@ func TestReadSkills(t *testing.T) {
 // local files.
 func TestReadExtensions(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("PIDECK_LITE_PI_CONFIG", dir)
+	t.Setenv("PIDECK_V2_PI_CONFIG", dir)
 	settings := `{"extensions":["+builtin:codemode","+npm:pi-web-access"],"disabledExtensions":["npm:@samfp/pi-memory","npm:off-pkg"],"packages":["npm:pi-tracker","npm:off-pkg"],"theme":"dark"}`
 	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(settings), 0o600); err != nil {
 		t.Fatal(err)
@@ -86,7 +86,7 @@ func TestReadExtensions(t *testing.T) {
 // survive.
 func TestSetExtensionEnabled(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("PIDECK_LITE_PI_CONFIG", dir)
+	t.Setenv("PIDECK_V2_PI_CONFIG", dir)
 	path := filepath.Join(dir, "settings.json")
 	body := `{"extensions":["+builtin:codemode"],"theme":"dark","disabledExtensions":[]}`
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
@@ -136,8 +136,8 @@ func TestResourcesPage(t *testing.T) {
 	}
 	home := t.TempDir()
 	cfgDir := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
-	t.Setenv("PIDECK_LITE_PI_CONFIG", cfgDir)
+	t.Setenv("PIDECK_V2_HOME", home)
+	t.Setenv("PIDECK_V2_PI_CONFIG", cfgDir)
 	skillDir := filepath.Join(cfgDir, "skills", "doctor")
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
 		t.Fatal(err)

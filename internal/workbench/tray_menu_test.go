@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -21,7 +21,7 @@ func TestTrayLabels(t *testing.T) {
 	t.Cleanup(func() { apptext.SetLanguage(apptext.LangZhCN) })
 
 	cases := []struct{ name, path, want string }{
-		{"PiDeck Lite", "/Users/me/PiDeck-Lite", "PiDeck Lite · PiDeck-Lite"},
+		{"PiDeck V2", "/Users/me/PiDeck-V2", "PiDeck V2 · PiDeck-V2"},
 		{"same", "/work/same", "same"},
 		{"", "/work/folder", "folder"},
 		{"nested", `C:\Users\me\Projects\app`, `nested · app`},
@@ -31,7 +31,7 @@ func TestTrayLabels(t *testing.T) {
 			t.Errorf("trayProjectLabel(%q, %q) = %q, want %q", c.name, c.path, got, c.want)
 		}
 	}
-	if got := traySessionLabel("修一下登录", "PiDeck Lite"); got != "修一下登录 · PiDeck Lite" {
+	if got := traySessionLabel("修一下登录", "PiDeck V2"); got != "修一下登录 · PiDeck V2" {
 		t.Errorf("session label = %q", got)
 	}
 	if got := traySessionLabel("  ", ""); got != "未命名会话" {
@@ -44,7 +44,7 @@ func TestTrayLabels(t *testing.T) {
 
 func TestTrayMenuShape(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	raw, err := json.Marshal(config{Version: 1, Theme: "system", SidebarOpen: true, ScanPi: false})
 	if err != nil {
 		t.Fatal(err)
@@ -77,7 +77,7 @@ func TestTrayMenuShape(t *testing.T) {
 	for _, it := range items {
 		labels[it.Label] = desktopItem{disabled: it.Disabled, sub: len(it.Items)}
 	}
-	for _, want := range []string{"显示 PiDeck Lite", "新建会话", "最近会话", "打开项目", "定时任务",
+	for _, want := range []string{"显示 PiDeck V2", "新建会话", "最近会话", "打开项目", "定时任务",
 		"打开数据目录", "打开日志目录", "设置…", "重启"} {
 		if _, ok := labels[want]; !ok {
 			t.Errorf("tray menu has no %q", want)

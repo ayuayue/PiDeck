@@ -3,7 +3,7 @@
 package workbench
 
 // The desktop and phone builds' entry: the workbench, or the remote client
-// when the target is iOS, Android or a preview (PIDECK_LITE_MOBILE=1).
+// when the target is iOS, Android or a preview (PIDECK_V2_MOBILE=1).
 
 import (
 	"github.com/nsgo-dev/nsgo/core"

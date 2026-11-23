@@ -50,7 +50,7 @@ func (a *app) diagnosticZip() ([]byte, error) {
 			return nil, err
 		}
 	}
-	readme := "PiDeck Lite 诊断包\n\n" +
+	readme := "PiDeck V2 诊断包\n\n" +
 		"report.txt  运行环境、进程与最近日志\n" +
 		"config.json 应用配置（访问令牌、密钥、Webhook、代理凭据已替换为 ***）\n" +
 		"plugins.txt 插件列表与警告\n" +

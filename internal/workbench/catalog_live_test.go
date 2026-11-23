@@ -12,8 +12,8 @@ import (
 
 // Read-only public source validation is opt-in; normal tests never need a network.
 func TestLivePublicCatalogs(t *testing.T) {
-	if os.Getenv("PIDECK_LITE_TEST_CATALOGS") != "1" {
-		t.Skip("set PIDECK_LITE_TEST_CATALOGS=1 for public catalog probes")
+	if os.Getenv("PIDECK_V2_TEST_CATALOGS") != "1" {
+		t.Skip("set PIDECK_V2_TEST_CATALOGS=1 for public catalog probes")
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 6*time.Minute)
 	defer cancel()
@@ -49,7 +49,7 @@ func TestLivePublicCatalogs(t *testing.T) {
 	t.Run("chinese", func(t *testing.T) {
 		var pack promptPack
 		var err error
-		if fixture := os.Getenv("PIDECK_LITE_TEST_CHINESE_DB"); fixture != "" {
+		if fixture := os.Getenv("PIDECK_V2_TEST_CHINESE_DB"); fixture != "" {
 			pack, err = readChinesePrompts(ctx, fixture)
 			t.Log("using the supplied release database fixture")
 		} else {

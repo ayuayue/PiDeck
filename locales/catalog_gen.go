@@ -68,51 +68,51 @@ var keyOfText = [numTexts]string{
 
 // textsZhHans are the messages without arguments in zh-Hans.
 var textsZhHans = i18n.NewTexts(""+
-	"扫描你对准的二维码以连接电脑上的 PiDeck Lite。",
+	"扫描你对准的二维码以连接电脑上的 PiDeck V2。",
 	[]uint16{
-		63,
+		61,
 	})
 
 // textsEn are the messages without arguments in en.
 var textsEn = i18n.NewTexts(""+
-	"Scan a QR code to connect to PiDeck Lite on your computer.",
+	"Scan a QR code to connect to PiDeck V2 on your computer.",
 	[]uint16{
-		58,
+		56,
 	})
 
 // textsFr are the messages without arguments in fr.
 var textsFr = i18n.NewTexts(""+
-	"Scannez un QR code pour vous connecter à PiDeck Lite sur votre ordinateur.",
+	"Scannez un QR code pour vous connecter à PiDeck V2 sur votre ordinateur.",
 	[]uint16{
-		75,
+		73,
 	})
 
 // textsJa are the messages without arguments in ja.
 var textsJa = i18n.NewTexts(""+
-	"カメラでQRコードを読み取り、パソコン上のPiDeck Liteに接続します。",
+	"カメラでQRコードを読み取り、パソコン上のPiDeck V2に接続します。",
 	[]uint16{
-		91,
+		89,
 	})
 
 // textsKo are the messages without arguments in ko.
 var textsKo = i18n.NewTexts(""+
-	"QR 코드를 스캔해 컴퓨터의 PiDeck Lite에 연결합니다.",
+	"QR 코드를 스캔해 컴퓨터의 PiDeck V2에 연결합니다.",
 	[]uint16{
-		67,
+		65,
 	})
 
 // textsRu are the messages without arguments in ru.
 var textsRu = i18n.NewTexts(""+
-	"Отсканируйте QR-код, чтобы подключиться к PiDeck Lite на компьютере.",
+	"Отсканируйте QR-код, чтобы подключиться к PiDeck V2 на компьютере.",
 	[]uint16{
-		113,
+		111,
 	})
 
 // textsZhHant are the messages without arguments in zh-Hant.
 var textsZhHant = i18n.NewTexts(""+
-	"掃描你對準的 QR 碼以連線至電腦上的 PiDeck Lite。",
+	"掃描你對準的 QR 碼以連線至電腦上的 PiDeck V2。",
 	[]uint16{
-		64,
+		62,
 	})
 
 // texts returns the messages without arguments in lang, nil for a
@@ -181,7 +181,7 @@ func Supply(lang string, t Translation) {
 	Catalog.Add(lang)
 }
 
-// NSCameraUsageDescription says "扫描你对准的二维码以连接电脑上的 PiDeck Lite。"
+// NSCameraUsageDescription says "扫描你对准的二维码以连接电脑上的 PiDeck V2。"
 // in the language the app shows under cx.
 func NSCameraUsageDescription(cx *core.Scope) string { return For(cx).NSCameraUsageDescription() }
 

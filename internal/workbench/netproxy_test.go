@@ -72,7 +72,7 @@ func TestProxySettingsUI(t *testing.T) {
 		agentProxy.set("", "")
 	})
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
 	app.Press("label:设置")
 	app.Press("id:settings-tab-env")

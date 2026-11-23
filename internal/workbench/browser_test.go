@@ -48,7 +48,7 @@ func TestBrowserURL(t *testing.T) {
 }
 
 func TestBrowserAddressSubmitLoadsURL(t *testing.T) {
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
 	app.Press("id:browser-toggle")
 	app.WaitFor("id:browser-address", 5*time.Second)

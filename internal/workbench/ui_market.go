@@ -8,8 +8,8 @@ package workbench
 import (
 	"strings"
 
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -104,7 +104,7 @@ func (a *app) pluginMarketDialog() core.Node {
 					ui.Button{Text: apptext.T("官方索引"), Size: ui.SizeSmall, Variant: ui.ButtonGhost, TestID: "market-official", OnPress: func() { a.discoverPlugins(false) }},
 					ui.Button{Text: apptext.T("GitHub 社区"), Size: ui.SizeSmall, Variant: ui.ButtonGhost, TestID: "market-community", OnPress: func() { a.discoverPlugins(true) }},
 				}},
-				ui.Text(apptext.T("Lite 条目可安装声明式清单；其他运行时仅打开项目。内置示例可离线安装。"), 11, ui.Regular, colors.Muted),
+				ui.Text(apptext.T("V2 条目可安装声明式清单；其他运行时仅打开项目。内置示例可离线安装。"), 11, ui.Regular, colors.Muted),
 				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 					core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
 						core.Input{Value: a.marketURL.Get, OnChange: a.marketURL.Set, Placeholder: "https://…/plugins.json",

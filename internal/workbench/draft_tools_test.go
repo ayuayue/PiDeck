@@ -20,7 +20,7 @@ func draftToolFixture(t *testing.T) (*nsgotest.App, *app, *session) {
 	}
 	fakeProviders(t)
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(`{"scanPi":false,"telemetryEnabled":false,"autoModelCatalog":false}`), 0o600); err != nil {
 		t.Fatal(err)
 	}

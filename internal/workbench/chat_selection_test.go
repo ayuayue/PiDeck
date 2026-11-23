@@ -21,9 +21,9 @@ const selectionParagraph = "Translate only this paragraph. Keep the introduction
 func chatSelectionFixture(t *testing.T) (*nsgotest.App, *app, *session, *session) {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
-	t.Setenv("PIDECK_LITE_PI_CONFIG", t.TempDir())
-	t.Setenv("PIDECK_LITE_LANG", "zh-CN")
+	t.Setenv("PIDECK_V2_HOME", home)
+	t.Setenv("PIDECK_V2_PI_CONFIG", t.TempDir())
+	t.Setenv("PIDECK_V2_LANG", "zh-CN")
 	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(`{"scanPi":false,"telemetryEnabled":false,"autoModelCatalog":false,"theme":"light"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}

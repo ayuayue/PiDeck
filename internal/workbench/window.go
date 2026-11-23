@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"example.com/pideck-lite/internal/crashlog"
+	"example.com/pideck-v2/internal/crashlog"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/desktop"
 )

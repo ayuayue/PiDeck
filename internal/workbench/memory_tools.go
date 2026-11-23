@@ -41,7 +41,7 @@ type memoryMatches struct {
 }
 
 func (a *app) memoryServer(s *session) *mcp.Server {
-	server := mcp.NewServer(&mcp.Implementation{Name: "pideck-lite-memory", Version: "1"}, nil)
+	server := mcp.NewServer(&mcp.Implementation{Name: "pideck-v2-memory", Version: "1"}, nil)
 	project := s.Target.key() + "|" + s.WS
 	store := a.memory.store
 	visible := func(e memoryEntry) bool { return e.Project == "" || e.Project == project }
@@ -90,7 +90,7 @@ func (a *app) memoryServer(s *session) *mcp.Server {
 			}
 			return nil, e, err
 		})
-	mcp.AddTool(server, &mcp.Tool{Name: "session_search", Description: "Search title and transcript snippets of PiDeck Lite sessions in this trusted project."},
+	mcp.AddTool(server, &mcp.Tool{Name: "session_search", Description: "Search title and transcript snippets of PiDeck V2 sessions in this trusted project."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in memoryLookup) (*mcp.CallToolResult, memoryMatches, error) {
 			matches, err := a.memorySessionSearch(ctx, s, in.Query)
 			return nil, matches, err

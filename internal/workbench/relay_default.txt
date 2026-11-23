@@ -3,5 +3,5 @@
 #
 # 这一行会编进桌面端；手机从二维码里拿地址。留空则设置页要求手填。
 # 也可以用构建参数覆盖：
-# -ldflags "-X example.com/pideck-lite/internal/workbench.defaultRelayURL=wss://relay.example.com/v1/tunnel"
+# -ldflags "-X example.com/pideck-v2/internal/workbench.defaultRelayURL=wss://relay.example.com/v1/tunnel"
 wss://relay.caoayu.top/v1/tunnel

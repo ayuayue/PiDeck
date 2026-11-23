@@ -23,7 +23,7 @@ import (
 
 func TestCreateProviderInModelsFile(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "agent")
-	t.Setenv("PIDECK_LITE_PI_CONFIG", dir)
+	t.Setenv("PIDECK_V2_PI_CONFIG", dir)
 	path := filepath.Join(dir, "models.json")
 	cfg := providerConfig{ID: "first", API: "openai-completions", BaseURL: "https://example.invalid/v1",
 		APIKey: "$TEST_PROVIDER_KEY", Models: []modelConfig{{ID: "chat-model"}}}
@@ -91,7 +91,7 @@ func TestCreateProviderInModelsFile(t *testing.T) {
 // back and the rest of models.json survives.
 func TestReadAndSaveProviderConfig(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("PIDECK_LITE_PI_CONFIG", dir)
+	t.Setenv("PIDECK_V2_PI_CONFIG", dir)
 	body := `{
   "providers": {
     "acme": {
@@ -216,8 +216,8 @@ func TestProviderDialogSaves(t *testing.T) {
 	}
 	home := t.TempDir()
 	cfgDir := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
-	t.Setenv("PIDECK_LITE_PI_CONFIG", cfgDir)
+	t.Setenv("PIDECK_V2_HOME", home)
+	t.Setenv("PIDECK_V2_PI_CONFIG", cfgDir)
 	body := `{"providers":{"acme":{"api":"openai-completions","baseUrl":"https://old.example/v1","models":[{"id":"acme-1"}]}}}`
 	path := filepath.Join(cfgDir, "models.json")
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
@@ -337,8 +337,8 @@ func TestProviderDialogBalance(t *testing.T) {
 	defer srv.Close()
 	home := t.TempDir()
 	cfgDir := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
-	t.Setenv("PIDECK_LITE_PI_CONFIG", cfgDir)
+	t.Setenv("PIDECK_V2_HOME", home)
+	t.Setenv("PIDECK_V2_PI_CONFIG", cfgDir)
 	body := fmt.Sprintf(`{"providers":{"siliconflow":{"api":"openai-completions","baseUrl":%q,"apiKey":"test-key","models":[{"id":"m1"}]}}}`, srv.URL)
 	if err := os.WriteFile(filepath.Join(cfgDir, "models.json"), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
@@ -369,8 +369,8 @@ func TestProviderCustomBalanceDialog(t *testing.T) {
 	defer srv.Close()
 	home := t.TempDir()
 	cfgDir := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
-	t.Setenv("PIDECK_LITE_PI_CONFIG", cfgDir)
+	t.Setenv("PIDECK_V2_HOME", home)
+	t.Setenv("PIDECK_V2_PI_CONFIG", cfgDir)
 	body := fmt.Sprintf(`{"providers":{"acme":{"api":"openai-completions","baseUrl":%q,"apiKey":"k","models":[{"id":"m1"}]}}}`, srv.URL+"/v1")
 	if err := os.WriteFile(filepath.Join(cfgDir, "models.json"), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
@@ -403,7 +403,7 @@ func TestProviderCustomBalanceDialog(t *testing.T) {
 // TestSaveProviderModels keeps the fields the editor does not show.
 func TestSaveProviderModels(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("PIDECK_LITE_PI_CONFIG", dir)
+	t.Setenv("PIDECK_V2_PI_CONFIG", dir)
 	path := filepath.Join(dir, "models.json")
 	body := `{"providers":{"acme":{"api":"openai-completions","baseUrl":"https://x/v1",
 		"models":[{"id":"m1","name":"One","contextWindow":128000,"compat":{"note":"keep"}},
@@ -445,8 +445,8 @@ func TestProviderModelEditor(t *testing.T) {
 	}
 	home := t.TempDir()
 	cfgDir := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
-	t.Setenv("PIDECK_LITE_PI_CONFIG", cfgDir)
+	t.Setenv("PIDECK_V2_HOME", home)
+	t.Setenv("PIDECK_V2_PI_CONFIG", cfgDir)
 	path := filepath.Join(cfgDir, "models.json")
 	body := `{"providers":{"acme":{"api":"openai-completions","baseUrl":"https://x/v1","models":[{"id":"m1","name":"One"}]}}}`
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {

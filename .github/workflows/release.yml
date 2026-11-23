@@ -126,9 +126,9 @@ jobs:
             security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain"
             args+=(-sign "$MAC_IDENTITY")
             if [ -n "$MAC_NOTARY_ID" ] && [ -n "$MAC_NOTARY_TEAM" ] && [ -n "$MAC_NOTARY_PASSWORD" ]; then
-              xcrun notarytool store-credentials pideck-lite-release --keychain "$keychain" \
+              xcrun notarytool store-credentials pideck-v2-release --keychain "$keychain" \
                 --apple-id "$MAC_NOTARY_ID" --team-id "$MAC_NOTARY_TEAM" --password "$MAC_NOTARY_PASSWORD"
-              args+=(-notarize pideck-lite-release)
+              args+=(-notarize pideck-v2-release)
             fi
           fi
           go tool nsgo build "${args[@]}"
@@ -144,7 +144,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: pideck-lite-${{ matrix.target }}
+          name: pideck-v2-${{ matrix.target }}
           path: out
           if-no-files-found: warn
 
@@ -196,7 +196,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: pideck-lite-android-arm64
+          name: pideck-v2-android-arm64
           path: |
             dist/releases/*.apk
             dist/releases/appcast-android_arm64.xml
@@ -279,7 +279,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: pideck-lite-ios
+          name: pideck-v2-ios
           path: |
             dist/releases/*.ipa
             ${{ runner.temp }}/ios-simulator.zip
@@ -338,7 +338,7 @@ jobs:
         if: contains(github.ref_name, '-dev')
         with:
           tag_name: dev
-          name: PiDeck Lite Dev
+          name: PiDeck V2 Dev
           prerelease: true
           make_latest: false
           files: artifacts/**

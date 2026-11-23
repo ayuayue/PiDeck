@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 )
 
 // applyLanguage sets the interface language from the config and the
@@ -16,7 +16,7 @@ import (
 func (a *app) applyLanguage() {
 	setting := a.cfg.Language
 	if setting == "" {
-		setting = strings.TrimSpace(os.Getenv("PIDECK_LITE_LANG"))
+		setting = strings.TrimSpace(os.Getenv("PIDECK_V2_LANG"))
 	}
 	apptext.SetLanguage(apptext.ResolveLanguage(setting, a.cx.Env().Locale()))
 	if a.langRev != nil {

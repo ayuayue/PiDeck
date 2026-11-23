@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 )
 
 func (a *app) scanTargetSessions(ws *workspace) {
@@ -87,7 +87,7 @@ func targetSessionMetas(ctx context.Context, t target, cwd string) ([]sessionMet
 	cmd, err := t.workspaceCommand(ctx, cwd, `
 dir="`+remoteDir+`"
 [ -d "$dir" ] || exit 0
-[ ! -L "$HOME/.pideck-lite" ] && [ ! -L "$dir" ] || exit 42
+[ ! -L "$HOME/.pideck-v2" ] && [ ! -L "$dir" ] || exit 42
 find "$dir" -type f -name '*.jsonl' -exec sh -c '
   for file do
     printf "%s\000" "$file"
@@ -188,7 +188,7 @@ func targetHistoryMessages(t target, file string) ([]piMessage, error) {
 
 func validTargetSessionFile(file string) bool {
 	return strings.HasPrefix(file, "/") && path.Clean(file) == file &&
-		strings.Contains(file, "/.pideck-lite/sessions/") && path.Ext(file) == ".jsonl" &&
+		strings.Contains(file, "/.pideck-v2/sessions/") && path.Ext(file) == ".jsonl" &&
 		!strings.ContainsAny(file, "\x00\r\n")
 }
 
@@ -196,7 +196,7 @@ const targetSessionGuard = `
 dir="` + remoteDir + `"
 file="$2"
 case "$file" in "$dir"/*.jsonl) ;; *) exit 42 ;; esac
-[ ! -L "$HOME/.pideck-lite" ] && [ ! -L "$dir" ] || exit 42
+[ ! -L "$HOME/.pideck-v2" ] && [ ! -L "$dir" ] || exit 42
 parent="${file%/*}"
 while [ "$parent" != "$dir" ]; do
   [ ! -L "$parent" ] || exit 42

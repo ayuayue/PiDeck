@@ -70,7 +70,7 @@ func TestGitAbortMerge(t *testing.T) {
 	}
 	dir, run := conflictRepo(t)
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	cfg, err := json.Marshal(config{Version: 2, Workspaces: []workspaceCfg{{Path: dir, Expanded: true}},
 		Theme: "system", SidebarOpen: true, ScanPi: false})
 	if err != nil {

@@ -53,7 +53,7 @@ func TestForkTreeCollapse(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "config.json"), cfg, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	app := nsgotest.Start(t, Root, nsgotest.Size(1280, 860))
 	app.WaitUntil(10*time.Second, func() bool { return len(app.Query("role:button 子会话")) > 0 })
 	app.Press("role:button 子会话 >> nth=0")

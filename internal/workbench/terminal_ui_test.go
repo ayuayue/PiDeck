@@ -31,8 +31,8 @@ func TestTerminalPanel(t *testing.T) {
 		t.Fatal(err)
 	}
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
-	t.Setenv("PIDECK_LITE_PI_CONFIG", t.TempDir())
+	t.Setenv("PIDECK_V2_HOME", home)
+	t.Setenv("PIDECK_V2_PI_CONFIG", t.TempDir())
 	raw, err := json.Marshal(config{Version: 1, Workspaces: []workspaceCfg{{Path: dir, Expanded: true}},
 		Theme: "system", SidebarOpen: true, ScanPi: false, AutoModelCatalog: false})
 	if err != nil {

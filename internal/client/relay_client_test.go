@@ -23,7 +23,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-lite/internal/relaywire"
+	"example.com/pideck-v2/internal/relaywire"
 	"golang.org/x/net/websocket"
 )
 
@@ -36,7 +36,7 @@ func testCertificate(t *testing.T) (tls.Certificate, string) {
 	}
 	tmpl := &x509.Certificate{
 		SerialNumber: big.NewInt(1),
-		Subject:      pkix.Name{CommonName: "PiDeck Lite relay"},
+		Subject:      pkix.Name{CommonName: "PiDeck V2 relay"},
 		NotBefore:    time.Now().Add(-time.Hour),
 		NotAfter:     time.Now().Add(time.Hour),
 		KeyUsage:     x509.KeyUsageDigitalSignature,

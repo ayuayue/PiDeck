@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-lite/internal/remotewire"
+	"example.com/pideck-v2/internal/remotewire"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -15,7 +15,7 @@ import (
 // delayed replies can be tested without a clock race or a real polling loop.
 func newConnectionTestApp(t *testing.T) (*mobileApp, <-chan func()) {
 	t.Helper()
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	posts := make(chan func(), 16)
 	cx := core.NewRoot(core.RootOptions{CheckCommits: true, Post: func(fn func()) { posts <- fn }})
 	t.Cleanup(cx.Dispose)

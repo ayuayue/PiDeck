@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-lite/internal/remotewire"
-	"example.com/pideck-lite/internal/volcvoice"
+	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck-v2/internal/volcvoice"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -28,7 +28,7 @@ func TestRemoteVoice(t *testing.T) {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	raw, err := json.Marshal(config{Version: 1, VoiceAppID: "app", VoiceAccessToken: "token"})
 	if err != nil {
 		t.Fatal(err)

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"example.com/pideck-lite/internal/relaywire"
+	"example.com/pideck-v2/internal/relaywire"
 )
 
 // TestRelayCertificateStable checks that the pinned fingerprint survives a

@@ -23,7 +23,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/viewkit"
 )
 
 // piUsage is the usage a provider reports for one assistant response.

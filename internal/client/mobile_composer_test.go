@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-lite/internal/remotewire"
+	"example.com/pideck-v2/internal/remotewire"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
@@ -41,7 +41,7 @@ type fakeComposerDesktop struct {
 func newComposerDesktop(t *testing.T, sessions ...remotewire.Session) *fakeComposerDesktop {
 	t.Helper()
 	d := &fakeComposerDesktop{token: "phone-token", sessions: len(sessions)}
-	state := remotewire.Snapshot{Name: "PiDeck Lite", Host: "desk", Projects: []remotewire.Project{{
+	state := remotewire.Snapshot{Name: "PiDeck V2", Host: "desk", Projects: []remotewire.Project{{
 		Path: "/tmp/project", Name: "电脑项目", Sessions: sessions,
 	}}}
 	mux := http.NewServeMux()
@@ -55,7 +55,7 @@ func newComposerDesktop(t *testing.T, sessions ...remotewire.Session) *fakeCompo
 	reply := func(w http.ResponseWriter, v any) { _ = json.NewEncoder(w).Encode(v) }
 	mux.HandleFunc("/api/ping", func(w http.ResponseWriter, r *http.Request) {
 		if check(w, r) {
-			reply(w, map[string]any{"name": "PiDeck Lite", "host": "desk"})
+			reply(w, map[string]any{"name": "PiDeck V2", "host": "desk"})
 		}
 	})
 	mux.HandleFunc("/api/state", func(w http.ResponseWriter, r *http.Request) {
@@ -208,9 +208,9 @@ func newComposerDesktop(t *testing.T, sessions ...remotewire.Session) *fakeCompo
 // open connects the app to this desktop and waits for the project list.
 func (d *fakeComposerDesktop) open(t *testing.T, app **nsgotest.App) {
 	t.Helper()
-	t.Setenv("PIDECK_LITE_MOBILE", "1")
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
-	t.Setenv("PIDECK_LITE_LANG", "zh-CN")
+	t.Setenv("PIDECK_V2_MOBILE", "1")
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_LANG", "zh-CN")
 	*app = nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
 	(*app).WaitFor("id:mobile-server", 10*time.Second)
 	(*app).Type("id:mobile-server", d.server.URL)

@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-lite/internal/remotewire"
+	"example.com/pideck-v2/internal/remotewire"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 	qrcode "github.com/skip2/go-qrcode"
@@ -27,7 +27,7 @@ import (
 // TestMobileConnect drives the phone screen against a fake desktop.
 func TestMobileConnect(t *testing.T) {
 	const token = "phone-token"
-	state := remotewire.Snapshot{Name: "PiDeck Lite", Version: "0.2.0", Host: "desk", Projects: []remotewire.Project{{
+	state := remotewire.Snapshot{Name: "PiDeck V2", Version: "0.2.0", Host: "desk", Projects: []remotewire.Project{{
 		Path: "/tmp/project", Name: "电脑项目", Sessions: []remotewire.Session{
 			{ID: "s1", Title: "电脑上的会话", Status: "idle", Updated: time.Now().UnixMilli()},
 		},
@@ -42,8 +42,8 @@ func TestMobileConnect(t *testing.T) {
 	server := newTestHTTPServer(t, token, state, transcript)
 	defer server.Close()
 
-	t.Setenv("PIDECK_LITE_MOBILE", "1")
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_MOBILE", "1")
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	app := nsgotest.Start(t, Root, nsgotest.Size(420, 860))
 	app.WaitFor("id:mobile-server", 10*time.Second)
 	shot(app, "59-mobile-connect")
@@ -73,14 +73,14 @@ func TestMobileConnect(t *testing.T) {
 
 func TestMobileConnectUsesEnteredTokenOverLinkToken(t *testing.T) {
 	const token = "fresh-connect-token"
-	state := remotewire.Snapshot{Name: "PiDeck Lite", Host: "desk", Projects: []remotewire.Project{{
+	state := remotewire.Snapshot{Name: "PiDeck V2", Host: "desk", Projects: []remotewire.Project{{
 		Path: "/tmp/project", Name: "新令牌连接", Sessions: []remotewire.Session{{ID: "s1", Title: "连接会话"}},
 	}}}
 	server := newTestHTTPServer(t, token, state, remotewire.Transcript{ID: "s1"})
 	defer server.Close()
 
-	t.Setenv("PIDECK_LITE_MOBILE", "1")
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_MOBILE", "1")
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	app := nsgotest.Start(t, Root, nsgotest.Size(420, 860))
 	app.WaitFor("id:mobile-server", 10*time.Second)
 	app.Type("id:mobile-server", server.URL+"?token=expired-token")
@@ -97,8 +97,8 @@ func TestMobilePasteConnectUsesTokenFromLink(t *testing.T) {
 	}))
 	defer server.Close()
 
-	t.Setenv("PIDECK_LITE_MOBILE", "1")
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_MOBILE", "1")
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	app := nsgotest.Start(t, Root, nsgotest.Size(420, 860))
 	app.WaitFor("id:mobile-token", 10*time.Second)
 	app.Type("id:mobile-token", "stale-token")
@@ -122,8 +122,8 @@ func TestMobilePasteAddressKeepsEnteredToken(t *testing.T) {
 	}))
 	defer server.Close()
 
-	t.Setenv("PIDECK_LITE_MOBILE", "1")
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_MOBILE", "1")
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	app := nsgotest.Start(t, Root, nsgotest.Size(420, 860))
 	app.WaitFor("id:mobile-token", 10*time.Second)
 	app.Type("id:mobile-token", "manual-token")
@@ -152,7 +152,7 @@ func newTestHTTPServer(t *testing.T, token string, state remotewire.Snapshot, tr
 	}
 	mux.HandleFunc("/api/ping", func(w http.ResponseWriter, r *http.Request) {
 		if check(w, r) {
-			_ = json.NewEncoder(w).Encode(map[string]any{"name": "PiDeck Lite", "host": "desk"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"name": "PiDeck V2", "host": "desk"})
 		}
 	})
 	mux.HandleFunc("/api/state", func(w http.ResponseWriter, r *http.Request) {
@@ -250,14 +250,14 @@ func TestReadScanImageBoundsGalleryInput(t *testing.T) {
 // making the user take a separate photo first.
 func TestMobileLiveScanConnects(t *testing.T) {
 	const token = "scan-token"
-	state := remotewire.Snapshot{Name: "PiDeck Lite", Host: "desk", Projects: []remotewire.Project{{
+	state := remotewire.Snapshot{Name: "PiDeck V2", Host: "desk", Projects: []remotewire.Project{{
 		Path: "/tmp/project", Name: "扫码项目", Sessions: []remotewire.Session{{ID: "s1", Title: "扫码会话"}},
 	}}}
 	server := newTestHTTPServer(t, token, state, remotewire.Transcript{ID: "s1"})
 	defer server.Close()
 
-	t.Setenv("PIDECK_LITE_MOBILE", "1")
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_MOBILE", "1")
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	app := nsgotest.Start(t, Root, nsgotest.Size(420, 860),
 		nsgotest.Environment(core.Environment{Camera: true, ScanCode: true}))
 	app.ScanCode = func(core.ScanRequest) (*core.ScannedCode, error) {
@@ -275,14 +275,14 @@ func TestMobileLiveScanConnects(t *testing.T) {
 // scanning an address-only code.
 func TestMobileLiveScanWithoutTokenKeepsAddress(t *testing.T) {
 	const token = "manual-scan-token"
-	state := remotewire.Snapshot{Name: "PiDeck Lite", Host: "desk", Projects: []remotewire.Project{{
+	state := remotewire.Snapshot{Name: "PiDeck V2", Host: "desk", Projects: []remotewire.Project{{
 		Path: "/tmp/project", Name: "手动令牌项目", Sessions: []remotewire.Session{{ID: "s1", Title: "扫码会话"}},
 	}}}
 	server := newTestHTTPServer(t, token, state, remotewire.Transcript{ID: "s1"})
 	defer server.Close()
 
-	t.Setenv("PIDECK_LITE_MOBILE", "1")
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_MOBILE", "1")
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	app := nsgotest.Start(t, Root, nsgotest.Size(420, 860),
 		nsgotest.Environment(core.Environment{Camera: true, ScanCode: true}))
 	app.ScanCode = func(core.ScanRequest) (*core.ScannedCode, error) {
@@ -299,8 +299,8 @@ func TestMobileLiveScanWithoutTokenKeepsAddress(t *testing.T) {
 // TestMobileLiveScanCancel keeps the connect form usable when the scanner is
 // closed without reading a code.
 func TestMobileLiveScanCancel(t *testing.T) {
-	t.Setenv("PIDECK_LITE_MOBILE", "1")
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_MOBILE", "1")
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	app := nsgotest.Start(t, Root, nsgotest.Size(420, 860),
 		nsgotest.Environment(core.Environment{Camera: true, ScanCode: true}))
 	app.ScanCode = func(core.ScanRequest) (*core.ScannedCode, error) { return nil, nil }
@@ -321,8 +321,8 @@ func TestMobileLiveScanCancel(t *testing.T) {
 // TestMobileLiveScanError preserves a recoverable error and leaves paste and
 // photo-library alternatives on screen when camera permission is denied.
 func TestMobileLiveScanError(t *testing.T) {
-	t.Setenv("PIDECK_LITE_MOBILE", "1")
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_MOBILE", "1")
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	app := nsgotest.Start(t, Root, nsgotest.Size(420, 860),
 		nsgotest.Environment(core.Environment{Camera: true, ScanCode: true}))
 	app.ScanCode = func(core.ScanRequest) (*core.ScannedCode, error) {
@@ -339,8 +339,8 @@ func TestMobileLiveScanError(t *testing.T) {
 // TestMobileLiveScanRejectsUntrustedText checks that a scanned payload goes
 // through the same URL parser as pasted text.
 func TestMobileLiveScanRejectsUntrustedText(t *testing.T) {
-	t.Setenv("PIDECK_LITE_MOBILE", "1")
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_MOBILE", "1")
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	app := nsgotest.Start(t, Root, nsgotest.Size(420, 860),
 		nsgotest.Environment(core.Environment{Camera: true, ScanCode: true}))
 	app.ScanCode = func(core.ScanRequest) (*core.ScannedCode, error) {
@@ -358,7 +358,7 @@ func TestMobileLiveScanRejectsUntrustedText(t *testing.T) {
 // camera but do not expose NSGo's live scanner.
 func TestMobilePhotoScanFallback(t *testing.T) {
 	const token = "photo-scan-token"
-	state := remotewire.Snapshot{Name: "PiDeck Lite", Host: "desk", Projects: []remotewire.Project{{
+	state := remotewire.Snapshot{Name: "PiDeck V2", Host: "desk", Projects: []remotewire.Project{{
 		Path: "/tmp/project", Name: "拍照项目", Sessions: []remotewire.Session{{ID: "s1", Title: "拍照会话"}},
 	}}}
 	server := newTestHTTPServer(t, token, state, remotewire.Transcript{ID: "s1"})
@@ -371,8 +371,8 @@ func TestMobilePhotoScanFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	t.Setenv("PIDECK_LITE_MOBILE", "1")
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_MOBILE", "1")
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	app := nsgotest.Start(t, Root, nsgotest.Size(420, 860),
 		nsgotest.Environment(core.Environment{Camera: true, ScanCode: false}))
 	app.TakePhoto = func(core.PickRequest) (*core.PickedFile, error) {
@@ -387,8 +387,8 @@ func TestMobilePhotoScanFallback(t *testing.T) {
 }
 
 func TestMobileScanWithoutCameraExplainsFallback(t *testing.T) {
-	t.Setenv("PIDECK_LITE_MOBILE", "1")
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_MOBILE", "1")
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	app := nsgotest.Start(t, Root, nsgotest.Size(420, 860),
 		nsgotest.Environment(core.Environment{}))
 	app.WaitFor("id:mobile-scan", 5*time.Second)
@@ -424,8 +424,8 @@ func TestRememberConnection(t *testing.T) {
 // TestMobileRecentConnections shows the servers the phone has used.
 func TestMobileRecentConnections(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_MOBILE", "1")
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_MOBILE", "1")
+	t.Setenv("PIDECK_V2_HOME", home)
 	raw, err := json.Marshal(mobileSaved{Recent: []mobileRecent{
 		{Server: "http://10.0.2.2:8787", Token: "a", Name: "caoayu", At: 2},
 		{Server: "http://100.64.0.8:8787", Token: "b", Name: "笔记本", At: 1},
@@ -449,15 +449,15 @@ func TestMobileRecentConnections(t *testing.T) {
 // restarting: the saved link alone does not fill the list.
 func TestMobileRecentAfterConnect(t *testing.T) {
 	const token = "phone-token"
-	state := remotewire.Snapshot{Name: "PiDeck Lite", Host: "desk", Projects: []remotewire.Project{{
+	state := remotewire.Snapshot{Name: "PiDeck V2", Host: "desk", Projects: []remotewire.Project{{
 		Path: "/tmp/project", Name: "电脑项目", Sessions: []remotewire.Session{{ID: "s1", Title: "电脑上的会话"}},
 	}}}
 	server := newTestHTTPServer(t, token, state, remotewire.Transcript{ID: "s1"})
 	defer server.Close()
 
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_MOBILE", "1")
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_MOBILE", "1")
+	t.Setenv("PIDECK_V2_HOME", home)
 	raw, err := json.Marshal(mobileSaved{Server: server.URL, Token: token})
 	if err != nil {
 		t.Fatal(err)
@@ -486,7 +486,7 @@ func TestMobileAsk(t *testing.T) {
 	var mu sync.Mutex
 	ask := &remotewire.Ask{Method: "confirm", Title: "允许运行 go test？", Message: "桌面在等你"}
 	var answered map[string]any
-	state := remotewire.Snapshot{Name: "PiDeck Lite", Host: "desk", Projects: []remotewire.Project{{
+	state := remotewire.Snapshot{Name: "PiDeck V2", Host: "desk", Projects: []remotewire.Project{{
 		Path: "/tmp/project", Name: "电脑项目", Sessions: []remotewire.Session{{ID: "s1", Title: "电脑上的会话"}},
 	}}}
 	check := func(w http.ResponseWriter, r *http.Request) bool {
@@ -499,7 +499,7 @@ func TestMobileAsk(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/ping", func(w http.ResponseWriter, r *http.Request) {
 		if check(w, r) {
-			_ = json.NewEncoder(w).Encode(map[string]any{"name": "PiDeck Lite", "host": "desk"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"name": "PiDeck V2", "host": "desk"})
 		}
 	})
 	mux.HandleFunc("/api/state", func(w http.ResponseWriter, r *http.Request) {
@@ -530,8 +530,8 @@ func TestMobileAsk(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	t.Setenv("PIDECK_LITE_MOBILE", "1")
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_MOBILE", "1")
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	app := nsgotest.Start(t, Root, nsgotest.Size(420, 860))
 	app.WaitFor("id:mobile-server", 10*time.Second)
 	app.Type("id:mobile-server", server.URL)

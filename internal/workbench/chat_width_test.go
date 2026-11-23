@@ -128,7 +128,7 @@ func TestChatWidthPctSlider(t *testing.T) {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
 	home := editorWorkspace(t)
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	t.Cleanup(closeAllPi)
 	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
 	app.WaitFor("id:welcome-chat", 10*time.Second)
@@ -292,7 +292,7 @@ func columnsMatchPercent(app *nsgotest.App, pct int) bool {
 // large monitor gets a readable width instead of one long line.
 func TestChatColumnCappedOnWideWindow(t *testing.T) {
 	home, dir := t.TempDir(), t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	raw, err := json.Marshal(config{Version: 1, Workspaces: []workspaceCfg{{Path: dir, Name: "Wide"}},
 		Theme: "system", SidebarOpen: true})
 	if err != nil {

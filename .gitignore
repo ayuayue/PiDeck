@@ -1,7 +1,7 @@
 # Build output
 /dist/
-/pideck-lite.exe
-/pideck-lite
+/pideck-v2.exe
+/pideck-v2
 *.syso
 
 # NSGo test and dev artifacts

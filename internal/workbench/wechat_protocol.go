@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-lite/internal/appinfo"
+	"example.com/pideck-v2/internal/appinfo"
 )
 
 const wechatBase = "https://ilinkai.weixin.qq.com"
@@ -132,7 +132,7 @@ func (c wechatClient) request(ctx context.Context, method, path string, body any
 func wechatInfo() map[string]string {
 	// Tencent defines this as the channel implementation version, not a
 	// protocol revision. Do not impersonate another client's app ID/version.
-	return map[string]string{"channel_version": appinfo.Version, "bot_agent": "PiDeck-Lite"}
+	return map[string]string{"channel_version": appinfo.Version, "bot_agent": "PiDeck-V2"}
 }
 func (c wechatClient) updates(ctx context.Context, cursor string) (wechatUpdates, error) {
 	var out wechatUpdates

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-lite/internal/crashlog"
+	"example.com/pideck-v2/internal/crashlog"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -36,7 +36,7 @@ func readConfig(t *testing.T, dir string) config {
 func TestPanelAndPageStatePersist(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	raw, err := json.Marshal(config{Version: 1, Theme: "system", SidebarOpen: true, DrawerOpen: true,
 		Workspaces: []workspaceCfg{{Path: workspace, Expanded: true, Added: time.Now()}}})
 	if err != nil {
@@ -117,8 +117,8 @@ func TestPanelAndPageStatePersist(t *testing.T) {
 func TestImportTabPersists(t *testing.T) {
 	home := t.TempDir()
 	store := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
-	t.Setenv("PIDECK_LITE_IMPORT_CLAUDE_DIR", store)
+	t.Setenv("PIDECK_V2_HOME", home)
+	t.Setenv("PIDECK_V2_IMPORT_CLAUDE_DIR", store)
 	dir := filepath.Join(store, "--x--")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
@@ -153,7 +153,7 @@ func TestImportTabPersists(t *testing.T) {
 // with, and that a size too small to be a window is ignored.
 func TestWindowFrameIsRemembered(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	// A test binary shares one record of the data folder; a start reads it
 	// before any app exists, so clear it here.
 	crashlog.SetDataDir("")

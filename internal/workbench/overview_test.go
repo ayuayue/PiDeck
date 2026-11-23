@@ -19,7 +19,7 @@ func TestOverviewCopyID(t *testing.T) {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	app := startApp(t, workspaceWith(t), 1320, 860)
 	waitApp(app, "id:pi-ready", 90*time.Second)
 	raw, err := os.ReadFile(filepath.Join(home, "config.json"))

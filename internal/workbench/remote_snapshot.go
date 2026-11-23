@@ -12,9 +12,9 @@ import (
 	"os"
 	"strings"
 
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/remotewire"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck-v2/internal/viewkit"
 )
 
 // remoteAskOf is the question a session is waiting on, if any.
@@ -41,7 +41,7 @@ func remoteAskOf(s *session) *remotewire.Ask {
 func (a *app) remoteSnapshot() (remotewire.Snapshot, error) {
 	var out remotewire.Snapshot
 	host, _ := os.Hostname()
-	out.Name, out.Version, out.Host = "PiDeck Lite", pideckVersion, host
+	out.Name, out.Version, out.Host = "PiDeck V2", pideckVersion, host
 	ok := a.withUI(func() {
 		for _, ws := range a.workspaces.GetUntracked() {
 			a.scanProject(ws)

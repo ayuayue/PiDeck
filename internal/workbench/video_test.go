@@ -81,8 +81,8 @@ func TestVideoProtocolAndArtifact(t *testing.T) {
 
 func TestVideoQueuePersistsWithoutResubmitting(t *testing.T) {
 	home, cfgDir := t.TempDir(), t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
-	t.Setenv("PIDECK_LITE_PI_CONFIG", cfgDir)
+	t.Setenv("PIDECK_V2_HOME", home)
+	t.Setenv("PIDECK_V2_PI_CONFIG", cfgDir)
 	submits := 0
 	var origin string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

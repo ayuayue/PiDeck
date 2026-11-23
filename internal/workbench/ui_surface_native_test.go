@@ -29,7 +29,7 @@ func TestNativeChatDrawerScreens(t *testing.T) {
 	if nsgotest.Target() == "" {
 		t.Skip("native screenshot fixture")
 	}
-	t.Setenv("PIDECK_LITE_PI_CONFIG", t.TempDir())
+	t.Setenv("PIDECK_V2_PI_CONFIG", t.TempDir())
 	_, screen, _ := startNativeSurfaceApp(t)
 	screen.WaitFor("id:chat-transcript", 5*time.Second)
 	screen.WaitFor("text:入口已经连通。", 5*time.Second)
@@ -54,7 +54,7 @@ func TestNativeSessionRenameDialogScreen(t *testing.T) {
 	if nsgotest.Target() == "" {
 		t.Skip("native screenshot fixture")
 	}
-	t.Setenv("PIDECK_LITE_PI_CONFIG", t.TempDir())
+	t.Setenv("PIDECK_V2_PI_CONFIG", t.TempDir())
 	built, screen, sess := startNativeSurfaceApp(t)
 	onNativeUI(t, screen, built, func() { built.askRename(sess) })
 	screen.WaitFor("id:rename", 5*time.Second)
@@ -189,7 +189,7 @@ func TestNativeComposerAndContextMenus(t *testing.T) {
 	if nsgotest.Target() == "" {
 		t.Skip("native screenshot fixture")
 	}
-	t.Setenv("PIDECK_LITE_PI_CONFIG", t.TempDir())
+	t.Setenv("PIDECK_V2_PI_CONFIG", t.TempDir())
 	_, screen, _ := startNativeSurfaceApp(t)
 	screen.RightClick("text:入口已经连通。")
 	screen.WaitFor("role:menuitem 收藏这条回复", 5*time.Second)
@@ -234,6 +234,7 @@ func TestNativeWorkspaceTabScreens(t *testing.T) {
 	if len(favorites) != 1 || favorites[0].SessionID != sess.ID || !strings.Contains(favorites[0].Text, "入口已经连通。") {
 		t.Fatalf("the reply menu saved the wrong answer: %+v", favorites)
 	}
+	screen.Press("id:rail-more")
 	screen.Press("id:rail-favorites")
 	screen.WaitFor("id:"+favoriteKeyDown(favorites[0]), 5*time.Second)
 	shot(screen, "comparison/favorites")
@@ -267,9 +268,9 @@ func TestNativeWorkspaceTabScreens(t *testing.T) {
 func startNativeSurfaceApp(t *testing.T) (*app, *nsgotest.App, *session) {
 	t.Helper()
 	home, project := t.TempDir(), t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
-	t.Setenv("PIDECK_LITE_PI_CONFIG", t.TempDir())
-	t.Setenv("PIDECK_LITE_LANG", "zh-CN")
+	t.Setenv("PIDECK_V2_HOME", home)
+	t.Setenv("PIDECK_V2_PI_CONFIG", t.TempDir())
+	t.Setenv("PIDECK_V2_LANG", "zh-CN")
 	if err := os.WriteFile(filepath.Join(project, "readme.md"), []byte("# Local fixture\n\nA file for the drawer view."), 0o600); err != nil {
 		t.Fatal(err)
 	}

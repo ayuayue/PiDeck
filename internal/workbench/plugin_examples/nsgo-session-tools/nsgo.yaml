@@ -1,5 +1,5 @@
-name: Lite Session Tools Example
-id: dev.pideck.lite.examples.session-tools
+name: V2 Session Tools Example
+id: dev.pideck.v2.examples.session-tools
 version: 1.0.0
 build_number: 1
 capabilities:

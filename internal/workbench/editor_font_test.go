@@ -31,7 +31,7 @@ func TestNormalizeEditorFont(t *testing.T) {
 
 func TestEditorFontSetting(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	var built *app
 	nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		built = newApp(cx)

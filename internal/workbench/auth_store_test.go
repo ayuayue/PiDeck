@@ -16,7 +16,7 @@ import (
 
 func TestAuthEntries(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("PIDECK_LITE_PI_CONFIG", dir)
+	t.Setenv("PIDECK_V2_PI_CONFIG", dir)
 	path := filepath.Join(dir, "auth.json")
 	body := `{
   "anthropic": {"type": "api_key", "key": "sk-abcdef1234"},
@@ -80,7 +80,7 @@ func TestAuthKeyDialog(t *testing.T) {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
 	dir := t.TempDir()
-	t.Setenv("PIDECK_LITE_PI_CONFIG", dir)
+	t.Setenv("PIDECK_V2_PI_CONFIG", dir)
 	path := filepath.Join(dir, "auth.json")
 	body := `{"anthropic": {"type": "api_key", "key": "sk-old-1111"}, "openai": {"type": "oauth", "access": "tok"}}`
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {

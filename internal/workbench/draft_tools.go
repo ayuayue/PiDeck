@@ -3,7 +3,7 @@
 package workbench
 
 import (
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 )
 

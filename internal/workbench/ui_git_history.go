@@ -5,16 +5,16 @@ package workbench
 // The commits that touched one file.
 
 import (
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/viewkit"
-	"github.com/nsgo-dev/nsgo/base"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// gitFileHistoryDialog lists a file's commits; a press opens its patch.
-func (a *app) gitFileHistoryDialog() core.Node {
+// fileHistoryPane lists a file's commits; a press opens the commit's patch
+// beside it.
+func (a *app) fileHistoryPane() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
 		_ = a.gitFileHistoryRev.Get()
@@ -25,11 +25,8 @@ func (a *app) gitFileHistoryDialog() core.Node {
 		for _, c := range commits {
 			c := c
 			rows = append(rows, core.View{
-				OnPress: func(core.PressEvent) {
-					a.gitFileHistoryOpen.Set(false)
-					a.gitShowCommit(c)
-				},
-				Role: core.RoleButton, Label: c.Short + " " + c.Subject, TestID: "git-history-row",
+				OnPress: func(core.PressEvent) { a.gitShowCommit(c) },
+				Role:    core.RoleButton, Label: c.Short + " " + c.Subject, TestID: "git-history-row",
 				StyleFunc: func() core.Style {
 					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(32),
 						Padding: core.Symmetric(0, 6), CornerRadius: 6, Transition: viewkit.PressMotion,
@@ -53,21 +50,14 @@ func (a *app) gitFileHistoryDialog() core.Node {
 			body = core.Text{Content: apptext.T("还没有改过这个文件。"), Style: core.Style{FontSize: 11, Padding: core.All(8)},
 				StyleFunc: ui.Colored(colors.Faint)}
 		default:
-			body = core.Scroll{Style: core.Style{MaxHeight: core.Pt(400)}, Children: []core.Node{
+			body = core.Scroll{Style: ui.FillRest, Children: []core.Node{
 				core.View{Style: core.Style{Gap: 1}, Children: rows}}}
 		}
-		return ui.Dialog{
-			Open:         a.gitFileHistoryOpen.Get,
-			OnOpenChange: func(open bool, _ base.Reason) { a.gitFileHistoryOpen.Set(open) },
-			Title:        apptext.T("文件历史"),
-			Description:  a.gitFileHistoryPath.Get(),
-			TestID:       "git-file-history-dialog",
-			Style:        core.Style{Width: a.dialogWidth(), MaxHeight: core.Pt(560)},
-			Children:     []core.Node{body},
-			Footer: []core.Node{
-				ui.Button{Text: apptext.T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "git-history-close",
-					OnPress: func() { a.gitFileHistoryOpen.Set(false) }},
-			},
-		}
+		return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)},
+			Children: []core.Node{
+				a.paneHeader("文件历史", a.gitFileHistoryPath.Get()),
+				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Padding: core.Symmetric(10, 0)},
+					Children: []core.Node{body}},
+			}}
 	})
 }

@@ -10,7 +10,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"example.com/pideck-lite/assets"
+	"example.com/pideck-v2/assets"
 )
 
 // pideckSkillPath is the skill directory passed to pi with --skill, "" when
@@ -23,7 +23,7 @@ func installBundledSkills() {
 		return
 	}
 	writeBundledSkill(filepath.Join(dir, "skills", "mcp-setup"), assets.SkillMCPSetup)
-	if path := writeBundledSkill(filepath.Join(dir, "pideck-skills", "pideck-lite"), assets.SkillPiDeck); path != "" {
+	if path := writeBundledSkill(filepath.Join(dir, "pideck-skills", "pideck-v2"), assets.SkillPiDeck); path != "" {
 		pideckSkillPath = filepath.Dir(path)
 	}
 }

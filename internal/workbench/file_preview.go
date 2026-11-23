@@ -2,192 +2,209 @@
 
 package workbench
 
+// Previews: a file the editor should not show as text opens in a dialog of
+// its own kind — rendered prose for Markdown, its own page for HTML and PDF,
+// the platform's picture and players for images, audio and video, and a
+// document's words or cells for .docx and .xlsx. Anything else says what it
+// is and offers the system's own application.
+
 import (
-	"bytes"
-	"encoding/csv"
-	"errors"
-	"io"
-	"os"
 	"path/filepath"
 	"strings"
-	"unicode/utf8"
+	"time"
 
-	"example.com/pideck-lite/internal/apptext"
-	"github.com/nsgo-dev/nsgo/base"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
+// The kinds of preview a file opens in. The names are what a preview state
+// holds, not a file format: one kind may cover many extensions.
 const (
-	csvPreviewRows  = 1000
-	csvPreviewCols  = 48
-	csvPreviewBytes = 2 << 20
+	previewTable    = "table"
+	previewMarkdown = "markdown"
+	previewHTML     = "html"
+	previewImage    = "image"
+	previewPDF      = "pdf"
+	previewAudio    = "audio"
+	previewVideo    = "video"
+	previewDocx     = "docx"
+	previewXLSX     = "xlsx"
+	previewOffice   = "office"
+	previewBinary   = "binary"
 )
 
+// previewKinds maps a file's extension to the preview that shows it. A file
+// whose extension is not here opens in the editor; one the editor refuses as
+// binary can still be opened with the system's application from its error.
+var previewKinds = map[string]string{
+	".csv": previewTable, ".tsv": previewTable,
+
+	".md": previewMarkdown, ".markdown": previewMarkdown,
+
+	".html": previewHTML, ".htm": previewHTML, ".xhtml": previewHTML,
+
+	".pdf": previewPDF,
+
+	".png": previewImage, ".jpg": previewImage, ".jpeg": previewImage, ".gif": previewImage,
+	".webp": previewImage, ".bmp": previewImage, ".ico": previewImage, ".svg": previewImage, ".svgz": previewImage,
+
+	".mp3": previewAudio, ".m4a": previewAudio, ".aac": previewAudio, ".wav": previewAudio,
+	".flac": previewAudio, ".ogg": previewAudio, ".oga": previewAudio, ".opus": previewAudio,
+
+	".mp4": previewVideo, ".m4v": previewVideo, ".mov": previewVideo, ".webm": previewVideo,
+	".mkv": previewVideo, ".avi": previewVideo, ".wmv": previewVideo,
+
+	".docx": previewDocx, ".xlsx": previewXLSX,
+
+	".doc": previewOffice, ".xls": previewOffice, ".ppt": previewOffice, ".pptx": previewOffice,
+	".wps": previewOffice, ".et": previewOffice, ".dps": previewOffice, ".odt": previewOffice,
+	".ods": previewOffice, ".odp": previewOffice, ".rtf": previewOffice, ".pages": previewOffice,
+	".numbers": previewOffice, ".key": previewOffice,
+
+	".zip": previewBinary, ".7z": previewBinary, ".rar": previewBinary, ".tar": previewBinary,
+	".gz": previewBinary, ".tgz": previewBinary, ".bz2": previewBinary, ".xz": previewBinary,
+	".zst": previewBinary, ".iso": previewBinary, ".dmg": previewBinary, ".pkg": previewBinary,
+	".exe": previewBinary, ".msi": previewBinary, ".deb": previewBinary, ".rpm": previewBinary,
+	".apk": previewBinary, ".ipa": previewBinary, ".jar": previewBinary, ".class": previewBinary,
+	".wasm": previewBinary, ".so": previewBinary, ".dll": previewBinary, ".dylib": previewBinary,
+	".o": previewBinary, ".a": previewBinary, ".lib": previewBinary, ".pyc": previewBinary,
+	".bin": previewBinary, ".dat": previewBinary, ".db": previewBinary, ".sqlite": previewBinary,
+	".sqlite3": previewBinary, ".ttf": previewBinary, ".otf": previewBinary, ".woff": previewBinary,
+	".woff2": previewBinary, ".psd": previewBinary, ".ai": previewBinary, ".sketch": previewBinary,
+	".fig": previewBinary,
+}
+
+// filePreviewKind is the preview a file opens in, "" for the editor.
+func filePreviewKind(path string) string {
+	return previewKinds[strings.ToLower(filepath.Ext(path))]
+}
+
+// filePreview is what a preview shows, and everything it read to show it.
 type filePreview struct {
 	path, kind, err string
 	loading         bool
-	rows            [][]string
-	columns         int
-	limited         bool
+
+	// text is a prose preview's body: Markdown as its file wrote it, or the
+	// words a document holds.
+	text string
+	// rows, columns and limited are a table preview's cells.
+	rows    [][]string
+	columns int
+	limited bool
+	// size and modified describe the file where the dialog says what it is.
+	size     int64
+	modified time.Time
 }
 
-func filePreviewKind(path string) string {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".csv", ".tsv":
-		return "table"
-	case ".mp4", ".m4v", ".mov", ".webm":
-		return "video"
-	case ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".wps", ".et", ".dps", ".odt", ".ods", ".odp":
-		return "office"
+// editable reports whether the editor may take a preview's file.
+func (p *filePreview) editable() bool {
+	switch p.kind {
+	case previewTable, previewMarkdown, previewHTML:
+		return true
 	}
-	return ""
+	return false
 }
 
-func readTablePreview(path string) (filePreview, error) {
-	p := filePreview{path: path, kind: "table"}
-	f, err := os.Open(path)
-	if err != nil {
-		return p, err
+// kindLabel says what the preview shows, under the file's name.
+func (p *filePreview) kindLabel() string {
+	switch p.kind {
+	case previewTable:
+		return apptext.T("表格预览")
+	case previewMarkdown:
+		return apptext.T("Markdown 预览")
+	case previewHTML:
+		return apptext.T("网页预览")
+	case previewPDF:
+		return apptext.T("PDF 预览")
+	case previewImage:
+		return apptext.T("图片预览")
+	case previewAudio:
+		return apptext.T("音频预览")
+	case previewVideo:
+		return apptext.T("视频预览")
+	case previewDocx:
+		return apptext.T("Word 文档")
+	case previewXLSX:
+		return apptext.T("Excel 工作表")
+	case previewOffice:
+		return apptext.T("Office 文档")
 	}
-	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, csvPreviewBytes+1))
-	if err != nil {
-		return p, err
-	}
-	if len(data) > csvPreviewBytes {
-		return p, errors.New(apptext.T("表格预览最多读取 2 MB。"))
-	}
-	if !utf8.Valid(data) || bytes.ContainsRune(data, 0) {
-		return p, errors.New(apptext.T("请选择 UTF-8 编码的表格。"))
-	}
-	r := csv.NewReader(bytes.NewReader(bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))))
-	if strings.EqualFold(filepath.Ext(path), ".tsv") {
-		r.Comma = '\t'
-	}
-	r.FieldsPerRecord = -1
-	for {
-		row, err := r.Read()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return p, err
-		}
-		if len(p.rows) >= csvPreviewRows {
-			p.limited = true
-			break
-		}
-		if len(row) > csvPreviewCols {
-			p.limited = true
-			row = row[:csvPreviewCols]
-		}
-		p.columns = max(p.columns, len(row))
-		p.rows = append(p.rows, row)
-	}
-	return p, nil
+	return apptext.T("文件信息")
 }
 
+// openFilePreview shows a file in the preview pane, reading what the kind
+// needs off the UI thread.
 func (a *app) openFilePreview(path, kind string) {
+	a.closePreviewAudio()
 	state := &filePreview{path: path, kind: kind, loading: true}
 	a.preview.Set(state)
+	if kind == previewAudio {
+		a.openPreviewAudio(path)
+	}
+	a.openPane(panePreview)
 	go func() {
-		p, err := *state, error(nil)
-		if kind == "table" {
-			p, err = readTablePreview(path)
-		} else if info, statErr := os.Stat(path); statErr != nil {
-			err = statErr
-		} else if !info.Mode().IsRegular() {
-			err = errors.New(apptext.T("找不到这个文件"))
-		}
-		p.loading = false
+		next, err := readFilePreview(path, kind)
+		next.loading = false
 		if err != nil {
-			p.err = err.Error()
+			next.err = err.Error()
 		}
 		a.cx.Post(func() {
 			if a.preview.GetUntracked() == state {
-				a.preview.Set(&p)
+				a.preview.Set(&next)
 			}
 		})
 	}()
 }
 
-func (a *app) filePreviewDialog() core.Node {
-	return core.Show{When: func() bool { return a.preview.Get() != nil }, Then: func(cx *core.Scope) core.Node {
-		return core.Dynamic(func(cx *core.Scope) core.Node {
-			p := a.preview.Get()
-			if p == nil {
-				return nil
-			}
-			colors := ui.ColorsOf(cx)
-			closePreview := func() { a.preview.Set(nil) }
-			var body core.Node
-			switch {
-			case p.loading:
-				body = ui.Spinner{Size: 16}
-			case p.err != "":
-				body = ui.Text(p.err, 12, ui.Regular, colors.Danger)
-			case p.kind == "table":
-				body = a.tablePreview(cx, p)
-			case p.kind == "video":
-				body = core.Video{Source: p.path, Controls: true, Paused: true,
-					Style: core.Style{Height: core.Pt(390)}, TestID: "video-preview", Label: filepath.Base(p.path),
-					OnError: func(err error) { a.toast(ui.ToastError, "无法播放此视频", err.Error()) }}
-			default:
-				body = ui.Text(apptext.T("使用系统关联的文档应用打开并编辑。"), 13, ui.Regular, colors.Muted)
-			}
-			var actions []core.Node
-			if !p.loading && p.err == "" {
-				if p.kind == "table" {
-					actions = append(actions, ui.Button{Text: apptext.T("编辑文本"), Variant: ui.ButtonSecondary, TestID: "preview-edit-text", OnPress: func() {
-						closePreview()
-						a.activePane.Set("")
-						a.editor.openFile(filepath.Dir(p.path), p.path)
-						a.rememberFile(p.path)
-					}})
-				}
-				actions = append(actions, ui.Button{Text: apptext.T("在系统应用中打开"), Variant: ui.ButtonSecondary,
-					TestID: "preview-open-native", OnPress: func() { a.cx.OpenURL(fileURL(p.path), nil) }})
-			}
-			actions = append(actions, ui.Button{Text: apptext.T("关闭"), Variant: ui.ButtonGhost, OnPress: closePreview})
-			return ui.Dialog{Title: filepath.Base(p.path), TestID: "file-preview", Style: core.Style{Width: a.dialogWidth()},
-				Open: func() bool { return a.preview.Get() != nil }, OnOpenChange: func(open bool, _ base.Reason) {
-					if !open {
-						closePreview()
-					}
-				}, Children: []core.Node{body}, Footer: actions}
-		})
-	}}
+// closeFilePreview closes the preview and whatever it was playing.
+func (a *app) closeFilePreview() {
+	a.preview.Set(nil)
+	a.closePreviewAudio()
 }
 
-func (a *app) tablePreview(cx *core.Scope, p *filePreview) core.Node {
-	colors := ui.ColorsOf(cx)
-	if len(p.rows) == 0 {
-		return ui.Text(apptext.T("表格为空"), 12, ui.Regular, colors.Muted)
-	}
-	const colWidth = 126
-	row := func(i int) core.Node {
-		values := p.rows[i]
-		cells := make([]core.Node, p.columns)
-		for col := range cells {
-			value := ""
-			if col < len(values) {
-				value = values[col]
-			}
-			cells[col] = core.Text{Content: value, MaxLines: 1, EllipsizeMode: core.EllipsizeTail, Selectable: core.SelectableOn,
-				Style: core.Style{Width: core.Pt(colWidth), FlexShrink: 0, Padding: core.Symmetric(6, 8), FontSize: 12,
-					Borders: core.Edges{Right: 1, Bottom: 1}, BorderColors: core.EdgeColors{Right: colors.Line(), Bottom: colors.Line()}}, StyleFunc: ui.Colored(colors.Text)}
+// editPreviewFile hands a preview's file to the editor.
+func (a *app) editPreviewFile(p *filePreview) {
+	a.closeFilePreview()
+	a.activePane.Set("")
+	a.editor.openFile(filepath.Dir(p.path), p.path)
+	a.rememberFile(p.path)
+}
+
+// previewPane is the preview as a split pane: the file's name and what
+// can be done with it above, its content filling the work area.
+func (a *app) previewPane() core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		colors := ui.ColorsOf(cx)
+		p := a.preview.Get()
+		if p == nil {
+			return core.View{Style: ui.FillRest}
 		}
-		return core.View{Style: core.Style{Direction: core.Row}, Children: cells}
-	}
-	return core.View{Style: core.Style{Gap: 6}, Children: []core.Node{
-		core.Scroll{Horizontal: true, Style: core.Style{Height: core.Pt(345)}, Children: []core.Node{
-			core.List{Style: core.Style{Width: core.Pt(core.Points(p.columns * colWidth)), Height: core.Pt(329)},
-				EstimatedSize: 28, Count: func() int { return len(p.rows) }, TestID: "csv-preview-rows",
-				Row: func(cx *core.Scope, item core.ListRow) core.Node { return row(item.Index()) }},
-		}},
-		core.Show{When: func() bool { return p.limited }, Then: func(cx *core.Scope) core.Node {
-			return ui.Text(apptext.T("仅预览前 %d 行、%d 列。", csvPreviewRows, csvPreviewCols), 11, ui.Regular, colors.Muted)
-		}},
-	}}
+		var body core.Node
+		switch {
+		case p.loading:
+			body = core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
+				Children: []core.Node{ui.Spinner{Size: 16, Label: apptext.T("正在读取文件…")}}}
+		case p.err != "":
+			body = core.View{Style: core.Style{FlexGrow: 1, Padding: core.All(16)},
+				Children: []core.Node{ui.Text(p.err, 12, ui.Regular, colors.Danger)}}
+		default:
+			body = a.previewBody(cx, p)
+		}
+		var actions []core.Node
+		if !p.loading && p.err == "" {
+			if p.editable() {
+				actions = append(actions, ui.Button{Text: apptext.T("编辑文本"), Variant: ui.ButtonSecondary,
+					TestID: "preview-edit-text", OnPress: func() { a.editPreviewFile(p) }})
+			}
+			actions = append(actions, ui.Button{Text: apptext.T("在系统应用中打开"), Variant: ui.ButtonSecondary,
+				TestID: "preview-open-native", OnPress: func() { a.cx.OpenURL(fileURL(p.path), nil) }})
+		}
+		return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)},
+			Children: []core.Node{
+				a.paneHeader(filepath.Base(p.path), p.kindLabel(), actions...),
+				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Padding: core.Symmetric(10, 0)},
+					Children: []core.Node{body}},
+			}}
+	})
 }

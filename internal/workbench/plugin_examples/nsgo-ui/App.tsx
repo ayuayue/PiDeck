@@ -1,6 +1,6 @@
 import { host, mount, signal, Storage, Text, View } from "nsgo";
 
-// This is a signed NSGo package example, not a Lite v2 manifest. The test
+// This is a signed NSGo package example, not a V2 v2 manifest. The test
 // host grants only context.read; no network, files, shell or session text.
 const project = signal("正在读取项目…");
 const status = signal("正在读取状态…");

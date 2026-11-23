@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/remotewire"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/remotewire"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -94,7 +94,7 @@ func TestRemoteSessionReading(t *testing.T) {
 
 // TestRemoteSettings shows the desktop's remote section.
 func TestRemoteSettings(t *testing.T) {
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	var built *app
 	root := func(cx *core.Scope) core.Node {
 		built = newApp(cx)
@@ -142,7 +142,7 @@ func TestRemoteSessionActions(t *testing.T) {
 		time.Sleep(200 * time.Millisecond)
 		_ = os.RemoveAll(workspace)
 	})
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	raw, err := json.Marshal(config{Version: 1, Workspaces: []workspaceCfg{{Path: workspace, Name: "ActionsProject"}},
 		Theme: "system", SidebarOpen: true, ScanPi: false})
 	if err != nil {
@@ -451,7 +451,7 @@ func TestRemoteRailLists(t *testing.T) {
 		time.Sleep(200 * time.Millisecond)
 		_ = os.RemoveAll(workspace)
 	})
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	apptext.SetLanguage(apptext.LangZhCN)
 	t.Cleanup(func() { apptext.SetLanguage(apptext.LangZhCN) })
 	write := func(name string, value any) {
@@ -628,7 +628,7 @@ func TestRemoteSearch(t *testing.T) {
 		time.Sleep(200 * time.Millisecond)
 		_ = os.RemoveAll(workspace)
 	})
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	// Session readers and child processes can keep a Windows handle briefly
 	// after the test. editorWorkspace retries its removal; t.TempDir does not.
 	t.Setenv("PI_CODING_AGENT_SESSION_DIR", editorWorkspace(t))

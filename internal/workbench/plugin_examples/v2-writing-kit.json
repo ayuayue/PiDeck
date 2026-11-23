@@ -1,11 +1,11 @@
 {
   "schemaVersion": 2,
-  "runtime": "pideck-lite",
-  "id": "lite-writing-kit",
+  "runtime": "pideck-v2",
+  "id": "v2-writing-kit",
   "name": "文档工作流示例",
   "version": "1.0.0",
   "description": "配置写作要求、准备文档提示词、选择文档智能体、切换配色；计划结束时显示会话大纲。",
-  "author": "PiDeck Lite",
+  "author": "PiDeck V2",
   "themes": [
     {
       "name": "示例文档紫",
@@ -24,8 +24,8 @@
     "commands": [
       {"id": "prepare", "title": "文档示例：准备使用指南", "icon": "file", "action": {"type": "insert", "prompt": "请根据项目现有实现，为${setting:audience}撰写${setting:style}。包含可运行示例=${setting:examples}，最多${setting:steps}步；说明前提、操作、预期结果和失败处理，不编造尚未实现的功能。"}},
       {"id": "outline", "title": "文档示例：显示会话大纲", "icon": "list", "action": {"type": "command", "command": "chat-outline"}},
-      {"id": "theme", "title": "文档示例：应用文档紫主题", "icon": "palette", "action": {"type": "theme", "theme": "plugin:lite-writing-kit:0"}},
-      {"id": "docs", "title": "文档示例：打开项目说明", "icon": "globe", "action": {"type": "url", "url": "https://github.com/ayuayue/PiDeck-Lite/blob/main/README.md"}}
+      {"id": "theme", "title": "文档示例：应用文档紫主题", "icon": "palette", "action": {"type": "theme", "theme": "plugin:v2-writing-kit:0"}},
+      {"id": "docs", "title": "文档示例：打开项目说明", "icon": "globe", "action": {"type": "url", "url": "https://github.com/ayuayue/PiDeck-V2/blob/main/README.md"}}
     ],
     "keybindings": [{"command": "prepare", "key": "mod+alt+d"}],
     "agents": [{"id": "writer", "name": "示例文档作者", "description": "从代码事实写出可复现的说明。", "prompt": "你是一名技术文档作者。先核实代码中的功能与约束，再面向目标读者给出前提、步骤、预期结果和失败处理；代码示例必须使用项目真实接口，明确区分已验证事实与建议。"}],

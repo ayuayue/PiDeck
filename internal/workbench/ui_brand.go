@@ -6,9 +6,9 @@ import (
 	"runtime"
 	"time"
 
-	"example.com/pideck-lite/assets"
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/assets"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -86,7 +86,7 @@ func (a *app) brand() core.Node {
 								LetterSpacing: 0.4, MinWidth: core.Pt(0), FlexShrink: 1}, StyleFunc: ui.Colored(colors.Text)},
 						core.View{Style: core.Style{Padding: core.Symmetric(1, 5), CornerRadius: 4, FlexShrink: 0,
 							BorderWidth: 1, BorderColor: colors.Border()}, Children: []core.Node{
-							ui.Text("lite", 9, ui.Regular, colors.Faint),
+							ui.Text("v2", 9, ui.Regular, colors.Faint),
 						}},
 					}},
 					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, MinWidth: core.Pt(0)}, Children: []core.Node{
@@ -170,7 +170,7 @@ func (a *app) brandInfo(cx *core.Scope) core.Node {
 					return resolveBrandName(a.cfg.AppDisplayName)
 				}, MaxLines: 2,
 					Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 16, LineHeight: 20, FontWeight: ui.Semibold}, StyleFunc: ui.Colored(colors.Text)},
-				core.Text{Content: "PiDeck Lite · v" + brandVersion(), TestID: "brand-app-version",
+				core.Text{Content: "PiDeck V2 · v" + brandVersion(), TestID: "brand-app-version",
 					Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Muted)},
 			}},
 		}},

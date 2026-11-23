@@ -13,14 +13,14 @@ import (
 	"math"
 	"time"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/tsx"
 	"github.com/nsgo-dev/nsgo/tsx/pkg"
 	_ "github.com/nsgo-dev/nsgo/tsx/ui"
 )
 
-const pluginPreviewID = "dev.pideck.lite.examples.session-tools"
+const pluginPreviewID = "dev.pideck.v2.examples.session-tools"
 
 // Compiled and signed by TestPluginPreviewBundleCurrent's explicit update
 // command. Compilers and private keys never enter the desktop binary.

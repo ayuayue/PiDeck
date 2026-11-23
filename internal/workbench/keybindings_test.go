@@ -95,7 +95,7 @@ func TestKeybindingRouter(t *testing.T) {
 	if nsgotest.Target() != "" {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
 	app.Key("mod+k")
 	app.WaitFor("text:搜索命令、会话或工作区…", 5*time.Second)

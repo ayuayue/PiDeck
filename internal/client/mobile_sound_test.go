@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-lite/internal/remotewire"
+	"example.com/pideck-v2/internal/remotewire"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
@@ -20,9 +20,9 @@ func TestMobileSoundSettings(t *testing.T) {
 	}
 	desk := newComposerDesktop(t, remotewire.Session{ID: "s1", Title: "电脑上的会话", Updated: time.Now().UnixMilli()})
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_MOBILE", "1")
-	t.Setenv("PIDECK_LITE_HOME", home)
-	t.Setenv("PIDECK_LITE_LANG", "zh-CN")
+	t.Setenv("PIDECK_V2_MOBILE", "1")
+	t.Setenv("PIDECK_V2_HOME", home)
+	t.Setenv("PIDECK_V2_LANG", "zh-CN")
 	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
 	app.WaitFor("id:mobile-server", 10*time.Second)
 	app.Type("id:mobile-server", desk.server.URL)

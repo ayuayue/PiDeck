@@ -13,7 +13,7 @@
 每次读取最多 200 行，由 `sessions.ts` 校验并汇总。宿主可收回这项权限，此时面板显示读取失败，函数返回错误。
 UI 也演示单个视图加载失败后的回退和关闭后的旧回复处理。
 
-从 PiDeck Lite 仓库根目录运行。
+从 PiDeck V2 仓库根目录运行。
 
 ```powershell
 go tool nsgo check internal/workbench/plugin_examples/nsgo-session-tools

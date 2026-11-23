@@ -1,11 +1,11 @@
 # Electron 会话设计语言对齐
 
-本轮以本地 Electron PiDeck dev v0.13.1 的实现与原生窗口截图为依据，校准 Lite 的
+本轮以本地 Electron PiDeck dev v0.13.1 的实现与原生窗口截图为依据，校准 V2 的
 会话阅读与输入主路径。它是视觉校准记录，不等同于整款应用逐像素复刻完成。
 
 ## 设计依据
 
-直接核对 Electron 仓库中的以下文件，而不是以 Lite 的现有数值反推原版：
+直接核对 Electron 仓库中的以下文件，而不是以 V2 的现有数值反推原版：
 
 - `src/renderer/src/styles/foundation.css`：系统字体栈、16 px 正文、1.6 行高、字号档位、
   纸面/白卡、正文与元信息颜色。
@@ -15,12 +15,12 @@
   消息/输入框同列，默认 80%。
 - `src/renderer/src/components/session/ComposerArea.tsx`：20 px 输入框圆角。
 
-同时查看了 `%TEMP%/pideck-lite-ui-compare/reference-final/reference-session-complete.png`
-与 Lite 原生会话截图。旧对照图内容不同，只用于确认视觉语言；本轮用固定数据补充回归。
+同时查看了 `%TEMP%/pideck-v2-ui-compare/reference-final/reference-session-complete.png`
+与 V2 原生会话截图。旧对照图内容不同，只用于确认视觉语言；本轮用固定数据补充回归。
 
 ## 已校准
 
-| 细节 | 原 Lite | 本轮 |
+| 细节 | 原 V2 | 本轮 |
 | --- | --- | --- |
 | 默认阅读比例 | 正文 15、列宽 60% | 正文 16、列宽 80%，已保存值不变 |
 | 字号预设 | 13 / 15 / 17 / 19 | 14 / 16 / 18 / 20，与原版两点步长一致 |
