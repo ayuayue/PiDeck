@@ -85,7 +85,7 @@ func (a *app) acpPresetManagerDialog() core.Node {
 		// The list lives in its own Dynamic so its rows arriving does not
 		// renumber the editor beside it: a field that changes identity
 		// mid-typing loses keystrokes.
-		rows := core.Dynamic(func(*core.Scope) core.Node {
+		rows := core.Dynamic(func(cx *core.Scope) core.Node {
 			var list []core.Node
 			for _, p := range a.acpManager.Get().presets {
 				list = append(list, row(p))
@@ -94,8 +94,8 @@ func (a *app) acpPresetManagerDialog() core.Node {
 				list = append(list, core.Text{Content: apptext.T("正在读取预设…"), Style: core.Style{FontSize: 11, Padding: core.Symmetric(6, 4)},
 					StyleFunc: ui.Colored(colors.Faint)})
 			}
-			return core.Scroll{TestID: "acp-preset-list", Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0), MaxHeight: core.Pt(430)},
-				Children: []core.Node{core.View{Style: core.Style{Gap: 1}, Children: list}}}
+			return a.scrollStashFor("acpPresetList:1").Bind(cx, core.Scroll{TestID: "acp-preset-list", Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0), MaxHeight: core.Pt(430)},
+				Children: []core.Node{core.View{Style: core.Style{Gap: 1}, Children: list}}})
 		})
 		list := core.View{Style: core.Style{Width: core.Pt(236), Gap: 4, FlexShrink: 0}, Children: []core.Node{
 			ui.Button{Text: apptext.T("新增预设"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "acp-preset-new",
