@@ -223,9 +223,11 @@ func (a *app) openPaneIDs() []string {
 // the active pane: switching tabs swaps the page without a frame of the
 // session behind it.
 //
-// Most panes use the chat's reading width. Settings gets the work area's
-// full measure because provider rows and configuration controls need room
-// for their labels, status and actions together.
+// Settings gets the work area's full measure: provider rows and
+// configuration controls need room for their labels, status and actions
+// together, and a page that follows the conversation's reading width
+// leaves them half empty. The other panes follow the chat column, except
+// the ones showing content a conversation column is too narrow for.
 func (a *app) paneView() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = a.langRev.Get()
@@ -234,19 +236,27 @@ func (a *app) paneView() core.Node {
 		if !ok || !p.Open() {
 			return core.View{Style: ui.FillRest}
 		}
-		maxWidth := core.Pct(float32(a.chatWidthPct()))
+		padding := core.Edges{Left: 20, Right: 20}
+		var maxWidth core.Length
 		switch p.ID {
-		case paneSettings, paneDiff, panePreview, paneFileHistory, paneBlame, paneReviewPatch, paneTranscriptImage, paneDelegation:
+		case paneSettings:
+			// The settings page takes the work area whole, its rail included:
+			// provider rows and their actions need the room. It also reads no
+			// reading width, so the width slider does not rebuild the page it
+			// is on while it moves.
+			padding = core.Edges{}
+		case paneDiff, panePreview, paneFileHistory, paneBlame, paneReviewPatch, paneTranscriptImage, paneDelegation:
 			// Pages that show content a conversation column is too narrow
-			// for: provider rows, patches, previews, long paths and a
-			// delegate's records.
+			// for: patches, previews, long paths and a delegate's records.
 			maxWidth = core.Pt(1320)
 		case paneTrajectory:
 			maxWidth = core.Pt(1100)
+		default:
+			maxWidth = core.Pct(float32(a.chatWidthPct()))
 		}
 		return core.View{TestID: p.TestID, StyleFunc: func() core.Style {
 			return core.Style{Direction: core.Column, FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), MinWidth: core.Pt(0),
-				AlignItems: core.AlignCenter, Padding: core.Edges{Left: 20, Right: 20},
+				AlignItems: core.AlignCenter, Padding: padding,
 				Background: colors.Background()}
 		}, Children: []core.Node{
 			core.View{TestID: "pane-column", StyleFunc: func() core.Style {

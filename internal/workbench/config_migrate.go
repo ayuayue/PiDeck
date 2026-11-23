@@ -19,22 +19,27 @@ import (
 const configVersion = 4
 
 // chatWidthPtMin and chatWidthPtMax were the old chat width slider's
-// range in points; they convert a config written before percentages.
+// range in points; they convert a config written before percentages. The
+// percentage that range mapped onto was 50 to 90, which stays the
+// conversion's upper end however far the slider reaches now.
 const (
 	chatWidthPtMin = 520
 	chatWidthPtMax = 1000
+	// chatWidthPctLegacyMax is the percentage chatWidthPtMax mapped onto.
+	chatWidthPctLegacyMax = 90
 )
 
 // chatWidthPctFromPoints maps the old reading width in points onto the
-// percentage range, rounding to the nearest whole percent.
+// percentage range it was stored against, rounding to the nearest whole
+// percent.
 func chatWidthPctFromPoints(pt int) int {
 	span := chatWidthPtMax - chatWidthPtMin
-	pct := chatWidthPctMin + ((pt-chatWidthPtMin)*(chatWidthPctMax-chatWidthPctMin)+span/2)/span
+	pct := chatWidthPctMin + ((pt-chatWidthPtMin)*(chatWidthPctLegacyMax-chatWidthPctMin)+span/2)/span
 	if pct < chatWidthPctMin {
 		pct = chatWidthPctMin
 	}
-	if pct > chatWidthPctMax {
-		pct = chatWidthPctMax
+	if pct > chatWidthPctLegacyMax {
+		pct = chatWidthPctLegacyMax
 	}
 	return pct
 }

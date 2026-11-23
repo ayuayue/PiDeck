@@ -266,11 +266,19 @@ func (a *app) setAlertKind(kind, name string) {
 }
 
 // setAlertVolume stores the volume the slider rests at, as a percentage.
+// The signal carries it to the row at once; only the file write waits for
+// the drag to rest.
 func (a *app) setAlertVolume(pct int) {
 	pct = min(100, max(0, pct))
 	a.cfg.SoundVolume = &pct
+	if a.alertVolumeSig != nil {
+		a.alertVolumeSig.Set(pct)
+	}
 	a.alertVolumeSeq++
 	seq := a.alertVolumeSeq
+	if a.st == nil {
+		return
+	}
 	a.cx.AfterFunc(300*time.Millisecond, func() {
 		if a.alertVolumeSeq != seq || a.st == nil {
 			return // still moving: the last value will be kept
@@ -282,9 +290,18 @@ func (a *app) setAlertVolume(pct int) {
 	})
 }
 
-// alertVolumePct is the slider's reading: the configured percentage, or
-// the default when the config has none.
+// alertVolumePct is the slider's reading: the volume the drag set, else the
+// configured percentage, else the default.
 func (a *app) alertVolumePct() int {
+	if a.alertVolumeSig != nil {
+		return a.alertVolumeSig.Get()
+	}
+	return a.configuredAlertVolumePct()
+}
+
+// configuredAlertVolumePct is the volume the config holds, for a test that
+// builds the app without its signals.
+func (a *app) configuredAlertVolumePct() int {
 	if a.cfg.SoundVolume != nil {
 		return min(100, max(0, *a.cfg.SoundVolume))
 	}

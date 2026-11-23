@@ -310,9 +310,11 @@ type app struct {
 	editorWrap *core.Signal[bool]
 	termFont   *core.Signal[float64]
 	editorFont *core.Signal[float64]
-	// chatWidthPctSig is the transcript's share of the window width, so a
-	// slider drag rebuilds the chat without touching the stored config.
+	// chatWidthPctSig is the transcript's share of the chat area, so a slider
+	// drag redraws the chat without touching the stored config;
+	// chatWidthSeq drops a pending write while the drag moves.
 	chatWidthPctSig *core.Signal[int]
+	chatWidthSeq    int
 	// axisHover is the ruler tick the pointer rests on, -1 for none, and
 	// axisHintIn whether its summary has had its first frame to ease in.
 	axisHover  *core.Signal[int]
@@ -360,7 +362,10 @@ type app struct {
 	// bgOpacitySeq numbers opacity changes, so only the last one settles the
 	// theme after a drag.
 	bgOpacitySeq int
-	llmFn        func(tool, system, prompt string, maxTokens int) (string, error)
+	// alertVolumeSig is the notification volume the slider shows, 0 to 100: the
+	// drag redraws its label from it without rebuilding the page around it.
+	alertVolumeSig *core.Signal[int]
+	llmFn          func(tool, system, prompt string, maxTokens int) (string, error)
 
 	byID map[string]*session
 	all  []*session

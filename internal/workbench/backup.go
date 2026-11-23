@@ -234,6 +234,7 @@ func (a *app) reloadSettingsAfterImport() {
 	a.bgOpacity.Set(a.backgroundOpacity())
 	a.applyBrand()
 	a.chatWidthPctSig.Set(a.cfg.ChatWidthPct)
+	a.alertVolumeSig.Set(a.configuredAlertVolumePct())
 	a.git.view.Set(a.gitChangesView())
 	a.applyLanguage()
 	a.applyFonts()

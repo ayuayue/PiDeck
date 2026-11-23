@@ -58,6 +58,7 @@ func newApp(cx *core.Scope) *app {
 		aiBusy:            core.NewSignal(cx, ""),
 		bgImage:           core.NewSignal(cx, ""),
 		bgOpacity:         core.NewSignal(cx, 0.8),
+		alertVolumeSig:    core.NewSignal(cx, defaultAlertVolume),
 		palette:           core.NewSignal(cx, false),
 		settings:          core.NewSignal(cx, false),
 		settingsTab:       core.NewSignal(cx, "env"),
@@ -449,6 +450,7 @@ func newApp(cx *core.Scope) *app {
 	a.bgOpacity.Set(a.backgroundOpacity())
 	a.loadAuth()
 	a.chatWidthPctSig.Set(a.cfg.ChatWidthPct)
+	a.alertVolumeSig.Set(a.configuredAlertVolumePct())
 	a.git.view.Set(a.gitChangesView())
 	a.editorWrap.Set(a.cfg.EditorWrap)
 	if a.cfg.TerminalFont > 0 {

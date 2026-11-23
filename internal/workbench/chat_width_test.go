@@ -138,6 +138,9 @@ func TestChatWidthPctSlider(t *testing.T) {
 	app.WaitFor("text:80%", 5*time.Second)
 
 	app.Drag("id:chat-width-thumb", core.Point{X: -60})
+	// The write waits for the drag to rest: the views already follow the
+	// signal, and one drag is one write rather than one per frame.
+	app.Advance(400 * time.Millisecond)
 	stored := 0
 	app.WaitUntil(5*time.Second, func() bool {
 		raw, err := os.ReadFile(filepath.Join(home, "config.json"))
@@ -211,11 +214,19 @@ func TestPaneWidthsFitTheirContent(t *testing.T) {
 		return float64(screen.Find("id:pane-column").Frame.Size.Width)
 	}
 
+	// Settings takes the work area whole: its column is wider than the
+	// chat reading width, and it owns no margin of its own either.
 	built.openSettingsPane()
 	screen.Advance(80 * time.Millisecond)
 	settingsWidth := check()
 	if settingsWidth <= want+2 {
 		t.Fatalf("settings pane is %.1f wide, want it to use more than the chat reading column %.1f", settingsWidth, want)
+	}
+	page := screen.Find("id:pane-column >> id:settings")
+	column := screen.Find("id:pane-column")
+	if diff := math.Abs(float64(page.Frame.Size.Width) - float64(column.Frame.Size.Width)); diff > 1 {
+		t.Fatalf("settings page is %.1f wide against its column's %.1f (off by %.1f): it should have no inset",
+			page.Frame.Size.Width, column.Frame.Size.Width, diff)
 	}
 
 	built.openTaskDialog()
@@ -287,14 +298,14 @@ func columnsMatchPercent(app *nsgotest.App, pct int) bool {
 	return true
 }
 
-// TestChatColumnCappedOnWideWindow keeps the input and the transcript from
-// stretching across a wide window: the column stops at chatColumnMax, so a
-// large monitor gets a readable width instead of one long line.
-func TestChatColumnCappedOnWideWindow(t *testing.T) {
+// TestChatColumnFillsTheChatAreaAtFullWidth checks the top of the width
+// slider: at 100% the transcript and the input take the chat area edge to
+// edge, less the padding the chat surface keeps, with no cap of their own.
+func TestChatColumnFillsTheChatAreaAtFullWidth(t *testing.T) {
 	home, dir := t.TempDir(), t.TempDir()
 	t.Setenv("PIDECK_V2_HOME", home)
 	raw, err := json.Marshal(config{Version: 1, Workspaces: []workspaceCfg{{Path: dir, Name: "Wide"}},
-		Theme: "system", SidebarOpen: true})
+		Theme: "system", SidebarOpen: true, ChatWidthPct: chatWidthPctMax})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -316,8 +327,16 @@ func TestChatColumnCappedOnWideWindow(t *testing.T) {
 	screen.Advance(100 * time.Millisecond)
 	screen.WaitFor("id:chat-start", 5*time.Second)
 	screen.WaitFor("id:composer-column", 5*time.Second)
-	if got := float64(screen.Find("id:composer-column").Frame.Size.Width); got > chatColumnMax+2 {
-		t.Fatalf("composer column is %.1f wide, want at most %d", got, chatColumnMax)
+
+	// The column takes what the chat surface has less the padding it keeps
+	// on each side; it no longer stops at a fixed reading width.
+	surface := float64(screen.Find("id:transcript").Frame.Size.Width)
+	want := surface - 2*chatSidePadding
+	if got := float64(screen.Find("id:composer-column").Frame.Size.Width); math.Abs(got-want) > 2 {
+		t.Fatalf("composer column is %.1f wide, want the chat area's %.1f minus padding", got, want)
+	}
+	if want <= 860 {
+		t.Fatalf("the chat area is %.1f wide, too narrow to prove the cap is gone", want)
 	}
 	// The empty state leaves room between the mark and the starter prompts,
 	// instead of stacking them on top of each other.
@@ -328,5 +347,39 @@ func TestChatColumnCappedOnWideWindow(t *testing.T) {
 	gap := float64(float64(prompts.Frame.Origin.Y) - (float64(logo.Frame.Origin.Y) + float64(logo.Frame.Size.Height)))
 	if gap < 30 {
 		t.Fatalf("gap between the mark and the starter prompts is %.1f, want at least 30", gap)
+	}
+}
+
+// TestChatWidthDragFollowsTheWholeMove keeps a drag on the width slider
+// from stopping after one step: the page used to rebuild on every change,
+// which replaced the slider under the finger and left a 120-point drag at
+// a two-point move. One drag has to land many percentage points away.
+func TestChatWidthDragFollowsTheWholeMove(t *testing.T) {
+	built, screen, _ := newAskApp(t)
+	built.settingsTab.Set("general")
+	built.openSettingsPane()
+	screen.Advance(200 * time.Millisecond)
+	screen.WaitFor("id:chat-width", 5*time.Second)
+
+	before := built.chatWidthPct()
+	thumb := screen.Find("id:chat-width-thumb")
+	if thumb.Frame.Origin.X < 60 {
+		t.Fatalf("the thumb starts at x=%.0f, too near the track's end to drag inward", thumb.Frame.Origin.X)
+	}
+	// One press, many moves: what a finger does, not sixty separate drags.
+	path := make([]core.Point, 0, 12)
+	for i := 1; i <= 12; i++ {
+		path = append(path, core.Point{X: core.Points(-5 * i)})
+	}
+	screen.Drag("id:chat-width-thumb", path...)
+	screen.Advance(400 * time.Millisecond)
+
+	got := built.chatWidthPct()
+	if moved := before - got; moved < 5 {
+		t.Fatalf("a %.0f-point drag moved the width %d%% -> %d%% (%d points): the slider did not follow the finger",
+			float64(-5*len(path)), before, got, moved)
+	}
+	if got < chatWidthPctMin || got > chatWidthPctMax {
+		t.Fatalf("width %d is outside %d-%d after the drag", got, chatWidthPctMin, chatWidthPctMax)
 	}
 }

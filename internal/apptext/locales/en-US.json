@@ -762,7 +762,7 @@
   "密钥已更新": "Key updated",
   "对话": "Chat",
   "对话内容宽度": "Chat content width",
-  "对话正文与输入框占窗口宽度的比例；窄一些更好读，宽一些能放下更多代码。": "Share of the window width the transcript and composer take; narrower reads better, wider fits more code.",
+  "对话正文与输入框占聊天区宽度的比例；窄一些更好读，100% 铺满。": "Share of the chat area the transcript and composer take; narrower reads better, 100% fills it.",
   "导入": "Import",
   "导入 %d 个": "Import %d",
   "导入 %d 个，失败 %d 个": "Imported %d, %d failed",

@@ -75,7 +75,7 @@ func (a *app) settingsGeneral() core.Node {
 							Label: apptext.T("语言"), TestID: "language-select",
 							Style: core.Style{Width: core.Pt(220), Height: core.Pt(28), FontSize: 11}}),
 					setDivider(),
-					setRow("内容宽度", "对话正文与输入框占窗口宽度的比例；窄一些更好读，宽一些能放下更多代码。",
+					setRow("内容宽度", "对话正文与输入框占聊天区宽度的比例；窄一些更好读，100% 铺满。",
 						core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Width: core.Pt(230)}, Children: []core.Node{
 							core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
 								ui.Slider{Min: chatWidthPctMin, Max: chatWidthPctMax, Step: 2,
@@ -85,7 +85,6 @@ func (a *app) settingsGeneral() core.Node {
 									TestID:    "chat-width",
 									OnChange: func(v float64) {
 										a.setChatWidthPct(int(v))
-										a.bumpSettings()
 									}},
 							}},
 							core.Text{ContentFunc: func() string { return fmt.Sprintf("%.0f%%", float64(a.chatWidthPct())) },
@@ -207,19 +206,20 @@ func (a *app) settingsGeneral() core.Node {
 					setRow("音量", "提示音的音量，0 为静音。",
 						core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Width: core.Pt(230)}, Children: []core.Node{
 							core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
-								ui.Slider{Min: 0, Max: 100, Step: 5,
+								ui.Slider{Min: 0, Max: 100, Step: 1,
 									Value:     func() float64 { return float64(a.alertVolumePct()) },
 									Label:     apptext.T("提示音音量"),
 									ValueText: func(v float64) string { return fmt.Sprintf("%.0f%%", v) },
 									TestID:    "sound-volume",
-									OnChange: func(v float64) {
-										a.setAlertVolume(int(v))
-										a.bumpSettings()
-									}},
+									// The row's label reads the volume signal, so a drag moves the
+									// thumb without the page rebuilding under it.
+									OnChange: func(v float64) { a.setAlertVolume(int(v)) }},
 							}},
-							core.Text{ContentFunc: func() string { return fmt.Sprintf("%d%%", a.alertVolumePct()) },
-								Style:     core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10.5, MinWidth: core.Pt(44), TextAlign: core.TextAlignRight},
-								StyleFunc: ui.Colored(colors.Muted)},
+							core.Dynamic(func(*core.Scope) core.Node {
+								return core.Text{ContentFunc: func() string { return fmt.Sprintf("%d%%", a.alertVolumePct()) },
+									Style:     core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10.5, MinWidth: core.Pt(44), TextAlign: core.TextAlignRight},
+									StyleFunc: ui.Colored(colors.Muted)}
+							}),
 						}}),
 					setDivider(),
 					setRow("自定义提示音", "导入一个 wav、mp3、m4a 或 aac 文件（不超过 2 MB），再在上面三行里选“自定义”。",

@@ -1369,7 +1369,7 @@
   "语言": "Langue",
   "界面文案；切换后立即生效，未翻译的条目保留中文。": "Texte d’interface ; il change d’un seul coup, et les éléments non traduits restent en chinois.",
   "内容宽度": "Largeur de contenu",
-  "对话正文与输入框占窗口宽度的比例；窄一些更好读，宽一些能放下更多代码。": "Part de la largeur de la fenêtre occupée par la transcription et le compositeur ; plus étroit se lit mieux, plus large contient plus de code.",
+  "对话正文与输入框占聊天区宽度的比例；窄一些更好读，100% 铺满。": "Part de la zone de discussion occupée par la transcription et le compositeur ; plus étroit se lit mieux, 100 % la remplit.",
   "对话内容宽度": "Largeur du contenu de chat",
   "跳到第 %d 轮": "Sautez pour tourner %d",
   "跟随系统": "Suivre le système",

@@ -5,6 +5,8 @@ package workbench
 // The chat: turns with their tools, the composer, and the empty state.
 
 import (
+	"time"
+
 	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -12,17 +14,14 @@ import (
 )
 
 // The reading width of the transcript and composer, as a share of the
-// window: a narrower column reads better on wide screens, and the upper
-// bound keeps the chat from filling the window edge to edge.
+// chat area: a narrower column reads better on wide screens, and 100% is
+// all of it.
 const (
 	chatWidthPctMin     = 50
-	chatWidthPctMax     = 90
+	chatWidthPctMax     = 100
 	chatWidthPctDefault = 80
 	chatSidePadding     = 20
 	chatColumnMin       = 360
-	// chatColumnMax bounds the column on a wide window: past it the input
-	// box gets too wide to scan and the lines too long to read.
-	chatColumnMax = 860
 )
 
 // chatPane is the conversation and its composer.
@@ -59,11 +58,7 @@ func (a *app) chatColumnWidth(surface core.Points) core.Length {
 	if available <= 0 {
 		return core.Pct(pct)
 	}
-	pct = min(100, max(pct, float32(100*chatColumnMin)/float32(available)))
-	if width := float32(available) * pct / 100; width > chatColumnMax {
-		return core.Pt(chatColumnMax)
-	}
-	return core.Pct(pct)
+	return core.Pct(min(100, max(pct, float32(100*chatColumnMin)/float32(available))))
 }
 
 // chatWidthPct is the transcript and composer's share of the window, the
@@ -82,8 +77,9 @@ func (a *app) dialogWidth() core.Length {
 	return core.Pct(float32(a.chatWidthPct()))
 }
 
-// setChatWidthPct narrows or widens the transcript and composer, and
-// keeps the choice; the default is stored as unset.
+// setChatWidthPct narrows or widens the transcript and composer; the
+// default is stored as unset. The views read the signal, so they follow a
+// drag at once, and only the file write waits for the value to rest.
 func (a *app) setChatWidthPct(pct int) {
 	if pct < chatWidthPctMin {
 		pct = chatWidthPctMin
@@ -97,9 +93,17 @@ func (a *app) setChatWidthPct(pct int) {
 		stored = 0
 	}
 	a.cfg.ChatWidthPct = stored
-	if a.st != nil {
-		a.st.edit(func(c *config) { c.ChatWidthPct = stored })
+	if a.st == nil {
+		return
 	}
+	a.chatWidthSeq++
+	seq := a.chatWidthSeq
+	a.cx.AfterFunc(300*time.Millisecond, func() {
+		if a.chatWidthSeq != seq || a.st == nil {
+			return // still moving: the last value will be kept
+		}
+		a.st.edit(func(c *config) { c.ChatWidthPct = stored })
+	})
 }
 
 // composerStack keeps the composer and its bars at the reading width.
