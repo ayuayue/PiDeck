@@ -37,6 +37,7 @@ go tool nsgo build -target windows_x64
 ```
 
 前置：使用 pi 后端时 PATH 里有 `pi`。应用用 `pi --mode rpc` 启动它，会话放在应用自己的目录里。
+桌面宿主按 `nsgo.yaml` 的 `id` 只跑一个实例：再次启动会把已有窗口带到前台，然后自己退出（macOS/Linux/Windows 都是这样，Windows 靠命名互斥和管道交棒）。开发时让开发版与打包版各占一个实例：`PIDECK_V2_INSTANCE=dev go tool nsgo dev`；否则开发版会被同 `id` 的已安装包接管，看到的是打包版的旧代码。
 也可选择 ACP 预设。DSH 使用外部 `dsh --profile acp`（npm 包 `@deepseek-ai/dsh`），不内嵌 DSH host；预设管理提供检测与安装入口。
 
 命令不用记，`go run ./scripts` 会列出所有常用操作：开发、构建单个或全部平台、启动 Android

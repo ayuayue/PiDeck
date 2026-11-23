@@ -32,6 +32,13 @@ func main() {
 		} else {
 			opts = append(opts, nsgo.WindowSize(1320, 860))
 		}
+		// One copy runs per app ID: a second launch hands itself to the first
+		// and exits. A key of its own keeps a development run beside the
+		// installed package, which otherwise swallows it and shows its own
+		// older code.
+		if key := os.Getenv("PIDECK_V2_INSTANCE"); key != "" {
+			opts = append(opts, nsgo.InstanceKey(key))
+		}
 	}
 	nsgo.Run(Root, opts...)
 	shutdownHosts()
