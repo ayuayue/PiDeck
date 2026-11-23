@@ -95,7 +95,8 @@ func newComposerDesktop(t *testing.T, sessions ...remotewire.Session) *fakeCompo
 			mode, backend := d.mode, d.backend
 			d.mu.Unlock()
 			reply(w, remotewire.Options{Model: "m1", Thinking: "low", Levels: []string{"low", "high"},
-				Models:  []remotewire.Model{{ID: "m1", Name: "模型一", Provider: "pi"}},
+				Models: []remotewire.Model{{ID: "m1", Name: "模型一", Provider: "pi"},
+					{ID: "gpt-5", Name: "GPT 模型", Provider: "openai"}},
 				Mode:    mode,
 				Backend: backend, BackendName: "pi",
 				Backends: []remotewire.Backend{{ID: "pi", Name: "pi"}, {ID: "acp:claude", Name: "ACP Claude"}},

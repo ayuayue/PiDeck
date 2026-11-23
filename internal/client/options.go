@@ -12,6 +12,7 @@ import (
 	"example.com/pideck-v2/internal/apptext"
 	"example.com/pideck-v2/internal/remotewire"
 	"example.com/pideck-v2/internal/viewkit"
+	"example.com/pideck-v2/internal/viewkit/brands"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -249,8 +250,8 @@ func (a *mobileApp) optionsSheet() core.Node {
 						},
 						Children: []core.Node{
 							core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 1}, Children: []core.Node{
-								core.Text{Content: model.Name, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-									Style: core.Style{FontSize: 13.5}, StyleFunc: ui.Colored(colors.Text)},
+								viewkit.BrandName(colors, brands.Model(model.ID, model.Provider), 14, core.Text{Content: model.Name, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+									Style: core.Style{FontSize: 13.5}, StyleFunc: ui.Colored(colors.Text)}),
 								core.Text{Content: model.Provider, MaxLines: 1, Style: core.Style{FontSize: 10},
 									StyleFunc: ui.Colored(colors.Faint)},
 							}},
@@ -303,6 +304,9 @@ func (a *mobileApp) backendSection(cx *core.Scope, opts remotewire.Options) core
 				return st
 			},
 			Children: []core.Node{
+				// The agent's mark says which one this backend starts; pi and a
+				// preset the set does not know keep their names alone.
+				brands.Mark(strings.TrimPrefix(backend.ID, "acp:"), 15, colors.Muted),
 				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 1}, Children: []core.Node{
 					core.Text{Content: backend.Name, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 						Style: core.Style{FontSize: 13.5}, StyleFunc: ui.Colored(colors.Text)},

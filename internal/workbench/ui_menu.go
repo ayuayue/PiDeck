@@ -14,6 +14,7 @@ import (
 
 	"example.com/pideck-v2/internal/apptext"
 	"example.com/pideck-v2/internal/viewkit"
+	"example.com/pideck-v2/internal/viewkit/brands"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -220,8 +221,8 @@ func (a *app) modelMenu(s *session, open *core.Signal[bool]) core.Node {
 						// The name over the path it comes by: supplier and the
 						// model id, which carries the routing group too.
 						core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 1}, Children: []core.Node{
-							core.Text{Content: modelLabel(m), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-								Style: core.Style{FontSize: 12.5, LineHeight: 17}, StyleFunc: ui.Colored(colors.Text)},
+							viewkit.BrandName(colors, brands.Model(m.ID, m.Provider), 13, core.Text{Content: modelLabel(m), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+								Style: core.Style{FontSize: 12.5, LineHeight: 17}, StyleFunc: ui.Colored(colors.Text)}),
 							core.Text{Content: modelPath(m), MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
 								Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9.5, LineHeight: 13}, StyleFunc: ui.Colored(colors.Faint)},
 						}},
@@ -258,16 +259,18 @@ func (a *app) modelMenu(s *session, open *core.Signal[bool]) core.Node {
 				}
 				groups[m.Provider] = append(groups[m.Provider], m)
 			}
-			groupHeader := func(text string) core.Node {
+			groupHeader := func(text, hint string) core.Node {
+				head := []core.Node{}
+				if mark := brands.Mark(hint, 12, colors.Muted); mark != nil {
+					head = append(head, mark)
+				}
+				head = append(head, core.Text{Content: text, Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9.5, LetterSpacing: 0.6},
+					StyleFunc: ui.Colored(colors.Faint)}, core.View{Style: core.Style{FlexGrow: 1, Height: core.Pt(1)}, StyleFunc: ui.Filled(colors.Line)})
 				return core.View{Style: core.Style{Padding: core.Symmetric(6, 8), Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6},
-					Children: []core.Node{
-						core.Text{Content: text, Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9.5, LetterSpacing: 0.6},
-							StyleFunc: ui.Colored(colors.Faint)},
-						core.View{Style: core.Style{FlexGrow: 1, Height: core.Pt(1)}, StyleFunc: ui.Filled(colors.Line)},
-					}}
+					Children: head}
 			}
 			if len(favs) > 0 {
-				rows = append(rows, groupHeader(apptext.T("★ 常用")))
+				rows = append(rows, groupHeader(apptext.T("★ 常用"), ""))
 				for _, m := range favs {
 					rows = append(rows, row(m))
 				}
@@ -280,7 +283,7 @@ func (a *app) modelMenu(s *session, open *core.Signal[bool]) core.Node {
 				return order[i] < order[j]
 			})
 			for _, p := range order {
-				rows = append(rows, groupHeader(p))
+				rows = append(rows, groupHeader(p, p))
 				for _, m := range groups[p] {
 					rows = append(rows, row(m))
 				}

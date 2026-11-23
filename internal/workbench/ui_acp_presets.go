@@ -12,6 +12,7 @@ import (
 
 	"example.com/pideck-v2/internal/apptext"
 	"example.com/pideck-v2/internal/viewkit"
+	"example.com/pideck-v2/internal/viewkit/brands"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -45,6 +46,14 @@ func (a *app) acpPresetManagerDialog() core.Node {
 				ink = colors.Faint
 			}
 			on := p.ID != "" && p.ID == selected
+			lead := []core.Node{
+				core.View{StyleFunc: func() core.Style {
+					return core.Style{Width: core.Pt(6), Height: core.Pt(6), CornerRadius: 3, Background: ink()}
+				}},
+				// The agent's mark, so the list reads as brands and not as ids;
+				// a preset the set does not know keeps the dot alone.
+				brands.Mark(p.ID, 15, colors.Muted),
+			}
 			return core.View{
 				OnPress: func(core.PressEvent) { a.editACPPreset(p) },
 				Role:    core.RoleButton, Label: p.Name, TestID: "acp-preset-row-" + p.ID,
@@ -56,10 +65,7 @@ func (a *app) acpPresetManagerDialog() core.Node {
 					}
 					return st
 				},
-				Children: []core.Node{
-					core.View{StyleFunc: func() core.Style {
-						return core.Style{Width: core.Pt(6), Height: core.Pt(6), CornerRadius: 3, Background: ink()}
-					}},
+				Children: append(lead,
 					core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 1}, Children: []core.Node{
 						core.Text{Content: p.Name, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 							Style: core.Style{FontSize: 12}, StyleFunc: ui.Colored(colors.Text)},
@@ -73,8 +79,7 @@ func (a *app) acpPresetManagerDialog() core.Node {
 						}
 						return core.View{Style: core.Style{Padding: core.Symmetric(1, 5), CornerRadius: 4, Background: colors.Inset()},
 							Children: []core.Node{ui.Text(label, 9, ui.Medium, colors.Faint)}}
-					}},
-				},
+					}}),
 			}
 		}
 		// The list lives in its own Dynamic so its rows arriving does not

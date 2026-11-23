@@ -7,6 +7,7 @@ import (
 
 	"example.com/pideck-v2/internal/apptext"
 	"example.com/pideck-v2/internal/viewkit"
+	"example.com/pideck-v2/internal/viewkit/brands"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -47,6 +48,9 @@ func (a *app) acpBadge(s *session) core.Node {
 				core.View{StyleFunc: func() core.Style {
 					return core.Style{Width: core.Pt(6), Height: core.Pt(6), CornerRadius: 3, Background: dot()}
 				}},
+				// The agent's mark says which one this session runs; a preset the
+				// set does not know keeps the dot and the name alone.
+				brands.Mark(s.acpPreset, 12, colors.Muted),
 				core.Text{Content: label, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 					Style: core.Style{FontSize: 11.5, MinWidth: core.Pt(0), FlexShrink: 1}, StyleFunc: ui.Colored(colors.Text)},
 				ui.Icon(lucide.ChevronDown, 9.5, colors.Faint),
@@ -205,6 +209,14 @@ func (a *app) acpDialog() core.Node {
 			def = ws.ACPPreset
 		}
 		var rows []core.Node
+		// glyph names the agent behind a preset: its brand when the set knows
+		// it, the generic one for a preset the user wrote.
+		glyph := func(preset acpPreset) core.Node {
+			if mark := brands.Mark(preset.ID, 15, colors.Muted); mark != nil {
+				return mark
+			}
+			return ui.Icon(lucide.Bot, 14, colors.Muted)
+		}
 		for _, p := range a.acpPresetList() {
 			preset := p
 			rows = append(rows, core.View{
@@ -220,7 +232,7 @@ func (a *app) acpDialog() core.Node {
 						Padding: core.Symmetric(4, 8), CornerRadius: 7, Hover: &core.Style{Background: colors.Hover()}}
 				},
 				Children: []core.Node{
-					ui.Icon(lucide.Bot, 14, colors.Muted),
+					glyph(preset),
 					core.View{Style: core.Style{FlexGrow: 1, Gap: 1}, Children: []core.Node{
 						core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5}, Children: []core.Node{
 							core.Text{Content: preset.Name, Style: core.Style{FontSize: 12.5}, StyleFunc: ui.Colored(colors.Text)},

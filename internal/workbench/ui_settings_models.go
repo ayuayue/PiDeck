@@ -107,8 +107,8 @@ func (a *app) providerRows() core.Node {
 				Padding: core.Symmetric(4, 2)}, Children: []core.Node{
 				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 2}, Children: []core.Node{
 					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
-						core.Text{Content: prov.ID, Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 12.5, FontWeight: ui.Semibold},
-							StyleFunc: ui.Colored(colors.Text)},
+						viewkit.BrandName(colors, prov.ID, 15, core.Text{Content: prov.ID, Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 12.5, FontWeight: ui.Semibold},
+							StyleFunc: ui.Colored(colors.Text)}),
 						ui.Text(meta, 10.5, ui.Regular, colors.Faint),
 						ui.Text(prov.API, 10, ui.Regular, colors.Faint),
 						core.Show{When: func() bool { return prov.Builtin }, Then: func(*core.Scope) core.Node {
