@@ -20,6 +20,9 @@ const (
 	chatWidthPctDefault = 80
 	chatSidePadding     = 20
 	chatColumnMin       = 360
+	// chatColumnMax bounds the column on a wide window: past it the input
+	// box gets too wide to scan and the lines too long to read.
+	chatColumnMax = 860
 )
 
 // chatPane is the conversation and its composer.
@@ -52,8 +55,13 @@ func (a *app) chatPane() core.Node {
 // for the transcript and input. Both still fit inside the chat surface.
 func (a *app) chatColumnWidth(surface core.Points) core.Length {
 	pct := float32(a.chatWidthPct())
-	if available := surface - 2*chatSidePadding; available > 0 {
-		pct = min(100, max(pct, float32(100*chatColumnMin)/float32(available)))
+	available := surface - 2*chatSidePadding
+	if available <= 0 {
+		return core.Pct(pct)
+	}
+	pct = min(100, max(pct, float32(100*chatColumnMin)/float32(available)))
+	if width := float32(available) * pct / 100; width > chatColumnMax {
+		return core.Pt(chatColumnMax)
 	}
 	return core.Pct(pct)
 }

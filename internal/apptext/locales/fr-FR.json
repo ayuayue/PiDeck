@@ -2590,5 +2590,14 @@
   "用户": "Utilisateur",
   "扩展已更新": "Extension mise à jour",
   "扩展来自 %s，会安装到当前项目（%s）。安装后 pi 会加载并运行它的代码，只安装你信任的来源。": "Cette extension provient de %s et sera installée dans le projet actuel (%s). pi charge et exécute son code, donc n'installez que des sources fiables.",
-  "「%s」会从当前项目配置中移除，扩展文件留在本机。": "« %s » est retiré de la configuration du projet actuel ; ses fichiers restent sur cette machine."
+  "「%s」会从当前项目配置中移除，扩展文件留在本机。": "« %s » est retiré de la configuration du projet actuel ; ses fichiers restent sur cette machine.",
+  "暂存全部": "Tout indexer",
+  "取消暂存全部": "Tout désindexer",
+  "按目录树显示": "Afficher en arborescence",
+  "按列表显示": "Afficher en liste",
+  "显示更早的提交": "Afficher les commits plus anciens",
+  "还有 %d 个文件未显示": "%d fichiers masqués",
+  "已同步": "À jour",
+  "查看差异": "Voir les modifications",
+  "丢弃更改": "Abandonner les modifications"
 }

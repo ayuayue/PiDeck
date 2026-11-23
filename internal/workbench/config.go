@@ -95,6 +95,9 @@ type config struct {
 	// ChatWidthPct is the transcript and composer's share of the window
 	// width, 50 to 90; 0 keeps the default of 80.
 	ChatWidthPct int `json:"chatWidthPct,omitempty"`
+	// GitChangesView lists the Git drawer's changes as a tree ("tree",
+	// the default) or as a flat list ("flat").
+	GitChangesView string `json:"gitChangesView,omitempty"`
 	// ChatWidth was that width in points before it became a percentage.
 	// It is read only to migrate an older file and is cleared on load.
 	ChatWidth int `json:"chatWidth,omitempty"`

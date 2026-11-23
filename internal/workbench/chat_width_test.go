@@ -286,3 +286,47 @@ func columnsMatchPercent(app *nsgotest.App, pct int) bool {
 	}
 	return true
 }
+
+// TestChatColumnCappedOnWideWindow keeps the input and the transcript from
+// stretching across a wide window: the column stops at chatColumnMax, so a
+// large monitor gets a readable width instead of one long line.
+func TestChatColumnCappedOnWideWindow(t *testing.T) {
+	home, dir := t.TempDir(), t.TempDir()
+	t.Setenv("PIDECK_LITE_HOME", home)
+	raw, err := json.Marshal(config{Version: 1, Workspaces: []workspaceCfg{{Path: dir, Name: "Wide"}},
+		Theme: "system", SidebarOpen: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config.json"), raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var built *app
+	root := func(cx *core.Scope) core.Node { built = newApp(cx); return built.view() }
+	screen := nsgotest.Start(t, root, nsgotest.Size(2200, 1100))
+	screen.Advance(200 * time.Millisecond)
+	ws := &workspace{Path: dir}
+	s := built.blankSession("wide-session", ws, "")
+	built.byID[s.ID] = s
+	built.all = append(built.all, s)
+	built.tabs.Set([]string{s.ID})
+	built.activeID.Set(s.ID)
+	// The empty state replaces the skeleton once the history is read.
+	s.loaded.Set(true)
+	screen.Advance(100 * time.Millisecond)
+	screen.WaitFor("id:chat-start", 5*time.Second)
+	screen.WaitFor("id:composer-column", 5*time.Second)
+	if got := float64(screen.Find("id:composer-column").Frame.Size.Width); got > chatColumnMax+2 {
+		t.Fatalf("composer column is %.1f wide, want at most %d", got, chatColumnMax)
+	}
+	// The empty state leaves room between the mark and the starter prompts,
+	// instead of stacking them on top of each other.
+	screen.WaitFor("id:empty-chat-logo", 5*time.Second)
+	screen.WaitFor("id:chat-starter-prompts", 5*time.Second)
+	logo := screen.Find("id:empty-chat-logo")
+	prompts := screen.Find("id:chat-starter-prompts")
+	gap := float64(float64(prompts.Frame.Origin.Y) - (float64(logo.Frame.Origin.Y) + float64(logo.Frame.Size.Height)))
+	if gap < 30 {
+		t.Fatalf("gap between the mark and the starter prompts is %.1f, want at least 30", gap)
+	}
+}

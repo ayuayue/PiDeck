@@ -31,6 +31,14 @@ type gitRepo struct {
 	busy     *core.Signal[string]
 	err      *core.Signal[string]
 
+	// The drawer's own controls: how the changes are listed, which folders
+	// are folded, how many rows of each section are shown. They outlive a
+	// status read, so the panel does not jump while the user reads it.
+	view         *core.Signal[string]
+	collapsed    *core.Signal[map[string]bool]
+	filesShown   *core.Signal[int]
+	historyShown *core.Signal[int]
+
 	// onResult lets the app toast an action's outcome.
 	onResult func(label string, err error)
 
@@ -46,14 +54,18 @@ type gitRepo struct {
 // newGitRepo builds the panel's state.
 func newGitRepo(cx *core.Scope) *gitRepo {
 	g := &gitRepo{
-		cx:       cx,
-		state:    core.NewSignalFunc(cx, gitState{Checked: true}, nil),
-		logQuery: core.NewSignal(cx, ""),
-		logLimit: 50,
-		msg:      core.NewSignal(cx, ""),
-		amend:    core.NewSignal(cx, false),
-		busy:     core.NewSignal(cx, ""),
-		err:      core.NewSignal(cx, ""),
+		cx:           cx,
+		state:        core.NewSignalFunc(cx, gitState{Checked: true}, nil),
+		logQuery:     core.NewSignal(cx, ""),
+		logLimit:     50,
+		msg:          core.NewSignal(cx, ""),
+		amend:        core.NewSignal(cx, false),
+		busy:         core.NewSignal(cx, ""),
+		err:          core.NewSignal(cx, ""),
+		view:         core.NewSignal(cx, gitViewFlat),
+		collapsed:    core.NewSignalFunc(cx, map[string]bool(nil), nil),
+		filesShown:   core.NewSignal(cx, gitFilesShown),
+		historyShown: core.NewSignal(cx, gitHistoryShown),
 	}
 	g.history = commitgraph.NewHistory(cx, func() []commitgraph.Commit {
 		st := g.state.Get()
@@ -65,6 +77,21 @@ func newGitRepo(cx *core.Scope) *gitRepo {
 	}, nil)
 	return g
 }
+
+// gitViewTree and gitViewFlat are the two ways the changes are listed.
+const (
+	gitViewTree = "tree"
+	gitViewFlat = "flat"
+)
+
+// The rows each section shows before the rest waits behind a button: a
+// long list would push the commit box and the history off the panel.
+const (
+	gitFilesShown   = 6
+	gitFilesAll     = 1 << 20
+	gitHistoryShown = 4
+	gitHistoryPage  = 10
+)
 
 // repo is the repository commands run in.
 func (r *gitRepo) repo() (target, string) {
@@ -97,6 +124,9 @@ func (r *gitRepo) attach(ws *workspace) bool {
 	r.busy.Set("")
 	r.msg.Set("")
 	r.amend.Set(false)
+	r.collapsed.Set(nil)
+	r.filesShown.Set(gitFilesShown)
+	r.historyShown.Set(gitHistoryShown)
 	if path == "" {
 		r.state.Set(gitState{Checked: true})
 		return true

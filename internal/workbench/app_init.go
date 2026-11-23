@@ -440,6 +440,7 @@ func newApp(cx *core.Scope) *app {
 	a.bgOpacity.Set(a.backgroundOpacity())
 	a.loadAuth()
 	a.chatWidthPctSig.Set(a.cfg.ChatWidthPct)
+	a.git.view.Set(a.gitChangesView())
 	a.editorWrap.Set(a.cfg.EditorWrap)
 	if a.cfg.TerminalFont > 0 {
 		a.termFont.Set(a.cfg.TerminalFont)
@@ -523,6 +524,11 @@ func newApp(cx *core.Scope) *app {
 			a.files.watch(ws.Path)
 			break
 		}
+	}
+	// A drawer restored on the Git tab reads the active project's
+	// repository, with or without an open session.
+	if a.drawer.GetUntracked() && a.drawerTab.GetUntracked() == "git" {
+		a.gitAttach()
 	}
 
 	a.loadACPArchives()
