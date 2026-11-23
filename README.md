@@ -611,6 +611,12 @@ GOFLAGS=-tags=webassets go tool nsgo build -target windows_x64
 - `release.yml`：打 `v*` 标签时构建六个目标——`windows_x64` / `windows_arm64` /
   `macos_arm64` / `macos_x64` / `linux_x64` / `linux_arm64`，上传产物并发布 Release（附 `SHA256SUMS`，下载后可 `sha256sum -c` 校验）
 - 本机打包：`go tool nsgo build -target <目标> -version <版本>`，产物在 `dist/`
+- 本机出一个能给用户的包：`go run ./scripts pack`（菜单第 8 项）。它建当前平台并产出两样：
+  `dist/<slug>-<版本>-<目标>-portable.zip`（附 `.sha256`，不含 NSIS 脚本与安装器）和
+  `dist/releases/<slug>-<版本>-<目标>-setup.exe`。安装器要 NSIS（`winget install NSIS.NSIS`）；
+  没装时 nsgo 仍写出 `.nsi`，脚本会打印装好后直接编译的命令，不用重新构建
+- 本地构建带不带浏览器页面，看 `webassets/site/` 在不在：在就自动加 `-tags=webassets`（`scripts pack`、
+  `scripts build` 与菜单都这样）；不在就先跑 `go run ./scripts web`（菜单第 9 项）
 - `sync-atomgit.yml`：把 main、`v*` 标签和 Release 正文与附件同步到 AtomGit 的
   `ayuayue/PiDeck-V2`（国内可达的镜像，应用的公告也先读它）。发版时先等附件清单稳定再传，
   按「名字 + 大小」去重，同版本号重建产物后用 `force_resync` 重跑；令牌是仓库 Secret `ATOMGIT_TOKEN`

@@ -105,6 +105,15 @@ func main() {
 		} else {
 			h.buildTarget(target)
 		}
+	case "pack", "package":
+		target := hostTarget()
+		if len(args) > 1 {
+			target = args[1]
+		}
+		if err := h.pack(target); err != nil {
+			h.report(err)
+			os.Exit(1)
+		}
 	case "android", "apk":
 		sub := "menu"
 		if len(args) > 1 {

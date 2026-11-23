@@ -18,14 +18,16 @@ func (h *helper) menu() {
 			{"5", "构建当前平台", "go tool nsgo build -target " + hostTarget()},
 			{"6", "构建指定平台…", "macos / linux / android / ios / web"},
 			{"7", "构建全部发布目标", "六个桌面目标，不含安装器"},
-			{"8", "Android 模拟器与 APK…", "启动、装包、状态、连接链接"},
-			{"9", "测试", "go tool nsgo test"},
-			{"10", "环境检查", "go tool nsgo doctor"},
-			{"11", "打开发布产物目录", "dist/releases"},
+			{"8", "打包当前平台", "便携 zip + 安装器，给用户下载的那两个"},
+			{"9", "生成浏览器页面并打包桌面端", "web 资源进 webassets/site，浏览器打开链接才有页面"},
+			{"10", "Android 模拟器与 APK…", "启动、装包、状态、连接链接"},
+			{"11", "测试", "go tool nsgo test"},
+			{"12", "环境检查", "go tool nsgo doctor"},
+			{"13", "打开发布产物目录", "dist/releases"},
 			{"0", "退出", ""},
 		})
 
-		choice, ok := h.ask("\n选择 [0-11]： ")
+		choice, ok := h.ask("\n选择 [0-13]： ")
 		if !ok {
 			fmt.Println()
 			return
@@ -46,12 +48,20 @@ func (h *helper) menu() {
 		case "7":
 			h.buildAll()
 		case "8":
-			h.androidMenu()
+			if err := h.pack(hostTarget()); err != nil {
+				h.report(err)
+			}
 		case "9":
-			h.test()
+			if err := h.web(); err != nil {
+				h.report(err)
+			}
 		case "10":
-			h.doctor()
+			h.androidMenu()
 		case "11":
+			h.test()
+		case "12":
+			h.doctor()
+		case "13":
 			h.openDist()
 		case "0", "q", "quit":
 			return
@@ -193,6 +203,7 @@ func (h *helper) help() {
   go run ./scripts preview            手机页桌面预览
   go run ./scripts build [目标]       构建；省略目标时用当前平台
   go run ./scripts build all          六个发布目标各构建一次
+  go run ./scripts pack [目标]        构建并打包：便携 zip，以及装了 NSIS 时的安装器
   go run ./scripts android up         启动模拟器（已在跑则跳过）
   go run ./scripts android app        构建 x86_64 包、安装、打开
   go run ./scripts android arm64      构建真机用的 arm64 包
