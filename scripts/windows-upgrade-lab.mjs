@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
-import { cp, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { finished } from "node:stream/promises";
@@ -18,7 +18,11 @@ export async function prepareLabPackage(source, destination) {
 	destination = path.resolve(destination);
 	if (destination === source || destination.startsWith(`${source}${path.sep}`) || source.startsWith(`${destination}${path.sep}`)) throw new Error("Lab package must be a separate new directory");
 	await mkdir(destination, { recursive: false });
-	await cp(source, destination, { recursive: true, force: false, errorOnExist: true });
+	// 目标目录已由上面建好（recursive:false 是「必须是新目录」的闸门），这里只复制内容：
+	// Node 24 起 cp(dir → 已存在目录) 会按 errorOnExist 直接 EEXIST，而不是合并内容。
+	for (const entry of await readdir(source)) {
+		await cp(path.join(source, entry), path.join(destination, entry), { recursive: true, force: false, errorOnExist: true });
+	}
 	const original = path.join(source, "resources", "app.asar");
 	const target = path.join(destination, "resources", "app.asar");
 	const pkg = JSON.parse(asar.extractFile(original, "package.json"));

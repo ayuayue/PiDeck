@@ -95,6 +95,11 @@ const TEST_TIMEOUT_MS = 30_000;
 const GUARD_TIMEOUT_MS = 10_000;
 const DROP_CODES = new Set(Object.values(REMOTE_FRAME_DIAGNOSTIC_CODES));
 const UPLOAD_CAPABILITIES = new Set(["fs.uploadPrepare", "fs.uploadCommit", "fs.uploadAbort"]);
+/**
+ * 本平台实际会公布的能力：`session.maintain` 靠 /proc/self/fd 改名，仅 Linux 主机公布，
+ * 其余平台 hello 里不会出现（见 RemoteHelperEntry 的 helperCapabilities）。
+ */
+const PLATFORM_CAPABILITIES = process.platform === "linux" ? REMOTE_HELPER_CAPABILITIES : REMOTE_HELPER_CAPABILITIES.filter((capability) => capability !== "session.maintain");
 const withoutUploadCapabilities = (capabilities) => Array.from(capabilities).filter((capability) => UPLOAD_CAPABILITIES.has(capability) === false);
 /** The token a refusal must never have read: it exists only outside the root. */
 const DECOY = "pideck-decoy-7f3a1c";
@@ -637,7 +642,7 @@ helperTest("hello answers the contract handshake through the production client",
 		// The canonical root it confined itself to: main uses this to prove the --root it asked for is the
 		// one that took effect, instead of assuming the path was not a symlink to somewhere else.
 		root: session.root,
-		capabilities: withoutUploadCapabilities(REMOTE_HELPER_CAPABILITIES),
+		capabilities: withoutUploadCapabilities(PLATFORM_CAPABILITIES),
 		helperVersion: REMOTE_HELPER_ENTRY_VERSION,
 		nodeVersion: process.versions.node,
 		pid: session.child.pid,
@@ -774,7 +779,7 @@ helperTest("a helper started without --root is a legal host-only session that se
 	assert.equal(hello.root, null);
 	// The capabilities are reported as this build really has them: fs.* is still a capability, it is only the
 	// paths that are unreachable, so a client must never read the host-only mode as a downgraded build.
-	assert.deepEqual(hello.capabilities, withoutUploadCapabilities(REMOTE_HELPER_CAPABILITIES), "a host-only helper advertises no filesystem write capability");
+	assert.deepEqual(hello.capabilities, withoutUploadCapabilities(PLATFORM_CAPABILITIES), "a host-only helper advertises no filesystem write capability");
 	assert.equal(hello.helperVersion, REMOTE_HELPER_ENTRY_VERSION);
 	assert.deepEqual(plain(await guard(session.client.request(REMOTE_HELPER_METHOD_ECHO, { text: "host-only" }), "echo without a root")), { text: "host-only", delayMs: 0 });
 	assert.deepEqual(plain(await guard(session.client.request(REMOTE_HELPER_METHOD_CANCEL, { requestId: "req-never-seen" }), "cancel without a root")), {
@@ -1608,7 +1613,7 @@ helperTest("the uploaded helper.mjs runs the same frozen source", async (t) => {
 	const result = plain(await guard(session.client.request(REMOTE_HELPER_METHOD_HELLO), "hello from the uploaded entry"));
 	assert.equal(result.helperVersion, REMOTE_HELPER_ENTRY_VERSION);
 	assert.equal(result.home, HELPER_HOME);
-	assert.deepEqual(result.capabilities, withoutUploadCapabilities(REMOTE_HELPER_CAPABILITIES), "the uploaded flat fixture has no deploy spool");
+	assert.deepEqual(result.capabilities, withoutUploadCapabilities(PLATFORM_CAPABILITIES), "the uploaded flat fixture has no deploy spool");
 	assert.deepEqual(plain(await guard(session.client.request(REMOTE_HELPER_METHOD_ECHO, { text: "file" }), "echo from the uploaded entry")), { text: "file", delayMs: 0 });
 	// The ES module artifact loads its two builtins and confines itself to the same root.
 	assert.deepEqual(await call(session, REMOTE_HELPER_METHOD_FS_LIST, { path: "." }), { entries: [{ name: "entry.txt", kind: "file", bytes: "uploaded".length }] });

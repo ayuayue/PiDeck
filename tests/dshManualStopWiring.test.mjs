@@ -29,6 +29,8 @@ const preload = preloadSource;
 const zh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 const en = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
 const sessionTypes = readFileSync("src/shared/types/session.ts", "utf8");
+// 原因集合的声明已拆到独立契约文件，session.ts 只做 re-export：断言要读真正声明处。
+const sessionPageTypes = readFileSync("src/shared/types/sessionMessagePage.ts", "utf8");
 const dshManualStop = readFileSync("src/main/dsh/dshManualStop.ts", "utf8");
 const timeline = readFileSync("src/renderer/src/components/session/SessionMessageTimeline.tsx", "utf8");
 const timelineController = sessionTimelineControllerSource;
@@ -96,8 +98,9 @@ test("dshManualStopped: 停止后时间线给「启动 host」专态，不说成
 	// 契约链：读取异常 → main 降级成带原因的空页 → 渲染层按 reason 分流专态。
 	assert.match(dshManualStop, /export function dshUnavailablePageFor/);
 	assert.match(dshManualStop, /unavailable: "dsh-host-stopped"/);
-	assert.match(sessionTypes, /export type SessionHistoryUnavailableReason = "dsh-host-stopped"/);
-	assert.match(sessionTypes, /unavailable\?: SessionHistoryUnavailableReason/);
+	// 允许并集更长：原因集合后续可增加（dsh-runtime-missing / file-missing），但必须仍含停止态这一项。
+	assert.match(sessionPageTypes, /export type SessionHistoryUnavailableReason =[^;]*"dsh-host-stopped"/);
+	assert.match(sessionPageTypes, /unavailable\?: SessionHistoryUnavailableReason/);
 	// IPC 边界：读取失败先尝试降级成不可读页，不直接抛错给渲染层
 	assert.match(sessionIpc, /dshUnavailablePageFor/);
 	// 渲染层：只认该 reason 走专态（普通读盘失败仍走「文件可能已删除」）
