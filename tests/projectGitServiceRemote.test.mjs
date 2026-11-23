@@ -817,3 +817,15 @@ test("写动词的失败保留稳定码与原文，且缺失的授权在触达�
 	await assert.rejects(services(bareApi).git.dropCommit(OID, REPO), (error) => error.code === PROJECT_SERVICE_CODES.unsupported);
 	assert.equal(names(bareCalls).includes("git.dropCommitRemote"), false);
 });
+
+test("历史参数在边界翻译：服务契约的 all/withCount 变成 IPC 的 allBranches/withTotal", async () => {
+	const { api, calls } = makeApi();
+	await services(api).git.history({ maxCount: 30, all: true, withCount: true }, REPO);
+	const call = calls.find((entry) => entry.name === "git.historyPage");
+	// 主进程只认面板词汇；多带一个 all/withCount 就是 INVALID_GIT_HISTORY_OPTIONS，整页失败。
+	assert.deepEqual(plain(call.args[1]), { maxCount: 30, allBranches: true, withTotal: true });
+	// 没给的参数保持缺席，不要凭空补 false/0：缺省由主进程按契约决定。
+	const { api: bareApi, calls: bareCalls } = makeApi();
+	await services(bareApi).git.history({ maxCount: 30 }, REPO);
+	assert.deepEqual(plain(bareCalls.find((entry) => entry.name === "git.historyPage").args[1]), { maxCount: 30 });
+});

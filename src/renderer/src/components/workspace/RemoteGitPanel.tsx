@@ -136,6 +136,8 @@ function RemoteRepoPanel(props: {
 				commitLog={bridge.commitLog}
 				commitCount={upgraded ? bridge.commitCount : undefined}
 				historyRefFilter={upgraded}
+				// 服务换代（重连/事实变化）后同一项目也要重拉历史：旧代的失败会一直被搬到新代上。
+				historySourceKey={services.generation}
 				commitDetail={bridge.commitDetail}
 				onOpenFile={props.onOpenFile}
 				generateCommitMessage={upgraded ? () => bridge.stagedDiff().then((staged) => (services.git.generateCommitMessage === undefined ? { ok: false as const, code: "GIT_COMMIT_GENERATE_FAILED", message: t("remoteGit.unsupported") } : services.git.generateCommitMessage(staged, repoTarget))) : undefined}

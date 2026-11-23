@@ -3,6 +3,7 @@ import type { GitHistoryCommit, RemoteGitCommitDetail } from "../../../../shared
 import type { ProjectServices } from "../../services/projectServiceContracts";
 import type { CompareChangesResult } from "../app/git/GitCompareChanges";
 import { remoteGitErrorMessage, remoteGitErrorText } from "../../utils/gitErrorPresentation";
+import { t } from "../../i18n";
 
 /**
  * 远端项目的 Git 面板数据面：把 `ProjectGitService`（按位置分派）接到本机 `GitPanel` 的 props 上。
@@ -92,7 +93,12 @@ export function createRemoteGitPanelBridge(services: ProjectServices, repo: Proj
 	 */
 	const fail = (error: unknown): never => {
 		const source = error as { code?: unknown; outcome?: unknown; internal?: unknown } | null;
-		throw Object.assign(new Error(remoteGitErrorText(error)), { code: source?.code, outcome: source?.outcome, internal: source?.internal });
+		const code = typeof source?.code === "string" && source.code.length > 0 ? source.code : undefined;
+		const text = remoteGitErrorText(error);
+		// 未入词典的码只会得到一句通用兜底文案，且这类失败常常发生在渲染层（不过主进程日志）：
+		// 把码附在后面，否则“图谱空白”既查不到日志、也无从在界面或截图里看出是哪一步被拒。
+		const message = code !== undefined && text === t("remoteGit.failed") ? `${text}（${code}）` : text;
+		throw Object.assign(new Error(message), { code: source?.code, outcome: source?.outcome, internal: source?.internal });
 	};
 	const run = async <T>(task: () => Promise<T>): Promise<T> => {
 		try {

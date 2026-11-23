@@ -75,15 +75,12 @@ export type GitPanelProps = {
 	historyRepoOptions?: { value: string; label: string }[];
 	onSelectHistoryRepo?: (path: string) => void;
 	commitLog: (projectId: string, options?: { maxEntries?: number; ref?: string; allBranches?: boolean }) => Promise<CommitEntry[]>;
-	/**
-	 * 与当前图谱过滤一致的提交总数（不分页），供源代码管理图标题徽章使用。
-	 * 位置不支持总数（远端只有 HEAD 游标分页）时缺省：徽章退回已加载页长度，不编造全仓总数。
-	 */
+	/** 与当前图谱过滤一致的提交总数（不分页），供徽章使用；位置不支持时缺省，徽章退回已加载页长度，不编造总数。 */
 	commitCount?: (projectId: string, options?: { ref?: string; allBranches?: boolean }) => Promise<number>;
-	/**
-	 * 图谱的分支 / 全部分支过滤。缺省可用；远端历史只有 HEAD 分页，关掉过滤器而不是让“过滤”静默失效。
-	 */
+	/** 图谱的分支 / 全部分支过滤：缺省可用；远端历史只有 HEAD 分页时关掉过滤器，而不是让「过滤」静默失效。 */
 	historyRefFilter?: boolean;
+	/** 历史数据源代号（远端传服务连接代）：换代后同一仓库也要重拉，旧代的失败不能延续到新代。 */
+	historySourceKey?: string;
 	/** 分支栏起始位置的宿主槽位（远端仓库范围选择器）。 */
 	branchBarExtra?: ReactNode;
 	/** 面板底部追加的宿主分区（远端恢复区）。 */
@@ -941,6 +938,7 @@ export function GitPanel(props: GitPanelProps) {
 					commitLog={props.commitLog}
 					commitCount={props.commitCount}
 					refFilter={props.historyRefFilter}
+					sourceKey={props.historySourceKey}
 					commitDetail={props.commitDetail}
 					onOpenCommitFileDiff={props.onOpenCommitFileDiff}
 					branches={props.branches}

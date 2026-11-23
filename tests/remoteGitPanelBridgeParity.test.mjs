@@ -223,7 +223,8 @@ test("远端原文优先：helper 带回的 stderr 摘要直接展示，没有�
 	await assert.rejects(
 		() => createRemoteGitPanelBridge(withoutDetail.services, root).push(),
 		(error) => {
-			assert.equal(error.message, zhCN["remoteGit.failed"]);
+			// 新契约：未入词典的码要附在兜底文案后面（渲染层拦下的失败不会进主进程日志）。
+			assert.equal(error.message, `${zhCN["remoteGit.failed"]}（GIT_HOOK_REJECTED）`);
 			assert.equal(error.code, "GIT_HOOK_REJECTED");
 			return true;
 		},
@@ -290,4 +291,33 @@ test("非连接类失败不重试：参数/回包形状错误立刻上抛，稳�
 		(error) => error.code === "GIT_RESULT_INVALID",
 	);
 	assert.equal(attempts, 1, "非连接类失败不能靠重试掩盖");
+});
+
+test("未入词典的稳定码要附在文案后面：这类失败常在渲染层被拦下，日志里没有记录", async () => {
+	const f = fakeService({
+		overrides: {
+			history: async () => {
+				// 服务换代后旧实例的调用会在触达 IPC 之前被拒：主进程日志里什么都不会留下。
+				throw Object.assign(new Error("PROJECT_SERVICE_GENERATION_STALE"), { code: "PROJECT_SERVICE_GENERATION_STALE", outcome: "rejected" });
+			},
+		},
+	});
+	await assert.rejects(
+		() => createRemoteGitPanelBridge(f.services, root).commitLog(projectId, { maxEntries: 30 }),
+		(error) => error.code === "PROJECT_SERVICE_GENERATION_STALE" && error.message.includes("PROJECT_SERVICE_GENERATION_STALE") && error.message.includes(zhCN["remoteGit.failed"]),
+	);
+});
+
+test("已入词典的码保持原文案，不把码拼进用户文案", async () => {
+	const f = fakeService({
+		overrides: {
+			history: async () => {
+				throw Object.assign(new Error("GIT_TRUST_REQUIRED"), { code: "GIT_TRUST_REQUIRED", outcome: "rejected" });
+			},
+		},
+	});
+	await assert.rejects(
+		() => createRemoteGitPanelBridge(f.services, root).commitLog(projectId, { maxEntries: 30 }),
+		(error) => error.message === zhCN["remoteGit.trustRequired"],
+	);
 });

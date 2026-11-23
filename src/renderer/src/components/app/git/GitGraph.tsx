@@ -21,8 +21,9 @@ export type GitGraphProps = {
 	commitDetail: (projectId: string, ref: string) => Promise<CommitDetail | null>;
 	onOpenCommitFileDiff: (commit: CommitEntry, file: GitChangedFile) => void | Promise<void>;
 	branches: string[];
-	/** 分支/全部分支过滤器：远端只有 HEAD 分页时关掉，缺省可用。 */
+	/** 分支过滤器（远端只有 HEAD 分页时关掉）；sourceKey = 数据源代号（远端传服务连接代），换代后必须重拉。 */
 	refFilter?: boolean;
+	sourceKey?: string;
 	currentBranch: string | null;
 	open: boolean;
 	height: number;
@@ -492,7 +493,7 @@ export function SourceControlGraph(props: GitGraphProps) {
 		setLoading(false);
 		setRef("");
 		resetCommitDetails();
-	}, [props.projectId, resetCommitDetails]);
+	}, [props.projectId, props.sourceKey, resetCommitDetails]);
 
 	useEffect(() => {
 		if (!props.open) {
@@ -601,7 +602,7 @@ export function SourceControlGraph(props: GitGraphProps) {
 		} finally {
 			if (request === loadSequence.current && projectId === props.projectId) setLoading(false);
 		}
-	}, [props.open, props.projectId, props.refFilter, ref, resetCommitDetails, loadCount]);
+	}, [props.open, props.projectId, props.refFilter, props.sourceKey, ref, resetCommitDetails, loadCount]);
 
 	useEffect(() => {
 		void load();

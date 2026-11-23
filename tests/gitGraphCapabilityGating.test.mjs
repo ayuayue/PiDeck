@@ -23,6 +23,9 @@ test("菜单动作把缺席回调显式变成 undefined，不再用可选调用�
 });
 
 test("commitCount 缺席时不发请求，徽章退回已加载页长度", () => {
-	assert.match(source, /commitCountRef\.current === undefined \? Promise\.resolve<number \| null>\(null\)/);
+	// 契约演进：总数是辅助数据，请求失败/缺席都不能把已经成功的列表一起藏掉。
+	// 顺序也钉住——列表先发布，再等 count 更新徽章。
+	assert.match(source, /countLoader\?\.\(projectId, filter\) \?\? null/);
+	assert.match(source, /setTotalCount\(next\.length\)/);
 	assert.match(source, /setTotalCount\(count \?\? next\.length\)/);
 });
