@@ -122,6 +122,8 @@ GOFLAGS=-tags=webassets go tool nsgo build -target windows_x64
 
 浏览器端约 **40 MB 的 wasm，brotli 后 8 MB**；`scripts web` 把 `.wasm` 压成 `.wasm.br` 再删原件，桌面程序因此只增加 8 MB，页面抓下来也只走 8 MB。CI 给这个体积设了 12 MB 上限，桌面代码漏进客户端会立刻失败。
 
+浏览器只在 HTTPS 或 localhost 上才在 `Accept-Encoding` 里带 `br`，用局域网 IP、手机或任何明文 HTTP 地址访问时只带 `gzip`。所以服务端按 `Accept-Encoding` 协商：能收 brotli 的发 `.br`，只收 gzip 的实时压一份 gzip，两者都不收的发未压缩字节。不要把这里改成“只认 brotli、否则 406”——空响应体喂给 `WebAssembly.instantiateStreaming` 就是页面上那句 `Failed to execute 'compile' on 'WebAssembly': HTTP status code is not ok`。
+
 然后在桌面端 `设置 → 远程` 开启手机服务，浏览器打开 `http://<地址>:<端口>/?token=<令牌>`：页面与 API 同源，链接里的令牌自动填好，连过的那台电脑记在浏览器的 localStorage。页面版本比电脑旧时，会提示刷新一下。
 
 `webassets/site/` 是生成物，不进仓库；`webassets/` 下的嵌入源码属于仓库。不带上标签构建时只有 API，访问 `/` 会落到令牌门禁上（带令牌也拿到 404）；局域网地址列表把虚拟网卡（Hyper-V、WSL、EasyTier、Tailscale）排在真实网卡之后并标注出来，因为手机通常经它们连不上。手机上看到的是同一套界面，但它走原生构建，不经过这一段。

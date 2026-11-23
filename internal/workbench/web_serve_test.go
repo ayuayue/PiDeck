@@ -6,11 +6,20 @@ package workbench
 // webassets build actually carries is tested in web_assets_test.go.
 
 import (
+	"bytes"
+	"compress/gzip"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"testing/fstest"
+
+	"github.com/andybalholm/brotli"
 )
+
+// wasmMagic stands in for the app's bytes: the four bytes every module
+// starts with, so a decompressed body is recognizable.
+const wasmMagic = "\x00asm\x01\x00\x00\x00"
 
 // TestWebAssetNames checks the type and cache rules a release's file names
 // follow.
@@ -91,43 +100,79 @@ func TestWebClientPaths(t *testing.T) {
 }
 
 // TestWebAssetEncoded checks the compressed wasm: the page asks for
-// app.<hash>.wasm, the file on hand is the .br beside it.
+// app.<hash>.wasm, the file on hand is the .br beside it. A browser offers
+// brotli only over HTTPS or on localhost, so a phone opening the LAN address
+// offers gzip alone and must still get bytes it can compile.
 func TestWebAssetEncoded(t *testing.T) {
+	var stored bytes.Buffer
+	zw := brotli.NewWriter(&stored)
+	if _, err := zw.Write([]byte(wasmMagic)); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
 	old := webAssets
-	webAssets = fstest.MapFS{"app.0875381b2d.wasm.br": {Data: []byte("br")}}
+	webAssets = fstest.MapFS{"app.0875381b2d.wasm.br": {Data: stored.Bytes()}}
 	defer func() { webAssets = old }()
 
-	req := httptest.NewRequest(http.MethodGet, "/app.0875381b2d.wasm", nil)
-	req.Header.Set("Accept-Encoding", "gzip, deflate, br")
+	br := httptest.NewRequest(http.MethodGet, "/app.0875381b2d.wasm", nil)
+	br.Header.Set("Accept-Encoding", "gzip, deflate, br")
 	rec := httptest.NewRecorder()
-	if !serveWebAsset(rec, req) {
+	if !serveWebAsset(rec, br) {
 		t.Fatal("the compressed wasm was not served")
 	}
 	for header, want := range map[string]string{
 		"Content-Encoding": "br",
 		"Content-Type":     "application/wasm",
 		"Cache-Control":    "public, max-age=31536000, immutable",
+		"Vary":             "Accept-Encoding",
 	} {
 		if got := rec.Header().Get(header); got != want {
 			t.Errorf("%s = %q, want %q", header, got, want)
 		}
 	}
-	if body := rec.Body.String(); body != "br" {
-		t.Errorf("body = %q", body)
+	if body, err := io.ReadAll(brotli.NewReader(rec.Body)); err != nil || string(body) != wasmMagic {
+		t.Errorf("br body = %q, err %v", body, err)
 	}
 
-	// A browser that cannot decompress is told, rather than handed bytes it
-	// cannot read.
+	// A phone's plain-HTTP request offers gzip alone; it gets gzip of the
+	// same wasm, not a 406 that fails the page with "HTTP status code is not
+	// ok".
 	plain := httptest.NewRequest(http.MethodGet, "/app.0875381b2d.wasm", nil)
-	plain.Header.Set("Accept-Encoding", "gzip")
+	plain.Header.Set("Accept-Encoding", "gzip, deflate")
 	rec = httptest.NewRecorder()
-	if !serveWebAsset(rec, plain) || rec.Code != http.StatusNotAcceptable {
-		t.Fatalf("plain client got %d, want 406", rec.Code)
+	if !serveWebAsset(rec, plain) {
+		t.Fatal("a gzip client was refused")
 	}
-	if !webAcceptsBrotli(req) || webAcceptsBrotli(plain) {
-		t.Fatal("brotli acceptance is misread")
+	if rec.Code != http.StatusOK || rec.Header().Get("Content-Encoding") != "gzip" {
+		t.Fatalf("gzip client got %d %q, want 200 gzip", rec.Code, rec.Header().Get("Content-Encoding"))
 	}
-	if webAcceptsBrotli(httptest.NewRequest(http.MethodGet, "/", nil)) {
+	zr, err := gzip.NewReader(rec.Body)
+	if err != nil {
+		t.Fatalf("gzip body: %v", err)
+	}
+	if body, err := io.ReadAll(zr); err != nil || string(body) != wasmMagic {
+		t.Fatalf("gzip body = %q, err %v", body, err)
+	}
+
+	// Neither encoding accepted: the wasm still arrives, uncompressed.
+	none := httptest.NewRequest(http.MethodGet, "/app.0875381b2d.wasm", nil)
+	rec = httptest.NewRecorder()
+	if !serveWebAsset(rec, none) {
+		t.Fatal("a client offering no encoding was refused")
+	}
+	if rec.Code != http.StatusOK || rec.Header().Get("Content-Encoding") != "" {
+		t.Fatalf("plain client got %d %q, want 200 identity", rec.Code, rec.Header().Get("Content-Encoding"))
+	}
+	if body := rec.Body.String(); body != wasmMagic {
+		t.Errorf("identity body = %q", body)
+	}
+
+	if !webAccepts(br, "br") || webAccepts(plain, "br") || !webAccepts(plain, "gzip") {
+		t.Fatal("encoding negotiation is misread")
+	}
+	if webAccepts(httptest.NewRequest(http.MethodGet, "/", nil), "br") {
 		t.Fatal("a request without Accept-Encoding was read as brotli")
 	}
 }

@@ -9,20 +9,26 @@ package workbench
 // Without the tag the site is absent and only the API is served.
 
 import (
+	"bytes"
+	"compress/gzip"
+	"io"
 	"io/fs"
 	"net/http"
 	"path"
 	"strings"
+
+	"github.com/andybalholm/brotli"
 )
 
 // webEncodedSuffix is how the build stores a file it compressed: the page asks
 // for app.<hash>.wasm and the file beside it is app.<hash>.wasm.br.
 const webEncodedSuffix = ".br"
 
-// webAcceptsBrotli says whether the browser can take the compressed file.
-func webAcceptsBrotli(r *http.Request) bool {
+// webAccepts says whether the request's Accept-Encoding names encoding, as
+// "br" or "gzip"; q-values are ignored, which is what every browser sends.
+func webAccepts(r *http.Request, encoding string) bool {
 	for _, part := range strings.Split(r.Header.Get("Accept-Encoding"), ",") {
-		if strings.TrimSpace(strings.SplitN(part, ";", 2)[0]) == "br" {
+		if strings.TrimSpace(strings.SplitN(part, ";", 2)[0]) == encoding {
 			return true
 		}
 	}
@@ -62,21 +68,43 @@ func serveWebAsset(w http.ResponseWriter, r *http.Request) bool {
 		}
 	}
 	w.Header().Set("Content-Type", webAssetType(name))
-	if encoded {
-		if !webAcceptsBrotli(r) {
-			w.WriteHeader(http.StatusNotAcceptable)
-			return true
-		}
-		w.Header().Set("Content-Encoding", "br")
-		w.Header().Add("Vary", "Accept-Encoding")
-	}
 	if webAssetHashed(name) {
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	} else {
 		w.Header().Set("Cache-Control", "no-cache")
 	}
-	if r.Method == http.MethodGet {
-		_, _ = w.Write(data)
+	if !encoded {
+		if r.Method == http.MethodGet {
+			_, _ = w.Write(data)
+		}
+		return true
+	}
+	// The wasm is stored brotli-compressed, and a browser asks for brotli only
+	// over HTTPS or on localhost: a phone, or any other machine opening the
+	// plain-HTTP address, offers gzip alone. Answering 406 there leaves the
+	// page with bytes it cannot compile, so the stored bytes are re-encoded for
+	// whoever asks; the browser caches the answer, so this runs once per build.
+	w.Header().Add("Vary", "Accept-Encoding")
+	switch {
+	case webAccepts(r, "br"):
+		w.Header().Set("Content-Encoding", "br")
+		if r.Method == http.MethodGet {
+			_, _ = w.Write(data)
+		}
+	case webAccepts(r, "gzip"):
+		w.Header().Set("Content-Encoding", "gzip")
+		if r.Method == http.MethodGet {
+			zw, err := gzip.NewWriterLevel(w, gzip.BestSpeed)
+			if err != nil {
+				return true
+			}
+			_, _ = io.Copy(zw, brotli.NewReader(bytes.NewReader(data)))
+			_ = zw.Close()
+		}
+	default:
+		if r.Method == http.MethodGet {
+			_, _ = io.Copy(w, brotli.NewReader(bytes.NewReader(data)))
+		}
 	}
 	return true
 }
