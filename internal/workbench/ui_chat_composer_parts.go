@@ -12,7 +12,9 @@ import (
 	"example.com/pideck-v2/internal/apptext"
 	"example.com/pideck-v2/internal/remotewire"
 	"example.com/pideck-v2/internal/viewkit"
+	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
 	"github.com/nsgo-dev/nsgo/ui/chat"
 )
@@ -166,25 +168,49 @@ func (a *app) composerFooter(s *session) chat.View {
 	}
 }
 
-// attachments previews pasted images above the input.
+// attachments previews pasted images above the input: a click enlarges one,
+// and its own menu copies or saves the bytes the composer holds.
 func (a *app) attachments(s *session) chat.View {
 	return func(cx *core.Scope) core.Node {
 		images := s.images.Get()
-		var children []core.Node
+		children := make([]core.Node, 0, len(images))
 		for i, img := range images {
-			idx := i
-			children = append(children, chat.AttachmentPreview{
-				Label: img.Name, RemoveLabel: apptext.T("移除图片"), Image: core.ImageSource{Data: img.Data},
-				OnRemove: func() {
-					s.images.Update(func(list []remotewire.Image) []remotewire.Image {
-						if idx < len(list) {
-							return append(append([]remotewire.Image(nil), list[:idx]...), list[idx+1:]...)
-						}
-						return list
-					})
+			idx, image := i, img
+			children = append(children, base.ContextMenu{
+				Trigger: a.attachmentTile(cx, image, func() { a.dropImage(s, idx) }),
+				TestID:  "attach-image-menu", PopupStyle: a.menuPopup(cx),
+				PopupStyleFunc: func() core.Style { return a.menuCard(cx) },
+				Children: []core.Node{
+					a.menuRow(cx, lucide.Copy, "复制图片", "", false, func() { a.copyImage(image) }),
+					a.menuRow(cx, lucide.Download, "另存图片…", "", false, func() { a.saveImage(cx, image) }),
 				},
 			})
 		}
 		return core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: children}
 	}
+}
+
+// attachmentTile is one pasted image: the picture opens the preview, and the
+// corner control takes it back out of the composer.
+func (a *app) attachmentTile(cx *core.Scope, img remotewire.Image, remove func()) core.Node {
+	colors := ui.ColorsOf(cx)
+	return core.View{Style: core.Style{Width: core.Pt(64), Height: core.Pt(64), FlexShrink: 0}, Children: []core.Node{
+		core.View{OnPress: func(core.PressEvent) { a.attachPreview.Set(img) },
+			Role: core.RoleButton, Label: apptext.T("查看图片"), TestID: "attach-image",
+			StyleFunc: func() core.Style {
+				return core.Style{Width: core.Pt(64), Height: core.Pt(64), CornerRadius: 8, Overflow: core.Hidden,
+					BorderWidth: 1, BorderColor: colors.Border(), Background: colors.Surface(),
+					Hover: &core.Style{BorderColor: colors.Accent()}, FocusVisible: ui.FocusRing(cx, 2)}
+			},
+			Children: []core.Node{core.Image{Source: core.ImageSource{Data: img.Data}, ResizeMode: core.Cover,
+				Label: firstNonEmpty(img.Name, apptext.T("图片")), Style: core.Style{Width: core.Pct(100), Height: core.Pct(100)}}}},
+		base.Button{Label: apptext.T("移除图片"), OnPress: func(core.PressEvent) { remove() },
+			Style: core.Style{Position: core.Absolute, Top: core.Pt(3), Right: core.Pt(3), Width: core.Pt(18), Height: core.Pt(18),
+				CornerRadius: 5, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
+			StyleFunc: func() core.Style {
+				return core.Style{Background: ui.Alpha(colors.Background(), 0.9),
+					Hover: &core.Style{Background: colors.Surface(), BorderWidth: 1, BorderColor: colors.Accent()}}
+			},
+			Children: []core.Node{ui.Icon(lucide.X, 11, colors.Text)}},
+	}}
 }

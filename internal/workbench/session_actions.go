@@ -8,8 +8,10 @@ package workbench
 import (
 	"strings"
 
+	"example.com/pideck-v2/internal/apptext"
 	"example.com/pideck-v2/internal/remotewire"
 	"example.com/pideck-v2/internal/viewkit"
+	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
@@ -44,6 +46,45 @@ func (a *app) addImage(s *session, img remotewire.Image) {
 		return
 	}
 	s.images.Update(func(list []remotewire.Image) []remotewire.Image { return append(list, img) })
+}
+
+// dropImage takes one image back out of the composer.
+func (a *app) dropImage(s *session, index int) {
+	if s == nil {
+		return
+	}
+	s.images.Update(func(list []remotewire.Image) []remotewire.Image {
+		if index < 0 || index >= len(list) {
+			return list
+		}
+		return append(append([]remotewire.Image(nil), list[:index]...), list[index+1:]...)
+	})
+}
+
+// copyImage puts an image the composer holds on the clipboard.
+func (a *app) copyImage(img remotewire.Image) {
+	if len(img.Data) == 0 {
+		return
+	}
+	a.cx.SetClipboardImage(img.Data)
+	a.toast(ui.ToastSuccess, "已复制图片", firstNonEmpty(img.Name, apptext.T("图片")))
+}
+
+// saveImage writes an image the composer holds where the user picks.
+func (a *app) saveImage(cx *core.Scope, img remotewire.Image) {
+	if len(img.Data) == 0 {
+		return
+	}
+	mime := img.MimeType
+	if mime == "" {
+		mime = "image/png"
+	}
+	cx.SaveFile(core.SaveOptions{Name: "pideck-image" + imageFileExt(mime), MIME: mime, Data: img.Data},
+		func(_ bool, _ string, err error) {
+			if err != nil {
+				a.toast(ui.ToastError, "保存图片失败", err.Error())
+			}
+		})
 }
 
 // copyText puts text on the clipboard.

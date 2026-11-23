@@ -132,6 +132,7 @@ func newApp(cx *core.Scope) *app {
 		marketList:             core.NewSignalFunc(cx, []marketEntry(nil), nil),
 		imageOpen:              core.NewSignal(cx, false),
 		transcriptImage:        core.NewSignalFunc(cx, remotewire.Image{}, nil),
+		attachPreview:          core.NewSignalFunc(cx, remotewire.Image{}, nil),
 		imagePrompt:            core.NewSignal(cx, ""),
 		imageModel:             core.NewSignal(cx, ""),
 		imageSize:              core.NewSignal(cx, "1024x1024"),

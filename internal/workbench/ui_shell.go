@@ -39,6 +39,7 @@ func (a *app) view() core.Node {
 		a.piExtensionStoreDialog(),
 		a.mcpDialog(),
 		a.imageDialog(),
+		a.attachPreviewDialog(),
 		a.visionDialog(),
 		a.promptTemplateDialog(),
 		a.browserApprovalDialog(),
