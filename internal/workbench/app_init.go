@@ -616,5 +616,7 @@ func newApp(cx *core.Scope) *app {
 	a.startAnnouncements()
 	a.startModelCatalogRefresh()
 	a.startTelemetry()
+	// Where the app draws the window's buttons, the platform's are hidden.
+	hideSystemWindowControls(cx)
 	return a
 }

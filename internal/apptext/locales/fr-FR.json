@@ -2679,5 +2679,9 @@
   "没有可释放的内存": "Rien à libérer",
   "堆里没有空闲页；关掉大会话或大文件预览后再试。": "Le tas n’a pas de pages libres ; fermez une grande session ou un aperçu de fichier et réessayez.",
   "已释放内存": "Mémoire libérée",
-  "归还了 %.0f MB 给系统。": "%.0f Mo rendus au système."
+  "归还了 %.0f MB 给系统。": "%.0f Mo rendus au système.",
+  "最小化窗口": "Réduire la fenêtre",
+  "最大化窗口": "Agrandir la fenêtre",
+  "向下还原窗口": "Restaurer la fenêtre",
+  "关闭窗口": "Fermer la fenêtre"
 }

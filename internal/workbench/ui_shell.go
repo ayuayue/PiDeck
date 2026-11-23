@@ -143,6 +143,9 @@ func (a *app) headActions(inDrawer bool) core.Node {
 				Selected: func() bool { return a.drawer.Get() && a.drawerTab.Get() == "git" }, OnPress: a.openGit}),
 			hint(apptext.T("会话面板"), ui.IconButton{Icon: lucide.PanelRight, Label: apptext.T("会话面板"), Size: 32, IconSize: 16.25,
 				Selected: a.drawer.Get, TestID: "drawer-toggle", OnPress: a.toggleDrawer}),
+			// The window's own buttons end the header, where the platform's
+			// caption would be.
+			a.windowControls(),
 		}}
 	}}
 }

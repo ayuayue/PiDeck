@@ -2679,5 +2679,9 @@
   "没有可释放的内存": "Nothing to free",
   "堆里没有空闲页；关掉大会话或大文件预览后再试。": "The heap holds no idle pages; close a large session or a file preview and try again.",
   "已释放内存": "Memory freed",
-  "归还了 %.0f MB 给系统。": "Returned %.0f MB to the system."
+  "归还了 %.0f MB 给系统。": "Returned %.0f MB to the system.",
+  "最小化窗口": "Minimize window",
+  "最大化窗口": "Maximize window",
+  "向下还原窗口": "Restore window",
+  "关闭窗口": "Close window"
 }
