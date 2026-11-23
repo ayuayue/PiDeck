@@ -416,7 +416,10 @@ linkSeamTest("the frozen helper's hello frame is the handshake the connection la
 	// therefore deliberately withheld; every other contract capability must still be advertised verbatim.
 	const deployOnlyCapabilities = [REMOTE_HELPER_METHOD_FS_UPLOAD_PREPARE, REMOTE_HELPER_METHOD_FS_UPLOAD_COMMIT, REMOTE_HELPER_METHOD_FS_UPLOAD_ABORT];
 	const expectedCapabilities = Array.from(REMOTE_HELPER_CAPABILITIES).filter((capability) => !deployOnlyCapabilities.includes(capability));
-	assert.deepEqual(hello.capabilities, expectedCapabilities, "the flat helper advertises the contract capabilities except deploy-only upload methods");
+	// `session.maintain` 靠 /proc/self/fd 改名，只有 Linux 主机会公布（见 RemoteHelperEntry 的 helperCapabilities）。
+	// 本机 Windows 开发环境没有 symlink 权限会跳过整个用例；CI 的 Windows runner 有，所以这里必须按平台取期望值。
+	const platformCapabilities = process.platform === "linux" ? expectedCapabilities : expectedCapabilities.filter((capability) => capability !== "session.maintain");
+	assert.deepEqual(hello.capabilities, platformCapabilities, "the flat helper advertises the contract capabilities except deploy-only upload methods");
 	for (const method of deployOnlyCapabilities) assert.ok(!hello.capabilities.includes(method), `${method} must not be advertised without bundle deploy facts`);
 	assert.equal(hello.home, HELPER_HOME, "HOME is reported, never resolved into a path");
 	assert.equal(hello.helperVersion, REMOTE_HELPER_ENTRY_VERSION);
