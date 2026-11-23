@@ -5,8 +5,6 @@ package workbench
 // The chat: turns with their tools, the composer, and the empty state.
 
 import (
-	"strings"
-
 	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -74,42 +72,31 @@ func (r stepSource) textAt() int {
 	return min(max(st.TextAt, 0), len(st.Tools))
 }
 
-// turnSteps lists a turn's steps by their stable IDs, and the step pi is
-// still streaming after them, so the row that shows it keeps its mount when
-// the message commits.
-func (a *app) turnSteps(s *session, t func() turn) core.Node {
-	return core.Each(func() []string {
-		tt := t()
-		ids := make([]string, 0, len(tt.Steps)+1)
-		for _, st := range tt.Steps {
-			ids = append(ids, st.ID)
-		}
-		if tt.running() {
-			ids = append(ids, stepID(&tt, tt.Msgs))
-		}
-		return ids
-	}, func(id string) string { return id }, func(cx *core.Scope, id func() string, _ func() int) core.Node {
-		return a.stepRow(s, t, id)
+// turnProcess is a turn's process in the order pi wrote it: what it
+// thought and the calls it made, in one group per run of work, split only
+// where the turn said something in between.
+func (a *app) turnProcess(s *session, t func() turn) core.Node {
+	return core.Each(func() []processNode {
+		return processNodes(a.processItems(s, t))
+	}, func(n processNode) string { return n.id }, func(cx *core.Scope, node func() processNode, _ func() int) core.Node {
+		return a.processRow(s, t, node)
 	})
 }
 
-// stepRow is one assistant message in the order pi wrote it: its process,
-// the prose it said before its last call, and the calls that followed.
-func (a *app) stepRow(s *session, t func() turn, id func() string) core.Node {
-	src := stepSource{s: s, turn: t, id: id}
+// processRow is one row of a turn's process: a group of rows behind its
+// disclosure, something pi said, or a note.
+func (a *app) processRow(s *session, t func() turn, node func() processNode) core.Node {
 	return core.Func(func(cx *core.Scope) core.Node {
-		// A note is a system message, such as a compaction summary: it is
-		// committed whole and never streams.
-		if st := src.committed(); st.Note != "" && !src.live() {
+		n := node()
+		src := stepSource{s: s, turn: t, id: func() string { return n.step }}
+		switch n.kind {
+		case processProse:
+			return a.chatMarkdownLive(func() string { return src.text() }, src.live, core.Style{})
+		case processNote:
+			st := src.committed()
 			return a.noteBlock(st.Note, st.Text)
 		}
-		return core.View{Style: core.Style{MinWidth: core.Pt(0), Gap: 12}, Children: []core.Node{
-			a.processGroup(s, src, 0),
-			core.Show{When: func() bool { return strings.TrimSpace(src.text()) != "" }, Then: func(cx *core.Scope) core.Node {
-				return a.chatMarkdownLive(func() string { return src.text() }, src.live, core.Style{})
-			}},
-			a.processGroup(s, src, 1),
-		}}
+		return a.processGroup(s, t, n)
 	})
 }
 
