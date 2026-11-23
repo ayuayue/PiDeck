@@ -16,35 +16,18 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// defaultKeybindings is command → key. These are the keys the app has
-// always had; a user's config replaces them one command at a time.
+// defaultKeybindings is command → key, read from the commands themselves:
+// the palette shows what a command declares, so a key written twice could
+// only drift. A user's config replaces them one command at a time.
 func defaultKeybindings() []keyBinding {
-	return []keyBinding{
-		{Command: "palette", Key: "mod+k"},
-		{Command: "new-session", Key: "mod+n"},
-		{Command: "chat-session", Key: "mod+shift+n"},
-		{Command: "close-tab", Key: "mod+w"},
-		{Command: "reopen-tab", Key: "mod+alt+t"},
-		{Command: "save-file", Key: "mod+s"},
-		{Command: "go-to-line", Key: "mod+g"},
-		{Command: "quick-open", Key: "mod+p"},
-		{Command: "search-files", Key: "mod+alt+f"},
-		{Command: "save-all-files", Key: "mod+alt+s"},
-		{Command: "appearance-cycle", Key: "mod+shift+l"},
-		{Command: "next-tab", Key: "ctrl+tab"},
-		{Command: "prev-tab", Key: "ctrl+shift+tab"},
-		{Command: "sidebar", Key: "mod+b"},
-		{Command: "drawer", Key: "mod+j"},
-		{Command: "git", Key: "mod+shift+g"},
-		{Command: "terminal", Key: "ctrl+shift+t"},
-		{Command: "prompts", Key: "mod+shift+p"},
-		{Command: "ask", Key: "mod+shift+a"},
-		{Command: "shortcuts", Key: "mod+/"},
-		{Command: "search-sessions", Key: "mod+shift+f"},
-		{Command: "chat-find", Key: "mod+f"},
-		{Command: "chat-outline", Key: "mod+shift+o"},
-		{Command: "settings", Key: "mod+,"},
+	var out []keyBinding
+	for _, c := range builtinCommands() {
+		if strings.TrimSpace(c.Shortcut) == "" {
+			continue
+		}
+		out = append(out, keyBinding{Command: c.ID, Key: c.Shortcut})
 	}
+	return out
 }
 
 // keyBinding is one command's key.

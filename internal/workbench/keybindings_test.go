@@ -46,6 +46,34 @@ func TestDefaultKeybindings(t *testing.T) {
 	}
 }
 
+// TestKeybindingsMatchElectron pins the keys the Electron release uses,
+// so a later change cannot quietly part company with the habits people
+// bring from it. Only the keys that release actually binds are here.
+func TestKeybindingsMatchElectron(t *testing.T) {
+	want := map[string]string{
+		"palette":         "mod+p",       // Ctrl+P: the command palette
+		"new-session":     "mod+n",       // Ctrl+N
+		"search-sessions": "mod+f",       // Ctrl+F: across every session
+		"chat-find":       "mod+shift+f", // Ctrl+Shift+F: inside this one
+		"cycle-model":     "ctrl+m",      // Ctrl+M: next starred model
+		"cycle-thinking":  "ctrl+t",      // Ctrl+T: next thinking level
+		"next-tab":        "ctrl+tab",    // Ctrl+Tab
+		"prev-tab":        "ctrl+shift+tab",
+		"close-tab":       "mod+w",
+		"save-file":       "mod+s",
+		"settings":        "mod+,",
+	}
+	got := map[string]string{}
+	for _, b := range defaultKeybindings() {
+		got[b.Command] = normalizeKey(b.Key)
+	}
+	for cmd, key := range want {
+		if got[cmd] != key {
+			t.Errorf("%s = %q, want the Electron release's %q", cmd, got[cmd], key)
+		}
+	}
+}
+
 // TestResolveKeybindings checks user overrides and explicit unbinding.
 func TestResolveKeybindings(t *testing.T) {
 	a := &app{cfg: config{Keybindings: map[string]string{
@@ -79,12 +107,12 @@ func TestResolveKeybindings(t *testing.T) {
 // TestResolveKeybindingConflict checks that a user's key cannot take
 // another command's key.
 func TestResolveKeybindingConflict(t *testing.T) {
-	a := &app{cfg: config{Keybindings: map[string]string{"drawer": "mod+k"}}}
+	a := &app{cfg: config{Keybindings: map[string]string{"drawer": "mod+p"}}}
 	keyToCmd, _, conflicts := a.resolveKeybindings()
-	if keyToCmd["mod+k"] != "palette" {
-		t.Fatalf("mod+k should stay with palette: %v", keyToCmd)
+	if keyToCmd["mod+p"] != "palette" {
+		t.Fatalf("mod+p should stay with palette: %v", keyToCmd)
 	}
-	if len(conflicts) == 0 || !strings.Contains(conflicts[0], "mod+k") {
+	if len(conflicts) == 0 || !strings.Contains(conflicts[0], "mod+p") {
 		t.Fatalf("conflicts = %v", conflicts)
 	}
 }
@@ -97,7 +125,7 @@ func TestKeybindingRouter(t *testing.T) {
 	}
 	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
-	app.Key("mod+k")
+	app.Key("mod+p")
 	app.WaitFor("text:搜索命令、会话或工作区…", 5*time.Second)
 	app.Key("escape")
 	deadline := time.Now().Add(5 * time.Second)
@@ -113,12 +141,12 @@ func TestKeybindingRouter(t *testing.T) {
 // TestPluginKeybindings checks plugin keys take free keys only, and that
 // a plugin-local command id gets its plugin's prefix.
 func TestPluginKeybindings(t *testing.T) {
-	base := map[string]string{"mod+k": "palette"}
+	base := map[string]string{"mod+p": "palette"}
 	plugins := []plugin{
 		{ID: "team", Name: "团队", Contributes: pluginContrib{Commands: []pluginCommand{{ID: "review", Title: "团队审查"}}, Keybindings: []pluginKeybinding{
 			{Command: "review", Key: "mod+shift+r"},
 			{Command: "settings", Key: "mod+alt+s"},
-			{Command: "clash", Key: "mod+k"},
+			{Command: "clash", Key: "mod+p"},
 		}}},
 		{ID: "off", Name: "停用", Disabled: true, Contributes: pluginContrib{Keybindings: []pluginKeybinding{
 			{Command: "x", Key: "mod+alt+x"},

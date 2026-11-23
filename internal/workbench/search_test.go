@@ -89,7 +89,7 @@ func TestSearchOpensSession(t *testing.T) {
 		a = newApp(cx)
 		return a.view()
 	}, nsgotest.Size(1200, 800))
-	app.Key("mod+shift+f")
+	app.Key("mod+f")
 	app.WaitFor("id:session-search", 10*time.Second)
 	app.WaitUntil(10*time.Second, func() bool { return len(app.Query("text:索引里有 1 个会话")) > 0 })
 	app.Type("id:search-input", "部署")
@@ -104,7 +104,7 @@ func TestSearchOpensSession(t *testing.T) {
 	app.WaitFor("id:composer", 10*time.Second)
 
 	// The query is remembered, and a chip searches again.
-	app.Key("mod+shift+f")
+	app.Key("mod+f")
 	app.WaitFor("id:session-search", 10*time.Second)
 	app.WaitFor("text:最近搜索", 5*time.Second)
 	app.Press("role:button 最近搜索 部署")
@@ -180,7 +180,7 @@ func TestSearchScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
-	app.Key("mod+shift+f")
+	app.Key("mod+f")
 	app.WaitFor("id:session-search", 10*time.Second)
 	app.WaitUntil(10*time.Second, func() bool { return len(app.Query("text:索引里有 2 个会话")) > 0 })
 	app.Type("id:search-input", "部署")
@@ -214,7 +214,7 @@ func TestSearchEnterOpensFirst(t *testing.T) {
 		t.Fatal(err)
 	}
 	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
-	app.Key("mod+shift+f")
+	app.Key("mod+f")
 	app.WaitFor("id:session-search", 10*time.Second)
 	app.WaitUntil(10*time.Second, func() bool { return len(app.Query("text:索引里有 1 个会话")) > 0 })
 	app.Type("id:search-input", "部署")

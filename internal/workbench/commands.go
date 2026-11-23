@@ -45,7 +45,7 @@ type appCommand struct {
 // sections.
 func builtinCommands() []appCommand {
 	return []appCommand{
-		{ID: "palette", Label: "打开命令面板", Group: "应用", Shortcut: "mod+k", Icon: lucide.Command, Hidden: true, HookSafe: true,
+		{ID: "palette", Label: "打开命令面板", Group: "应用", Shortcut: "mod+p", Icon: lucide.Command, Hidden: true, HookSafe: true,
 			Run: func(a *app) { a.palette.Set(true) }},
 		{ID: "browse-workspace", Label: "浏览文件夹添加工作区…", Group: "工作区", Icon: lucide.FolderOpen,
 			Run: func(a *app) { a.openPicker("workspace") }},
@@ -136,7 +136,7 @@ func builtinCommands() []appCommand {
 			}},
 		{ID: "new-plugin", Label: "新建插件…", Group: "扩展", Icon: lucide.PackagePlus,
 			Run: func(a *app) { a.openPluginNew() }},
-		{ID: "quick-open", Label: "快速打开文件…", Group: "文件", Shortcut: "mod+p", Icon: lucide.FileSearch,
+		{ID: "quick-open", Label: "快速打开文件…", Group: "文件", Shortcut: "mod+k", Icon: lucide.FileSearch,
 			When: func(a *app) bool { return a.quickOpenRoot() != "" },
 			Run:  func(a *app) { a.openQuickOpen() }},
 		{ID: "search-files", Label: "在文件中搜索…", Group: "文件", Shortcut: "mod+alt+f", Icon: lucide.FileSearch,
@@ -256,13 +256,19 @@ func builtinCommands() []appCommand {
 		{ID: "image-mode", Label: "生图模式", Group: "会话", Icon: lucide.Image,
 			When: func(a *app) bool { return a.active() != nil },
 			Run:  func(a *app) { a.toggleImageMode(a.active()) }},
+		{ID: "cycle-model", Label: "切换到下一个收藏模型", Group: "会话", Shortcut: "ctrl+m", Icon: lucide.Cpu,
+			When: func(a *app) bool { return a.active() != nil },
+			Run:  func(a *app) { a.cycleModel(a.active()) }},
+		{ID: "cycle-thinking", Label: "切换思考等级", Group: "会话", Shortcut: "ctrl+t", Icon: lucide.Brain,
+			When: func(a *app) bool { return a.active() != nil },
+			Run:  func(a *app) { a.cycleThinking(a.active()) }},
 		{ID: "chat-outline", Label: "会话大纲…", Group: "会话", Shortcut: "mod+shift+o", Icon: lucide.ListTree, HookSafe: true,
 			When: func(a *app) bool { return a.active() != nil },
 			Run:  func(a *app) { a.outlineOpen.Set(true) }},
-		{ID: "chat-find", Label: "在会话里查找…", Group: "会话", Shortcut: "mod+f", Icon: lucide.Search,
+		{ID: "chat-find", Label: "在会话里查找…", Group: "会话", Shortcut: "mod+shift+f", Icon: lucide.Search,
 			When: func(a *app) bool { return a.active() != nil },
 			Run:  func(a *app) { a.openChatFind() }},
-		{ID: "search-sessions", Label: "搜索会话内容…", Group: "会话", Shortcut: "mod+shift+f", Icon: lucide.Search,
+		{ID: "search-sessions", Label: "搜索会话内容…", Group: "会话", Shortcut: "mod+f", Icon: lucide.Search,
 			Run: func(a *app) { a.openSearch() }},
 		{ID: "ask", Label: "并行问询…", Group: "会话", Shortcut: "mod+shift+a", Icon: lucide.MessagesSquare,
 			Run: func(a *app) { a.openAsk() }},
@@ -405,7 +411,7 @@ func (a *app) commandItems() []base.CommandItem {
 		out = append(out, base.CommandItem{ID: c.ID, Label: apptext.T(c.Label), Description: apptext.T(c.Description),
 			Group: apptext.T("最近"), Shortcut: c.Shortcut, Icon: icon()})
 	}
-	// The files the editor opened last, so Ctrl+K reaches them too.
+	// The files the editor opened last, so Ctrl+P reaches them too.
 	root := a.quickOpenRoot()
 	for _, path := range a.cfg.RecentFiles {
 		if len(out) >= 200 {

@@ -57,7 +57,7 @@ func TestQuickOpenFile(t *testing.T) {
 	write("docs/readme.md", "# readme")
 
 	app := startApp(t, dir, 1280, 860)
-	app.Key("mod+p")
+	app.Key("mod+k")
 	app.WaitFor("id:quick-open", 5*time.Second)
 	app.WaitUntil(15*time.Second, func() bool { return len(app.Query("role:option docs/readme.md")) > 0 })
 
@@ -106,7 +106,7 @@ func TestQuickOpenRecents(t *testing.T) {
 	app.Press("text:note.txt")
 	app.WaitFor("id:editor", 5*time.Second)
 
-	app.Key("mod+p")
+	app.Key("mod+k")
 	app.WaitFor("id:quick-open", 5*time.Second)
 	app.WaitUntil(10*time.Second, func() bool { return len(app.Query("text:最近")) > 0 })
 	app.WaitFor("role:option note.txt", 5*time.Second)
@@ -147,7 +147,7 @@ func TestPaletteRecentFile(t *testing.T) {
 	app.Key("mod+w")
 	app.WaitFor("id:composer", 5*time.Second)
 
-	app.Key("mod+k")
+	app.Key("mod+p")
 	app.Type("label:命令", "note.txt")
 	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("role:option note.txt")) > 0 })
 	app.Press("role:option note.txt")
