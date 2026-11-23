@@ -54,47 +54,14 @@ func (a *app) settingsTick() {
 	}
 }
 
-// bumpSettings redraws the settings page after a value changed, and puts
-// the reader back where they were: the redraw makes a new scroll view.
+// bumpSettings redraws the settings page after a value changed. Each page's
+// scroll view keeps its place through its stash, so nothing has to be put
+// back by hand.
 func (a *app) bumpSettings() {
 	if a.settingsRev == nil {
 		return
 	}
 	a.settingsRev.Update(func(n int) int { return n + 1 })
-	a.restoreSettingsScroll()
-}
-
-// settingsScrolled remembers the settings page's offset.
-func (a *app) settingsScrolled(e core.ScrollEvent) {
-	if e.Offset.Y >= 0 {
-		a.settingsOffset = e.Offset
-	}
-}
-
-// restoreSettingsScroll scrolls a redrawn page back to where it was.
-func (a *app) restoreSettingsScroll() {
-	if a.settingsOffset.Y <= 0 || a.settingsScroll == nil {
-		return
-	}
-	at := a.settingsOffset
-	a.cx.Post(func() {
-		a.settingsScroll.ScrollTo(at, false)
-		a.cx.Post(func() { a.settingsScroll.ScrollTo(at, false) })
-	})
-}
-
-// resetSettingsScroll starts a newly selected section at its heading rather
-// than carrying the previous section's offset into its different content.
-func (a *app) resetSettingsScroll() {
-	a.settingsOffset = core.Point{}
-	if a.settingsScroll == nil {
-		return
-	}
-	ref := a.settingsScroll
-	a.cx.Post(func() {
-		ref.ScrollTo(core.Point{}, false)
-		a.cx.Post(func() { ref.ScrollTo(core.Point{}, false) })
-	})
 }
 
 // setSessionSort changes how a project orders its sessions.

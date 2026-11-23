@@ -32,7 +32,7 @@ func (a *app) settingsIntegrations() core.Node {
 			fn(&a.cfg)
 			a.st.edit(fn)
 		}
-		return core.Scroll{TestID: "settings-page", Ref: a.settingsScroll, OnScroll: a.settingsScrolled, Style: ui.FillRest, Children: []core.Node{
+		return a.scrollStashFor("settingsIntegrations:1").bind(cx, core.Scroll{TestID: "settings-page", Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 4}, Children: []core.Node{
 				a.wechatSettings(),
 				setGroup("飞书",
@@ -130,7 +130,7 @@ func (a *app) settingsIntegrations() core.Node {
 				core.Text{Content: apptext.T("默认只发会话标题、状态与一句摘要；开启「把回答发回群」后，回答最多发 1500 字。"), Style: core.Style{FontSize: 11, LineHeight: 17},
 					StyleFunc: ui.Colored(colors.Faint)},
 			}},
-		}}
+		}})
 	})
 }
 

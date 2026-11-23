@@ -192,7 +192,7 @@ func (a *app) settingsMCP() core.Node {
 		if len(rows) == 0 {
 			rows = append(rows, setRow("还没有 MCP 服务器", "添加一个 HTTP 地址或启动命令，pi 会连接它。", nil))
 		}
-		return core.Scroll{TestID: "settings-page", Ref: a.settingsScroll, OnScroll: a.settingsScrolled, Style: ui.FillRest, Children: []core.Node{
+		return a.scrollStashFor("settingsMCP:1").bind(cx, core.Scroll{TestID: "settings-page", Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 4}, Children: []core.Node{
 				setGroup("智能体记忆", setRow("会话记忆工具", "让已信任的本机 pi 会话搜索历史和读写项目记忆。开启后重启 Agent 生效。",
 					ui.Switch{Label: apptext.T("会话记忆工具"), TestID: "memory-tools-toggle", Checked: func() bool { return a.cfg.MemoryTools }, OnChange: func(on bool) {
@@ -228,7 +228,7 @@ func (a *app) settingsMCP() core.Node {
 						}},
 				}},
 			}},
-		}}
+		}})
 	})
 }
 

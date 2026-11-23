@@ -35,7 +35,7 @@ func TestNativeSettingsPageScreens(t *testing.T) {
 				// network and MCP discovery may launch configured user processes.
 				built.settingsTab.Set(id)
 				built.settingsQuery.Set("")
-				built.resetSettingsScroll()
+				built.forgetScrolls("settings")
 			} else {
 				built.openSettingsSection(id)
 			}

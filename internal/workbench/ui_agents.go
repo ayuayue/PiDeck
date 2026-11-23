@@ -75,8 +75,8 @@ func (a *app) agentsPane() core.Node {
 			bodyRows = append(bodyRows, core.Text{Content: apptext.T("还没有智能体。"), Style: core.Style{FontSize: 11, Padding: core.All(8)},
 				StyleFunc: ui.Colored(colors.Faint)})
 		} else {
-			bodyRows = append(bodyRows, core.Scroll{Style: ui.FillRest, Children: []core.Node{
-				core.View{Style: core.Style{Gap: 1}, Children: rows}}})
+			bodyRows = append(bodyRows, a.scrollStashFor("agentsPane:1").bind(cx, core.Scroll{Style: ui.FillRest, Children: []core.Node{
+				core.View{Style: core.Style{Gap: 1}, Children: rows}}}))
 		}
 
 		fieldStyle := core.Style{Height: core.Pt(29), Padding: core.Symmetric(0, 8), CornerRadius: 6, FontSize: 11.5,

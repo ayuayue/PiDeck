@@ -53,8 +53,8 @@ func (a *app) gitUnpushedDialog() core.Node {
 			body = core.Text{Content: apptext.T("没有未推送的提交。"), Style: core.Style{FontSize: 11, Padding: core.All(8)},
 				StyleFunc: ui.Colored(colors.Faint)}
 		default:
-			body = core.Scroll{Style: core.Style{MaxHeight: core.Pt(360)}, Children: []core.Node{
-				core.View{Style: core.Style{Gap: 1}, Children: rows}}}
+			body = a.scrollStashFor("gitUnpushedDialog:1").bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(360)}, Children: []core.Node{
+				core.View{Style: core.Style{Gap: 1}, Children: rows}}})
 		}
 		return ui.Dialog{
 			Open:         a.gitUnpushedOpen.Get,

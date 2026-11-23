@@ -98,8 +98,8 @@ func (a *app) announcementsDialog() core.Node {
 		var body core.Node
 		switch {
 		case len(rows) > 0:
-			body = core.Scroll{TestID: "announce-list", Style: core.Style{MaxHeight: core.Pt(420)}, Children: []core.Node{
-				core.View{Style: core.Style{Gap: 8}, Children: rows}}}
+			body = a.scrollStashFor("announcementsDialog:1").bind(cx, core.Scroll{TestID: "announce-list", Style: core.Style{MaxHeight: core.Pt(420)}, Children: []core.Node{
+				core.View{Style: core.Style{Gap: 8}, Children: rows}}})
 		case busy:
 			body = core.Text{Content: apptext.T("正在读取公告…"), Style: core.Style{FontSize: 11.5, Padding: core.All(8)},
 				StyleFunc: ui.Colored(colors.Faint)}

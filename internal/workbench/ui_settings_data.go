@@ -32,7 +32,7 @@ func (a *app) settingsData() core.Node {
 		for _, ws := range a.workspaces.Get() {
 			piCount += len(ws.Pi.Get())
 		}
-		return core.Scroll{TestID: "settings-page", Ref: a.settingsScroll, OnScroll: a.settingsScrolled, Style: ui.FillRest, Children: []core.Node{
+		return a.scrollStashFor("settingsData:1").bind(cx, core.Scroll{TestID: "settings-page", Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 2}, Children: []core.Node{
 				setGroup("位置",
 					setRow("数据目录", dir, ui.Button{Text: apptext.T("打开"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
@@ -75,6 +75,6 @@ func (a *app) settingsData() core.Node {
 				}),
 				a.cacheCleanupSettings(),
 			}},
-		}}
+		}})
 	})
 }

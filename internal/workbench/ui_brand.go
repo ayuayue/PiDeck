@@ -105,8 +105,8 @@ func (a *app) openBrandSettings() {
 	a.brandOpen.Set(false)
 	a.openSettingsSection("look")
 	a.openSettingsPane()
-	a.settingsOffset = core.Point{}
-	a.settingsScroll.ScrollTo(core.Point{}, false)
+
+	a.forgetScrolls("settings")
 }
 
 // brandInfo is a compact version panel beside the wordmark. Opening a

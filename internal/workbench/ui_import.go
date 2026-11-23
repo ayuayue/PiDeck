@@ -304,16 +304,16 @@ func (a *app) importBody() core.Node {
 				nodes = append(nodes, core.Text{Content: fmt.Sprintf(apptext.T("还有 %d 个未列出，用搜索或来源筛选"), hidden),
 					Style: core.Style{FontSize: 10.5, Padding: core.All(6)}, StyleFunc: ui.Colored(colors.Faint)})
 			}
-			list = append(list, core.Scroll{Style: core.Style{MaxHeight: core.Pt(340)}, Children: []core.Node{
-				core.View{Style: core.Style{Gap: 1}, Children: nodes}}})
+			list = append(list, a.scrollStashFor("importBody:1").bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(340)}, Children: []core.Node{
+				core.View{Style: core.Style{Gap: 1}, Children: nodes}}}))
 		}
 
 		return core.View{Style: core.Style{Gap: 10}, Children: []core.Node{
 			a.importTargetLine(),
 			// One tab per tool: each store is picked and imported on its own,
 			// rather than every tool's sessions in one heap.
-			core.Scroll{Horizontal: true, HideIndicator: true, Children: []core.Node{
-				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2}, Children: tabs}}},
+			a.scrollStashFor("importBody:2").bind(cx, core.Scroll{Horizontal: true, HideIndicator: true, Children: []core.Node{
+				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2}, Children: tabs}}}),
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
 				search,
 				ui.Button{Text: apptext.T("全选"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "import-select-all",

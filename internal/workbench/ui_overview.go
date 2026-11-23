@@ -74,7 +74,7 @@ func (a *app) drawerOverview() core.Node {
 			}
 			return m.label()
 		}
-		return core.Scroll{Style: ui.FillRest, Children: []core.Node{
+		return a.scrollStashFor("drawerOverview:1").bind(cx, core.Scroll{Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Gap: 14, Padding: core.Edges{Top: 2, Bottom: 20, Right: 2, Left: 2}}, Children: []core.Node{
 				core.View{StyleFunc: func() core.Style {
 					return core.Style{Gap: 4, Padding: core.All(12), CornerRadius: ui.RadiusControl, Background: colors.Surface(), BorderWidth: 1, BorderColor: colors.Border()}
@@ -202,6 +202,6 @@ func (a *app) drawerOverview() core.Node {
 						Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9.5, LineHeight: 14}, StyleFunc: ui.Colored(colors.Faint)},
 				}},
 			}},
-		}}
+		}})
 	})
 }

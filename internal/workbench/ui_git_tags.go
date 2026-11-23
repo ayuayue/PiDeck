@@ -97,8 +97,8 @@ func (a *app) gitTagsDialog() core.Node {
 			TestID:       "git-tags",
 			Style:        core.Style{Width: a.dialogWidth(), MaxHeight: core.Pt(560)},
 			Children: []core.Node{core.View{Style: core.Style{Gap: 8}, Children: []core.Node{
-				core.Scroll{Style: core.Style{MaxHeight: core.Pt(300)}, Children: []core.Node{
-					core.View{Style: core.Style{Gap: 1}, Children: rows}}},
+				a.scrollStashFor("gitTagsDialog:1").bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(300)}, Children: []core.Node{
+					core.View{Style: core.Style{Gap: 1}, Children: rows}}}),
 				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 					core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
 						core.Input{Value: a.gitTagText.Get, OnChange: a.gitTagText.Set, Placeholder: "v1.0.0", Label: apptext.T("标签名"),

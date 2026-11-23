@@ -125,9 +125,9 @@ func (a *app) pickerDialog() core.Node {
 				}},
 				core.View{Style: core.Style{Height: core.Pt(300), MinHeight: core.Pt(0), BorderWidth: 1, BorderColor: colors.Border(),
 					CornerRadius: ui.RadiusControl, Overflow: core.Hidden, Background: colors.Background()}, Children: []core.Node{
-					core.Scroll{Style: ui.FillRest, Children: []core.Node{
+					a.scrollStashFor("pickerDialog:1").bind(cx, core.Scroll{Style: ui.FillRest, Children: []core.Node{
 						core.View{Style: core.Style{Padding: core.All(4), Gap: 1}, Children: rows},
-					}},
+					}}),
 				}},
 				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(16)}, Children: []core.Node{
 					core.Show{When: func() bool { return p.loading.Get() }, Then: func(*core.Scope) core.Node {

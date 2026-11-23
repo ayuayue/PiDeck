@@ -171,7 +171,7 @@ func (a *app) drawerFiles() core.Node {
 			}
 			return core.View{Style: core.Style{Gap: 1}, Children: rows}
 		}
-		return core.Scroll{Style: ui.FillRest, Children: []core.Node{
+		return a.scrollStashFor("drawerFiles:1").bind(cx, core.Scroll{Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Gap: 4, Padding: core.Edges{Top: 2, Bottom: 20, Right: 2, Left: 2}}, Children: []core.Node{
 				head,
 				search,
@@ -184,6 +184,6 @@ func (a *app) drawerFiles() core.Node {
 					}
 				}},
 			}},
-		}}
+		}})
 	})
 }

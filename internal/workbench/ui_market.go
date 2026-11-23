@@ -117,8 +117,8 @@ func (a *app) pluginMarketDialog() core.Node {
 						OnPress: a.loadPluginIndex},
 				}},
 				status,
-				core.Scroll{Style: core.Style{MaxHeight: core.Pt(400)}, Children: []core.Node{
-					core.View{Style: core.Style{Gap: 1}, Children: rows}}},
+				a.scrollStashFor("pluginMarketDialog:1").bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(400)}, Children: []core.Node{
+					core.View{Style: core.Style{Gap: 1}, Children: rows}}}),
 			}}},
 			Footer: []core.Node{
 				ui.Button{Text: apptext.T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "market-close",

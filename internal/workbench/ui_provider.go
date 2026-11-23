@@ -415,7 +415,7 @@ func (a *app) providerDialog() core.Node {
 			Title:        apptext.T("配置 ") + a.providerID.Get(),
 			TestID:       "provider-dialog",
 			Style:        core.Style{Width: a.dialogWidth(), MaxHeight: core.Pt(620)},
-			Children: []core.Node{core.Scroll{TestID: "provider-scroll", Style: core.Style{MaxHeight: core.Pt(470)}, Children: []core.Node{
+			Children: []core.Node{a.scrollStashFor("providerDialog:1").bind(cx, core.Scroll{TestID: "provider-scroll", Style: core.Style{MaxHeight: core.Pt(470)}, Children: []core.Node{
 				core.View{Style: core.Style{Gap: 12, Padding: core.Edges{Right: 6}}, Children: []core.Node{
 					a.providerAuthBlock(),
 					setDivider(),
@@ -538,7 +538,7 @@ func (a *app) providerDialog() core.Node {
 					core.Text{Content: apptext.T("只写回这里能改的字段：api、baseUrl、apiKey 与模型条目；其余内容保持原样。保存后重启 Agent 生效。"),
 						Style: core.Style{FontSize: 10.5, LineHeight: 16}, StyleFunc: ui.Colored(colors.Faint)},
 				}},
-			}}},
+			}})},
 			Footer: []core.Node{
 				ui.Button{Text: apptext.T("编辑原始 JSON"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
 					a.openPiConfigFile("models.json")

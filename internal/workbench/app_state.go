@@ -377,11 +377,10 @@ type app struct {
 	brandError    *core.Signal[string]
 	customBrand   brandImage
 	brandImageSeq int
-	// settingsScroll and settingsOffset remember where a settings page was
-	// scrolled, so redrawing it after a switch keeps the reader's place.
-	settingsScroll *core.Ref
-	settingsOffset core.Point
-	settingsTab    *core.Signal[string]
+	settingsTab   *core.Signal[string]
+	// scrolls are the offsets of scroll views under a Dynamic, by key: a
+	// rerun clears the subtree, and the place has to come from outside.
+	scrolls map[string]*scrollStash
 	// tabRefs are the open tabs' elements, by tab id: the bar scrolls the
 	// focused one into sight so a full bar never hides it.
 	tabRefs map[string]*core.Ref

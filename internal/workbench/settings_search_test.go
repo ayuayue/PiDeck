@@ -63,13 +63,13 @@ func TestSettingsNavigationResetsSectionScroll(t *testing.T) {
 	screen.Press("id:settings-tab-general")
 	screen.WaitFor("id:notify-done", 5*time.Second)
 	screen.ScrollTo("id:settings-page", core.Point{Y: 700})
-	screen.WaitUntil(5*time.Second, func() bool { return built.settingsOffset.Y > 0 })
+	screen.WaitUntil(5*time.Second, func() bool { return screen.Find("id:settings-page").Offset.Y > 0 })
 
 	screen.Type("id:settings-search", "内容宽度")
 	screen.WaitFor("id:settings-hit-general-0", 5*time.Second)
 	screen.Press("id:settings-hit-general-0")
 	screen.WaitFor("id:chat-width", 5*time.Second)
-	if got := built.settingsOffset.Y; got != 0 {
+	if got := screen.Find("id:settings-page").Offset.Y; got != 0 {
 		t.Fatalf("settings offset after selecting a search result = %.0f, want 0", got)
 	}
 }
@@ -87,17 +87,17 @@ func TestSettingsNavigationHasIndependentScroll(t *testing.T) {
 	screen.Press("label:设置")
 	screen.WaitFor("id:settings-tab-general", 5*time.Second)
 	screen.ScrollTo("id:settings-page", core.Point{Y: 500})
-	screen.WaitUntil(5*time.Second, func() bool { return built.settingsOffset.Y > 0 })
-	pageOffset := built.settingsOffset.Y
+	screen.WaitUntil(5*time.Second, func() bool { return screen.Find("id:settings-page").Offset.Y > 0 })
+	pageOffset := screen.Find("id:settings-page").Offset.Y
 
 	screen.ScrollTo("id:settings-navigation", core.Point{Y: 500})
 	screen.WaitFor("id:settings-tab-about", 5*time.Second)
-	if got := built.settingsOffset.Y; got != pageOffset {
+	if got := screen.Find("id:settings-page").Offset.Y; got != pageOffset {
 		t.Fatalf("scrolling settings navigation changed page offset from %.0f to %.0f", pageOffset, got)
 	}
 	screen.Press("id:settings-tab-about")
 	screen.WaitFor("id:settings-page", 5*time.Second)
-	if got := built.settingsOffset.Y; got != 0 {
+	if got := screen.Find("id:settings-page").Offset.Y; got != 0 {
 		t.Fatalf("settings offset after opening another section = %.0f, want 0", got)
 	}
 }

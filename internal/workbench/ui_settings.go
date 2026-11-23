@@ -165,7 +165,7 @@ func (a *app) openSettingsPane() {
 // openSettingsSection switches to a section and runs its loader.
 func (a *app) openSettingsSection(id string) {
 	a.settingsTab.Set(id)
-	a.resetSettingsScroll()
+	a.forgetScrolls("settings")
 	if a.st != nil && a.cfg.SettingsTab != id {
 		a.cfg.SettingsTab = id
 		a.st.edit(func(c *config) { c.SettingsTab = id })
@@ -209,14 +209,14 @@ func (a *app) settingsRail(nav []core.Node) core.Node {
 		colors := ui.ColorsOf(cx)
 		query := strings.ToLower(strings.TrimSpace(a.settingsQuery.Get()))
 		if query == "" {
-			return core.Scroll{TestID: "settings-navigation", Style: ui.FillRest,
-				Children: []core.Node{base.Tabs{Label: apptext.T("设置"), Style: core.Style{Gap: 8}, Children: nav}}}
+			return a.scrollStashFor("settingsRail:1").bind(cx, core.Scroll{TestID: "settings-navigation", Style: ui.FillRest,
+				Children: []core.Node{base.Tabs{Label: apptext.T("设置"), Style: core.Style{Gap: 8}, Children: nav}}})
 		}
 		hits := searchSettings(query)
 		if len(hits) == 0 {
-			return core.Scroll{TestID: "settings-search-results", Style: ui.FillRest,
+			return a.scrollStashFor("settingsRail:2").bind(cx, core.Scroll{TestID: "settings-search-results", Style: ui.FillRest,
 				Children: []core.Node{core.Text{Content: apptext.T("没有匹配的设置"), Style: core.Style{FontSize: 11, Padding: core.Symmetric(6, 8)},
-					StyleFunc: ui.Colored(colors.Faint)}}}
+					StyleFunc: ui.Colored(colors.Faint)}}})
 		}
 		bySection := map[string]int{}
 		var rows []core.Node
@@ -240,8 +240,8 @@ func (a *app) settingsRail(nav []core.Node) core.Node {
 				},
 			})
 		}
-		return core.Scroll{TestID: "settings-search-results", Style: ui.FillRest,
-			Children: []core.Node{core.View{Style: core.Style{Gap: 1}, Children: rows}}}
+		return a.scrollStashFor("settingsRail:3").bind(cx, core.Scroll{TestID: "settings-search-results", Style: ui.FillRest,
+			Children: []core.Node{core.View{Style: core.Style{Gap: 1}, Children: rows}}})
 	})
 }
 

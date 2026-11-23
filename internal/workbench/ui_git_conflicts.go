@@ -62,8 +62,8 @@ func (a *app) gitConflictsDialog() core.Node {
 			Description:  apptext.T("选择保留哪一边，或手动改好后标记为已解决。"),
 			TestID:       "git-conflicts-dialog",
 			Style:        core.Style{Width: a.dialogWidth(), MaxHeight: core.Pt(560)},
-			Children: []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pt(380)}, Children: []core.Node{
-				core.View{Style: core.Style{Gap: 2}, Children: rows}}}},
+			Children: []core.Node{a.scrollStashFor("gitConflictsDialog:1").bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(380)}, Children: []core.Node{
+				core.View{Style: core.Style{Gap: 2}, Children: rows}}})},
 			Footer: []core.Node{
 				ui.Button{Text: apptext.T("中止合并…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "git-abort-merge",
 					Disabled: busy, OnPress: a.gitAbortOperation},

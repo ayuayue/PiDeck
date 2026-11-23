@@ -228,8 +228,8 @@ func (a *app) promptStoreDialog() core.Node {
 						Disabled: func() bool { return a.promptStoreBusy.Get() }, OnPress: a.loadPromptIndex},
 				}},
 				status,
-				core.Scroll{Style: core.Style{MaxHeight: core.Pt(400)}, Children: []core.Node{
-					core.View{Style: core.Style{Gap: 1}, Children: rows}}},
+				a.scrollStashFor("promptStoreDialog:1").bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(400)}, Children: []core.Node{
+					core.View{Style: core.Style{Gap: 1}, Children: rows}}}),
 			}}},
 			Footer: []core.Node{
 				ui.Button{Text: apptext.T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "prompt-store-close",

@@ -85,8 +85,8 @@ func (a *app) archiveDialog() core.Node {
 			body = core.Text{Content: apptext.T("还没有归档的会话。"), Style: core.Style{FontSize: 11, Padding: core.All(8)},
 				StyleFunc: ui.Colored(colors.Faint)}
 		} else {
-			body = core.Scroll{Style: core.Style{MaxHeight: core.Pt(380)}, Children: []core.Node{
-				core.View{Style: core.Style{Gap: 2}, Children: rows}}}
+			body = a.scrollStashFor("archiveDialog:1").bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(380)}, Children: []core.Node{
+				core.View{Style: core.Style{Gap: 2}, Children: rows}}})
 		}
 		return ui.Dialog{
 			Open:         a.archiveOpen.Get,

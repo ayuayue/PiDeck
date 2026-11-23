@@ -126,7 +126,7 @@ func (a *app) settingsEnv() core.Node {
 					a.st.change(func(c *config) { c.ProxyBypass = v })
 				}, "localhost,127.0.0.1,.local", "直连名单", "proxy-bypass")),
 		}
-		return core.Scroll{TestID: "settings-page", Ref: a.settingsScroll, OnScroll: a.settingsScrolled, Style: ui.FillRest, Children: []core.Node{
+		return a.scrollStashFor("settingsEnv:1").bind(cx, core.Scroll{TestID: "settings-page", Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 2}, Children: []core.Node{
 				setGroup("本机", probeRows, editorRow),
 				setGroup("网络代理", proxyRows...),
@@ -144,7 +144,7 @@ func (a *app) settingsEnv() core.Node {
 					}},
 				}},
 			}},
-		}}
+		}})
 	})
 }
 

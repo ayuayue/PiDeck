@@ -126,12 +126,12 @@ func (a *app) feedbackDialog() core.Node {
 						ui.Button{Text: apptext.T("导出诊断包"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "feedback-bundle",
 							OnPress: func() { a.exportDiagnostics() }},
 					}},
-					core.Scroll{TestID: "feedback-report", Style: core.Style{MaxHeight: core.Pt(220)}, Children: []core.Node{
+					a.scrollStashFor("feedbackDialog:1").bind(cx, core.Scroll{TestID: "feedback-report", Style: core.Style{MaxHeight: core.Pt(220)}, Children: []core.Node{
 						core.View{Style: field.Merge(core.Style{Padding: core.All(9)}), Children: []core.Node{
 							core.Text{Content: report, Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10.5, LineHeight: 15},
 								StyleFunc: ui.Colored(colors.Muted)},
 						}},
-					}},
+					}}),
 				}},
 				ui.Text(apptext.T("打开 Issue 前会先把报告复制到剪贴板：GitHub 收不了太长的链接。"), 10.5, ui.Regular, colors.Faint),
 			}}},

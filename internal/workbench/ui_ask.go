@@ -38,9 +38,9 @@ func (a *app) parallelAskDialog() core.Node {
 				core.View{StyleFunc: func() core.Style {
 					return core.Style{MaxHeight: core.Pt(220), Padding: core.All(10), CornerRadius: 8,
 						BorderWidth: 1, BorderColor: colors.Line(), Background: colors.Inset()}
-				}, Children: []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pt(200)}, Children: []core.Node{
+				}, Children: []core.Node{a.scrollStashFor("parallelAskDialog:1").bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(200)}, Children: []core.Node{
 					core.View{Selectable: true, Children: []core.Node{viewkit.Markdown(st.Answer, func() bool { return false }, false)}},
-				}}}},
+				}})}},
 			}}
 		}
 		buttonRow := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
@@ -66,7 +66,7 @@ func (a *app) parallelAskDialog() core.Node {
 			Title:  apptext.T("并行问询"),
 			TestID: "ask-dialog",
 			Style:  core.Style{Width: a.dialogWidth(), Height: core.Pt(560)},
-			Children: []core.Node{core.Scroll{Style: ui.FillRest, Children: []core.Node{
+			Children: []core.Node{a.scrollStashFor("parallelAskDialog:2").bind(cx, core.Scroll{Style: ui.FillRest, Children: []core.Node{
 				core.View{Style: core.Style{Gap: 12, Padding: core.Edges{Right: 4}}, Children: []core.Node{
 					core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
 						ui.Text(apptext.T("问题"), 10.5, ui.Medium, colors.Muted),
@@ -95,7 +95,7 @@ func (a *app) parallelAskDialog() core.Node {
 					core.Text{Content: apptext.T("问询会新建一个会话，主会话不受影响；答完可以引用回输入框，也可以打开那个会话继续聊。"),
 						Style: core.Style{FontSize: 10.5, LineHeight: 16}, StyleFunc: ui.Colored(colors.Faint)},
 				}},
-			}}},
+			}})},
 		}
 	})
 }
