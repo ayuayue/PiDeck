@@ -15,8 +15,10 @@ PiDeck 0.14 makes remote workspaces usable day to day: files move over SFTP, rem
 - **Archived session restore regressions fixed (#581, #579)** — restoring an archived parent session brings its flattened subagent sessions back, and POSIX project casing is preserved.
 - **File links in remote sessions open against the remote project** — the open-file action on tool cards no longer reports that the path does not exist.
 - **The bundled Feishu SDK keeps its file permissions and checksum** — the shipped `feishu-sdk-1.67.0.tar.gz` and its `manifest.json` are resynced, so extracted files keep their POSIX permissions and the runtime sha256 / byte checks match the archive again.
+- **Remote extension updates and built-in toggles use the right scope** — both entries in an SSH project used to resolve against the local scope, disagreeing with the remote extension snapshot; they now act on the remote project/host identity, and built-in toggle state follows that snapshot too.
+- **Running process groups keep following live output** — new members and member-window swaps no longer drag a scrolled-up reading position back to the bottom; only a group parked at the bottom keeps sticking.
 
-Thanks to **ZedingZhang** for fixing archived session restore (#581, #579) and the Windows sandbox `0xC0000142` / asar `NODE_OPTIONS` leak (#591), to **op15066212** for restructuring the pideck skill docs and their judge scripts, and to **bfzha** for resyncing the bundled Feishu SDK permissions and checksum.
+Thanks to **ZedingZhang** for fixing archived session restore (#581, #579) and the Windows sandbox `0xC0000142` / asar `NODE_OPTIONS` leak (#591), to **op15066212** for restructuring the pideck skill docs and their judge scripts, and to **bfzha** for resyncing the bundled Feishu SDK permissions and checksum, aligning remote extension updates and built-in toggles, and fixing process-group live following.
 
 ## v0.13.2 (2026-11-21)
 

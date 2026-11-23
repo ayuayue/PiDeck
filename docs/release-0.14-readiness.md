@@ -4,7 +4,7 @@
 
 ## 本版范围
 
-审查基线 `v0.13.2..` 截至 2026-11-23 的 `dev`（48 个提交）。主线是**远端工作区可用化**：文本读写走 SFTP 并做「版本一致才替换」的上传提交、会话历史在远端就地维护（去掉整文件往返的 256 KiB 上界）、远端设置与 MCP 复用本地表单；并行修掉 Windows 沙箱 `0xC0000142`（#591 / #582）与 WSL 会话列表卡死（#588），Markdown 预览支持目录锚点跳转。
+审查基线 `v0.13.2..` 截至 2026-11-23 的 `dev`。主线是**远端工作区可用化**：文本读写走 SFTP 并做「版本一致才替换」的上传提交、会话历史在远端就地维护（去掉整文件往返的 256 KiB 上界）、远端设置与 MCP 复用本地表单；并行修掉 Windows 沙箱 `0xC0000142`（#591 / #582）与 WSL 会话列表卡死（#588），Markdown 预览支持目录锚点跳转，并收口了远端扩展更新/内置开关的作用域与过程组实时跟随。
 
 ## 门禁证据（2026-11-23）
 
@@ -15,6 +15,7 @@
 | 构建产物 | `npm run build:fast` 用当前源码重建 `out/`；`dist-runtime/dsh-runtime-win32-x64.tgz`（147 MB）与 linux-x64（28 MB）在库 |
 | 发布一致性 | 版本/CHANGELOG/README 徽章与最新版行一致（0 提醒）；workflow tag 下拉 5 处已同步；README 亮点、docs-site/changelog 由 `sync-release-notes --apply` 生成 |
 | 最后入口的远程提交（bfzha `e20345fd4`） | 只改 `resources/feishu-sdk/`（tar.gz + manifest 的 sha256/字节数）：实体与清单哈希对得上，`tests/feishuSdkPackaging` + `tests/feishuSdkRuntime` 13/13 通过；不涉源码，不需重建 `out/` |
+| 发版前最后一轮远程提交（bfzha `56eebb88b` / `c24080e02`） | 远端扩展「更新/内置开关」作用域对齐 + 运行中过程组实时跟随：typecheck ✓、`tests/remoteBuiltInExtensions` + `remotePiManagement` + `remoteExtensionVersions` 15/15；两 spec 新增的 `process-fold-scroll`（9 条）与 `remote-extension-management`（1 条）连同发版核心集 **23/23 通过**（2.1min） |
 
 ## 本版同时收口的开发树红灯（均为测试侧陈旧断言，非产品缺陷）
 
