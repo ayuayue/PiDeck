@@ -88,6 +88,20 @@ func (a *app) turnProcess(s *session, t func() turn) core.Node {
 func (a *app) processRow(s *session, t func() turn, node func() processNode) core.Node {
 	return core.Func(func(cx *core.Scope) core.Node {
 		n := node()
+		// The turn's newest group is the one it is working in: it stays open
+		// while the turn runs, and closes once the turn is done or a later
+		// group took over, as Electron's auto slot does. A group holding
+		// nothing yet — the trailing block of a message that has not spoken —
+		// is no row, so it does not take the slot from the real one.
+		latest := core.NewMemo(cx, func() bool {
+			list := processNodes(a.processItems(s, t))
+			for i := len(list) - 1; i >= 0; i-- {
+				if list[i].kind == processGroup && groupPresent(s, t, list[i]) {
+					return list[i].id == n.id
+				}
+			}
+			return false
+		}).Get
 		src := stepSource{s: s, turn: t, id: func() string { return n.step }}
 		switch n.kind {
 		case processProse:
@@ -96,8 +110,15 @@ func (a *app) processRow(s *session, t func() turn, node func() processNode) cor
 			st := src.committed()
 			return a.noteBlock(st.Note, st.Text)
 		}
-		return a.processGroup(s, t, n)
+		return a.processGroup(s, t, n, latest)
 	})
+}
+
+// processBodyMax bounds an open group's rows: a long run stays a window of
+// its own, as Electron's min(640px, 60vh), so one group cannot push the
+// answer below it out of sight.
+func processBodyMax(cx *core.Scope) core.Points {
+	return core.Points(min(640, cx.Env().Window().Height*0.6))
 }
 
 // chatMarkdownLive is prose whose text a binding reads: a streaming answer

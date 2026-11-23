@@ -3,6 +3,7 @@
 package workbench
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -130,5 +131,73 @@ func TestTurnProcessSplitsAtProse(t *testing.T) {
 	screen.WaitFor("text:我看看另一个文件", 5*time.Second)
 	if got := len(screen.Query(`text:"执行过程 · 1 个工具调用"`)); got != 1 {
 		t.Fatalf("the calls after the prose head %d groups, want 1", got)
+	}
+}
+
+// A turn that is still working keeps its newest group open: only a turn
+// that ended, or one that said something in between, folds its own work.
+func TestRunningTurnKeepsItsGroupOpen(t *testing.T) {
+	built, screen, sess := startNativeSurfaceApp(t)
+	now := time.Now()
+	run := turn{ID: "live-1", Prompt: "读文件", Status: chat.Running, Model: "fixture/model", Start: now, Tools: 2,
+		Steps: []turnStep{{ID: "live-1-s0", Thinking: "先看看文件。", Text: "看过一部分", Start: now,
+			Tools: []toolRun{{CallID: "live-1-a", Name: "read", Action: "读取", Detail: "readme.md", Status: chat.Completed}}}}}
+	onNativeUI(t, screen, built, func() {
+		sess.loaded.Set(true)
+		sess.readySig.Set(true)
+		sess.turns.Set([]turn{run})
+		sess.runningSig.Set(true)
+	})
+	// The turn is running, so its newest group — the calls after the prose it
+	// said — opens by itself; the group it moved past stays closed.
+	screen.WaitFor("text:执行过程 · 1 个工具调用", 5*time.Second)
+	screen.WaitFor("label:读取 readme.md", 5*time.Second)
+	if got := len(screen.Query("text:执行过程 · 思考")); got != 1 {
+		t.Fatalf("the group it moved past is not headed: %d", got)
+	}
+
+	// Once it ends with an answer, the group it was working in folds too.
+	onNativeUI(t, screen, built, func() {
+		settled := run
+		settled.Status = chat.Completed
+		settled.Final = "读完了"
+		settled.End = now.Add(time.Second)
+		sess.turns.Set([]turn{settled})
+		sess.runningSig.Set(false)
+	})
+	screen.WaitForGone("label:读取 readme.md", 5*time.Second)
+	screen.WaitFor("text:读完了", 5*time.Second)
+}
+
+// An open group reads in a window of its own: many calls do not push the
+// answer below them out of the turn.
+func TestProcessGroupBodyIsBounded(t *testing.T) {
+	built, screen, sess := startNativeSurfaceApp(t)
+	now := time.Now()
+	runs := make([]toolRun, 0, 40)
+	for i := range 40 {
+		runs = append(runs, toolRun{CallID: fmt.Sprintf("many-%d", i), Name: "read", Action: "读取",
+			Detail: fmt.Sprintf("file-%d.md", i), Status: chat.Completed})
+	}
+	onNativeUI(t, screen, built, func() {
+		sess.loaded.Set(true)
+		sess.readySig.Set(true)
+		sess.turns.Set([]turn{{ID: "many-1", Prompt: "读很多文件", Status: chat.Completed, Model: "fixture/model",
+			Start: now.Add(-time.Minute), End: now, Tools: len(runs), Final: "都读完了",
+			Steps: []turnStep{{ID: "many-1-s0", Thinking: "一次读完。", Tools: runs, Start: now}}}})
+	})
+	screen.WaitFor("text:都读完了", 5*time.Second)
+	screen.Press("text:40 个工具调用")
+	screen.WaitFor("text:执行过程 · 40 个工具调用 · 思考", 5*time.Second)
+	screen.Press("text:执行过程 · 40 个工具调用 · 思考")
+	screen.WaitFor("label:读取 file-39.md", 5*time.Second)
+	// The rows live in a scroll view the window bounds, so the calls a group
+	// holds cannot push the answer below them out of sight.
+	body := screen.Query("id:process-body")
+	if len(body) != 1 {
+		t.Fatalf("open groups on screen = %d, want 1", len(body))
+	}
+	if h := body[0].Frame.Size.Height; h <= 0 || h > 640 {
+		t.Fatalf("the open group is %v tall, want between 0 and 640", h)
 	}
 }

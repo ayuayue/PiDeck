@@ -14,7 +14,6 @@ import (
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
-	"github.com/nsgo-dev/nsgo/ui/chat"
 )
 
 // A turn's process is a run of blocks — what pi thought and the calls it
@@ -82,8 +81,13 @@ func (a *app) processItems(s *session, t func() turn) []processItem {
 	if live != "" {
 		// The streaming message has not said yet where its prose goes: its
 		// prose reads above its calls, and the committed message puts the
-		// calls back in order.
-		items = append(items, blockItem(live, 0), sayItem(live), blockItem(live, 1))
+		// calls back in order. A stream that has said nothing yet splits
+		// nothing: it holds the newest group open instead of breaking the run
+		// in two, and the block after the prose is no row until there is prose.
+		items = append(items, blockItem(live, 0))
+		if strings.TrimSpace(s.streamText.Get()) != "" {
+			items = append(items, sayItem(live), blockItem(live, 1))
+		}
 	}
 	return items
 }
@@ -138,6 +142,22 @@ func blockRuns(src stepSource, part int) []toolRun {
 	return tools[at:]
 }
 
+// groupPresent reports whether a group holds anything to show: thinking or
+// a call. A block of a message that has not said anything yet holds
+// neither, so it is no row at all.
+func groupPresent(s *session, t func() turn, node processNode) bool {
+	for _, m := range node.members {
+		src := stepSource{s: s, turn: t, id: func() string { return m.step }}
+		if m.part == 0 && strings.TrimSpace(src.thinking()) != "" {
+			return true
+		}
+		if len(blockRuns(src, m.part)) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // thinkingTone is the identity color of the thinking row: indigo, apart
 // from the accent, so the reasoning reads as a process of its own.
 func thinkingTone(cx *core.Scope) core.Color {
@@ -148,8 +168,9 @@ func thinkingTone(cx *core.Scope) core.Color {
 }
 
 // processGroup is one run of process rows: what pi thought and the calls
-// it made between two things it said.
-func (a *app) processGroup(s *session, t func() turn, node processNode) core.Node {
+// it made between two things it said. latest says whether it is the turn's
+// newest group, the one the turn is working in.
+func (a *app) processGroup(s *session, t func() turn, node processNode, latest func() bool) core.Node {
 	members := node.members
 	src := func(m processItem) stepSource {
 		return stepSource{s: s, turn: t, id: func() string { return m.step }}
@@ -173,22 +194,10 @@ func (a *app) processGroup(s *session, t func() turn, node processNode) core.Nod
 			return runs
 		}
 		present := func() bool { return hasThinking() || len(rows()) > 0 }
-		// The group holds the turn's live work: it stays open while one of
-		// its messages streams or one of its calls still runs, and closes
-		// itself once both are done.
-		auto := func() bool {
-			for _, m := range members {
-				if src(m).live() {
-					return true
-				}
-			}
-			for _, run := range rows() {
-				if run.Status == chat.Running {
-					return true
-				}
-			}
-			return false
-		}
+		// The group stays open while the turn works in it and closes once the
+		// turn is done, or once a later group took over: only a turn that
+		// ended, or one that said something in between, folds its own work.
+		auto := func() bool { return latest() && t().running() }
 		open := func() bool {
 			s.uiSeq.Get() // redraw when the user opens or closes the group
 			return s.procOpen(key, auto())
@@ -223,9 +232,13 @@ func (a *app) processGroup(s *session, t func() turn, node processNode) core.Nod
 			},
 		}
 		body := core.Show{When: open, Then: func(cx *core.Scope) core.Node {
-			return core.View{Style: core.Style{MinWidth: core.Pt(0), Margin: core.Edges{Left: 6}, Padding: core.Edges{Bottom: 2, Left: 12},
-				Borders: core.Edges{Left: 1}, Gap: 4},
-				StyleFunc: func() core.Style { return core.Style{BorderColors: core.EdgeColors{Left: colors.Now().Line}} },
+			// A long run reads in a window of its own: the group heads what it
+			// holds, and its rows scroll instead of pushing the answer away.
+			return core.Scroll{TestID: "process-body", Style: core.Style{MinWidth: core.Pt(0), Margin: core.Edges{Left: 6},
+				Padding: core.Edges{Bottom: 2, Left: 12}, Borders: core.Edges{Left: 1}, Gap: 4},
+				StyleFunc: func() core.Style {
+					return core.Style{MaxHeight: core.Pt(processBodyMax(cx)), BorderColors: core.EdgeColors{Left: colors.Now().Line}}
+				},
 				Children: []core.Node{
 					core.Each(func() []processItem { return members },
 						func(m processItem) string { return m.id },

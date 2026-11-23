@@ -219,9 +219,12 @@ func TestToolTurn(t *testing.T) {
 	app.Type("id:composer", "用 read 工具读一下 note.txt，然后用一句话说文件里有什么")
 	app.Press("role:button 发送")
 	// The finished turn folds its work behind a summary row; open it, then
-	// the tool row, to read what the tool returned.
-	waitApp(app, "text:个工具调用", 180*time.Second)
-	app.Press("text:个工具调用")
+	// the group's own header, to read what the tool returned. Both rows
+	// read a tool count, so each is pressed by what only it says.
+	waitApp(app, "id:turn-fold", 180*time.Second)
+	app.Press("id:turn-fold")
+	waitApp(app, "text:执行过程", 10*time.Second)
+	app.Press("text:执行过程")
 	app.Advance(200 * time.Millisecond)
 	app.WaitFor("role:button 读取", 5*time.Second)
 	// The row is its own button; the output is inside it once open.
