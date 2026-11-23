@@ -280,7 +280,7 @@ func (a *app) settingsContent() core.Node {
 		case "integrations":
 			return a.settingsIntegrations()
 		case "diagnostics":
-			return a.settingsDiagnostics()
+			return a.settingsDiagnostics(cx)
 		case "data":
 			return a.settingsData()
 		case "about":

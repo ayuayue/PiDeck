@@ -28,8 +28,8 @@ const diagLogLines = 12
 // view is built once: its groups read signals that a slow tick fills, so the
 // figures move without the page rebuilding - a page rebuilt every second used
 // to throw the reader back to its top.
-func (a *app) settingsDiagnostics() core.Node {
-	return core.Scroll{TestID: "settings-page",
+func (a *app) settingsDiagnostics(cx *core.Scope) core.Node {
+	return a.scrollStashFor("settingsDiagnostics:1").Bind(cx, core.Scroll{TestID: "settings-page",
 		Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 4}, Children: []core.Node{
 				a.diagRuntimeGroup(),
@@ -39,7 +39,7 @@ func (a *app) settingsDiagnostics() core.Node {
 				a.trajectorySetting(),
 				a.diagActions(),
 			}},
-		}}
+		}})
 }
 
 // diagRuntimeGroup is the version, then what this process holds right now.
