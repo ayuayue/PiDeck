@@ -66,6 +66,7 @@ func (a *app) makeSession(m sessionMeta, t target) *session {
 		sendMode:       core.NewSignal(a.cx, ""),
 		goalPaused:     core.NewSignal(a.cx, false),
 		readySig:       core.NewSignal(a.cx, false),
+		retrying:       core.NewSignal(a.cx, false),
 		modelOpen:      core.NewSignal(a.cx, false),
 		modelQuery:     core.NewSignal(a.cx, ""),
 		backendOpen:    core.NewSignal(a.cx, false),

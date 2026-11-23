@@ -50,6 +50,18 @@ func (s *session) busy() bool { return s.runningSig.Get() }
 // busyNow is busy without subscribing the caller.
 func (s *session) busyNow() bool { return s.runningSig.GetUntracked() }
 
+// retryPending is whether a retry is still writing this session's fork.
+func (s *session) retryPending() bool { return s.retrying != nil && s.retrying.Get() }
+
+// retryPendingNow is retryPending without subscribing the caller.
+func (s *session) retryPendingNow() bool { return s.retrying != nil && s.retrying.GetUntracked() }
+
+// composerBlocked reports whether a session cannot take a message yet: its
+// dropped files are still loading, or a retry is still writing its fork.
+func (a *app) composerBlocked(s *session) bool {
+	return s.filesLoading() || s.retryPending()
+}
+
 // active returns the session in front, or nil.
 func (a *app) active() *session { return a.byID[a.activeID.Get()] }
 

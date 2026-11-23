@@ -1927,6 +1927,8 @@
   "重构助手": "Refactoring",
   "重试": "Retry",
   "重试上一条": "Retry the last one",
+  "重试失败": "Retry failed",
+  "重试中": "Retrying…",
   "重试次数": "Retries",
   "重连": "Reconnect",
   "链接": "Links",

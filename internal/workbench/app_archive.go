@@ -23,32 +23,41 @@ func (a *app) sessionArchived(id string) bool {
 	return false
 }
 
-// toggleArchive hides a session from the rail, or shows it again.
-func (a *app) toggleArchive(s *session) {
-	if s == nil {
-		return
+// setArchived hides a session from the rail, or shows it again, and reports
+// whether anything changed.
+func (a *app) setArchived(id string, archived bool) bool {
+	if id == "" || a.sessionArchived(id) == archived {
+		return false
 	}
-	next := append([]string(nil), a.cfg.Archived...)
-	found := -1
-	for i, id := range next {
-		if id == s.ID {
-			found = i
-			break
+	next := make([]string, 0, len(a.cfg.Archived)+1)
+	if archived {
+		next = append(next, id)
+	}
+	for _, x := range a.cfg.Archived {
+		if x != id {
+			next = append(next, x)
 		}
-	}
-	if found >= 0 {
-		next = append(next[:found], next[found+1:]...)
-	} else {
-		next = append([]string{s.ID}, next...)
 	}
 	a.cfg.Archived = next
 	if a.st != nil {
 		a.st.edit(func(c *config) { c.Archived = append([]string(nil), next...) })
 	}
 	a.archiveRev.Update(func(n int) int { return n + 1 })
-	if found >= 0 {
-		a.toast(ui.ToastSuccess, apptext.T("已取消归档"), s.title.GetUntracked())
-	} else {
-		a.toast(ui.ToastSuccess, apptext.T("已归档"), s.title.GetUntracked())
+	return true
+}
+
+// toggleArchive hides a session from the rail, or shows it again.
+func (a *app) toggleArchive(s *session) {
+	if s == nil {
+		return
 	}
+	archive := !a.sessionArchived(s.ID)
+	if !a.setArchived(s.ID, archive) {
+		return
+	}
+	if archive {
+		a.toast(ui.ToastSuccess, apptext.T("已归档"), s.title.GetUntracked())
+		return
+	}
+	a.toast(ui.ToastSuccess, apptext.T("已取消归档"), s.title.GetUntracked())
 }

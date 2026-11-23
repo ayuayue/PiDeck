@@ -14,7 +14,7 @@ import (
 
 // ensureEngine starts pi for a session once, running then on the UI thread.
 func (a *app) ensureEngine(s *session, then func()) {
-	if s == nil || s.deleting {
+	if s == nil || s.deleting || s.retryPendingNow() {
 		return
 	}
 	if s.backend == "acp" {

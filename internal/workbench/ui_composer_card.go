@@ -193,7 +193,7 @@ func (a *app) composer(s *session, ref *core.Ref) core.Node {
 			return shellDraft(s.draft.Get())
 		}
 		canSend := func() bool {
-			if s.filesLoading() {
+			if a.composerBlocked(s) {
 				return false
 			}
 			if script, ok := shell(); ok {
@@ -265,6 +265,10 @@ func (a *app) composer(s *session, ref *core.Ref) core.Node {
 					Style: core.Style{Direction: core.Row, FlexShrink: 0, AlignItems: core.AlignCenter, Gap: 4}, Children: []core.Node{
 						core.Func(a.composerTrailing(s)),
 						core.Dynamic(func(cx *core.Scope) core.Node {
+							if s.retryPending() {
+								return composerPill(cx, apptext.T("重试中"), func() bool { return true },
+									func() core.Color { return colors.Hover() }, func() core.Color { return colors.Muted() }, func() {})
+							}
 							if s.busy() && empty() {
 								return composerPill(cx, apptext.T("停止"), nil, func() core.Color { return ui.Alpha(colors.Danger(), 0.14) },
 									func() core.Color { return colors.Danger() }, func() { a.stop(s) })

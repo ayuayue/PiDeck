@@ -99,6 +99,9 @@ type session struct {
 	planActive bool
 	// readySig is whether pi answered for this session.
 	readySig *core.Signal[bool]
+	// retrying is set while a retry writes the fork this session shows: the
+	// transcript holds a placeholder turn and nothing may be sent yet.
+	retrying *core.Signal[bool]
 
 	modelOpen   *core.Signal[bool]
 	modelQuery  *core.Signal[string]

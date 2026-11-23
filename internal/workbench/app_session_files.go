@@ -13,6 +13,7 @@ import (
 	"example.com/pideck-v2/internal/remotewire"
 	"example.com/pideck-v2/internal/sessionimport"
 	"github.com/nsgo-dev/nsgo/ui"
+	"github.com/nsgo-dev/nsgo/ui/chat"
 )
 
 // importSession imports one session file the user picked and opens it. A
@@ -115,6 +116,10 @@ func (a *app) branchFromTurn(s *session, turnID string, send bool) {
 	if idx < 0 || !canBranchTurn(s, turns[idx]) {
 		return
 	}
+	if send {
+		a.retryTurn(s, turns[idx])
+		return
+	}
 	prompt := turns[idx]
 	ordinal := 0
 	for _, t := range turns[:idx] {
@@ -124,9 +129,6 @@ func (a *app) branchFromTurn(s *session, turnID string, send bool) {
 	}
 	id := newSessionID()
 	title := apptext.T("%s（分叉）", s.title.GetUntracked())
-	if send {
-		title = apptext.T("%s（重试）", s.title.GetUntracked())
-	}
 	src, st := s.File, a.st
 	go func() {
 		meta, source, err := st.branchSession(src, id, branchPoint{
@@ -165,4 +167,96 @@ func (a *app) branchFromTurn(s *session, turnID string, send bool) {
 			a.toast(ui.ToastSuccess, "已分叉会话", "原提问已放回输入框，改完可以直接发。")
 		})
 	}()
+}
+
+// retryTurn answers a turn again on a fork. The fork shows at once — the
+// rail gets it, the transcript holds a “重试中” spinner, and the session it
+// came from is archived and its tab closed — so the wait for the copied
+// file reads as progress instead of a chat that does nothing.
+func (a *app) retryTurn(s *session, t turn) {
+	if s == nil || a.st == nil || a.byID[s.ID] != s || !canBranchTurn(s, t) {
+		return
+	}
+	turns := s.turns.GetUntracked()
+	idx := slices.IndexFunc(turns, func(x turn) bool { return x.ID == t.ID })
+	if idx < 0 {
+		return
+	}
+	ordinal := 0
+	for _, x := range turns[:idx] {
+		if x.Prompt != "" || len(x.Images) > 0 || x.sourceEntryID != "" {
+			ordinal++
+		}
+	}
+	src, st := s.File, a.st
+	id := newSessionID()
+	title := apptext.T("%s（重试）", s.title.GetUntracked())
+	ns := a.makeSession(sessionMeta{ID: id, Title: title, Cwd: s.WS, Updated: a.cx.Now()}, s.Target)
+	ns.retrying.Set(true)
+	ns.turns.Set([]turn{{ID: id + "-pending", Status: chat.Waiting, Start: a.cx.Now(), Noticed: apptext.T("重试中")}})
+	if ws := a.workspaceFor(s.Target, s.WS); ws != nil {
+		ws.Sessions.Update(func(ss []*session) []*session { return append([]*session{ns}, ss...) })
+	}
+	a.selectSession(ns)
+	if a.setArchived(s.ID, true) {
+		a.closeTab(s.ID)
+		a.toast(ui.ToastInfo, apptext.T("已在新会话里重试"), apptext.T("原会话已归档，可在侧栏「显示已归档」找回。"))
+	}
+	st.change(func(c *config) {
+		if c.ForkParents == nil {
+			c.ForkParents = map[string]string{}
+		}
+		c.ForkParents[ns.ID] = s.ID
+	})
+	a.cfg = st.config()
+	a.sessionCreated(ns, "fork")
+	go func() {
+		meta, source, err := st.branchSession(src, id, branchPoint{
+			ordinal: ordinal, entryID: t.sourceEntryID, text: t.sourcePrompt,
+		}, title)
+		images := slices.Clone(t.Images)
+		if len(images) == 0 {
+			images = piBlockImages(source.blocks())
+		}
+		images = slices.DeleteFunc(images, func(img remotewire.Image) bool { return len(img.Data) == 0 })
+		text := firstNonEmpty(t.Prompt, source.text())
+		a.cx.Post(func() {
+			if a.byID[id] != ns {
+				return // closed while the copy ran
+			}
+			if err != nil {
+				a.abandonRetry(s, ns, err)
+				return
+			}
+			ns.File, ns.External = meta.File, false
+			ns.retrying.Set(false)
+			ns.turns.Set(nil)
+			if !meta.Updated.IsZero() {
+				ns.updated.Set(meta.Updated)
+			}
+			a.openSessionEager(ns)
+			if strings.TrimSpace(text) != "" || len(images) > 0 {
+				a.submitTurn(ns, text, images, t.Plan)
+			}
+		})
+	}()
+}
+
+// abandonRetry drops a fork that could not be written, brings back the
+// session it came from and says why.
+func (a *app) abandonRetry(from, ns *session, err error) {
+	ns.retrying.Set(false)
+	a.closeTab(ns.ID)
+	delete(a.byID, ns.ID)
+	a.all = slices.DeleteFunc(a.all, func(other *session) bool { return other == ns })
+	if ws := a.workspaceFor(ns.Target, ns.WS); ws != nil {
+		ws.Sessions.Update(func(list []*session) []*session {
+			return slices.DeleteFunc(slices.Clone(list), func(other *session) bool { return other == ns })
+		})
+	}
+	if from != nil && a.byID[from.ID] == from {
+		a.setArchived(from.ID, false)
+		a.selectSession(from)
+	}
+	a.toast(ui.ToastError, "重试失败", err.Error())
 }
