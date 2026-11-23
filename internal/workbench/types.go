@@ -234,6 +234,9 @@ type turn struct {
 	// carries itself on.
 	Plan bool
 	Goal bool
+	// System marks a note the app wrote itself, such as a compaction, not
+	// something the agent answered.
+	System bool
 }
 
 // running reports whether the turn can still change.

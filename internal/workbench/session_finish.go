@@ -114,6 +114,7 @@ func (a *app) addNote(s *session, kind, title, body string, status chat.Status) 
 		for i := range ts {
 			if ts[i].ID == id {
 				ts[i].Status = status
+				ts[i].System = true
 				ts[i].Noticed = title
 				ts[i].Steps = []turnStep{{ID: id + "-step", Note: title, Text: body}}
 				if status != chat.Waiting {
@@ -122,7 +123,7 @@ func (a *app) addNote(s *session, kind, title, body string, status chat.Status) 
 				return ts
 			}
 		}
-		t := turn{ID: id, Status: status, Start: a.cx.Now(), Noticed: title,
+		t := turn{ID: id, Status: status, Start: a.cx.Now(), Noticed: title, System: true,
 			Steps: []turnStep{{ID: id + "-step", Note: title, Text: body}}}
 		if status != chat.Waiting {
 			t.End = a.cx.Now()
