@@ -9,7 +9,9 @@ package workbench
 // scrolling, re-opening a tab or polling from the phone reads the file once.
 
 import (
+	"bytes"
 	"encoding/json"
+	"maps"
 	"os"
 	"sync"
 	"time"
@@ -28,8 +30,12 @@ type historyEntry struct {
 	size    int64
 	modTime time.Time
 	msgs    []piMessage
-	tail    parsedTail
-	phone   func() []turn
+	// view is msgs as the session's context edits leave it: entries taken
+	// out of the context are gone, rewritten ones carry their new text.
+	view  []piMessage
+	edits map[string]contextEdit
+	tail  parsedTail
+	phone func() []turn
 }
 
 // sessionHistoryCache keeps the last few parses, newest last.
@@ -96,7 +102,7 @@ func (c *sessionHistoryCache) put(path string, info os.FileInfo, entry historyEn
 // grew. Callers treat the slice as read-only.
 func sessionFileMessages(path string) ([]piMessage, error) {
 	entry, err := sessionFileHistory(path)
-	return entry.msgs, err
+	return entry.view, err
 }
 
 func sessionFileHistory(path string) (historyEntry, error) {
@@ -112,7 +118,7 @@ func sessionFileHistory(path string) (historyEntry, error) {
 	if seen {
 		start = prev.tail.resumeAt(path, info.Size())
 	}
-	msgs, tail, err := readSessionMessages(path, start)
+	msgs, edits, tail, err := readSessionMessages(path, start)
 	if err != nil {
 		return historyEntry{}, err
 	}
@@ -120,9 +126,17 @@ func sessionFileHistory(path string) (historyEntry, error) {
 		joined := make([]piMessage, 0, len(prev.msgs)+len(msgs))
 		joined = append(joined, prev.msgs...)
 		msgs = append(joined, msgs...)
+		// An edit appended later still speaks about messages read earlier.
+		merged := maps.Clone(prev.edits)
+		if merged == nil {
+			merged = map[string]contextEdit{}
+		}
+		maps.Copy(merged, edits)
+		edits = merged
 	}
-	entry := historyEntry{msgs: msgs, tail: tail, phone: sync.OnceValue(func() []turn {
-		return turnsFromMessages(msgs[max(0, len(msgs)-4000):])
+	view := applyContextEdits(msgs, edits)
+	entry := historyEntry{msgs: msgs, view: view, edits: edits, tail: tail, phone: sync.OnceValue(func() []turn {
+		return turnsFromMessages(view[max(0, len(view)-4000):])
 	})}
 	sessionHistory.put(path, info, entry)
 	return entry, nil
@@ -130,18 +144,66 @@ func sessionFileHistory(path string) (historyEntry, error) {
 
 // readSessionMessages reads the message entries of a pi session file from
 // start, and reports where it stopped.
-func readSessionMessages(path string, start int64) ([]piMessage, parsedTail, error) {
+func readSessionMessages(path string, start int64) ([]piMessage, map[string]contextEdit, parsedTail, error) {
 	var msgs []piMessage
+	var edits map[string]contextEdit
 	tail, err := readTail(path, start, func(line []byte) error {
 		if msg, ok := historyLineMessage(line); ok {
 			msgs = append(msgs, msg)
+			return nil
+		}
+		if edit, ok := historyLineContextEdit(line); ok {
+			if edits == nil {
+				edits = map[string]contextEdit{}
+			}
+			edits[edit.Target] = edit
 		}
 		return nil
 	})
 	if err != nil {
-		return nil, tail, err
+		return nil, nil, tail, err
 	}
-	return msgs, tail, nil
+	return msgs, edits, tail, nil
+}
+
+// historyLineContextEdit reads one of pi's context_edit records: the entry
+// it speaks about, and what stands in its place.
+func historyLineContextEdit(line []byte) (contextEdit, bool) {
+	if !bytes.Contains(line, []byte(contextEditType)) {
+		return contextEdit{}, false
+	}
+	var entry struct {
+		Type        string          `json:"type"`
+		TargetID    string          `json:"targetId"`
+		Replacement json.RawMessage `json:"replacement"`
+	}
+	if json.Unmarshal(line, &entry) != nil || entry.Type != contextEditType || entry.TargetID == "" {
+		return contextEdit{}, false
+	}
+	return contextEdit{Target: entry.TargetID, Replacement: entry.Replacement}, true
+}
+
+// applyContextEdits is the transcript the edits leave.
+func applyContextEdits(msgs []piMessage, edits map[string]contextEdit) []piMessage {
+	if len(edits) == 0 {
+		return msgs
+	}
+	out := make([]piMessage, 0, len(msgs))
+	for _, msg := range msgs {
+		edit, ok := edits[msg.EntryID]
+		if !ok {
+			out = append(out, msg)
+			continue
+		}
+		if edit.excluded() {
+			continue
+		}
+		if content := edit.content(); len(content) > 0 {
+			msg.Content = content
+		}
+		out = append(out, msg)
+	}
+	return out
 }
 
 func historyLineMessage(line []byte) (piMessage, bool) {
