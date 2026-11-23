@@ -16,19 +16,34 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// gitFetch reads every remote.
+// gitFetch reads every remote, and says whether anything came in.
 func (a *app) gitFetch() {
-	a.git.run("获取远程", func(g gitRunner) error {
-		_, err := g.exec(180*time.Second, "fetch", "--all", "--prune")
-		return err
+	a.git.runDetail("获取远程", func(g gitRunner) (string, error) {
+		out, err := g.execNote(180*time.Second, "fetch", "--all", "--prune")
+		if err != nil {
+			return "", err
+		}
+		if strings.TrimSpace(out) == "" {
+			return apptext.T("远端没有新内容"), nil
+		}
+		return apptext.T("已更新远端分支"), nil
 	}, nil)
 }
 
-// gitPull brings the upstream's commits in.
+// gitPull brings the upstream's commits in, and says what that did.
 func (a *app) gitPull() {
-	a.git.run("拉取", func(g gitRunner) error {
-		_, err := g.exec(180*time.Second, "pull")
-		return err
+	a.git.runDetail("拉取", func(g gitRunner) (string, error) {
+		out, err := g.execNote(180*time.Second, "pull")
+		if err != nil {
+			return "", err
+		}
+		switch {
+		case strings.Contains(out, "Already up to date"), strings.Contains(out, "Already up-to-date"):
+			return apptext.T("已经是最新的"), nil
+		case strings.Contains(out, "Fast-forward"):
+			return apptext.T("已快进到远端最新"), nil
+		}
+		return apptext.T("已合并远端改动"), nil
 	}, nil)
 }
 
@@ -39,13 +54,26 @@ func (a *app) gitPush(publish bool) {
 		a.toast(ui.ToastWarning, "HEAD 不在分支上", "先切换到一个分支，再推送。")
 		return
 	}
+	branch := st.Branch
+	what := branch
+	if st.Upstream != "" && !publish {
+		what = st.Upstream
+	} else {
+		what = "origin/" + branch
+	}
 	args := []string{"push"}
 	if publish {
-		args = []string{"push", "-u", "origin", st.Branch}
+		args = []string{"push", "-u", "origin", branch}
 	}
-	a.git.run("推送", func(g gitRunner) error {
-		_, err := g.exec(180*time.Second, args...)
-		return err
+	a.git.runDetail("推送", func(g gitRunner) (string, error) {
+		out, err := g.execNote(180*time.Second, args...)
+		if err != nil {
+			return "", err
+		}
+		if strings.Contains(out, "Everything up-to-date") {
+			return apptext.T("远端已经是最新的"), nil
+		}
+		return fmt.Sprintf(apptext.T("已推送到 %s"), what), nil
 	}, nil)
 }
 

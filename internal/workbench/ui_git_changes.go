@@ -40,18 +40,18 @@ func (a *app) gitChangesBar(cx *core.Scope) core.Node {
 		core.View{Style: core.Style{FlexGrow: 1}},
 		core.Dynamic(func(cx *core.Scope) core.Node {
 			if a.git.view.Get() == gitViewTree {
-				return a.pressIcon(lucide.List, apptext.T("按列表显示"), 21, 12, nil,
-					func() { a.setGitChangesView(gitViewFlat) }, "git-view-toggle")
+				return hint("按列表显示", a.pressIcon(lucide.List, apptext.T("按列表显示"), 21, 12, nil,
+					func() { a.setGitChangesView(gitViewFlat) }, "git-view-toggle"))
 			}
-			return a.pressIcon(lucide.FolderTree, apptext.T("按目录树显示"), 21, 12, nil,
-				func() { a.setGitChangesView(gitViewTree) }, "git-view-toggle")
+			return hint("按目录树显示", a.pressIcon(lucide.FolderTree, apptext.T("按目录树显示"), 21, 12, nil,
+				func() { a.setGitChangesView(gitViewTree) }, "git-view-toggle"))
 		}),
-		a.pressIcon(lucide.Plus, apptext.T("暂存全部"), 21, 12,
-			func() bool { return busy() || a.git.state.Get().changedCount() == 0 }, a.gitStageAll, "git-stage-all"),
-		a.pressIcon(lucide.Minus, apptext.T("取消暂存全部"), 21, 12,
-			func() bool { return busy() || a.git.state.Get().stagedCount() == 0 }, a.gitUnstageAll, "git-unstage-all"),
-		a.pressIcon(lucide.Undo2, apptext.T("丢弃全部改动"), 21, 12,
-			func() bool { return busy() || total() == 0 }, a.gitDiscardAll, "git-discard-all"),
+		hint("暂存全部", a.pressIcon(lucide.Plus, apptext.T("暂存全部"), 21, 12,
+			func() bool { return busy() || a.git.state.Get().changedCount() == 0 }, a.gitStageAll, "git-stage-all")),
+		hint("取消暂存全部", a.pressIcon(lucide.Minus, apptext.T("取消暂存全部"), 21, 12,
+			func() bool { return busy() || a.git.state.Get().stagedCount() == 0 }, a.gitUnstageAll, "git-unstage-all")),
+		hint("丢弃全部改动", a.pressIcon(lucide.Undo2, apptext.T("丢弃全部改动"), 21, 12,
+			func() bool { return busy() || total() == 0 }, a.gitDiscardAll, "git-discard-all")),
 	}}
 }
 

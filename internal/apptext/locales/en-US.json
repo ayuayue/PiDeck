@@ -2700,5 +2700,12 @@
   "已恢复默认": "Reset to default",
   "我的 Agent": "My agent",
   "权限与选项": "Permissions & options",
-  "这个 ACP 没有旁路权限档，预设里的旁路权限不会生效。": "This ACP offers no bypass permission mode, so the preset's bypass setting has no effect."
+  "这个 ACP 没有旁路权限档，预设里的旁路权限不会生效。": "This ACP offers no bypass permission mode, so the preset's bypass setting has no effect.",
+  "远端没有新内容": "Nothing new on the remote",
+  "已更新远端分支": "Remote branches updated",
+  "已经是最新的": "Already up to date",
+  "已快进到远端最新": "Fast-forwarded to the remote",
+  "已合并远端改动": "Merged the remote changes",
+  "远端已经是最新的": "The remote already has this",
+  "已推送到 %s": "Pushed to %s"
 }

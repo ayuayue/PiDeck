@@ -39,8 +39,9 @@ type gitRepo struct {
 	filesShown   *core.Signal[int]
 	historyShown *core.Signal[int]
 
-	// onResult lets the app toast an action's outcome.
-	onResult func(label string, err error)
+	// onResult lets the app toast an action's outcome: what it did, and the
+	// line the action reports under it.
+	onResult func(label, detail string, err error)
 
 	// logLimit grows as the history's "more" is pressed.
 	logLimit int

@@ -2700,5 +2700,12 @@
   "已恢复默认": "Valeur par défaut rétablie",
   "我的 Agent": "Mon Agent",
   "权限与选项": "Autorisations et options",
-  "这个 ACP 没有旁路权限档，预设里的旁路权限不会生效。": "Ce CLI n'offre aucun mode d'ignorance des autorisations : le réglage du préréglage reste sans effet."
+  "这个 ACP 没有旁路权限档，预设里的旁路权限不会生效。": "Ce CLI n'offre aucun mode d'ignorance des autorisations : le réglage du préréglage reste sans effet.",
+  "远端没有新内容": "Rien de nouveau sur le dépôt distant",
+  "已更新远端分支": "Branches distantes mises à jour",
+  "已经是最新的": "Déjà à jour",
+  "已快进到远端最新": "Avance rapide jusqu'au dépôt distant",
+  "已合并远端改动": "Modifications distantes fusionnées",
+  "远端已经是最新的": "Le dépôt distant est déjà à jour",
+  "已推送到 %s": "Poussé vers %s"
 }

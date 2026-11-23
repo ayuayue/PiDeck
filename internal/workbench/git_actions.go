@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
@@ -382,10 +383,13 @@ func (a *app) gitCommitPush(all, amend, push bool) {
 	if push {
 		label = apptext.T("提交并推送")
 	}
-	a.git.run(label, func(g gitRunner) error {
+	// The toast repeats what was committed, so the box clearing itself
+	// does not leave the user wondering what went in.
+	subject := viewkit.FirstLine(msg, 90)
+	a.git.runDetail(label, func(g gitRunner) (string, error) {
 		if all {
 			if _, err := g.exec(60*time.Second, "add", "-A"); err != nil {
-				return err
+				return "", err
 			}
 		}
 		args := []string{"commit"}
@@ -394,14 +398,14 @@ func (a *app) gitCommitPush(all, amend, push bool) {
 		}
 		args = append(args, "-m", msg)
 		if _, err := g.exec(180*time.Second, args...); err != nil {
-			return err
+			return "", err
 		}
 		if push {
 			if _, err := g.exec(180*time.Second, "push"); err != nil {
-				return errors.New("已经提交，但推送失败：" + err.Error())
+				return "", errors.New("已经提交，但推送失败：" + err.Error())
 			}
 		}
-		return nil
+		return subject, nil
 	}, func(err error) {
 		if err == nil {
 			a.git.msg.Set("")

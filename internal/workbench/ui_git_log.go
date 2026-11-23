@@ -45,8 +45,8 @@ func (a *app) gitHistoryBar(cx *core.Scope) core.Node {
 		gitSectionTitle(colors, apptext.T("历史")),
 		gitCount(colors, func() string { return fmt.Sprint(len(a.git.state.Get().Commits)) }),
 		core.View{Style: core.Style{FlexGrow: 1}},
-		a.pressIcon(lucide.RefreshCw, apptext.T("刷新历史"), 21, 11,
-			func() bool { return a.git.busy.Get() != "" }, func() { a.git.refreshAll() }, "git-log-refresh"),
+		hint("刷新历史", a.pressIcon(lucide.RefreshCw, apptext.T("刷新历史"), 21, 11,
+			func() bool { return a.git.busy.Get() != "" }, func() { a.git.refreshAll() }, "git-log-refresh")),
 	}}
 }
 

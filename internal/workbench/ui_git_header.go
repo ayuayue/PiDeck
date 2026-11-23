@@ -68,28 +68,45 @@ func (a *app) gitHeader(cx *core.Scope) core.Node {
 				}
 				return nil
 			}),
-			a.pressIcon(lucide.CloudDownload, apptext.T("获取远程（fetch）"), 24, 13, sync, a.gitFetch, "git-fetch"),
-			a.pressIcon(lucide.ArrowDownToLine, apptext.T("拉取（pull）"), 24, 13, sync, a.gitPull, "git-pull"),
-			a.pressIcon(lucide.ArrowUpFromLine, apptext.T("推送（push）"), 24, 13, sync, func() { a.gitPush(false) }, "git-push"),
-			a.pressIcon(lucide.RefreshCw, apptext.T("刷新 Git"), 24, 12.5, sync, func() { a.git.refreshAll() }, "git-refresh"),
-			ui.ContextMenu{Open: a.gitMoreOpen.Get,
-				OnOpenChange: func(open bool, _ base.Reason) { a.gitMoreOpen.Set(open) },
-				Trigger: a.pressIcon(lucide.Ellipsis, apptext.T("更多 Git 操作"), 24, 14, nil,
-					func() { a.gitMoreOpen.Update(func(v bool) bool { return !v }) }, "git-more"),
-				TestID: "git-more-menu", Children: []core.Node{
-					ui.MenuItem{Text: apptext.T("远端…"), Icon: lucide.Cloud, OnSelect: a.openGitRemotes},
-					ui.MenuItem{Text: apptext.T("标签…"), Icon: lucide.Tag, OnSelect: a.openGitTags},
-					ui.MenuItem{Text: apptext.T("未推送的提交…"), Icon: lucide.CloudUpload, OnSelect: a.openUnpushedCommits},
-					ui.MenuItem{Text: apptext.T("撤销上次提交…"), Icon: lucide.Undo2, Variant: ui.MenuItemDanger, OnSelect: a.gitResetLast},
-					ui.MenuItem{Text: apptext.T("贮藏列表…"), Icon: lucide.Archive, OnSelect: a.openGitStashList},
-					ui.MenuItem{Text: apptext.T("贮藏全部改动"), Icon: lucide.Archive, OnSelect: a.gitStash},
-					ui.MenuItem{Text: apptext.T("恢复最近贮藏"), Icon: lucide.ArchiveRestore, OnSelect: a.gitStashPop},
-					ui.MenuItem{Text: apptext.T("丢弃全部改动"), Icon: lucide.Undo2, Variant: ui.MenuItemDanger, OnSelect: a.gitDiscardAll},
-					ui.MenuItem{Text: apptext.T("初始化 Git 仓库"), Icon: lucide.FolderGit, OnSelect: a.gitInit},
-				}},
+			hint("获取远程（fetch）", a.pressIcon(lucide.CloudDownload, apptext.T("获取远程（fetch）"), 24, 13, sync, a.gitFetch, "git-fetch")),
+			hint("拉取（pull）", a.pressIcon(lucide.ArrowDownToLine, apptext.T("拉取（pull）"), 24, 13, sync, a.gitPull, "git-pull")),
+			hint("推送（push）", a.pressIcon(lucide.ArrowUpFromLine, apptext.T("推送（push）"), 24, 13, sync, func() { a.gitPush(false) }, "git-push")),
+			hint("刷新 Git", a.pressIcon(lucide.RefreshCw, apptext.T("刷新 Git"), 24, 12.5, sync, func() { a.git.refreshAll() }, "git-refresh")),
+			a.gitMoreMenu(cx),
 		}},
 		a.gitUpstreamLine(cx),
 	}}
+}
+
+// gitMoreMenu is the drawer's "more" menu. It anchors to its button: a
+// context menu would open at the pointer, at the window's corner for a
+// keyboard press.
+func (a *app) gitMoreMenu(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	return base.Menu{
+		Open: a.gitMoreOpen.Get, OnOpenChange: func(open bool, _ base.Reason) { a.gitMoreOpen.Set(open) },
+		Trigger: ui.Icon(lucide.Ellipsis, 14, colors.Muted),
+		Label:   apptext.T("更多 Git 操作"), TestID: "git-more",
+		Placement: core.PlaceBottom, Align: core.AlignEnd, Offset: 4, Margin: 8,
+		Style: core.Style{Width: core.Pt(24), Height: core.Pt(24), FlexShrink: 0, CornerRadius: 6,
+			AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
+		StyleFunc: func() core.Style {
+			return core.Style{Transition: viewkit.PressMotion, Hover: &core.Style{Background: colors.Hover()},
+				Active: &core.Style{Background: colors.Pressed()}, FocusVisible: ui.FocusRing(a.cx, 2)}
+		},
+		PopupStyle: a.menuPopup(cx), PopupStyleFunc: func() core.Style { return a.menuCard(a.cx) },
+		Children: []core.Node{
+			ui.MenuItem{Text: apptext.T("远端…"), Icon: lucide.Cloud, OnSelect: a.openGitRemotes},
+			ui.MenuItem{Text: apptext.T("标签…"), Icon: lucide.Tag, OnSelect: a.openGitTags},
+			ui.MenuItem{Text: apptext.T("未推送的提交…"), Icon: lucide.CloudUpload, OnSelect: a.openUnpushedCommits},
+			ui.MenuItem{Text: apptext.T("撤销上次提交…"), Icon: lucide.Undo2, Variant: ui.MenuItemDanger, OnSelect: a.gitResetLast},
+			ui.MenuItem{Text: apptext.T("贮藏列表…"), Icon: lucide.Archive, OnSelect: a.openGitStashList},
+			ui.MenuItem{Text: apptext.T("贮藏全部改动"), Icon: lucide.Archive, OnSelect: a.gitStash},
+			ui.MenuItem{Text: apptext.T("恢复最近贮藏"), Icon: lucide.ArchiveRestore, OnSelect: a.gitStashPop},
+			ui.MenuItem{Text: apptext.T("丢弃全部改动"), Icon: lucide.Undo2, Variant: ui.MenuItemDanger, OnSelect: a.gitDiscardAll},
+			ui.MenuItem{Text: apptext.T("初始化 Git 仓库"), Icon: lucide.FolderGit, OnSelect: a.gitInit},
+		},
+	}
 }
 
 // gitUpstreamLine names the branch's upstream, or offers to publish it.

@@ -48,6 +48,20 @@ func (g gitRunner) execDiff(timeout time.Duration, args ...string) (string, erro
 	return out, nil
 }
 
+// execNote runs a command and reports everything it said: git writes its
+// progress and ref updates to stderr, so "Everything up-to-date" is not in
+// stdout.
+func (g gitRunner) execNote(timeout time.Duration, args ...string) (string, error) {
+	out, stderr, code, err := gitRun(g.t, g.path, timeout, args...)
+	if err != nil {
+		return out, err
+	}
+	if code != 0 {
+		return out, errors.New(gitMessage(stderr, code))
+	}
+	return out + stderr, nil
+}
+
 // runner binds a command to the repository attached now.
 func (r *gitRepo) runner() gitRunner {
 	t, path := r.repo()
@@ -56,6 +70,13 @@ func (r *gitRepo) runner() gitRunner {
 
 // run performs an action off the UI thread, then rereads the repository.
 func (r *gitRepo) run(label string, fn func(g gitRunner) error, done func(error)) {
+	r.runDetail(label, func(g gitRunner) (string, error) { return "", fn(g) }, done)
+}
+
+// runDetail is run for an action that reports what it did: its line is what
+// the toast says under the label, so a push names the branch and a pull
+// says whether anything came in.
+func (r *gitRepo) runDetail(label string, fn func(g gitRunner) (string, error), done func(error)) {
 	t, path := r.repo()
 	if path == "" || r.running {
 		return
@@ -65,7 +86,7 @@ func (r *gitRepo) run(label string, fn func(g gitRunner) error, done func(error)
 	r.busy.Set(label)
 	seq := r.seq
 	go func() {
-		err := fn(gitRunner{t: t, path: path})
+		detail, err := fn(gitRunner{t: t, path: path})
 		r.cx.Post(func() {
 			if seq != r.seq {
 				return
@@ -79,7 +100,7 @@ func (r *gitRepo) run(label string, fn func(g gitRunner) error, done func(error)
 				done(err)
 			}
 			if r.onResult != nil {
-				r.onResult(label, err)
+				r.onResult(label, detail, err)
 			}
 			r.refreshAll()
 		})
