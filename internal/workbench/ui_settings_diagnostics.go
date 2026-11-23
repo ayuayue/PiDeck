@@ -29,7 +29,7 @@ const diagLogLines = 12
 // figures move without the page rebuilding - a page rebuilt every second used
 // to throw the reader back to its top.
 func (a *app) settingsDiagnostics() core.Node {
-	return core.Scroll{TestID: "settings-page", Ref: a.settingsScroll, OnScroll: a.settingsScrolled,
+	return core.Scroll{TestID: "settings-page",
 		Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 4}, Children: []core.Node{
 				a.diagRuntimeGroup(),

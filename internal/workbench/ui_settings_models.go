@@ -43,7 +43,7 @@ func (a *app) settingsModels() core.Node {
 }
 
 func (a *app) providerSettingsPage(testID string, content ...core.Node) core.Node {
-	return core.Scroll{TestID: testID, Ref: a.settingsScroll, OnScroll: a.settingsScrolled, Style: ui.FillRest, Children: []core.Node{
+	return core.Scroll{TestID: testID, Style: ui.FillRest, Children: []core.Node{
 		core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}}, Children: content},
 	}}
 }
