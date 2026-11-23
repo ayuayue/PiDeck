@@ -16,9 +16,14 @@ import (
 
 // tabBar is the open sessions, above the chat, and the split panes' tabs
 // at its end.
+//
+// The strip is the window's handle: the tabs scroll when they outgrow it,
+// and the run after them drags the window, as a title bar's empty part does.
+// A scroll view takes the pointer, so a strip that only scrolled could never
+// move the window.
 func (a *app) tabBar() core.Node {
 	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
-		core.Scroll{Horizontal: true, HideIndicator: true, TestID: "tab-bar", Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
+		core.Scroll{Horizontal: true, HideIndicator: true, TestID: "tab-bar", Style: core.Style{FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, Padding: core.Symmetric(0, 2)}, Children: []core.Node{
 				core.Each(a.tabs.Get, func(id string) string { return id }, func(cx *core.Scope, id func() string, _ func() int) core.Node {
 					return a.tab(id)
@@ -40,6 +45,8 @@ func (a *app) tabBar() core.Node {
 				}),
 			}},
 		}},
+		core.View{TestID: "tab-bar-drag", Desktop: core.DesktopViewProps{WindowDrag: core.WindowDragOn},
+			Style: core.Style{FlexGrow: 1, FlexShrink: 1, Height: core.Pct(100), MinWidth: core.Pt(0)}},
 	}}
 }
 
