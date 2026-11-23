@@ -213,18 +213,15 @@ func (a *mobileApp) gitSheet() core.Node {
 		if st.IsRepo && a.gitErr.Get() == "" {
 			children = append(children, commitBox)
 		}
-		return ui.Dialog{
-			Open:         a.gitOpen.Get,
-			OnOpenChange: func(open bool, _ base.Reason) { a.gitOpen.Set(open) },
-			Title:        "Git · " + a.gitName.Get(),
-			TestID:       "mobile-git",
-			Style:        core.Style{Width: core.Pct(100), MaxWidth: core.Pt(520)},
-			Children:     []core.Node{core.View{Style: core.Style{Gap: 6}, Children: children}},
-			Footer: []core.Node{
+		return sheetFrame(cx, sheetSpec{
+			title: "Git · " + a.gitName.Get(), testID: "mobile-git", width: 520,
+			open: a.gitOpen.Get, close: func() { a.gitOpen.Set(false) },
+			body: []core.Node{core.View{Style: core.Style{Gap: 6}, Children: children}},
+			footer: []core.Node{
 				ui.Button{Text: apptext.T("刷新"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: a.loadGit},
 				ui.Button{Text: apptext.T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.gitOpen.Set(false) }},
 			},
-		}
+		})
 	})
 }
 

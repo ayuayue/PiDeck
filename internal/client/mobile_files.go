@@ -227,30 +227,22 @@ func (a *mobileApp) filesSheet() core.Node {
 			body = append(body, a.scrollStashFor("filesSheet:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(420)}, Children: []core.Node{
 				core.View{Style: core.Style{Gap: 1}, Children: rows}}}))
 		}
-		return ui.Dialog{
-			Open: a.filesOpen.Get,
-			OnOpenChange: func(open bool, _ base.Reason) {
-				if open {
-					a.filesOpen.Set(true)
-				} else {
-					a.closeFilesView()
-				}
-			},
-			Title:  a.filesTitle(),
-			TestID: "mobile-files",
-			Style:  core.Style{Width: core.Pct(100), MaxWidth: core.Pt(560)},
-			Children: []core.Node{core.View{Style: core.Style{Gap: 8}, Children: []core.Node{
+		return sheetFrame(cx, sheetSpec{
+			title: a.filesTitle(), testID: "mobile-files", width: 560,
+			open:  a.filesOpen.Get,
+			close: a.closeFilesView,
+			body: []core.Node{core.View{Style: core.Style{Gap: 8}, Children: []core.Node{
 				core.Input{Value: a.filesQuery.Get, OnChange: a.filesQuery.Set, Placeholder: apptext.T("筛选文件…"), Label: apptext.T("筛选文件"),
 					TestID: "mobile-files-filter",
 					Style: core.Style{Height: core.Pt(38), Padding: core.Symmetric(0, 10), CornerRadius: 8, FontSize: 13,
 						Color: colors.Text(), Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder()}},
 				core.View{Style: core.Style{Gap: 4}, Children: body},
 			}}},
-			Footer: []core.Node{
+			footer: []core.Node{
 				ui.Button{Text: apptext.T("刷新"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: a.loadFiles},
 				ui.Button{Text: apptext.T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: a.closeFilesView},
 			},
-		}
+		})
 	})
 }
 

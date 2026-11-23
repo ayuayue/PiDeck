@@ -330,13 +330,10 @@ func (a *mobileApp) reviewSheet() core.Node {
 				rows = append(rows, a.reviewRow(colors, item))
 			}
 		}
-		return ui.Dialog{
-			Open:         a.reviewOpen.Get,
-			OnOpenChange: func(open bool, _ base.Reason) { a.reviewOpen.Set(open) },
-			Title:        apptext.T("评审") + " · " + a.reviewName.Get(),
-			TestID:       "mobile-review",
-			Style:        core.Style{Width: core.Pct(100), MaxWidth: core.Pt(560)},
-			Children: []core.Node{core.View{Style: core.Style{Gap: 8}, Children: []core.Node{
+		return sheetFrame(cx, sheetSpec{
+			title: apptext.T("评审") + " · " + a.reviewName.Get(), testID: "mobile-review", width: 560,
+			open: a.reviewOpen.Get, close: func() { a.reviewOpen.Set(false) },
+			body: []core.Node{core.View{Style: core.Style{Gap: 8}, Children: []core.Node{
 				core.View{Style: core.Style{Direction: core.Row, Gap: 6, Wrap: core.Wrap}, Children: []core.Node{
 					a.reviewChip(colors, "pr", "拉取请求", kind == "pr", func() { a.setReviewKind("pr") }, "mobile-review-kind-pr"),
 					a.reviewChip(colors, "issue", "议题", kind == "issue", func() { a.setReviewKind("issue") }, "mobile-review-kind-issue"),
@@ -356,11 +353,11 @@ func (a *mobileApp) reviewSheet() core.Node {
 				a.scrollStashFor("reviewSheet:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(420)}, Children: []core.Node{
 					core.View{Style: core.Style{Gap: 2}, Children: rows}}}),
 			}}},
-			Footer: []core.Node{
+			footer: []core.Node{
 				ui.Button{Text: apptext.T("刷新"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: a.loadReview},
 				ui.Button{Text: apptext.T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.reviewOpen.Set(false) }},
 			},
-		}
+		})
 	})
 }
 

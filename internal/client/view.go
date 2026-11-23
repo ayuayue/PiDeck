@@ -15,13 +15,22 @@ func (a *mobileApp) view() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		a.language.Get()
 		return core.View{Style: ui.FillRest, StyleFunc: func() core.Style { return core.Style{FontFamily: cx.Theme().Sans} }, Children: []core.Node{
-			core.Dynamic(func(cx *core.Scope) core.Node {
-				if a.connected.Get() {
-					return a.shell(cx)
-				}
-				return a.connectView(cx)
-			}),
-			a.drawer(),
+			core.View{Style: core.Style{Direction: core.Row, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), MinHeight: core.Pt(0)}, Children: []core.Node{
+				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), MinHeight: core.Pt(0)}, Children: []core.Node{
+					core.Dynamic(func(cx *core.Scope) core.Node {
+						if a.connected.Get() {
+							return a.shell(cx)
+						}
+						return a.connectView(cx)
+					}),
+					a.drawer(),
+				}},
+				// The surfaces that stand beside the page in a wide window; a
+				// phone still gets them as the sheets they are.
+				a.reviewSheet(),
+				a.gitSheet(),
+				a.filesSheet(),
+			}},
 			a.actionSheet(),
 			a.renameSheet(),
 			a.deleteSheet(),
@@ -38,13 +47,10 @@ func (a *mobileApp) view() core.Node {
 			a.tasksSheet(),
 			a.favoritesSheet(),
 			a.favoriteTextSheet(),
-			a.reviewSheet(),
 			a.reviewDetailSheet(),
 			a.reviewPatchSheet(),
-			a.gitSheet(),
 			a.gitDiffSheet(),
 			a.gitBranchesSheet(),
-			a.filesSheet(),
 			a.fileSheet(),
 			// The picture covers the whole screen, so it is drawn last.
 			a.transcriptImageViewer(),
