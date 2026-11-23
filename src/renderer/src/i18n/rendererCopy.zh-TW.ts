@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: ca58f29979e834a647925a8fa7a5e96335146e91bdab703576eae7ef606a50e3（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 7262e76b00d34a34b6ddc62a766a8f734692a15dd04bd961d67caddbb183f31f（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -3635,6 +3635,8 @@ export const zhTW: Record<TranslationKey, string> = {
 	"config.extensionUpdatedToast": "{name} 已更新",
 	"config.extensionUpdateCommandCopied": "更新指令已複製：{command}",
 	"config.installedExtensions": "已安裝擴充套件",
+	"config.remoteSharedBuiltInsHint": "PiDeck 內建擴充套件的開關由本機和所有遠端主機共享，修改後在新會話中生效。",
+	"config.remoteSharedBuiltInsProjectReadOnly": "PiDeck 內建擴充套件由本機和所有遠端主機共享，請在主機全域擴充套件頁修改開關。",
 	"config.extension": "擴充套件",
 	"config.extensionVersion": "版本",
 	"config.actions": "操作",

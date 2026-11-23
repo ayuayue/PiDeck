@@ -3628,6 +3628,8 @@ export const zhCN = {
 	"config.extensionUpdatedToast": "{name} 已更新",
 	"config.extensionUpdateCommandCopied": "更新指令已复制：{command}",
 	"config.installedExtensions": "已安装扩展",
+	"config.remoteSharedBuiltInsHint": "PiDeck 内置扩展的开关由本机和所有远程主机共享，修改后在新会话中生效。",
+	"config.remoteSharedBuiltInsProjectReadOnly": "PiDeck 内置扩展由本机和所有远程主机共享，请在主机全局扩展页修改开关。",
 	"config.extension": "扩展",
 	"config.extensionVersion": "版本",
 	"config.actions": "操作",

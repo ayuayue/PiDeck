@@ -119,7 +119,8 @@
 - **作用域必须显式**：`scope` 是请求字段而不是从路径推断；漏传即全局层。同一 `{ root, path }` 引用在两层指向不同文件，因此「项目页误写全局文件」是不成立的（2026-11 项目管理弹窗曾把远端项目送进本机项目资源管理器，四个页签均报 UNSUPPORTED_PROJECT_LOCATION）。
 - **项目 id 不是路径**：主进程只接受已登记项目 id，经项目 catalog 解析出 host + canonical root，并复核 host 与 locator 一致；路径、兄弟项目、主机全局层都不能由渲染层指定。项目层请求走 `withProjectSession`（整段持主机锁），两个项目不会在帧之间串根。
 - **项目设置同源**：项目层读写 `<项目根>/.pi/settings.json`，复用同一份 config scope（同一套版本校验、原子替换、密钥脱敏）；`resources.toggleInherited` 只写该项目的 `±<绝对路径>` 原生规则，不碰主机全局设置。内置扩展启停（`resources.builtin`）与 Pi 包操作（`packages` / `skillsInstall`）是主机级动作，项目层直接拒绝。
-- 资源正文读写、创建、改名、删除与启停均校验资源引用、链接、大小和版本；删除移入该主机受控回收目录。Pi 包操作只能由主进程构造固定的 list/install/remove/update argv，使用已探测的主机 Node/Pi 与 pinned SSH，带时限、脱敏和结果核验；用户点击安装/卸载/更新即授权该次动作，禁止后台安装或自动重放不确定写入。本机随包资源和宿主更新器不在远端页面暴露；任何远端失败都不得转向本机管理器。
+- 资源正文读写、创建、改名、删除与启停均校验资源引用、链接、大小和版本；删除移入该主机受控回收目录。Pi 包操作只能由主进程构造固定的 list/install/remove/update argv，使用已探测的主机 Node/Pi 与 pinned SSH，带时限、脱敏和结果核验；用户点击安装/卸载/更新即授权该次动作，禁止后台安装或自动重放不确定写入。远端失败不得转向本机资源管理器。远端扩展页另行呈现可注入 SSH 的 PiDeck 内置扩展，其开关明确标示为本机与全部远端会话共享：它们复用宿主的 `removedBuiltInExtensions`，不是远端主机配置；只允许全局页调用既有内置扩展开关，项目页只读，不暴露宿主文件路径或更新器。pi 原生内置扩展使用远端主机自己的 `resources.builtin` 设置，远端项目页不冒充支持项目层写入。
+- 远端内置面板核对：本机 pi 1.6.0 的 `DefaultPackageManager.resolve()` 与远端摘要在默认、`!` 通配、精确 `+`/`-` 冲突等六组全局规则下结果一致；远端写入与项目层拒绝由 `tests/remotePiManagement.test.mjs` 覆盖。此证据不代表所有 pi 版本或远端 UI 已实机验收。
 - **远端 MCP 也分两层**：主机层管理 `~/.pi/agent/mcp.json`，项目层管理 `<项目根>/.pi/mcp.json`。config 域在项目层**只**接受 `mcp` 这一个文件键（models/settings/trust/auth 是主机文件，项目层返回 `CONFIG_PATH_UNSUPPORTED`）；`pi mcp list/login/logout` 以项目根为 cwd 执行，凭据仍落主机 `~/.pi/agent`；项目 id 未知、跨主机或与当前页不符一律拒绝并给可读引导（`REMOTE_MCP_PROJECT_SCOPE_UNSUPPORTED`），不回退主机全局层。配置页与项目管理页共用同一套 MCP 表单（本机 / SSH 主机 / 远端项目三种作用域），只有 WSL 仍按文件编辑——发行版里的 `pi mcp` 只能在该发行版内运行。
 - 范围与门禁见 `ssh-config-management-plan.md`，守卫为冻结资源 helper、主进程路由和远端资源编辑行为测试（项目层见 `tests/remoteProjectResources.test.mjs`）。
 

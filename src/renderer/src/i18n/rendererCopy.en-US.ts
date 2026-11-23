@@ -3647,6 +3647,8 @@ export const enUS: Record<TranslationKey, string> = {
 	"config.extensionUpdatedToast": "{name} updated",
 	"config.extensionUpdateCommandCopied": "Update command copied: {command}",
 	"config.installedExtensions": "Installed Extensions",
+	"config.remoteSharedBuiltInsHint": "PiDeck built-in extension switches are shared by this computer and all remote hosts. Changes apply to new sessions.",
+	"config.remoteSharedBuiltInsProjectReadOnly": "PiDeck built-in extensions are shared by this computer and all remote hosts. Change their switches on the host's global extensions page.",
 	"config.extension": "Extension",
 	"config.extensionVersion": "Version",
 	"config.actions": "Actions",

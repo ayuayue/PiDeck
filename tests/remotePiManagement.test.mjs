@@ -139,7 +139,7 @@ test("auth editor copies retain references, isolates raw versions, and locks wri
 	await editor.write({});
 });
 
-test("host-bound resource facade exercises skills, prompts, stores and packages without local calls", async (t) => {
+test("host-bound resource facade confines resource operations to the host, with shared PiDeck built-in settings", async (t) => {
 	const f = fixture(t);
 	const otherHost = "22222222-2222-4222-8222-222222222222";
 	const other = fixture(t);
@@ -181,7 +181,8 @@ test("host-bound resource facade exercises skills, prompts, stores and packages 
 		remotePiResources: (host, request) => backend.execute(host, request),
 		skills: trap,
 		prompts: trap,
-		extensions: trap,
+		extensions: new Proxy({ builtInStatus: async () => ({ effectiveVersion: "1.0.0" }) }, { get: (target, key) => (key in target ? target[key] : trap[key]) }),
+		settings: { get: async () => ({ removedBuiltInExtensions: [] }) },
 		files: trap,
 		config: trap,
 		projectResources: trap,
@@ -218,7 +219,11 @@ test("host-bound resource facade exercises skills, prompts, stores and packages 
 	assert.equal((await secondEditor.skills.list()).skills.length, 0);
 	await assert.rejects(() => secondEditor.files.readContent(imported.path), /FILE_INVALID/);
 	const extensions = await editor.extensions.list();
-	assert.equal(extensions.extensions.length, 2, "remote local-path packages must remain visible");
+	assert.equal(extensions.extensions.filter((entry) => !entry.builtIn).length, 2, "remote local-path packages must remain visible");
+	assert.ok(
+		extensions.extensions.some((entry) => entry.builtIn),
+		"shared PiDeck built-ins are visible",
+	);
 	assert.equal(extensions.extensions[0].latestVersion, "1.2.0");
 	const refreshed = await editor.extensions.list(false);
 	assert.equal(refreshed.extensions[0].latestVersion, "1.2.0", "a lightweight refresh retains the last version results");
@@ -235,6 +240,22 @@ test("host-bound resource facade exercises skills, prompts, stores and packages 
 	assert.ok(calls.some((input) => input.hostId === otherHost));
 	await assert.rejects(() => backend.execute(HOST, { action: "packages", operation: "install", source: "--help" }), /FILE_INVALID/);
 	await assert.rejects(() => backend.execute(HOST, { action: "read", ref: { root: "skills", path: "../../auth.json" } }), /FILE_INVALID/);
+});
+
+test("remote pi built-in switches persist on the host, respect filters and reject project writes", async (t) => {
+	const f = fixture(t);
+	fs.writeFileSync(path.join(f.directory, ".pi/agent/settings.json"), JSON.stringify({ extensions: ["!builtin:*", "+builtin:codemode"], defaultTools: ["+codemode"] }));
+	const { createRemoteResourceEditorApi } = loadTsCommonJs("src/renderer/src/config/remoteResourceEditorApi.ts", { stubs: { "../utils/clipboard": { writeClipboard: async () => {} }, "../utils/notice": { showNotice: () => {} }, "../i18n": { t: (key) => key } } });
+	const editor = createRemoteResourceEditorApi({ remotePiResources: async (_host, { action, ...input }) => (action === "list" ? f.resources.list(input) : f.resources.builtin(input)) }, HOST, async () => {});
+	let summary = await editor.config.piResourcesSummary({ scope: "global" });
+	assert.equal(summary.builtins.find((item) => item.name === "mcp").enabled, false);
+	assert.equal(summary.builtins.find((item) => item.name === "codemode").toolEnabled, true);
+	await editor.config.piResourcesSetBuiltin({ scope: { scope: "global" }, name: "mcp", enabled: true, expectedRevision: summary.revision });
+	summary = await editor.config.piResourcesSummary({ scope: "global" });
+	assert.equal(summary.builtins.find((item) => item.name === "mcp").enabled, true);
+	assert.deepEqual(JSON.parse(fs.readFileSync(path.join(f.directory, ".pi/agent/settings.json"), "utf8")).extensions, ["!builtin:*", "+builtin:codemode", "+builtin:mcp"]);
+	await assert.rejects(() => editor.config.piResourcesSetBuiltin({ scope: { scope: "project", projectId: "p" }, name: "mcp", enabled: false }), /UNSUPPORTED/);
+	await assert.rejects(() => editor.config.piResourcesSummary({ scope: "project", projectId: "p" }), /UNSUPPORTED/);
 });
 
 test("resource discovery lists package and settings resources with native filters, without granting edits", (t) => {

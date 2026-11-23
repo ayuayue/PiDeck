@@ -7,6 +7,8 @@ import { showNotice } from "../utils/notice";
 import { t } from "../i18n";
 import { minimatch } from "minimatch";
 import { convertStoreVarsToPiVars } from "../../../shared/promptStoreVariables";
+import { resolveDefaultToolsInLayer } from "../../../shared/defaultTools";
+import { isRemoteSharedBuiltIn, remoteSharedBuiltInRows } from "./remoteSharedBuiltInExtensions";
 
 /** Absolute sub-paths of each layer, relative to its base (host HOME or one project root). */
 const GLOBAL_PATHS = { skills: ".pi/agent/skills", "agents-skills": ".agents/skills", prompts: ".pi/agent/prompts", extensions: ".pi/agent/extensions" };
@@ -377,7 +379,8 @@ export function createRemoteResourceEditorApi(api: PiDesktopApi, hostId: string,
 			...api.extensions,
 			list: async (forceRefresh = false): Promise<PiExtensionListResult> => {
 				const includeVersions = forceRefresh || extensionVersions === undefined;
-				const [, installed] = await Promise.all([refresh(), packages("list", undefined, includeVersions)]);
+				const shared = Promise.all([api.settings.get(), api.extensions.builtInStatus().catch(() => null)]).then(([settings, status]) => remoteSharedBuiltInRows(settings.removedBuiltInExtensions ?? [], status?.effectiveVersion ?? null));
+				const [, installed, builtIns] = await Promise.all([refresh(), packages("list", undefined, includeVersions), shared]);
 				if (includeVersions) extensionVersions = new Map(installed.extensions.map((entry) => [`${entry.source}\u0000${entry.path ?? ""}`, { currentVersion: entry.currentVersion, latestVersion: entry.latestVersion, hasUpdate: entry.hasUpdate, updateError: entry.updateError }]));
 				return {
 					extensions: [
@@ -393,6 +396,7 @@ export function createRemoteResourceEditorApi(api: PiDesktopApi, hostId: string,
 						}),
 						...[...listed.values()].filter((entry) => entry.scope === "global" && entry.file.root === "extensions" && /\.(?:[cm]?js|ts)$/i.test(entry.file.path)).map(extension),
 						...[...listed.values()].filter((entry) => entry.scope === "project" && entry.file.root === "extensions" && /\.(?:[cm]?js|ts)$/i.test(entry.file.path)).map(extension),
+						...builtIns,
 					],
 					raw: "",
 				};
@@ -406,6 +410,11 @@ export function createRemoteResourceEditorApi(api: PiDesktopApi, hostId: string,
 			update: async () => ({ command: "pi update --extensions", output: (await packages("update")).output, updated: true }),
 			updateOne: async (source: string) => ({ command: "pi update " + source, output: (await packages("update", source)).output, updated: true }),
 			toggle: async (source: string, state: boolean, _scope?: unknown, path?: string) => {
+				// PiDeck's remote injection shares the local setting; remote file rows always have a path.
+				if (projectId === undefined && !path && isRemoteSharedBuiltIn(source)) {
+					await api.extensions.toggle(source, state, "user");
+					return;
+				}
 				if (path && listed.has(path)) {
 					await toggle(path, state);
 					return;
@@ -482,17 +491,25 @@ export function createRemoteResourceEditorApi(api: PiDesktopApi, hostId: string,
 			onInstallProgress: () => () => {},
 		},
 		config: {
-			piResourcesSummary: async () => {
+			piResourcesSummary: async (scope?: { scope: "global" } | { scope: "project"; projectId: string }) => {
+				if (scope?.scope === "project") throw new Error(C.unsupported);
 				const data = await load();
+				const tools = resolveDefaultToolsInLayer(undefined, Array.isArray(data.settings.defaultTools) ? strings(data.settings.defaultTools) : undefined);
 				return {
 					settingsPath: data.home + "/.pi/agent/settings.json",
 					exists: true,
 					revision: data.settingsVersion,
 					entries: { extensions: strings(data.settings.extensions), skills: strings(data.settings.skills), prompts: strings(data.settings.prompts), themes: strings(data.settings.themes) },
-					builtins: PI_BUILTIN_EXTENSIONS.map((value) => ({ name: value, enabled: enabled("extensions", "builtin:" + value), explicitInLayer: strings(data.settings.extensions).some((entry) => entry === "+builtin:" + value || entry === "-builtin:" + value), state: "inherit" as const })),
+					builtins: PI_BUILTIN_EXTENSIONS.map((value) => {
+						const isEnabled = enabled("extensions", "builtin:" + value);
+						const tool = value === "codemode" ? "codemode" : value === "tool-search" ? "tool_search" : undefined;
+						const explicitInLayer = strings(data.settings.extensions).some((entry) => entry === "+builtin:" + value || entry === "-builtin:" + value);
+						return { name: value, enabled: isEnabled, ...(tool ? { toolEnabled: isEnabled && tools.includes(tool) } : {}), explicitInLayer, state: explicitInLayer ? (isEnabled ? ("explicit-enabled" as const) : ("explicit-disabled" as const)) : ("inherit" as const) };
+					}),
 				};
 			},
-			piResourcesSetBuiltin: async (input: { name: string; enabled: boolean; expectedRevision?: string }) => {
+			piResourcesSetBuiltin: async (input: { scope?: { scope: "global" } | { scope: "project"; projectId: string }; name: string; enabled: boolean; expectedRevision?: string }) => {
+				if (input.scope?.scope === "project") throw new Error(C.unsupported);
 				await mutate("settings", { action: "builtin", name: input.name, expectedVersion: input.expectedRevision ?? snapshot?.settingsVersion ?? "", enabled: input.enabled });
 				await load();
 				return { ok: true };

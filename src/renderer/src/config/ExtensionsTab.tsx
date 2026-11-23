@@ -267,9 +267,8 @@ export function ExtensionsTab(props: {
 
 	return (
 		<div className="extensions-tab">
-			{/* pi 原生内置扩展开关：写 settings.json 的 builtin: 条目，全局/项目各自生效。
-			    远端主机没有随包内置扩展可管（它在主机的全局页），项目页不显示本机专用面板。 */}
-			{!remote && <PiBuiltinExtensionsPanel scope={props.scope} projectId={props.projectId} onChanged={props.onRefresh} />}
+			{/* 远端主机的原生内置扩展由其自己的 settings.json 控制；远端项目层暂不支持。 */}
+			{(!remote || props.scope === "global") && <PiBuiltinExtensionsPanel scope={props.scope} projectId={props.projectId} onChanged={props.onRefresh} />}
 			{/* 一级 tab：已安装 / 扩展商店（shadcn Tabs，与 SkillsTab 的「本地/商店」结构对齐） */}
 			<div className="mb-3 flex items-center justify-between gap-3">
 				<ContentTabs
@@ -322,6 +321,7 @@ export function ExtensionsTab(props: {
 					<div className="config-section">
 						{/* 标题走共享 SectionHeading：与系统设置各页同一套字重/字号，不再靠 legacy 类名锚定 */}
 						<SectionHeading className="mb-2" title={t("config.installedExtensions")} />
+						{remote && <p className="mb-2 text-caption text-muted-foreground">{t(props.scope === "global" ? "config.remoteSharedBuiltInsHint" : "config.remoteSharedBuiltInsProjectReadOnly")}</p>}
 						{/* 表格工具栏：单行「搜索 + 计数 ←→ 操作」。搜索框限宽到 max-w-xs——
 				    列表只有三列，铺满整行的输入框会把它读成页面级搜索而不是表格过滤；
 				    计数紧跟搜索框，眼睛不用横跨整屏去找结果数。 */}
