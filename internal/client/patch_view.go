@@ -10,20 +10,20 @@ import (
 )
 
 // patchBodyHeight is how tall a patch gets: most of a phone's screen, never
-// more than a desktop pane's diff.
-func patchBodyHeight(cx *core.Scope) core.Length {
-	return core.Pt(core.Points(min(430, cx.Env().Window().Height*0.62)))
+// more than the room its surface gives it.
+func patchBodyHeight(cx *core.Scope, max core.Points) core.Length {
+	return core.Pt(core.Points(min(max, cx.Env().Window().Height*0.62)))
 }
 
 // patchBody is one patch as the desktop draws it: unified, wrapped, its
 // added and deleted lines tinted and numbered, and its hunks opening in
 // place. A dialog has no height of its own, so the view is given one.
-func patchBody(patch func() string, testID string) core.Node {
+func patchBody(patch func() string, testID string, max core.Points) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		return uidiff.View{
 			Patch: patch, Unified: true, Selectable: true, SoftWrap: true, TestID: testID,
 			FontFamily: viewkit.MonoFont(), FontSize: 11.5, LineHeight: 17,
-			Style: core.Style{Height: patchBodyHeight(cx)},
+			Style: core.Style{Height: patchBodyHeight(cx, max)},
 		}
 	})
 }

@@ -805,3 +805,29 @@ func TestRemoteMessagesShrinkPage(t *testing.T) {
 		t.Fatalf("the cut line should end with an ellipsis: %q", messages[0].Text[:32])
 	}
 }
+
+// TestRemoteToolLineMarksAPatch guards what the phone needs to draw a change
+// as one: its lines travel as the call's output, and the line says they are a
+// patch rather than what the call wrote.
+func TestRemoteToolLineMarksAPatch(t *testing.T) {
+	turns := []turn{{Prompt: "改一下接口", Steps: []turnStep{{Tools: []toolRun{
+		{Name: "edit", Action: "编辑", Detail: "index.go", Diff: "-a\n+b\n"},
+		{Name: "bash", Action: "运行", Detail: "go test", Output: "ok"},
+	}}}}}
+	messages, _, _ := remoteMessages(turns, 1)
+	var tools []*remotewire.ToolLine
+	for _, m := range messages {
+		if m.Role == "tool" {
+			tools = append(tools, m.Tool)
+		}
+	}
+	if len(tools) != 2 {
+		t.Fatalf("tool lines = %d; want 2", len(tools))
+	}
+	if !tools[0].Diff || tools[0].Output != "-a\n+b" {
+		t.Errorf("an edit = diff %v output %q; want its patch marked", tools[0].Diff, tools[0].Output)
+	}
+	if tools[1].Diff || tools[1].Output != "ok" {
+		t.Errorf("a run = diff %v output %q; want plain output", tools[1].Diff, tools[1].Output)
+	}
+}

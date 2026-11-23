@@ -108,11 +108,15 @@ func (a *mobileApp) toolLineRow(cx *core.Scope, m remotewire.Message, key transc
 	}, viewkit.ToolSizes{Verb: 12, Detail: detailSize, Glyph: 13, Gap: 6, MinHeight: 26, PadV: 1, PadH: 2})
 	children := []core.Node{header}
 	if open && hasBody {
-		children = append(children, core.View{Style: core.Style{Padding: core.Edges{Left: 19, Top: 2, Bottom: 4}},
-			Children: []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pt(240)}, Children: []core.Node{
-				core.Text{Content: tool.Output, Selectable: core.SelectableOn,
-					Style:     core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10, LineHeight: 15},
-					StyleFunc: ui.Colored(colors.Muted)}}}}})
+		// What a change touched is a patch, and shows as one.
+		body := []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pt(240)}, Children: []core.Node{
+			core.Text{Content: tool.Output, Selectable: core.SelectableOn,
+				Style:     core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10, LineHeight: 15},
+				StyleFunc: ui.Colored(colors.Muted)}}}}
+		if tool.Diff {
+			body = []core.Node{patchBody(func() string { return tool.Output }, "mobile-tool-diff", 240)}
+		}
+		children = append(children, core.View{Style: core.Style{Padding: core.Edges{Left: 19, Top: 2, Bottom: 4}}, Children: body})
 	}
 	return core.View{
 		OnPress: func(core.PressEvent) {

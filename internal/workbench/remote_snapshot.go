@@ -239,7 +239,7 @@ func remoteMessages(turns []turn, before int) ([]remotewire.Message, int, bool) 
 			return
 		}
 		line := &remotewire.ToolLine{Name: run.Name, Action: run.Action, Detail: run.Detail, Added: run.Added, Removed: run.Removed,
-			DurationMs: run.DurationMs, Nested: len(run.Nested), Status: "done"}
+			DurationMs: run.DurationMs, Nested: len(run.Nested), Status: "done", Diff: run.Diff != ""}
 		switch {
 		case run.Status == chat.Running:
 			line.Status = "running"

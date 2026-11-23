@@ -229,6 +229,9 @@ type ToolLine struct {
 	Nested int `json:"nested,omitempty"`
 	// Output is what the call wrote, cut to what a page carries.
 	Output string `json:"output,omitempty"`
+	// Diff says Output is the lines a change touched rather than what the call
+	// wrote: a patch a client can draw as one.
+	Diff bool `json:"diff,omitempty"`
 }
 
 type Transcript struct {

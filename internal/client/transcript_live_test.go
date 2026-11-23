@@ -158,3 +158,24 @@ func TestMobileFinishedTurnFoldsProcess(t *testing.T) {
 	waitApp(app, "text:On branch main", 5*time.Second)
 	shot(app, "68-mobile-folded-process")
 }
+
+// TestMobileToolDiffDrawsAsPatch guards what a change touched: the desktop
+// sends it as a patch, and the phone opens it as one rather than as lines of
+// plain text.
+func TestMobileToolDiffDrawsAsPatch(t *testing.T) {
+	app, _ := liveTranscriptDesktop(t, func() remotewire.Transcript {
+		return remotewire.Transcript{ID: "s1", Title: "正在跑的会话", Running: true,
+			Messages: []remotewire.Message{
+				{Role: "user", Text: "改一下接口", Turn: 0},
+				{Role: "tool", Text: "编辑 index.go", Turn: 0, Tool: &remotewire.ToolLine{
+					Name: "edit", Action: "编辑", Detail: "index.go", Status: "done", DurationMs: 30, Diff: true,
+					Output: "diff --git a/index.go b/index.go\n--- a/index.go\n+++ b/index.go\n@@ -1 +1 @@\n-old line\n+new line\n"}},
+			}}
+	})
+	app.WaitFor("id:mobile-tool-row", 10*time.Second)
+	app.Press("id:mobile-tool-row")
+	app.WaitFor("id:mobile-tool-diff", 5*time.Second)
+	app.WaitUntil(5*time.Second, func() bool {
+		return len(app.Query("text:new line")) > 0 && len(app.Query("text:old line")) > 0
+	})
+}

@@ -291,7 +291,7 @@ func (a *mobileApp) reviewPatchSheet() core.Node {
 			body = core.View{Style: core.Style{Padding: core.All(16)}, Children: []core.Node{
 				ui.Text(apptext.T("没有可显示的差异"), 12, ui.Regular, colors.Faint)}}
 		default:
-			body = patchBody(func() string { return a.reviewPatch.Get() }, "mobile-review-patch-body")
+			body = patchBody(func() string { return a.reviewPatch.Get() }, "mobile-review-patch-body", 430)
 		}
 		return ui.Dialog{
 			Open:         a.reviewPatchOpen.Get,
