@@ -31,6 +31,9 @@ type remoteLANAddress struct {
 	Address   string `json:"address"`
 	Interface string `json:"interface"`
 	Private   bool   `json:"private"`
+	// Virtual marks an address a virtual machine, a container or a VPN owns:
+	// a phone on the same Wi-Fi cannot reach this machine through it.
+	Virtual bool `json:"virtual"`
 }
 
 // remoteChannel is what one private network can offer.

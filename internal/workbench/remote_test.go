@@ -831,3 +831,34 @@ func TestRemoteToolLineMarksAPatch(t *testing.T) {
 		t.Errorf("a run = diff %v output %q; want plain output", tools[1].Diff, tools[1].Output)
 	}
 }
+
+// TestLANOrderLeadsWithTheRealAdapter keeps the address a phone should type
+// first: the Wi-Fi or the cable. Virtual adapters (Hyper-V, WSL, EasyTier,
+// Tailscale) stay in the list but sink to the end, where copying one cannot
+// look like the right answer.
+func TestLANOrderLeadsWithTheRealAdapter(t *testing.T) {
+	if detectLAN() == nil {
+		t.Skip("this machine reports no network interfaces")
+	}
+	list := detectLAN()
+	seenVirtual := false
+	for i, address := range list {
+		if address.Virtual {
+			seenVirtual = true
+			continue
+		}
+		if seenVirtual {
+			t.Fatalf("real adapter %s at %d comes after a virtual one; the list must lead with a real one", address.Address, i)
+		}
+	}
+	for _, name := range []string{"vEthernet (Default Switch)", "vEthernet (WSL (Hyper-V firewall))", "Tailscale", "et_7_hsne", "WireGuard"} {
+		if !virtualIface(name) {
+			t.Fatalf("%q was not recognised as a virtual adapter", name)
+		}
+	}
+	for _, name := range []string{"WLAN", "Wi-Fi", "Ethernet", "以太网"} {
+		if virtualIface(name) {
+			t.Fatalf("%q was taken for a virtual adapter", name)
+		}
+	}
+}

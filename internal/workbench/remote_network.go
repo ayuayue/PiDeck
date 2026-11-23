@@ -37,7 +37,30 @@ func (a *app) withUI(fn func()) bool {
 	}
 }
 
-// detectLAN lists the non-loopback IPv4 addresses, private ones first.
+// virtualIfaceWords mark an interface a virtual machine, a container or a
+// VPN owns rather than the cable or the Wi-Fi the user is on. Windows
+// gives vEthernet to Hyper-V and to WSL, and every VPN names its own.
+var virtualIfaceWords = []string{
+	"vethernet", "hyper-v", "wsl", "default switch", "virtualbox", "vmware", "docker",
+	"tailscale", "zerotier", "easy tier", "easytier", "hsne", "wireguard", "tap-", "tun0",
+	"virtual adapter", "vpn",
+}
+
+// virtualIface says an interface is a virtual one, not the LAN a phone
+// shares with this machine.
+func virtualIface(name string) bool {
+	lower := strings.ToLower(name)
+	for _, word := range virtualIfaceWords {
+		if strings.Contains(lower, word) {
+			return true
+		}
+	}
+	return false
+}
+
+// detectLAN lists the non-loopback IPv4 addresses a phone can reach: the
+// real network adapters first, so the address the phone shares a Wi-Fi with
+// leads, then virtual adapters sorted last.
 func detectLAN() []remoteLANAddress {
 	ifaces, err := net.Interfaces()
 	if err != nil {
@@ -63,10 +86,14 @@ func detectLAN() []remoteLANAddress {
 				continue
 			}
 			seen[ip.String()] = true
-			out = append(out, remoteLANAddress{Address: ip.String(), Interface: iface.Name, Private: privateIPv4(ip)})
+			out = append(out, remoteLANAddress{Address: ip.String(), Interface: iface.Name,
+				Private: privateIPv4(ip), Virtual: virtualIface(iface.Name)})
 		}
 	}
 	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Virtual != out[j].Virtual {
+			return !out[i].Virtual
+		}
 		if out[i].Private != out[j].Private {
 			return out[i].Private
 		}

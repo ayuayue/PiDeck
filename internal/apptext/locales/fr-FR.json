@@ -1,4 +1,6 @@
 {
+  "这个构建没有内置浏览器页面": "Cette version n'embarque pas la page pour navigateur",
+  "浏览器打开链接会看到 404，手机 App 不受影响。带上页面的构建：先跑 go run ./scripts web，再用它生成的 dist/PiDeck V2-web-host 可执行文件。": "Ouvrir le lien dans un navigateur renvoie 404 ; l'application mobile n'est pas concernée. Pour une version avec la page, lancez d'abord go run ./scripts web, puis utilisez l'exécutable dist/PiDeck V2-web-host produit.",
   "NSGo 插件预览": "Aperçu du plugin NSGo",
   "会话统计示例": "Exemple de statistiques des sessions",
   "内置面板、徽标和函数使用固定演示数据，不读取真实会话。": "Le panneau, le badge et la fonction intégrés utilisent des données de démonstration fixes sans lire les sessions réelles.",
@@ -517,6 +519,7 @@
   "在哪个项目里新建": "Dans quel projet la créer",
   "填电脑上的文件夹路径，和电脑端「添加工作区」是同一件事。": "Tapez un chemin de dossier sur l’ordinateur ; c’est le même que Ajouter un espace de travail sur le bureau.",
   "复制回复": "Copier la réponse",
+  "复制图片": "Copier l’image",
   "复制提问": "Invite de copie",
   "复制链接": "Copie du lien",
   "如 mod+shift+r": "par exemple mod shift r",
@@ -663,6 +666,7 @@
   "已取消绑定": "Binding dégagé",
   "已复制": "Copié",
   "已复制会话": "Session copiée",
+  "已复制图片": "Image copiée",
   "已导入会话": "Session importée",
   "已导出会话": "Session exportée",
   "已导出诊断包": "Diagnostics exportés",

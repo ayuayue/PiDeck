@@ -75,7 +75,13 @@ func (a *app) settingsRemote() core.Node {
 		var lanRows []core.Node
 		for i, address := range st.LAN {
 			detail := "局域网"
-			if address.Interface != "" {
+			switch {
+			case address.Interface == "":
+			case address.Virtual:
+				// Virtual adapters are listed last and said so: a phone on the
+				// same Wi-Fi cannot reach this machine through one.
+				detail = "虚拟网卡 · " + address.Interface + " · 手机一般连不上"
+			default:
 				detail = "局域网 · " + address.Interface
 			}
 			lanRows = append(lanRows, addressRow("", detail, address.Address, fmt.Sprintf("remote-lan-%d", i)))
@@ -203,6 +209,20 @@ func (a *app) settingsRemote() core.Node {
 				setGroup("连接方式",
 					core.View{Style: core.Style{Padding: core.Edges{Bottom: 4}}, Children: []core.Node{
 						ui.Text(apptext.T("手机与电脑需能互通；复制链接后粘贴到手机端即可。"), 10.5, ui.Regular, colors.Faint)}},
+					// A binary built without -tags webassets serves the API but no
+					// page, so a browser opening the link gets a bare 404. Say so
+					// here instead of leaving the user to guess.
+					core.Show{When: func() bool { return webAssets == nil }, Then: func(cx *core.Scope) core.Node {
+						colors := ui.ColorsOf(cx)
+						return core.View{StyleFunc: func() core.Style {
+							return core.Style{Gap: 3, Padding: core.Symmetric(8, 10), CornerRadius: 8,
+								Background: ui.Alpha(colors.Warn(), 0.10), Borders: core.Edges{Left: 2}, BorderColors: core.EdgeColors{Left: colors.Warn()}}
+						}, Children: []core.Node{
+							ui.Text(apptext.T("这个构建没有内置浏览器页面"), 11.5, ui.Semibold, colors.Warn),
+							core.Text{Content: apptext.T("浏览器打开链接会看到 404，手机 App 不受影响。带上页面的构建：先跑 go run ./scripts web，再用它生成的 dist/PiDeck V2-web-host 可执行文件。"),
+								Style: core.Style{FontSize: 10.5, LineHeight: 16}, StyleFunc: ui.Colored(colors.Muted)},
+						}}
+					}},
 					channel(lucide.Wifi, "局域网", "同一 Wi-Fi 或路由器下直连。", remoteChannel{Installed: true, Ready: len(st.LAN) > 0}, lanRows...),
 					channel(lucide.Smartphone, "Android 模拟器", "在电脑上的 Android 模拟器里运行时，用 10.0.2.2 指向这台电脑，不依赖局域网。",
 						remoteChannel{Installed: true, Ready: true},

@@ -1,4 +1,6 @@
 {
+  "这个构建没有内置浏览器页面": "This build carries no browser page",
+  "浏览器打开链接会看到 404，手机 App 不受影响。带上页面的构建：先跑 go run ./scripts web，再用它生成的 dist/PiDeck V2-web-host 可执行文件。": "Opening the link in a browser returns 404; the phone app is unaffected. For a build with the page, run go run ./scripts web first, then use the dist/PiDeck V2-web-host executable it produces.",
   "NSGo 插件预览": "NSGo plugin preview",
   "会话统计示例": "Session statistics example",
   "内置面板、徽标和函数使用固定演示数据，不读取真实会话。": "The built-in panel, badge and function use fixed demo data and do not read real sessions.",
@@ -716,6 +718,7 @@
   "复制会话失败": "Could not copy the session",
   "复制哈希": "Copy hash",
   "复制回复": "Copy reply",
+  "复制图片": "Copy image",
   "复制安装命令": "Copy install command",
   "复制工作目录": "Copy working folder",
   "复制提交说明": "Copy commit message",
@@ -852,6 +855,7 @@
   "已在电脑上开始运行": "Started on the computer",
   "已复制": "Copied",
   "已复制会话": "Session copied",
+  "已复制图片": "Image copied",
   "已复制诊断报告": "Report copied",
   "已失效": "Invalid",
   "已安装": "Installed",

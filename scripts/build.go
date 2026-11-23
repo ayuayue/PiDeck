@@ -26,7 +26,11 @@ func (h *helper) devPreview() {
 }
 
 func (h *helper) buildTarget(target string) {
-	if err := h.nsgo("build", "-target", target); err != nil {
+	env, note := h.webAssetEnv()
+	if note != "" {
+		fmt.Println(note)
+	}
+	if err := h.runEnv(env, "go", "tool", "nsgo", "build", "-target", target); err != nil {
 		if runtime.GOOS == "windows" && strings.HasPrefix(target, "windows") {
 			fmt.Println("\n提示：目标程序正在运行时 Windows 会锁住 exe；先关掉 PiDeck V2 再构建。")
 		}
@@ -36,12 +40,29 @@ func (h *helper) buildTarget(target string) {
 	fmt.Printf("\n完成，产物在 %s\n", filepath.Join(h.root, "dist"))
 }
 
+// webAssetEnv adds -tags=webassets when webassets/site/ exists, so a local
+// build serves the browser client on the remote port like a release does.
+// Without the site the tag must stay off: its embed has no files to match
+// and the build would not compile.
+func (h *helper) webAssetEnv() ([]string, string) {
+	site := filepath.Join(h.root, "webassets", "site")
+	if info, err := os.Stat(filepath.Join(site, "index.html")); err == nil && !info.IsDir() {
+		flags := strings.TrimSpace(os.Getenv("GOFLAGS") + " -tags=webassets")
+		return []string{"GOFLAGS=" + flags}, ""
+	}
+	return nil, "提示：webassets/site 不存在，本次构建不带浏览器页面（设置 → 远程 里打开链接会 404）。\n      要带上页面：先跑 go run ./scripts web"
+}
+
 func (h *helper) buildAll() {
 	fmt.Println("六个发布目标逐个构建（不含安装器）；正式发布包由 CI 在各系统上生成。")
+	env, note := h.webAssetEnv()
+	if note != "" {
+		fmt.Println(note)
+	}
 	var failed []string
 	for _, target := range releaseTargets {
 		fmt.Printf("\n== %s ==\n", target)
-		if err := h.nsgo("build", "-target", target, "-installers=false"); err != nil {
+		if err := h.runEnv(env, "go", "tool", "nsgo", "build", "-target", target, "-installers=false"); err != nil {
 			failed = append(failed, target)
 		}
 	}
@@ -80,8 +101,9 @@ func (h *helper) web() error {
 	if runtime.GOOS == "windows" {
 		out += ".exe"
 	}
-	flags := strings.TrimSpace(os.Getenv("GOFLAGS") + " -tags=webassets")
-	if err := h.runEnv([]string{"GOFLAGS=" + flags}, "go", "tool", "nsgo", "build", "-target", hostTarget(), "-installers=false"); err != nil {
+	// The site is in place by now, so webAssetEnv adds the tag that embeds it.
+	env, _ := h.webAssetEnv()
+	if err := h.runEnv(env, "go", "tool", "nsgo", "build", "-target", hostTarget(), "-installers=false"); err != nil {
 		return err
 	}
 	// Keep the helper's existing output path for callers and local scripts.
