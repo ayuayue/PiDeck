@@ -45,6 +45,17 @@ i18n:
 android:
   permissions: [CAMERA]
 
+# Two modules keep an extra license file beside a recognized BSD-3-Clause
+# LICENSE, and NSGo's classifier knows neither, which stops a build: the SQLite
+# public-domain dedication, and the memory module's logo (a Wikimedia Commons
+# link, not code). Both texts ship in THIRD_PARTY_NOTICES.txt as they always
+# would; the allowance only records that these two were read and accepted, so
+# the gate stays strict for everything else.
+licenses:
+  allow:
+    - modernc.org/memory
+    - modernc.org/sqlite
+
 build:
   output: dist
   # true opens the output directory after building.
