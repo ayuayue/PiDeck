@@ -224,8 +224,8 @@ func (a *mobileApp) filesSheet() core.Node {
 		case len(rows) == 0:
 			body = append(body, ui.Text(apptext.T("没有匹配的文件"), 12, ui.Regular, colors.Faint))
 		default:
-			body = append(body, core.Scroll{Style: core.Style{MaxHeight: core.Pt(420)}, Children: []core.Node{
-				core.View{Style: core.Style{Gap: 1}, Children: rows}}})
+			body = append(body, a.scrollStashFor("filesSheet:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(420)}, Children: []core.Node{
+				core.View{Style: core.Style{Gap: 1}, Children: rows}}}))
 		}
 		return ui.Dialog{
 			Open: a.filesOpen.Get,

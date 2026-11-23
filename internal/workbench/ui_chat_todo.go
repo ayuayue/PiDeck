@@ -99,7 +99,7 @@ func (a *app) todoBar(s *session) core.Node {
 		}
 		return core.View{Style: core.Style{Padding: core.Edges{Bottom: 6}, Gap: 3}, Children: []core.Node{
 			head,
-			a.scrollStashFor("todoBar:1").bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(168)}, Children: []core.Node{
+			a.scrollStashFor("todoBar:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(168)}, Children: []core.Node{
 				core.View{Style: core.Style{Direction: core.Column, Gap: 1}, Children: rows},
 			}}),
 		}}

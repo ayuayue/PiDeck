@@ -103,7 +103,7 @@ func (a *app) searchDialog() core.Node {
 						core.Text{Content: apptext.T("找到 %d 个会话 · %d 处匹配", len(hits), total),
 							Style:     core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9.5, Padding: core.Edges{Left: 2}},
 							StyleFunc: ui.Colored(colors.Faint)},
-						a.scrollStashFor("searchDialog:1").bind(cx, core.Scroll{Style: ui.FillRest, Children: []core.Node{
+						a.scrollStashFor("searchDialog:1").Bind(cx, core.Scroll{Style: ui.FillRest, Children: []core.Node{
 							core.View{Style: core.Style{Gap: 2, Padding: core.Edges{Right: 4}}, Children: rows},
 						}}),
 					}}

@@ -32,7 +32,7 @@ func (a *app) settingsIntegrations() core.Node {
 			fn(&a.cfg)
 			a.st.edit(fn)
 		}
-		return a.scrollStashFor("settingsIntegrations:1").bind(cx, core.Scroll{TestID: "settings-page", Style: ui.FillRest, Children: []core.Node{
+		return a.scrollStashFor("settingsIntegrations:1").Bind(cx, core.Scroll{TestID: "settings-page", Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 4}, Children: []core.Node{
 				a.wechatSettings(),
 				setGroup("飞书",

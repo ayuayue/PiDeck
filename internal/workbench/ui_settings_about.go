@@ -25,7 +25,7 @@ func (a *app) settingsAbout() core.Node {
 		a.settingsTick()
 		colors := ui.ColorsOf(cx)
 		info := a.env.Get()
-		return a.scrollStashFor("settingsAbout:1").bind(cx, core.Scroll{TestID: "settings-page", Style: ui.FillRest, Children: []core.Node{
+		return a.scrollStashFor("settingsAbout:1").Bind(cx, core.Scroll{TestID: "settings-page", Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 8, Bottom: 20, Right: 2}, Gap: 12}, Children: []core.Node{
 				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 12}, Children: []core.Node{
 					a.brandMark(44, "about-logo"),

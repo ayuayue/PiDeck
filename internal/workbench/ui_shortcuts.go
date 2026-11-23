@@ -83,7 +83,7 @@ func (a *app) shortcutsDialog() core.Node {
 						groups = append(groups, core.View{Style: core.Style{Padding: core.Symmetric(20, 8), AlignItems: core.AlignCenter},
 							Children: []core.Node{ui.Text(apptext.T("没有匹配的快捷键"), 12, ui.Regular, colors.Faint)}})
 					}
-					return a.scrollStashFor("shortcutsDialog:1").bind(cx, core.Scroll{Style: ui.FillRest, Children: []core.Node{
+					return a.scrollStashFor("shortcutsDialog:1").Bind(cx, core.Scroll{Style: ui.FillRest, Children: []core.Node{
 						core.View{Style: core.Style{Gap: 2, Padding: core.Edges{Right: 4}}, Children: groups},
 					}})
 				}),

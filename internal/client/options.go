@@ -262,9 +262,9 @@ func (a *mobileApp) optionsSheet() core.Node {
 				}
 				sections = append(sections, core.View{Style: core.Style{Gap: 6}, Children: []core.Node{
 					ui.Text(apptext.T("模型"), 11, ui.Medium, colors.Faint),
-					core.Scroll{Style: core.Style{MaxHeight: core.Pt(320)}, Children: []core.Node{
+					a.scrollStashFor("optionsSheet:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(320)}, Children: []core.Node{
 						core.View{Style: core.Style{Gap: 1}, Children: rows},
-					}},
+					}}),
 				}})
 			}
 			if len(sections) == 0 {

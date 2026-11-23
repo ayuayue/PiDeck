@@ -50,7 +50,7 @@ func (a *app) fileHistoryPane() core.Node {
 			body = core.Text{Content: apptext.T("还没有改过这个文件。"), Style: core.Style{FontSize: 11, Padding: core.All(8)},
 				StyleFunc: ui.Colored(colors.Faint)}
 		default:
-			body = a.scrollStashFor("fileHistoryPane:1").bind(cx, core.Scroll{Style: ui.FillRest, Children: []core.Node{
+			body = a.scrollStashFor("fileHistoryPane:1").Bind(cx, core.Scroll{Style: ui.FillRest, Children: []core.Node{
 				core.View{Style: core.Style{Gap: 1}, Children: rows}}})
 		}
 		return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)},

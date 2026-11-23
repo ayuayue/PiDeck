@@ -101,7 +101,7 @@ func (a *app) gitRemotesDialog() core.Node {
 			TestID:       "git-remotes",
 			Style:        core.Style{Width: a.dialogWidth(), MaxHeight: core.Pt(560)},
 			Children: []core.Node{core.View{Style: core.Style{Gap: 8}, Children: []core.Node{
-				a.scrollStashFor("gitRemotesDialog:1").bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(280)}, Children: []core.Node{
+				a.scrollStashFor("gitRemotesDialog:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(280)}, Children: []core.Node{
 					core.View{Style: core.Style{Gap: 1}, Children: rows}}}),
 				core.View{Style: core.Style{Direction: core.Row, Gap: 6}, Children: []core.Node{
 					core.View{Style: core.Style{Width: core.Pt(110)}, Children: []core.Node{

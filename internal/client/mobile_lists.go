@@ -222,9 +222,9 @@ func (a *mobileApp) searchSheet() core.Node {
 			})
 			switch {
 			case len(rows) > 0:
-				body = append(body, core.Scroll{Style: core.Style{MaxHeight: core.Pt(420)}, Children: []core.Node{
+				body = append(body, a.scrollStashFor("searchSheet:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(420)}, Children: []core.Node{
 					core.View{Style: core.Style{Gap: 1}, Children: rows},
-				}})
+				}}))
 			case query != "":
 				body = append(body, core.View{Style: core.Style{Padding: core.All(28), AlignItems: core.AlignCenter, Gap: 8},
 					Children: []core.Node{
@@ -378,9 +378,9 @@ func (a *mobileApp) tasksSheet() core.Node {
 				item := task
 				rows = append(rows, a.taskRow(cx, item))
 			}
-			return core.Scroll{Style: core.Style{MaxHeight: core.Pt(460)}, Children: []core.Node{
+			return a.scrollStashFor("tasksSheet:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(460)}, Children: []core.Node{
 				core.View{Style: core.Style{Gap: 6}, Children: rows},
-			}}
+			}})
 		})},
 	}
 }
@@ -540,9 +540,9 @@ func (a *mobileApp) favoritesSheet() core.Node {
 				item := fav
 				rows = append(rows, a.favoriteRow(cx, item))
 			}
-			return core.Scroll{Style: core.Style{MaxHeight: core.Pt(460)}, Children: []core.Node{
+			return a.scrollStashFor("favoritesSheet:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(460)}, Children: []core.Node{
 				core.View{Style: core.Style{Gap: 1}, Children: rows},
-			}}
+			}})
 		})},
 	}
 }
@@ -636,12 +636,12 @@ func (a *mobileApp) favoriteTextSheet() core.Node {
 			}
 			return core.View{Style: core.Style{Gap: 10}, Children: []core.Node{
 				core.View{Style: core.Style{Gap: 8}, Children: head},
-				core.Scroll{Style: core.Style{MaxHeight: core.Pt(360)}, Children: []core.Node{
+				a.scrollStashFor("favoriteTextSheet:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(360)}, Children: []core.Node{
 					core.View{Selectable: true, StyleFunc: func() core.Style {
 						return core.Style{Padding: core.All(10), CornerRadius: 9, Background: colors.Inset()}
 					}, Children: []core.Node{core.Text{Content: entry.Text, Style: core.Style{FontSize: 12, LineHeight: 18},
 						StyleFunc: ui.Colored(colors.Text)}}},
-				}},
+				}}),
 			}}
 		})},
 		Footer: []core.Node{

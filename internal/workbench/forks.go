@@ -184,7 +184,7 @@ func (a *app) forkTreeDialog() core.Node {
 			Title:        apptext.T("分叉树"),
 			TestID:       "fork-tree",
 			Style:        core.Style{Width: core.Pt(460)},
-			Children: []core.Node{a.scrollStashFor("forkTreeDialog:1").bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(420)}, Children: []core.Node{
+			Children: []core.Node{a.scrollStashFor("forkTreeDialog:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(420)}, Children: []core.Node{
 				core.View{Style: core.Style{Gap: 1}, Children: rows}}})},
 			Footer: []core.Node{
 				ui.Button{Text: apptext.T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,

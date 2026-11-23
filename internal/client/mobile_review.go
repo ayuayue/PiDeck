@@ -353,8 +353,8 @@ func (a *mobileApp) reviewSheet() core.Node {
 						return core.Style{Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 8,
 							PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}
 					}},
-				core.Scroll{Style: core.Style{MaxHeight: core.Pt(420)}, Children: []core.Node{
-					core.View{Style: core.Style{Gap: 2}, Children: rows}}},
+				a.scrollStashFor("reviewSheet:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(420)}, Children: []core.Node{
+					core.View{Style: core.Style{Gap: 2}, Children: rows}}}),
 			}}},
 			Footer: []core.Node{
 				ui.Button{Text: apptext.T("刷新"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: a.loadReview},

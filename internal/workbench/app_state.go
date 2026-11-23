@@ -14,6 +14,7 @@ import (
 
 	"example.com/pideck-v2/internal/alerts"
 	"example.com/pideck-v2/internal/sessionimport"
+	"example.com/pideck-v2/internal/viewkit"
 	"example.com/pideck-v2/internal/volcvoice"
 	"github.com/nsgo-dev/nsgo/base/textview"
 	"github.com/nsgo-dev/nsgo/core"
@@ -380,7 +381,7 @@ type app struct {
 	settingsTab   *core.Signal[string]
 	// scrolls are the offsets of scroll views under a Dynamic, by key: a
 	// rerun clears the subtree, and the place has to come from outside.
-	scrolls map[string]*scrollStash
+	scrolls viewkit.Stashes
 	// tabRefs are the open tabs' elements, by tab id: the bar scrolls the
 	// focused one into sight so a full bar never hides it.
 	tabRefs map[string]*core.Ref

@@ -62,7 +62,7 @@ func (a *app) blamePane() core.Node {
 			body = core.Text{Content: apptext.T("这个文件还没有提交记录。"), Style: core.Style{FontSize: 11, Padding: core.All(8)},
 				StyleFunc: ui.Colored(colors.Faint)}
 		default:
-			body = a.scrollStashFor("blamePane:1").bind(cx, core.Scroll{Style: ui.FillRest, Children: []core.Node{
+			body = a.scrollStashFor("blamePane:1").Bind(cx, core.Scroll{Style: ui.FillRest, Children: []core.Node{
 				core.View{Style: core.Style{Gap: 1}, Children: rows}}})
 		}
 		return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)},

@@ -67,7 +67,7 @@ func (a *app) settingsGeneral() core.Node {
 				a.st.edit(func(c *config) { c.Thinking = lv })
 			}))
 		}
-		return a.scrollStashFor("settings:general").bind(cx, core.Scroll{TestID: "settings-page", Style: ui.FillRest, Children: []core.Node{
+		return a.scrollStashFor("settings:general").Bind(cx, core.Scroll{TestID: "settings-page", Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}}, Children: []core.Node{
 				setGroup("界面",
 					setRow("语言", "界面文案；切换后立即生效，未翻译的条目保留中文。",

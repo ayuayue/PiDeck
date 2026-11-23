@@ -114,7 +114,7 @@ func (a *app) browserApprovalDialog() core.Node {
 			details = append(details, core.Text{Content: p.target.Href, Selectable: core.SelectableOn, Style: core.Style{FontSize: 12}, StyleFunc: ui.Colored(colors.Muted)})
 		}
 		if p.action.Text != "" {
-			details = append(details, a.scrollStashFor("browserApprovalDialog:1").bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(180)}, Children: []core.Node{
+			details = append(details, a.scrollStashFor("browserApprovalDialog:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(180)}, Children: []core.Node{
 				core.Text{Content: p.action.Text, Selectable: core.SelectableOn, Style: core.Style{FontSize: 13}, StyleFunc: ui.Colored(colors.Text)},
 			}}))
 		}

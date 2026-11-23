@@ -86,7 +86,7 @@ func (a *app) fileSearchDialog() core.Node {
 		body := []core.Node{core.Text{Content: summary, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 			Style: core.Style{FontSize: 11}, StyleFunc: ui.Colored(colors.Muted), TestID: "file-search-summary"}}
 		if len(rows) > 0 {
-			body = append(body, a.scrollStashFor("fileSearchDialog:1").bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(400)}, Children: []core.Node{
+			body = append(body, a.scrollStashFor("fileSearchDialog:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(400)}, Children: []core.Node{
 				core.View{Style: core.Style{Gap: 1}, Children: rows}}}))
 		}
 

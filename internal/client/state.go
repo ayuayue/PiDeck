@@ -44,6 +44,9 @@ type mobileRecent struct {
 
 type mobileApp struct {
 	cx *core.Scope
+	// scrolls are the offsets of scroll views under a Dynamic, by key: a
+	// rerun clears the subtree, and the place has to come from outside.
+	scrolls viewkit.Stashes
 
 	server *core.Signal[string]
 	token  *core.Signal[string]
@@ -475,4 +478,13 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		a.refreshTranscript()
 	})
 	return a
+}
+
+// scrollStashFor is the stash of the phone's scroll view called key, made on
+// first use.
+func (a *mobileApp) scrollStashFor(key string) *viewkit.ScrollStash {
+	if a.scrolls == nil {
+		a.scrolls = viewkit.Stashes{}
+	}
+	return a.scrolls.For(key)
 }

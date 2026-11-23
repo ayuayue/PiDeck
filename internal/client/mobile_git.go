@@ -208,8 +208,8 @@ func (a *mobileApp) gitSheet() core.Node {
 					OnPress:  a.commitGit},
 			}},
 		}}
-		children := []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pt(380)},
-			Children: []core.Node{core.View{Style: core.Style{Gap: 2}, Children: rows}}}}
+		children := []core.Node{a.scrollStashFor("gitSheet:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(380)},
+			Children: []core.Node{core.View{Style: core.Style{Gap: 2}, Children: rows}}})}
 		if st.IsRepo && a.gitErr.Get() == "" {
 			children = append(children, commitBox)
 		}
@@ -360,8 +360,8 @@ func (a *mobileApp) gitBranchesSheet() core.Node {
 			Title:        apptext.T("切换分支"),
 			TestID:       "mobile-git-branches-sheet",
 			Style:        core.Style{Width: core.Pct(100), MaxWidth: core.Pt(520)},
-			Children: []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pt(380)},
-				Children: []core.Node{core.View{Style: core.Style{Gap: 2}, Children: rows}}}},
+			Children: []core.Node{a.scrollStashFor("gitBranchesSheet:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(380)},
+				Children: []core.Node{core.View{Style: core.Style{Gap: 2}, Children: rows}}})},
 			Footer: []core.Node{
 				ui.Button{Text: apptext.T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.gitBranchesOpen.Set(false) }},
 			},

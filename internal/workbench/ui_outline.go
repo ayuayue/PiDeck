@@ -80,7 +80,7 @@ func (a *app) outlineDialog() core.Node {
 			body = core.Text{Content: apptext.T("这个会话还没有内容。"), Style: core.Style{FontSize: 11, Padding: core.All(8)},
 				StyleFunc: ui.Colored(colors.Faint)}
 		} else {
-			body = a.scrollStashFor("outlineDialog:1").bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(440)}, Children: []core.Node{
+			body = a.scrollStashFor("outlineDialog:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(440)}, Children: []core.Node{
 				core.View{Style: core.Style{Gap: 1}, Children: rows}}})
 		}
 		return ui.Dialog{

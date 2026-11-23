@@ -38,7 +38,7 @@ func (a *app) parallelAskDialog() core.Node {
 				core.View{StyleFunc: func() core.Style {
 					return core.Style{MaxHeight: core.Pt(220), Padding: core.All(10), CornerRadius: 8,
 						BorderWidth: 1, BorderColor: colors.Line(), Background: colors.Inset()}
-				}, Children: []core.Node{a.scrollStashFor("parallelAskDialog:1").bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(200)}, Children: []core.Node{
+				}, Children: []core.Node{a.scrollStashFor("parallelAskDialog:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(200)}, Children: []core.Node{
 					core.View{Selectable: true, Children: []core.Node{viewkit.Markdown(st.Answer, func() bool { return false }, false)}},
 				}})}},
 			}}
@@ -66,7 +66,7 @@ func (a *app) parallelAskDialog() core.Node {
 			Title:  apptext.T("并行问询"),
 			TestID: "ask-dialog",
 			Style:  core.Style{Width: a.dialogWidth(), Height: core.Pt(560)},
-			Children: []core.Node{a.scrollStashFor("parallelAskDialog:2").bind(cx, core.Scroll{Style: ui.FillRest, Children: []core.Node{
+			Children: []core.Node{a.scrollStashFor("parallelAskDialog:2").Bind(cx, core.Scroll{Style: ui.FillRest, Children: []core.Node{
 				core.View{Style: core.Style{Gap: 12, Padding: core.Edges{Right: 4}}, Children: []core.Node{
 					core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
 						ui.Text(apptext.T("问题"), 10.5, ui.Medium, colors.Muted),

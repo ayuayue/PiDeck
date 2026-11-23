@@ -228,7 +228,7 @@ func (a *app) promptStoreDialog() core.Node {
 						Disabled: func() bool { return a.promptStoreBusy.Get() }, OnPress: a.loadPromptIndex},
 				}},
 				status,
-				a.scrollStashFor("promptStoreDialog:1").bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(400)}, Children: []core.Node{
+				a.scrollStashFor("promptStoreDialog:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(400)}, Children: []core.Node{
 					core.View{Style: core.Style{Gap: 1}, Children: rows}}}),
 			}}},
 			Footer: []core.Node{

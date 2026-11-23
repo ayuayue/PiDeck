@@ -106,7 +106,7 @@ func (a *app) gitStashDialog() core.Node {
 				core.Text{Content: apptext.T("弹出会恢复并从列表移除；应用保留条目；删除只移除条目。"),
 					Style: core.Style{FontSize: 10.5, LineHeight: 16}, StyleFunc: ui.Colored(colors.Faint)},
 				status,
-				a.scrollStashFor("gitStashDialog:1").bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(380)}, Children: []core.Node{
+				a.scrollStashFor("gitStashDialog:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(380)}, Children: []core.Node{
 					core.View{Style: core.Style{Gap: 1}, Children: rows}}}),
 			}}},
 			Footer: []core.Node{

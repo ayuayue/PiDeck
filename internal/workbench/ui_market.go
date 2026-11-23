@@ -117,7 +117,7 @@ func (a *app) pluginMarketDialog() core.Node {
 						OnPress: a.loadPluginIndex},
 				}},
 				status,
-				a.scrollStashFor("pluginMarketDialog:1").bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(400)}, Children: []core.Node{
+				a.scrollStashFor("pluginMarketDialog:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(400)}, Children: []core.Node{
 					core.View{Style: core.Style{Gap: 1}, Children: rows}}}),
 			}}},
 			Footer: []core.Node{

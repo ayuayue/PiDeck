@@ -159,7 +159,7 @@ func (a *app) skillStoreDialog() core.Node {
 						Disabled: func() bool { return a.skillStoreBusy.Get() }, OnPress: a.loadSkillIndex},
 				}},
 				status,
-				a.scrollStashFor("skillStoreDialog:1").bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(400)}, Children: []core.Node{
+				a.scrollStashFor("skillStoreDialog:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(400)}, Children: []core.Node{
 					core.View{Style: core.Style{Gap: 1}, Children: rows}}}),
 			}}},
 			Footer: []core.Node{

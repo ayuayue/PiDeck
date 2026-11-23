@@ -93,7 +93,7 @@ func (a *app) tasksPane() core.Node {
 					StyleFunc: ui.Colored(colors.Faint)},
 			}}
 		} else {
-			body = a.scrollStashFor("tasksPane:1").bind(cx, core.Scroll{Style: ui.FillRest, Children: []core.Node{
+			body = a.scrollStashFor("tasksPane:1").Bind(cx, core.Scroll{Style: ui.FillRest, Children: []core.Node{
 				core.View{Style: core.Style{Gap: 1}, Children: rows}}})
 		}
 		// Recent runs, newest first.

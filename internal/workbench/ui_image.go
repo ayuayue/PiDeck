@@ -321,7 +321,7 @@ func (a *app) imageDialog() core.Node {
 			Title:        apptext.T("生成图片"),
 			TestID:       "image-dialog",
 			Style:        core.Style{Width: a.dialogWidth(), MaxHeight: core.Pt(680)},
-			Children: []core.Node{a.scrollStashFor("imageDialog:1").bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(540)}, Children: []core.Node{
+			Children: []core.Node{a.scrollStashFor("imageDialog:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(540)}, Children: []core.Node{
 				core.View{Style: core.Style{Gap: 12}, Children: body}}})},
 			Footer: footer,
 		}

@@ -180,7 +180,7 @@ func (a *app) visionDialog() core.Node {
 		case a.visionText.Get() != "":
 			body = append(body, core.View{TestID: "vision-result", Style: core.Style{Gap: 4}, Children: []core.Node{
 				ui.Text(apptext.T("描述"), 10.5, ui.Medium, colors.Muted),
-				a.scrollStashFor("visionDialog:1").bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(220)}, Children: []core.Node{
+				a.scrollStashFor("visionDialog:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(220)}, Children: []core.Node{
 					core.Text{Content: a.visionText.Get(), Selectable: core.SelectableOn,
 						Style: core.Style{FontSize: 12, LineHeight: 18, Color: colors.Text()}},
 				}}),
@@ -204,7 +204,7 @@ func (a *app) visionDialog() core.Node {
 			Title:        apptext.T("描述图片"),
 			TestID:       "vision-dialog",
 			Style:        core.Style{Width: a.dialogWidth(), MaxHeight: core.Pt(640)},
-			Children: []core.Node{a.scrollStashFor("visionDialog:2").bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(500)}, Children: []core.Node{
+			Children: []core.Node{a.scrollStashFor("visionDialog:2").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(500)}, Children: []core.Node{
 				core.View{Style: core.Style{Gap: 12}, Children: body}}})},
 			Footer: footer,
 		}

@@ -209,12 +209,12 @@ func (a *app) settingsRail(nav []core.Node) core.Node {
 		colors := ui.ColorsOf(cx)
 		query := strings.ToLower(strings.TrimSpace(a.settingsQuery.Get()))
 		if query == "" {
-			return a.scrollStashFor("settingsRail:1").bind(cx, core.Scroll{TestID: "settings-navigation", Style: ui.FillRest,
+			return a.scrollStashFor("settingsRail:1").Bind(cx, core.Scroll{TestID: "settings-navigation", Style: ui.FillRest,
 				Children: []core.Node{base.Tabs{Label: apptext.T("设置"), Style: core.Style{Gap: 8}, Children: nav}}})
 		}
 		hits := searchSettings(query)
 		if len(hits) == 0 {
-			return a.scrollStashFor("settingsRail:2").bind(cx, core.Scroll{TestID: "settings-search-results", Style: ui.FillRest,
+			return a.scrollStashFor("settingsRail:2").Bind(cx, core.Scroll{TestID: "settings-search-results", Style: ui.FillRest,
 				Children: []core.Node{core.Text{Content: apptext.T("没有匹配的设置"), Style: core.Style{FontSize: 11, Padding: core.Symmetric(6, 8)},
 					StyleFunc: ui.Colored(colors.Faint)}}})
 		}
@@ -240,7 +240,7 @@ func (a *app) settingsRail(nav []core.Node) core.Node {
 				},
 			})
 		}
-		return a.scrollStashFor("settingsRail:3").bind(cx, core.Scroll{TestID: "settings-search-results", Style: ui.FillRest,
+		return a.scrollStashFor("settingsRail:3").Bind(cx, core.Scroll{TestID: "settings-search-results", Style: ui.FillRest,
 			Children: []core.Node{core.View{Style: core.Style{Gap: 1}, Children: rows}}})
 	})
 }

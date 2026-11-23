@@ -535,7 +535,7 @@ func (a *app) queuePanel(s *session) core.Node {
 		return core.View{TestID: "queue-panel",
 			Style: core.Style{MinWidth: core.Pt(0), Gap: 2, Margin: core.Edges{Bottom: 6}, Padding: core.Symmetric(6, 10),
 				CornerRadius: 10, BorderWidth: 1, BorderColor: colors.Line(), Background: ui.Alpha(colors.Surface(), 1)},
-			Children: []core.Node{head, a.scrollStashFor("queuePanel:1").bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(120), MinWidth: core.Pt(0)},
+			Children: []core.Node{head, a.scrollStashFor("queuePanel:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(120), MinWidth: core.Pt(0)},
 				Children: []core.Node{core.View{Style: core.Style{Gap: 2}, Children: rows}}})}}
 	})
 }

@@ -126,7 +126,7 @@ func (a *app) feedbackDialog() core.Node {
 						ui.Button{Text: apptext.T("导出诊断包"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "feedback-bundle",
 							OnPress: func() { a.exportDiagnostics() }},
 					}},
-					a.scrollStashFor("feedbackDialog:1").bind(cx, core.Scroll{TestID: "feedback-report", Style: core.Style{MaxHeight: core.Pt(220)}, Children: []core.Node{
+					a.scrollStashFor("feedbackDialog:1").Bind(cx, core.Scroll{TestID: "feedback-report", Style: core.Style{MaxHeight: core.Pt(220)}, Children: []core.Node{
 						core.View{Style: field.Merge(core.Style{Padding: core.All(9)}), Children: []core.Node{
 							core.Text{Content: report, Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10.5, LineHeight: 15},
 								StyleFunc: ui.Colored(colors.Muted)},

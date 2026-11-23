@@ -292,7 +292,7 @@ func (a *app) modelMenu(s *session, open *core.Signal[bool]) core.Node {
 				rows = append(rows, core.Text{Content: apptext.T("没有匹配的模型"), Style: core.Style{FontSize: 11.5, Padding: core.All(8)},
 					StyleFunc: ui.Colored(colors.Faint)})
 			}
-			return a.scrollStashFor("modelMenu:1").bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(380), MinWidth: core.Pt(0)}, Children: []core.Node{
+			return a.scrollStashFor("modelMenu:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(380), MinWidth: core.Pt(0)}, Children: []core.Node{
 				core.View{Style: core.Style{Gap: 1}, Children: rows},
 			}})
 		})
