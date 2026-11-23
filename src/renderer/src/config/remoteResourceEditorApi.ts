@@ -65,6 +65,7 @@ export function createRemoteResourceEditorApi(api: PiDesktopApi, hostId: string,
 	let loading: Promise<RemoteResourceList> | undefined;
 	let projectLoading: Promise<RemoteResourceList> | undefined;
 	let epoch = 0;
+	let extensionVersions: Map<string, Pick<PiExtensionSummary, "currentVersion" | "latestVersion" | "hasUpdate" | "updateError">> | undefined;
 	const listed = new Map<string, ListedFile>();
 	const editing = new Map<string, ListedFile>();
 	const pending = new Set<string>();
@@ -271,8 +272,8 @@ export function createRemoteResourceEditorApi(api: PiDesktopApi, hostId: string,
 		editing.set(pathOf(created), created);
 		return created;
 	}
-	async function packages(operation: "list" | "install" | "remove" | "update", source?: string) {
-		const input: RemoteResourceRequest = { action: "packages", operation, ...(source === undefined ? {} : { source }) };
+	async function packages(operation: "list" | "install" | "remove" | "update", source?: string, includeVersions?: boolean) {
+		const input: RemoteResourceRequest = { action: "packages", operation, ...(source === undefined ? {} : { source }), ...(includeVersions === undefined ? {} : { includeVersions }) };
 		const result = operation === "list" ? await call(input) : await mutate("packages", input);
 		if (!("extensions" in result)) throw new Error(operation === "list" ? C.fileInvalid : C.unconfirmed);
 		return result;
@@ -374,8 +375,10 @@ export function createRemoteResourceEditorApi(api: PiDesktopApi, hostId: string,
 		},
 		extensions: {
 			...api.extensions,
-			list: async (): Promise<PiExtensionListResult> => {
-				const [, installed] = await Promise.all([refresh(), packages("list")]);
+			list: async (forceRefresh = false): Promise<PiExtensionListResult> => {
+				const includeVersions = forceRefresh || extensionVersions === undefined;
+				const [, installed] = await Promise.all([refresh(), packages("list", undefined, includeVersions)]);
+				if (includeVersions) extensionVersions = new Map(installed.extensions.map((entry) => [`${entry.source}\u0000${entry.path ?? ""}`, { currentVersion: entry.currentVersion, latestVersion: entry.latestVersion, hasUpdate: entry.hasUpdate, updateError: entry.updateError }]));
 				return {
 					extensions: [
 						...installed.extensions.map((entry) => {
@@ -386,7 +389,7 @@ export function createRemoteResourceEditorApi(api: PiDesktopApi, hostId: string,
 									const filter: unknown = Reflect.get(config, key);
 									return Array.isArray(filter) && filter.length === 0;
 								});
-							return { ...entry, enabled: !disabled };
+							return { ...entry, ...(!includeVersions ? extensionVersions?.get(`${entry.source}\u0000${entry.path ?? ""}`) : {}), enabled: !disabled };
 						}),
 						...[...listed.values()].filter((entry) => entry.scope === "global" && entry.file.root === "extensions" && /\.(?:[cm]?js|ts)$/i.test(entry.file.path)).map(extension),
 						...[...listed.values()].filter((entry) => entry.scope === "project" && entry.file.root === "extensions" && /\.(?:[cm]?js|ts)$/i.test(entry.file.path)).map(extension),

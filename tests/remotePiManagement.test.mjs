@@ -165,7 +165,7 @@ test("host-bound resource facade exercises skills, prompts, stores and packages 
 		resolveFacts: async () => ({ home: f.home, nodePath: "/opt/node/bin/node", piPath: "/opt/pi/cli.js", version: "0.70.3" }),
 		run: async (input) => {
 			commands.push(input);
-			return { exitCode: 0, stdout: "not exposed logs", stderr: "not exposed secret" };
+			return { exitCode: 0, stdout: input.remoteCommand.includes("'-e'") ? JSON.stringify([{ currentVersion: "1.0.0", latestVersion: "1.2.0" }, {}]) : "not exposed logs", stderr: "not exposed secret" };
 		},
 	});
 	const { createRemoteResourceEditorApi } = loadTsCommonJs("src/renderer/src/config/remoteResourceEditorApi.ts", { stubs: { "../utils/clipboard": { writeClipboard: async () => {} }, "../utils/notice": { showNotice: () => {} }, "../i18n": { t: (key) => key } } });
@@ -219,15 +219,19 @@ test("host-bound resource facade exercises skills, prompts, stores and packages 
 	await assert.rejects(() => secondEditor.files.readContent(imported.path), /FILE_INVALID/);
 	const extensions = await editor.extensions.list();
 	assert.equal(extensions.extensions.length, 2, "remote local-path packages must remain visible");
+	assert.equal(extensions.extensions[0].latestVersion, "1.2.0");
+	const refreshed = await editor.extensions.list(false);
+	assert.equal(refreshed.extensions[0].latestVersion, "1.2.0", "a lightweight refresh retains the last version results");
+	assert.equal(commands.length, 3, "the lightweight refresh does not run another version query");
 	await editor.extensions.install("npm:new-package");
 	await editor.extensions.update();
 	await editor.extensions.updateOne("npm:new-package");
 	await editor.extensions.uninstall("npm:new-package");
 	await editor.skillHub.install("owner/repo/sample");
-	assert.equal(commands.length, 6);
+	assert.equal(commands.length, 8);
 	assert.ok(commands.every((input) => input.hostId === HOST));
-	assert.match(commands[2].remoteCommand, /'update' '--extensions'/, "0.70.3 already supports Pi self-update; package updates must exclude it");
-	assert.match(commands[5].remoteCommand, /'--copy'/, "editable installed skills cannot be symlinks");
+	assert.match(commands[4].remoteCommand, /'update' '--extensions'/, "0.70.3 already supports Pi self-update; package updates must exclude it");
+	assert.match(commands[7].remoteCommand, /'--copy'/, "editable installed skills cannot be symlinks");
 	assert.ok(calls.some((input) => input.hostId === otherHost));
 	await assert.rejects(() => backend.execute(HOST, { action: "packages", operation: "install", source: "--help" }), /FILE_INVALID/);
 	await assert.rejects(() => backend.execute(HOST, { action: "read", ref: { root: "skills", path: "../../auth.json" } }), /FILE_INVALID/);

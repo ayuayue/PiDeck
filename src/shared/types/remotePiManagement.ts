@@ -35,7 +35,7 @@ export type RemoteResourceRequest = RemoteResourceRequestScope &
 		| { action: "togglePackage"; source: string; expectedVersion: string; enabled: boolean }
 		| { action: "builtin"; name: string; expectedVersion: string; enabled: boolean }
 		| { action: "skillsInstall"; slug: string }
-		| { action: "packages"; operation: "list" | "install" | "remove" | "update"; source?: string }
+		| { action: "packages"; operation: "list" | "install" | "remove" | "update"; source?: string; includeVersions?: boolean }
 	);
 export type RemoteResourceResult = RemoteResourceList | RemoteResourceFile | { applied: true } | { output: string; extensions: PiExtensionSummary[] };
 

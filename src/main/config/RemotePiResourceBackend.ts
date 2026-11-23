@@ -7,6 +7,7 @@ import { supportsPiSelfUpdate } from "../pi/piSelfUpdateRunner";
 import { collectRemoteConfigSecrets } from "./RemotePiConfigBackend";
 import { getAppLogger } from "../logging/sharedLogger";
 import type { ProjectResourceDiscoveryResult } from "../../shared/types/app";
+import { enrichRemoteExtensionVersions } from "./remoteExtensionVersions";
 
 type Ports = {
 	request(hostId: string, method: string, params: unknown): Promise<unknown>;
@@ -237,8 +238,9 @@ export function createRemotePiResourceBackend(ports: Ports) {
 
 	/** Fixed Pi package verbs on the verified host; no arbitrary argv, shell, cwd or executable from renderer. */
 	async function packages(hostId: string, input: Record<string, unknown>): Promise<RemoteResourceResult> {
-		if (Object.keys(input).some((key) => !["action", "operation", "source"].includes(key)) || !["list", "install", "remove", "update"].includes(String(input.operation))) throw new Error(C.invalid);
+		if (Object.keys(input).some((key) => !["action", "operation", "source", "includeVersions"].includes(key)) || !["list", "install", "remove", "update"].includes(String(input.operation))) throw new Error(C.invalid);
 		const operation = input.operation;
+		if (input.includeVersions !== undefined && (operation !== "list" || typeof input.includeVersions !== "boolean")) throw new Error(C.invalid);
 		if (((operation === "install" || operation === "remove") && !safeSource(input.source)) || (input.source !== undefined && !safeSource(input.source)) || (operation === "list" && input.source !== undefined)) throw new Error(C.fileInvalid);
 		const facts = await ports.resolveFacts(hostId);
 		for (const value of [facts.home, facts.piPath, facts.nodePath]) if (typeof value !== "string" || !value.startsWith("/") || value.length > 4096 || /[\u0000-\u001f\u007f]/.test(value)) throw new Error(C.unavailable);
@@ -255,7 +257,9 @@ export function createRemotePiResourceBackend(ports: Ports) {
 		if (result.exitCode !== 0) throw new Error(C.commandFailed);
 		if (Buffer.byteLength(result.stdout, "utf8") > 1048576) throw new Error(operation === "list" ? C.fileInvalid : C.unconfirmed);
 		// Only list has a useful output contract. Install logs may contain registry credentials: never forward them.
-		return { output: operation === "list" ? "" : "pi " + args.join(" "), extensions: operation === "list" ? parsePiListOutput(result.stdout).filter((entry) => entry.scope === "user" && safeSource(entry.source)) : [] };
+		const entries = operation === "list" ? parsePiListOutput(result.stdout).filter((entry) => entry.scope === "user" && safeSource(entry.source)) : [];
+		const extensions = operation === "list" && input.includeVersions !== false ? await enrichRemoteExtensionVersions(hostId, facts, entries, ports.run) : entries;
+		return { output: operation === "list" ? "" : "pi " + args.join(" "), extensions };
 	}
 }
 
