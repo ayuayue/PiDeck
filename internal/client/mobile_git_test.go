@@ -120,7 +120,8 @@ func TestMobileGit(t *testing.T) {
 	})
 	mux.HandleFunc("/api/git/diff", func(w http.ResponseWriter, r *http.Request) {
 		if check(w, r) {
-			_ = json.NewEncoder(w).Encode(map[string]string{"patch": "@@ -1 +1 @@\n-old\n+new\n"})
+			_ = json.NewEncoder(w).Encode(map[string]string{"patch": "diff --git a/a.txt b/a.txt\n" +
+				"--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-old line\n+new line\n"})
 		}
 	})
 	server := httptest.NewServer(mux)
@@ -155,7 +156,11 @@ func TestMobileGit(t *testing.T) {
 		}
 	}
 	waitApp(app, "id:mobile-git-diff", 10*time.Second)
-	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:+new")) > 0 })
+	// The patch is the desktop's diff view, not a block of plain text.
+	app.WaitFor("id:mobile-git-diff-body", 5*time.Second)
+	app.WaitUntil(5*time.Second, func() bool {
+		return len(app.Query("text:new line")) > 0 && len(app.Query("text:old line")) > 0
+	})
 	app.Press("id:mobile-git-diff-close")
 	app.WaitForGone("id:mobile-git-diff", 5*time.Second)
 

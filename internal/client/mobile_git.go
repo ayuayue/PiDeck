@@ -56,6 +56,7 @@ func (a *mobileApp) openGitDiff(path string) {
 	}
 	a.gitDiffTitle.Set(path)
 	a.gitDiffText.Set("")
+	a.gitDiffErr.Set("")
 	a.gitDiffBusy.Set(true)
 	a.gitDiffOpen.Set(true)
 	go func() {
@@ -63,11 +64,8 @@ func (a *mobileApp) openGitDiff(path string) {
 		a.cx.Post(func() {
 			a.gitDiffBusy.Set(false)
 			if err != nil {
-				a.gitDiffText.Set(remoteErrorText(err))
+				a.gitDiffErr.Set(remoteErrorText(err))
 				return
-			}
-			if strings.TrimSpace(patch) == "" {
-				patch = "（这里没有可显示的差异）"
 			}
 			a.gitDiffText.Set(patch)
 		})
@@ -376,20 +374,25 @@ func (a *mobileApp) gitDiffSheet() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
 		var body core.Node
-		if a.gitDiffBusy.Get() {
+		switch {
+		case a.gitDiffBusy.Get():
 			body = core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Padding: core.All(16)}, Children: []core.Node{
 				ui.Spinner{Size: 12}, ui.Text(apptext.T("正在读取改动…"), 12, ui.Regular, colors.Muted)}}
-		} else {
-			body = core.Scroll{Style: core.Style{MaxHeight: core.Pt(430)}, Children: []core.Node{
-				core.Text{Content: a.gitDiffText.Get(), Selectable: core.SelectableOn,
-					Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10.5, LineHeight: 15}, StyleFunc: ui.Colored(colors.Text)}}}
+		case a.gitDiffErr.Get() != "":
+			body = core.View{Style: core.Style{Padding: core.All(16)}, Children: []core.Node{
+				ui.Text(a.gitDiffErr.Get(), 12, ui.Regular, colors.Danger)}}
+		case strings.TrimSpace(a.gitDiffText.Get()) == "":
+			body = core.View{Style: core.Style{Padding: core.All(16)}, Children: []core.Node{
+				ui.Text(apptext.T("没有可显示的差异"), 12, ui.Regular, colors.Faint)}}
+		default:
+			body = patchBody(func() string { return a.gitDiffText.Get() }, "mobile-git-diff-body")
 		}
 		return ui.Dialog{
 			Open:         a.gitDiffOpen.Get,
 			OnOpenChange: func(open bool, _ base.Reason) { a.gitDiffOpen.Set(open) },
 			Title:        a.gitDiffTitle.Get(),
 			TestID:       "mobile-git-diff",
-			Style:        core.Style{Width: core.Pct(100), MaxWidth: core.Pt(520)},
+			Style:        core.Style{Width: core.Pct(100), MaxWidth: patchSheetWidth(cx)},
 			Children:     []core.Node{body},
 			Footer: []core.Node{
 				ui.Button{Text: apptext.T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "mobile-git-diff-close",

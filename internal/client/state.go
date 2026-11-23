@@ -94,6 +94,7 @@ type mobileApp struct {
 	gitDiffOpen     *core.Signal[bool]
 	gitDiffTitle    *core.Signal[string]
 	gitDiffText     *core.Signal[string]
+	gitDiffErr      *core.Signal[string]
 	gitDiffBusy     *core.Signal[bool]
 	gitMsg          *core.Signal[string]
 	gitSending      *core.Signal[bool]
@@ -119,6 +120,7 @@ type mobileApp struct {
 	reviewPending    *core.Signal[string]
 	reviewPatchOpen  *core.Signal[bool]
 	reviewPatch      *core.Signal[string]
+	reviewPatchErr   *core.Signal[string]
 	reviewPatchBusy  *core.Signal[bool]
 
 	// filesOpen browses a project's files, fileOpen shows one file's text.
@@ -316,6 +318,7 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		reviewPending:       core.NewSignal(cx, ""),
 		reviewPatchOpen:     core.NewSignal(cx, false),
 		reviewPatch:         core.NewSignal(cx, ""),
+		reviewPatchErr:      core.NewSignal(cx, ""),
 		reviewPatchBusy:     core.NewSignal(cx, false),
 		gitOpen:             core.NewSignal(cx, false),
 		gitProject:          core.NewSignal(cx, ""),
@@ -326,6 +329,7 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		gitDiffOpen:         core.NewSignal(cx, false),
 		gitDiffTitle:        core.NewSignal(cx, ""),
 		gitDiffText:         core.NewSignal(cx, ""),
+		gitDiffErr:          core.NewSignal(cx, ""),
 		gitDiffBusy:         core.NewSignal(cx, false),
 		gitMsg:              core.NewSignal(cx, ""),
 		gitSending:          core.NewSignal(cx, false),

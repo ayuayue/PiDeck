@@ -254,6 +254,7 @@ func (a *mobileApp) openReviewPatch() {
 		return
 	}
 	a.reviewPatch.Set("")
+	a.reviewPatchErr.Set("")
 	a.reviewPatchBusy.Set(true)
 	a.reviewPatchOpen.Set(true)
 	number := detail.Item.Number
@@ -262,7 +263,7 @@ func (a *mobileApp) openReviewPatch() {
 		a.cx.Post(func() {
 			a.reviewPatchBusy.Set(false)
 			if err != nil {
-				a.reviewPatch.Set(remoteErrorText(err))
+				a.reviewPatchErr.Set(remoteErrorText(err))
 				return
 			}
 			a.reviewPatch.Set(patch)
@@ -279,26 +280,25 @@ func (a *mobileApp) reviewPatchSheet() core.Node {
 			title = fmt.Sprintf("#%d", detail.Item.Number)
 		}
 		var body core.Node
-		if a.reviewPatchBusy.Get() {
+		switch {
+		case a.reviewPatchBusy.Get():
 			body = core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Padding: core.All(16)}, Children: []core.Node{
 				ui.Spinner{Size: 12}, ui.Text(apptext.T("正在读取补丁…"), 12, ui.Regular, colors.Muted)}}
-		} else {
-			patch := a.reviewPatch.Get()
-			if strings.TrimSpace(patch) == "" {
-				body = core.View{Style: core.Style{Padding: core.All(16)}, Children: []core.Node{
-					ui.Text(apptext.T("没有可显示的差异"), 12, ui.Regular, colors.Faint)}}
-			} else {
-				body = core.Scroll{Style: core.Style{MaxHeight: core.Pt(440)}, Children: []core.Node{
-					core.Text{Content: patch, Selectable: core.SelectableOn,
-						Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10, LineHeight: 14}, StyleFunc: ui.Colored(colors.Text)}}}
-			}
+		case a.reviewPatchErr.Get() != "":
+			body = core.View{Style: core.Style{Padding: core.All(16)}, Children: []core.Node{
+				ui.Text(a.reviewPatchErr.Get(), 12, ui.Regular, colors.Danger)}}
+		case strings.TrimSpace(a.reviewPatch.Get()) == "":
+			body = core.View{Style: core.Style{Padding: core.All(16)}, Children: []core.Node{
+				ui.Text(apptext.T("没有可显示的差异"), 12, ui.Regular, colors.Faint)}}
+		default:
+			body = patchBody(func() string { return a.reviewPatch.Get() }, "mobile-review-patch-body")
 		}
 		return ui.Dialog{
 			Open:         a.reviewPatchOpen.Get,
 			OnOpenChange: func(open bool, _ base.Reason) { a.reviewPatchOpen.Set(open) },
 			Title:        title,
 			TestID:       "mobile-review-patch",
-			Style:        core.Style{Width: core.Pct(100), MaxWidth: core.Pt(560)},
+			Style:        core.Style{Width: core.Pct(100), MaxWidth: patchSheetWidth(cx)},
 			Children:     []core.Node{body},
 			Footer: []core.Node{
 				ui.Button{Text: apptext.T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
