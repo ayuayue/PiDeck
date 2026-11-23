@@ -256,3 +256,38 @@ test("图谱写动词：四个动作各自委派，失败时把 helper 的原文
 	});
 	await assert.rejects(createRemoteGitPanelBridge(failing.services, undefined).cherryPick("p", oid("a")), (error) => error.message.includes("could not apply") && error.code === "GIT_COMMAND_FAILED");
 });
+
+test("冷启动：主机还在连（SSH_HOST_NOT_READY）时历史读会等预热，不把图谱永久打成空白", async () => {
+	let attempts = 0;
+	const f = fakeService({
+		overrides: {
+			history: async (options) => {
+				attempts += 1;
+				f.calls.push(["history", options]);
+				// 前的两次正好落在窗口打开到 SSH ready 之间（实测差 4 秒）。
+				if (attempts <= 2) throw Object.assign(new Error("SSH_HOST_NOT_READY"), { code: "SSH_HOST_NOT_READY", outcome: "rejected" });
+				return { commits: [{ oid: oid("a"), parents: [], subject: "tip", authorName: "A", authorEmail: "a@e", authorTimeMs: 10 }], hasMore: false };
+			},
+		},
+	});
+	const commits = await createRemoteGitPanelBridge(f.services, root).commitLog(projectId, { maxEntries: 30, allBranches: true });
+	assert.equal(commits.length, 1);
+	assert.equal(attempts, 3, "连接类失败要重试到成功");
+});
+
+test("非连接类失败不重试：参数/回包形状错误立刻上抛，稳定码原样保留", async () => {
+	let attempts = 0;
+	const f = fakeService({
+		overrides: {
+			history: async () => {
+				attempts += 1;
+				throw Object.assign(new Error("GIT_RESULT_INVALID"), { code: "GIT_RESULT_INVALID", outcome: "rejected" });
+			},
+		},
+	});
+	await assert.rejects(
+		() => createRemoteGitPanelBridge(f.services, root).commitLog(projectId, { maxEntries: 30 }),
+		(error) => error.code === "GIT_RESULT_INVALID",
+	);
+	assert.equal(attempts, 1, "非连接类失败不能靠重试掩盖");
+});
