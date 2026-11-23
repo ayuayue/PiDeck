@@ -7,6 +7,8 @@ package workbench
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -326,6 +328,9 @@ type extensionAsk struct {
 // it. The bar above the composer shows these; the statuses are the ones
 // the tools use, normalized.
 type todoItem struct {
+	// ID is the tool's own id for the item, which later calls address it
+	// by; items a tool never numbered keep the number they were read at.
+	ID     string
 	Text   string
 	Status string // pending, in_progress, completed or cancelled
 }
@@ -353,9 +358,20 @@ func isTodoTool(name string) bool {
 	return false
 }
 
-// parseTodoArgs reads a todo tool call's arguments. Tools name the list
-// and its fields differently, so it looks for the common shapes rather
-// than one schema.
+// todoTextKeys are the field names tools give a task's words, in the order
+// a call is read: the ones the agent's own tools use first.
+var todoTextKeys = []string{"content", "text", "subject", "title", "task", "step", "description", "name", "label", "activeForm", "active_form"}
+
+// todoIDKeys are the field names tools give a task's id.
+var todoIDKeys = []string{"id", "todoId", "todo_id", "taskId", "task_id", "itemId", "item_id"}
+
+// todoListKeys are the fields that hold a whole list.
+var todoListKeys = []string{"todos", "items", "tasks", "list", "plan", "steps"}
+
+// parseTodoArgs reads a whole task list out of a tool call. Tools name the
+// list and its fields differently, so it looks for the common shapes rather
+// than one schema. Items a tool did not give ids are numbered from 1, which
+// is how those tools address them in later calls.
 func parseTodoArgs(raw json.RawMessage) ([]todoItem, bool) {
 	if len(raw) == 0 {
 		return nil, false
@@ -366,8 +382,8 @@ func parseTodoArgs(raw json.RawMessage) ([]todoItem, bool) {
 		if json.Unmarshal(raw, &args) != nil {
 			return nil, false
 		}
-		for _, k := range []string{"todos", "items", "tasks", "list", "plan", "steps"} {
-			v, ok := args[k]
+		for _, key := range todoListKeys {
+			v, ok := args[key]
 			if !ok {
 				continue
 			}
@@ -391,28 +407,179 @@ func parseTodoArgs(raw json.RawMessage) ([]todoItem, bool) {
 			}
 			continue
 		}
-		text := ""
-		for _, k := range []string{"content", "text", "title", "task", "description", "name", "label", "step"} {
-			if s, ok := obj[k].(string); ok && strings.TrimSpace(s) != "" {
-				text = strings.TrimSpace(s)
-				break
-			}
-		}
+		text := todoStringField(obj, todoTextKeys)
 		if text == "" {
 			continue
 		}
-		status := "pending"
-		if s, ok := obj["status"].(string); ok {
-			status = normalizeTodoStatus(s)
-		} else if done, ok := obj["done"].(bool); ok && done {
-			status = "completed"
-		}
-		out = append(out, todoItem{Text: text, Status: status})
+		out = append(out, todoItem{ID: idField(obj), Text: text, Status: statusField(obj)})
 	}
 	if len(out) == 0 {
 		return nil, false
 	}
+	for i := range out {
+		if out[i].ID == "" {
+			out[i].ID = fmt.Sprint(i + 1)
+		}
+	}
 	return out, true
+}
+
+// applyTodoArgs folds one todo tool call into the list it leaves. A call
+// that carries the whole list replaces it; a call that carries an action on
+// an id patches that item, which is how most tools keep a plan — they create
+// one task at a time and then mark ids done, never sending the list again.
+func applyTodoArgs(current []todoItem, raw json.RawMessage) ([]todoItem, bool) {
+	if items, ok := parseTodoArgs(raw); ok {
+		return items, true
+	}
+	var args map[string]any
+	if json.Unmarshal(raw, &args) != nil {
+		return current, false
+	}
+	action := strings.ToLower(strings.TrimSpace(todoStringField(args, []string{"action", "op", "operation", "type", "command"})))
+	id := idField(args)
+	text := todoStringField(args, todoTextKeys)
+	status := statusField(args)
+	explicit := false
+	if _, ok := args["status"].(string); ok {
+		explicit = true
+	} else if _, ok := args["done"].(bool); ok {
+		explicit = true
+	} else if _, ok := args["completed"].(bool); ok {
+		explicit = true
+	}
+	switch action {
+	case "create", "add", "append", "new", "insert":
+		if text == "" {
+			return current, false
+		}
+		if !explicit {
+			status = "pending"
+		}
+		if id == "" {
+			id = nextTodoID(current)
+		}
+		return append(append([]todoItem(nil), current...), todoItem{ID: id, Text: text, Status: status}), true
+	case "update", "patch", "edit", "set", "rename", "start", "begin", "complete", "finish", "done", "cancel",
+		"in_progress", "reopen", "reset":
+		if id == "" {
+			return current, false
+		}
+		// Some tools spell the change as the action itself.
+		switch action {
+		case "start", "begin", "in_progress":
+			status, explicit = "in_progress", true
+		case "complete", "finish", "done":
+			status, explicit = "completed", true
+		case "cancel":
+			status, explicit = "cancelled", true
+		}
+		if text == "" && !explicit {
+			return current, false
+		}
+		next := append([]todoItem(nil), current...)
+		found := false
+		for i := range next {
+			if next[i].ID != id {
+				continue
+			}
+			found = true
+			if text != "" {
+				next[i].Text = text
+			}
+			if explicit {
+				next[i].Status = status
+			}
+		}
+		return next, found
+	case "delete", "remove", "drop":
+		if id == "" {
+			return current, false
+		}
+		next := make([]todoItem, 0, len(current))
+		found := false
+		for _, it := range current {
+			if it.ID == id {
+				found = true
+				continue
+			}
+			next = append(next, it)
+		}
+		return next, found
+	case "clear", "reset_plan", "remove_all":
+		return nil, true
+	}
+	// No action word: a call with an id and a state is an update.
+	if id != "" && explicit {
+		return applyTodoArgs(current, mustJSON(map[string]any{"action": "update", "id": id, "status": status}))
+	}
+	return current, false
+}
+
+// nextTodoID numbers a task a tool created without an id, past the numbers
+// the list already uses.
+func nextTodoID(items []todoItem) string {
+	highest := 0
+	for _, it := range items {
+		if n, err := strconv.Atoi(it.ID); err == nil && n > highest {
+			highest = n
+		}
+	}
+	return strconv.Itoa(highest + 1)
+}
+
+// mustJSON re-encodes a call the reduction above can read.
+func mustJSON(value map[string]any) json.RawMessage {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return nil
+	}
+	return raw
+}
+
+// todoStringField returns the first non-empty string among keys.
+func todoStringField(obj map[string]any, keys []string) string {
+	for _, key := range keys {
+		if s, ok := obj[key].(string); ok && strings.TrimSpace(s) != "" {
+			return strings.TrimSpace(s)
+		}
+	}
+	return ""
+}
+
+// idField returns the task's id as text, "" when it has none.
+func idField(obj map[string]any) string {
+	for _, key := range todoIDKeys {
+		switch v := obj[key].(type) {
+		case string:
+			if s := strings.TrimSpace(v); s != "" {
+				return s
+			}
+		case float64:
+			return fmt.Sprint(int64(v))
+		}
+	}
+	return ""
+}
+
+// statusField reads a task's state from the words tools use for it.
+func statusField(obj map[string]any) string {
+	if s, ok := obj["status"].(string); ok && strings.TrimSpace(s) != "" {
+		return normalizeTodoStatus(s)
+	}
+	if done, ok := obj["done"].(bool); ok {
+		if done {
+			return "completed"
+		}
+		return "pending"
+	}
+	if done, ok := obj["completed"].(bool); ok {
+		if done {
+			return "completed"
+		}
+		return "pending"
+	}
+	return "pending"
 }
 
 // normalizeTodoStatus folds the words tools use for a task's state.
@@ -428,23 +595,49 @@ func normalizeTodoStatus(s string) string {
 	return "pending"
 }
 
-// todosFromMessages finds the newest task list pi's history carries.
-func todosFromMessages(msgs []piMessage) []todoItem {
-	var last []todoItem
-	for _, m := range msgs {
-		if m.Role != "assistant" {
+// todoPlanLine matches the line a todo tool writes its plan as: PiDeck's own
+// tool appends the whole plan to every result, "[status] #id: text".
+var todoPlanLine = regexp.MustCompile(`^\[(pending|in_progress|completed|cancelled)\] #(\S+): (.+)$`)
+
+// todoPlanFromText reads the plan a todo tool's result spells out. A tool
+// that answers each change with the whole plan leaves the newest list there,
+// whatever its calls looked like.
+func todoPlanFromText(text string) ([]todoItem, bool) {
+	var out []todoItem
+	for _, line := range strings.Split(text, "\n") {
+		m := todoPlanLine.FindStringSubmatch(strings.TrimSpace(line))
+		if m == nil {
 			continue
 		}
-		for _, b := range m.blocks() {
-			if b.Type != "toolCall" || !isTodoTool(b.Name) {
-				continue
+		out = append(out, todoItem{ID: m[2], Text: strings.TrimSpace(m[3]), Status: m[1]})
+	}
+	return out, len(out) > 0
+}
+
+// todosFromMessages replays pi's history to the task list it ends with:
+// every todo call folded in order, and every plan a result spelled out.
+func todosFromMessages(msgs []piMessage) []todoItem {
+	var items []todoItem
+	for _, m := range msgs {
+		if m.Role == "assistant" {
+			for _, b := range m.blocks() {
+				if b.Type != "toolCall" || !isTodoTool(b.Name) {
+					continue
+				}
+				if next, ok := applyTodoArgs(items, b.Arguments); ok {
+					items = next
+				}
 			}
-			if items, ok := parseTodoArgs(b.Arguments); ok {
-				last = items
-			}
+			continue
+		}
+		if !isTodoTool(m.ToolName) {
+			continue
+		}
+		if plan, ok := todoPlanFromText(piBlockText(m.blocks())); ok {
+			items = plan
 		}
 	}
-	return last
+	return items
 }
 
 // toolAnswer builds a short label from a tool call's arguments.

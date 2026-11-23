@@ -49,11 +49,22 @@ func (a *app) sessionTodos(s *session) []todoItem {
 			out = append(out, it)
 		}
 	}
-	add(s.todos.Get())
-	add(planTodos(s))
+	// An extension that publishes the list itself owns it: its lines are
+	// the plan as it stands now, where the calls the app read may only
+	// have patched a single item. Without one, the calls are all there is.
+	published := false
 	for _, key := range widgetTodoKeys {
-		add(parseWidgetTodos(s.extWidgets[key]))
+		items := parseWidgetTodos(s.extWidgets[key])
+		if len(items) == 0 {
+			continue
+		}
+		published = true
+		add(items)
 	}
+	if !published {
+		add(s.todos.Get())
+	}
+	add(planTodos(s))
 	return out
 }
 
