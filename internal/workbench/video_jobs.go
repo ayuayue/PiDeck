@@ -319,20 +319,3 @@ func (a *app) removeVideoRecord(id string) {
 		a.persistVideoJobs()
 	}
 }
-
-func (a *app) videoSessionRows(s *session) core.Node {
-	return core.Dynamic(func(cx *core.Scope) core.Node {
-		var rows []core.Node
-		for _, j := range a.video.jobs.Get() {
-			if j.Session != s.ID {
-				continue
-			}
-			job := j
-			rows = append(rows, ui.Button{Text: job.Model + " · " + videoJobLabel(job), Size: ui.SizeSmall, Variant: ui.ButtonGhost, TestID: "session-video-" + job.ID, OnPress: func() { a.openPane(paneVideo) }})
-			if len(rows) >= 8 {
-				break
-			}
-		}
-		return core.View{Style: core.Style{Gap: 4}, Children: rows}
-	})
-}

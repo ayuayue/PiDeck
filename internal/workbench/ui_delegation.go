@@ -7,8 +7,8 @@ import (
 	"slices"
 
 	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
-	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
@@ -19,16 +19,15 @@ func (a *app) delegationOverview(s *session) core.Node {
 			return nil
 		}
 		colors := ui.ColorsOf(cx)
-		children := []core.Node{core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
-			ui.Icon(lucide.Bot, 14, colors.Accent),
-			ui.Text(apptext.T("子代理与工作流"), 12, ui.Semibold, colors.Text),
-			ui.Text(fmt.Sprint(len(entries)), 11, ui.Regular, colors.Muted),
-			ui.Button{Text: apptext.T("查看全部"), Size: ui.SizeSmall, Variant: ui.ButtonGhost, TestID: "delegate-show-all", OnPress: func() {
+		head := overviewLabel(colors, apptext.T("子代理与工作流"),
+			ui.Tabular(core.Text{Content: fmt.Sprint(len(entries)),
+				Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)}),
+			overviewAction(colors, apptext.T("查看全部"), "delegate-show-all", func() {
 				a.delegationSession.Set(s)
 				a.openPane(paneDelegation)
-			}},
-		}}}
+			}))
 		// The drawer shows recent activity. The original tool rows stay in the transcript.
+		var rows []core.Node
 		for i := len(entries) - 1; i >= max(0, len(entries)-8); i-- {
 			d := entries[i]
 			ink := colors.Muted
@@ -37,7 +36,7 @@ func (a *app) delegationOverview(s *session) core.Node {
 			} else if d.state == "运行中" {
 				ink = colors.Info
 			}
-			children = append(children, core.View{TestID: "delegate-run-" + d.CallID,
+			rows = append(rows, core.View{TestID: "delegate-run-" + d.CallID,
 				Style: core.Style{Gap: 4, Padding: core.Symmetric(6, 8), Background: colors.Inset(), CornerRadius: ui.RadiusControl},
 				Children: []core.Node{
 					ui.Text(apptext.T(d.Action)+" · "+apptext.T(d.state), 11, ui.Medium, ink),
@@ -49,7 +48,7 @@ func (a *app) delegationOverview(s *session) core.Node {
 						}},
 				}})
 		}
-		return core.View{Style: core.Style{Gap: 4}, Children: children}
+		return overviewSection(colors, head, core.View{Style: core.Style{Direction: core.Column, Gap: 4}, Children: rows})
 	})
 }
 

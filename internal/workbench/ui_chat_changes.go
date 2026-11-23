@@ -34,7 +34,7 @@ func (a *app) changeSummary(s *session, t func() turn) core.Node {
 		rowSize, detailSize := a.readingRowFont(), a.readingDetailFont()
 		header := []core.Node{
 			ui.Icon(lucide.FileDiff, 13, colors.Muted),
-			core.Text{Content: fmt.Sprintf("修改 %d 个文件", len(changes)),
+			core.Text{Content: fmt.Sprintf(apptext.T("修改 %d 个文件"), len(changes)),
 				Style: core.Style{FontSize: rowSize, FontWeight: ui.Medium}, StyleFunc: ui.Colored(colors.Muted)},
 		}
 		if added > 0 || removed > 0 {

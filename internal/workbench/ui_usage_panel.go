@@ -134,17 +134,7 @@ func (a *app) contextPanel(s *session, close func()) core.Node {
 		colors := ui.ColorsOf(cx)
 		u := a.contextUseOf(s)
 		st := s.stats.Get()
-		// Pi's own totals win: they are what its footer counts, and a
-		// branched or resumed session can differ from the messages on
-		// screen. The transcript's sum stands in before pi answers.
-		spend := s.usage.Get()
-		if st.Known && st.Tokens.Total > 0 {
-			merged := st.Tokens
-			if merged.Cost == 0 {
-				merged.Cost = spend.Cost
-			}
-			spend = merged
-		}
+		spend := a.spendOf(s)
 		perf := s.perf.Get()
 		row := func(label, value string) core.Node {
 			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10, Height: core.Pt(24)},
@@ -224,6 +214,22 @@ func (a *app) contextPanel(s *session, close func()) core.Node {
 		}})
 		return core.View{TestID: "usage-panel", Style: core.Style{Width: core.Pt(contextPanelWidth), Gap: 2}, Children: children}
 	})
+}
+
+// spendOf is what the session has spent. Pi's own totals win: they are
+// what its footer counts, and a branched or resumed session can differ from
+// the messages on screen. The transcript's sum stands in before pi answers,
+// and its cost fills in a total pi left without one.
+func (a *app) spendOf(s *session) usageInfo {
+	st := s.stats.Get()
+	transcript := s.usage.Get()
+	if st.Known && st.Tokens.Total > 0 {
+		if st.Tokens.Cost == 0 {
+			st.Tokens.Cost = transcript.Cost
+		}
+		return st.Tokens
+	}
+	return transcript
 }
 
 // sessionCounts is how many turns and calls the session holds: pi's own

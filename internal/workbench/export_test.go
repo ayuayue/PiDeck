@@ -257,11 +257,12 @@ func TestExportDialogMarkdown(t *testing.T) {
 	}
 	t.Setenv("PIDECK_V2_HOME", home)
 	app := startApp(t, dir, 1280, 860)
-	app.Key("mod+j")
-	app.WaitFor("id:drawer-tab-overview", 5*time.Second)
-	app.Press("id:drawer-tab-overview")
-	app.WaitFor("id:export-button", 5*time.Second)
-	app.Press("id:export-button")
+	// Export is a session command now: the drawer's overview reports, it
+	// does not repeat the menus' actions.
+	app.Press("id:rail-palette")
+	app.Type("label:命令", "导出会话")
+	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("role:option")) > 0 })
+	app.Press("role:option >> nth=0")
 	app.WaitFor("id:export-dialog", 5*time.Second)
 	app.Press("id:export-mode-original")
 	app.Press("id:export-markdown")

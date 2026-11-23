@@ -202,41 +202,41 @@ func (a *app) sessionLinkPanel(cx *core.Scope, state sessionOrganizationDialog) 
 		}, Footer: footer}
 }
 
-func (a *app) sessionRelations(s *session) core.Node {
-	return core.Dynamic(func(cx *core.Scope) core.Node {
-		org := a.organization.Get()
-		colors := ui.ColorsOf(cx)
-		var rows []core.Node
-		if parent := a.findSession(org.Links[s.ID].Parent); parent != nil {
-			rows = append(rows, composerRow(cx, lucide.Link, apptext.T("父会话 · %s", parent.title.Get()), "", false, false, func() { a.selectSession(parent) }))
+// sessionRelationRows are the sessions linked to this one: the parent it
+// was linked under and the ones that report back to it.
+func (a *app) sessionRelationRows(cx *core.Scope, s *session) []core.Node {
+	org := a.organization.Get()
+	colors := ui.ColorsOf(cx)
+	var rows []core.Node
+	if parent := a.findSession(org.Links[s.ID].Parent); parent != nil {
+		rows = append(rows, composerRow(cx, lucide.Link, apptext.T("父会话 · %s", parent.title.Get()), "", false, false, func() { a.selectSession(parent) }))
+	}
+	ids := slices.Sorted(maps.Keys(org.Links))
+	slices.SortStableFunc(ids, func(a, b string) int { return org.Links[b].When.Compare(org.Links[a].When) })
+	shown := 0
+	for _, id := range ids {
+		link := org.Links[id]
+		if link.Parent != s.ID {
+			continue
 		}
-		ids := slices.Sorted(maps.Keys(org.Links))
-		slices.SortStableFunc(ids, func(a, b string) int { return org.Links[b].When.Compare(org.Links[a].When) })
-		shown := 0
-		for _, id := range ids {
-			link := org.Links[id]
-			if link.Parent != s.ID {
-				continue
-			}
-			child := a.findSession(id)
-			if child == nil {
-				continue
-			}
-			if shown == 0 {
-				rows = append(rows, ui.Text(apptext.T("子会话回报"), 11, ui.Medium, colors.Muted))
-			}
-			detail := link.Report
-			if detail == "" && !link.When.IsZero() {
-				detail = viewkit.WhenText(link.When, a.cx.Now())
-			}
-			row := composerRow(cx, lucide.MessageSquare, child.title.Get(), detail, false, false, func() { a.selectSession(child) })
-			row.TestID = "session-link-report-" + id
-			rows = append(rows, row)
-			shown++
-			if shown == 12 {
-				break
-			}
+		child := a.findSession(id)
+		if child == nil {
+			continue
 		}
-		return core.View{Style: core.Style{Gap: 3}, Children: rows}
-	})
+		if shown == 0 {
+			rows = append(rows, ui.Text(apptext.T("子会话回报"), 11, ui.Medium, colors.Muted))
+		}
+		detail := link.Report
+		if detail == "" && !link.When.IsZero() {
+			detail = viewkit.WhenText(link.When, a.cx.Now())
+		}
+		row := composerRow(cx, lucide.MessageSquare, child.title.Get(), detail, false, false, func() { a.selectSession(child) })
+		row.TestID = "session-link-report-" + id
+		rows = append(rows, row)
+		shown++
+		if shown == 12 {
+			break
+		}
+	}
+	return rows
 }
