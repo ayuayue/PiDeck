@@ -5,6 +5,7 @@ package workbench
 // The chat: turns with their tools, the composer, and the empty state.
 
 import (
+	"slices"
 	"strings"
 	"time"
 
@@ -47,7 +48,7 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 			a.turnPrompt(t),
 			core.View{Style: core.Style{MinWidth: core.Pt(0), FlexShrink: 0, Gap: 16}, Children: []core.Node{
 				core.Show{When: foldable, Then: func(cx *core.Scope) core.Node { return a.turnFoldRow(cx, t, open, toggle) }},
-				core.Show{When: showProcess, Then: func(cx *core.Scope) core.Node { return a.turnSteps(s, t) }},
+				core.Show{When: showProcess, Then: func(cx *core.Scope) core.Node { return a.turnProcess(s, t) }},
 				core.Show{When: func() bool { return t().running() }, Then: func(cx *core.Scope) core.Node {
 					return a.turnWorkingRow(cx, t, now)
 				}},
@@ -143,13 +144,13 @@ func (a *app) turnWorkingRow(cx *core.Scope, t func() turn, now func() time.Time
 func (a *app) turnFooter(s *session, t func() turn, now func() time.Time) core.Node {
 	return core.Group{
 		a.changeSummary(s, t),
-		core.Show{When: func() bool { return t().Err != "" }, Then: func(cx *core.Scope) core.Node {
-			tt := t()
-			return a.errorRow(func() { a.retry(s, tt) }, tt.Err)
-		}},
-		core.Show{When: func() bool { tt := t(); return tt.Err == "" && tt.Status == chat.Failed }, Then: func(*core.Scope) core.Node {
-			tt := t()
-			return a.errorRow(func() { a.retry(s, tt) }, apptext.T("这一轮没有完成，可以重试。"))
+		core.Show{When: func() bool { tt := t(); return tt.Err != "" || tt.Status == chat.Failed }, Then: func(*core.Scope) core.Node {
+			// The row's text and its button follow the turn and the turns
+			// after it, so a retry leaves with the failure it belonged to.
+			return core.Dynamic(func(*core.Scope) core.Node {
+				tt := t()
+				return a.errorRow(failureText(tt), a.retryAction(s, tt))
+			})
 		}},
 		core.Show{When: func() bool { return t().Status == chat.Cancelled }, Then: func(cx *core.Scope) core.Node {
 			colors := ui.ColorsOf(cx)
@@ -168,6 +169,42 @@ func (a *app) turnFooter(s *session, t func() turn, now func() time.Time) core.N
 			}}
 		}},
 	}
+}
+
+// failureText is what a failed turn says: pi's own words when it gave any,
+// and otherwise the app's, which promise a retry only while one is offered.
+func failureText(t turn) string {
+	if t.Err != "" {
+		return t.Err
+	}
+	if t.Final == "" && t.Status == chat.Failed {
+		return apptext.T("这一轮没有完成，可以重试。")
+	}
+	return apptext.T("这一轮没有完成。")
+}
+
+// retryAction is the retry a failure still deserves, nil once the turn or a
+// later one answered: the session works again then, and the row keeps only
+// pi's error text.
+func (a *app) retryAction(s *session, t turn) func() {
+	if s == nil || t.Final != "" || recoveredAfter(s.turns.Get(), t.ID) {
+		return nil
+	}
+	return func() { a.retry(s, t) }
+}
+
+// recoveredAfter reports whether a later turn of the same session answered.
+func recoveredAfter(turns []turn, id string) bool {
+	at := slices.IndexFunc(turns, func(t turn) bool { return t.ID == id })
+	if at < 0 {
+		return false
+	}
+	for _, later := range turns[at+1:] {
+		if later.Status == chat.Completed && later.Final != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // replyContent offers the actions for this answer at the text itself.

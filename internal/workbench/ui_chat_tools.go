@@ -188,19 +188,22 @@ func (a *app) toolBodyNodes(cx *core.Scope, run toolRun) []core.Node {
 	return nodes
 }
 
-// errorRow is a failure and how to try again.
-func (a *app) errorRow(retry func(), text string) core.Node {
+// errorRow is a failure and, when retry is not nil, how to try it again.
+func (a *app) errorRow(text string, retry func()) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
+		children := []core.Node{
+			ui.Icon(lucide.CircleAlert, 16, colors.Danger),
+			core.Text{Content: text, Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 12.5, LineHeight: 19},
+				StyleFunc: ui.Colored(colors.Text)},
+		}
+		if retry != nil {
+			children = append(children, ui.Button{Text: apptext.T("重试"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: retry})
+		}
 		return core.View{StyleFunc: func() core.Style {
 			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10, Padding: core.Symmetric(10, 12),
 				CornerRadius: ui.RadiusControl, Background: ui.Alpha(colors.Danger(), 0.07),
 				BorderWidth: 1, BorderColor: ui.Alpha(colors.Danger(), 0.28)}
-		}, Children: []core.Node{
-			ui.Icon(lucide.CircleAlert, 16, colors.Danger),
-			core.Text{Content: text, Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 12.5, LineHeight: 19},
-				StyleFunc: ui.Colored(colors.Text)},
-			ui.Button{Text: apptext.T("重试"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: retry},
-		}}
+		}, Children: children}
 	})
 }

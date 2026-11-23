@@ -101,3 +101,55 @@ func TestSessionStreamRendersWithToolsAndErrors(t *testing.T) {
 	})
 	shot(screen, "comparison/session-stopped")
 }
+
+// TestSessionErrorDropsRetryAfterRecovery checks a failure keeps pi's error
+// text but loses its retry once the session answers again: the row would
+// only repeat work the transcript already shows.
+func TestSessionErrorDropsRetryAfterRecovery(t *testing.T) {
+	built, screen, sess := startNativeSurfaceApp(t)
+	const failure = "zui: connection lost mid-reply"
+	now := built.cx.Now()
+	onNativeUI(t, screen, built, func() {
+		sess.loaded.Set(true)
+		sess.readySig.Set(true)
+		sess.draft.Set("")
+		sess.turns.Set([]turn{{ID: "t-failed", Prompt: "跑一遍测试", Status: chat.Failed, Err: failure,
+			Start: now.Add(-time.Minute), End: now.Add(-time.Minute)}})
+	})
+	screen.WaitFor("text:"+failure, 5*time.Second)
+	screen.WaitFor("label:重试", 5*time.Second)
+
+	onNativeUI(t, screen, built, func() {
+		sess.turns.Update(func(ts []turn) []turn {
+			return append(ts, turn{ID: "t-answered", Prompt: "再来一次", Final: "测试通过了。",
+				Status: chat.Completed, Start: now.Add(-time.Second), End: now})
+		})
+	})
+	screen.WaitForGone("label:重试", 5*time.Second)
+	screen.WaitFor("text:"+failure, 5*time.Second)
+}
+
+// TestRecoveredAfter checks which failures still need a retry.
+func TestRecoveredAfter(t *testing.T) {
+	turns := []turn{
+		{ID: "a", Status: chat.Failed, Err: "boom"},
+		{ID: "b", Status: chat.Cancelled},
+		{ID: "c", Status: chat.Completed, Final: "answer"},
+		{ID: "d", Status: chat.Failed, Err: "boom"},
+	}
+	cases := []struct {
+		id   string
+		want bool
+	}{
+		{"a", true},  // an answer came after it
+		{"b", true},  // cancelled, then answered
+		{"c", false}, // the last answer itself
+		{"d", false}, // nothing after the newest failure
+		{"", false},  // unknown turn
+	}
+	for _, c := range cases {
+		if got := recoveredAfter(turns, c.id); got != c.want {
+			t.Errorf("recoveredAfter(%q) = %v, want %v", c.id, got, c.want)
+		}
+	}
+}
