@@ -93,51 +93,20 @@ func (a *mobileApp) toolLineRow(cx *core.Scope, m remotewire.Message, key transc
 	running := tool.Status == "running"
 	failed := tool.Status == "error"
 	detailSize := core.Points(10.5)
-	header := []core.Node{
-		ui.IconOf(toolGlyph(tool.Name), 13, func() core.Color {
-			switch {
-			case failed:
-				return colors.Danger()
-			case running:
-				return colors.Info()
-			}
-			return colors.Muted()
-		}),
-		core.Text{Content: toolVerb(tool, m.Text), MaxLines: 1,
-			Style: core.Style{FontSize: 12, FontWeight: ui.Medium, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Muted)},
-		core.Text{Content: tool.Detail, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-			Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: viewkit.MonoFont(), FontSize: detailSize},
-			StyleFunc: ui.Colored(colors.Faint)},
-		core.Show{When: func() bool { return tool.Added > 0 || tool.Removed > 0 }, Then: func(*core.Scope) core.Node {
-			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, FlexShrink: 0},
-				Children: []core.Node{
-					ui.Text(fmt.Sprintf("+%d", tool.Added), detailSize, ui.Regular, colors.Up),
-					ui.Text(fmt.Sprintf("−%d", tool.Removed), detailSize, ui.Regular, colors.Danger),
-				}}
-		}},
-		core.Show{When: func() bool { return tool.Nested > 0 }, Then: func(*core.Scope) core.Node {
-			return core.Text{Content: apptext.T("内含 %d 次调用", tool.Nested), MaxLines: 1,
-				Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: detailSize, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Faint)}
-		}},
-		core.Show{When: func() bool { return running }, Then: func(*core.Scope) core.Node { return ui.Spinner{Size: 10} }},
-		core.Show{When: func() bool { return !running && tool.DurationMs > 0 }, Then: func(*core.Scope) core.Node {
-			return core.Text{Content: fmt.Sprintf("%d ms", tool.DurationMs), MaxLines: 1,
-				Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: detailSize, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Faint)}
-		}},
-		core.Show{When: func() bool { return failed }, Then: func(*core.Scope) core.Node {
-			return ui.Text(apptext.T("失败"), detailSize, ui.Medium, colors.Danger)
-		}},
-		core.Show{When: func() bool { return hasBody }, Then: func(*core.Scope) core.Node {
-			return ui.IconOf(func() *core.SVG {
-				if open {
-					return lucide.ChevronDown()
-				}
-				return lucide.ChevronRight()
-			}, 11, colors.Faint)
-		}},
-	}
-	children := []core.Node{core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6,
-		MinHeight: core.Pt(26), Padding: core.Symmetric(1, 2), MinWidth: core.Pt(0)}, Children: header}}
+	header := viewkit.ToolRow(cx, viewkit.ToolLine{
+		Glyph:      toolGlyph(tool.Name),
+		Verb:       toolVerb(tool, m.Text),
+		Detail:     tool.Detail,
+		Added:      tool.Added,
+		Removed:    tool.Removed,
+		Nested:     tool.Nested,
+		DurationMs: tool.DurationMs,
+		Running:    running,
+		Failed:     failed,
+		Open:       open,
+		HasBody:    hasBody,
+	}, viewkit.ToolSizes{Verb: 12, Detail: detailSize, Glyph: 13, Gap: 6, MinHeight: 26, PadV: 1, PadH: 2})
+	children := []core.Node{header}
 	if open && hasBody {
 		children = append(children, core.View{Style: core.Style{Padding: core.Edges{Left: 19, Top: 2, Bottom: 4}},
 			Children: []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pt(240)}, Children: []core.Node{

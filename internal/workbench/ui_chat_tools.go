@@ -5,7 +5,6 @@ package workbench
 // The chat: turns with their tools, the composer, and the empty state.
 
 import (
-	"fmt"
 	"strings"
 
 	"example.com/pideck-v2/internal/apptext"
@@ -39,48 +38,19 @@ func (a *app) toolRow(s *session, run func() toolRun) core.Node {
 			return toolBodyText(r) != "" || len(r.Images) > 0
 		}
 		rowSize, detailSize := a.readingRowFont(), a.readingDetailFont()
-		header := []core.Node{
-			ui.IconOf(func() *core.SVG { return toolIcon(run()) }, 14, func() core.Color {
-				switch {
-				case run().IsError:
-					return colors.Danger()
-				case running():
-					return colors.Info()
-				}
-				return colors.Muted()
-			}),
-			core.Text{ContentFunc: func() string { return apptext.T(run().Action) }, MaxLines: 1,
-				Style:     core.Style{FontSize: rowSize, FontWeight: ui.Medium, FlexShrink: 0},
-				StyleFunc: ui.Colored(colors.Muted)},
-			core.Text{ContentFunc: func() string { return shorten(run().Detail, 140) }, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-				Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: viewkit.MonoFont(), FontSize: detailSize},
-				StyleFunc: ui.Colored(colors.Faint)},
-			core.Show{When: func() bool { r := run(); return r.Added > 0 || r.Removed > 0 }, Then: func(*core.Scope) core.Node {
-				return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, FlexShrink: 0},
-					Children: []core.Node{
-						ui.Tabular(core.Text{ContentFunc: func() string { return fmt.Sprintf("+%d", run().Added) },
-							Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: detailSize}, StyleFunc: ui.Colored(colors.Up)}),
-						ui.Tabular(core.Text{ContentFunc: func() string { return fmt.Sprintf("−%d", run().Removed) },
-							Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: detailSize}, StyleFunc: ui.Colored(colors.Danger)}),
-					}}
-			}},
-			core.Show{When: func() bool { return len(run().Nested) > 0 }, Then: func(*core.Scope) core.Node {
-				return core.Text{ContentFunc: func() string { return apptext.T("内含 %d 次调用", len(run().Nested)) }, MaxLines: 1,
-					Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: detailSize, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Faint)}
-			}},
-			core.Show{When: running, Then: func(*core.Scope) core.Node { return ui.Spinner{Size: 10} }},
-			core.Show{When: func() bool { r := run(); return r.Status != chat.Running && r.DurationMs > 0 }, Then: func(*core.Scope) core.Node {
-				return ui.Tabular(core.Text{ContentFunc: func() string { return fmt.Sprintf("%d ms", run().DurationMs) },
-					Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: detailSize, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Faint)})
-			}},
-			core.Show{When: func() bool { return run().IsError }, Then: func(*core.Scope) core.Node {
-				return core.Text{Content: apptext.T("失败"), Style: core.Style{FontSize: detailSize, FontWeight: ui.Medium, FlexShrink: 0},
-					StyleFunc: ui.Colored(colors.Danger)}
-			}},
-			core.Show{When: hasBody, Then: func(*core.Scope) core.Node {
-				return ui.IconOf(disclosure(open), 12, colors.Faint)
-			}},
-		}
+		header := viewkit.ToolRow(cx, viewkit.ToolLine{
+			Glyph:      func() *core.SVG { return toolIcon(run()) },
+			Verb:       apptext.T(run().Action),
+			Detail:     shorten(run().Detail, 140),
+			Added:      run().Added,
+			Removed:    run().Removed,
+			Nested:     len(run().Nested),
+			DurationMs: run().DurationMs,
+			Running:    running(),
+			Failed:     run().IsError,
+			Open:       open(),
+			HasBody:    hasBody(),
+		}, viewkit.ToolSizes{Verb: rowSize, Detail: detailSize, Glyph: 14, Gap: 8, MinHeight: 28, PadV: 2, PadH: 6})
 		body := core.Show{When: func() bool { return open() && hasBody() }, Then: func(cx *core.Scope) core.Node {
 			children := []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
 				return core.Group(a.toolBodyNodes(cx, run()))
@@ -122,8 +92,7 @@ func (a *app) toolRow(s *session, run func() toolRun) core.Node {
 				return st
 			},
 			Children: []core.Node{
-				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(28),
-					Padding: core.Symmetric(2, 6), MinWidth: core.Pt(0)}, Children: header},
+				header,
 				body,
 			},
 		}
