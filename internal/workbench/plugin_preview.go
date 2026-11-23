@@ -70,7 +70,7 @@ func verifyPluginPreview(raw []byte) (*pkg.Package, error) {
 		return nil, err
 	}
 	if p.App.ID != pluginPreviewID {
-		return nil, errors.New("unexpected preview package identity")
+		return nil, fmt.Errorf("unexpected preview package identity %q, want %q", p.App.ID, pluginPreviewID)
 	}
 	return p, nil
 }
