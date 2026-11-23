@@ -30,7 +30,7 @@ func (a *app) activityRow(item activityItem, colors ui.Colors) core.Node {
 		Role:    core.RoleButton, Label: label + " · " + s.title.Get(), TestID: testID + s.ID,
 		StyleFunc: func() core.Style {
 			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8,
-				MinHeight: core.Pt(42), Padding: core.Symmetric(7, 8), CornerRadius: 7,
+				MinHeight: core.Pt(44), Padding: core.Symmetric(8, 8), CornerRadius: 7,
 				Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
 		},
 		Children: []core.Node{
@@ -42,12 +42,12 @@ func (a *app) activityRow(item activityItem, colors ui.Colors) core.Node {
 			}),
 			core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 2}, Children: []core.Node{
 				core.Text{Content: s.title.Get(), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-					Style: core.Style{FontSize: 12.5, FontWeight: ui.Medium}, StyleFunc: ui.Colored(colors.Text)},
+					Style: core.Style{FontSize: 13.5, LineHeight: 19, FontWeight: ui.Medium}, StyleFunc: ui.Colored(colors.Text)},
 				core.Text{Content: meta, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-					Style: core.Style{FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
+					Style: core.Style{FontSize: 11, LineHeight: 15}, StyleFunc: ui.Colored(colors.Faint)},
 			}},
 			core.View{Style: core.Style{Padding: core.Symmetric(3, 7), CornerRadius: 9, Background: colors.Inset()},
-				Children: []core.Node{ui.Text(label, 9, ui.Medium, colors.Muted)}},
+				Children: []core.Node{ui.Text(label, 10, ui.Medium, colors.Muted)}},
 		},
 	}
 }

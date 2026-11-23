@@ -45,11 +45,9 @@ func (a *app) railNewSession() {
 // a hairline, as PiDeck keeps them.
 func (a *app) rail() core.Node {
 	return core.Scroll{Style: ui.FillRest, Children: []core.Node{
-		core.View{Style: core.Style{Padding: core.Edges{Top: 10, Right: 10, Bottom: 12, Left: 10}, Gap: 6}, Children: []core.Node{
+		core.View{Style: core.Style{Padding: core.Edges{Top: 12, Right: 12, Bottom: 14, Left: 12}, Gap: 8}, Children: []core.Node{
 			a.brand(),
-			a.newSessionButton(),
-			a.searchField(),
-			a.railMore(),
+			core.View{Style: core.Style{Gap: 2}, Children: []core.Node{a.newSessionButton(), a.searchField(), a.railMore()}},
 			a.railDivider(),
 			a.railTabBar(),
 			a.railTabContent(),
@@ -59,7 +57,7 @@ func (a *app) rail() core.Node {
 
 // railDivider is the hairline between the ways in and the columns.
 func (a *app) railDivider() core.Node {
-	return core.View{Style: core.Style{Height: core.Pt(1), Margin: core.Symmetric(6, 0)}, StyleFunc: ui.Filled(ui.ColorsOf(a.cx).Line)}
+	return core.View{Style: core.Style{Height: core.Pt(1), Margin: core.Symmetric(4, 0)}, StyleFunc: ui.Filled(ui.ColorsOf(a.cx).Line)}
 }
 
 // projects are the rail's projects: every workspace but the built-in chat,
@@ -77,13 +75,14 @@ func (a *app) projects() []*workspace {
 // projectTotal is how many projects the rail holds.
 func (a *app) projectTotal() int { return len(a.projects()) }
 
-// groupLabel is a quiet heading inside a project: 置顶, 今天, 更早.
+// groupLabel is a quiet heading inside a project: 置顶, 今天, 更早. It is
+// the sidebar's caption size, as PiDeck's groups are, and keeps enough air
+// above it that a group starts a paragraph rather than a row.
 func (a *app) groupLabel(text string) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
-		return core.View{Style: core.Style{Padding: core.Edges{Top: 6, Right: 8, Bottom: 1, Left: 8}}, Children: []core.Node{
-			core.Text{Content: apptext.T(text), Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9, LetterSpacing: 0.5},
-				StyleFunc: ui.Colored(colors.Faint)},
+		return core.View{Style: core.Style{Padding: core.Edges{Top: 10, Right: 8, Bottom: 2, Left: 8}}, Children: []core.Node{
+			core.Text{Content: apptext.T(text), Style: core.Style{FontSize: 11, FontWeight: ui.Medium}, StyleFunc: ui.Colored(colors.Faint)},
 		}}
 	})
 }
@@ -91,11 +90,11 @@ func (a *app) groupLabel(text string) core.Node {
 // railHeader is a small section title with a count.
 func (a *app) railHeader(title, count string) core.Node {
 	colors := ui.ColorsOf(a.cx)
-	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Padding: core.Edges{Top: 4, Right: 8, Bottom: 2, Left: 8}},
+	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Padding: core.Edges{Top: 6, Right: 8, Bottom: 3, Left: 8}},
 		Children: []core.Node{
-			ui.Text(title, 10, ui.Semibold, colors.Faint),
+			ui.Text(title, 11, ui.Semibold, colors.Faint),
 			core.View{Style: core.Style{FlexGrow: 1}},
-			ui.Text(count, 10, ui.Regular, colors.Faint),
+			ui.Text(count, 11, ui.Regular, colors.Faint),
 		}}
 }
 
@@ -108,7 +107,7 @@ func (a *app) piSessionRow(s *session) core.Node {
 			OnPress: func(core.PressEvent) { a.selectSession(s) },
 			Role:    core.RoleButton, LabelFunc: func() string { return s.title.Get() },
 			StyleFunc: func() core.Style {
-				st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7, Height: core.Pt(30), Padding: core.Symmetric(0, 8),
+				st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Height: core.Pt(32), Padding: core.Symmetric(0, 8),
 					CornerRadius: 7, Transition: viewkit.PressMotion,
 					Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
 				if selected() {
@@ -120,7 +119,7 @@ func (a *app) piSessionRow(s *session) core.Node {
 				ui.Icon(lucide.Clock, 12, colors.Faint),
 				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 1}, Children: []core.Node{
 					core.Text{ContentFunc: func() string { return s.title.Get() }, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-						Style: core.Style{FontSize: 12, LineHeight: 16}, StyleFunc: ui.Colored(colors.Text)},
+						Style: core.Style{FontSize: 13.5, LineHeight: 19}, StyleFunc: ui.Colored(colors.Text)},
 					core.Text{ContentFunc: func() string { return shorten(filepath.Base(s.WS), 34) }, MaxLines: 1,
 						Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9, LineHeight: 12}, StyleFunc: ui.Colored(colors.Faint)},
 				}},
@@ -157,14 +156,14 @@ func (a *app) newSessionButton() core.Node {
 		OnPress: func(core.PressEvent) { a.railNewSession() },
 		Role:    core.RoleButton, Label: apptext.T("新建会话"), TestID: "rail-new-session",
 		StyleFunc: func() core.Style {
-			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Height: core.Pt(32), Padding: core.Symmetric(0, 8),
+			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 9, Height: core.Pt(32), Padding: core.Symmetric(0, 8),
 				CornerRadius: 7, Transition: viewkit.PressMotion,
 				Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
 		},
 		Children: []core.Node{
-			ui.Icon(lucide.CirclePlus, 16, colors.Muted),
-			core.Text{Content: apptext.T("新建会话"), Style: core.Style{FontSize: 13.5, LineHeight: 19, FlexGrow: 1}, StyleFunc: ui.Colored(colors.Text)},
-			core.Text{Content: modKey() + "N", Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
+			ui.Icon(lucide.CirclePlus, 15, colors.Muted),
+			core.Text{Content: apptext.T("新建会话"), Style: core.Style{FontSize: 13.5, LineHeight: 19, FontWeight: ui.Medium, FlexGrow: 1}, StyleFunc: ui.Colored(colors.Text)},
+			core.Text{Content: modKey() + "N", Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
 		},
 	}
 }

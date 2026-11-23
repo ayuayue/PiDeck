@@ -53,7 +53,7 @@ func (a *app) sessionRowFn(s func() *session) core.Node {
 			OnPress: func(core.PressEvent) { a.selectSession(s()) },
 			Role:    core.RoleButton, LabelFunc: func() string { return s().title.Get() }, TestID: "session-row",
 			StyleFunc: func() core.Style {
-				st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7, Height: core.Pt(28), Padding: core.Symmetric(0, 8),
+				st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Height: core.Pt(32), Padding: core.Symmetric(0, 8),
 					CornerRadius: 7, Transition: viewkit.PressMotion,
 					Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
 				if selected() {
@@ -63,11 +63,11 @@ func (a *app) sessionRowFn(s func() *session) core.Node {
 			},
 			Children: []core.Node{
 				core.View{TestID: "session-status-" + s().ID, StyleFunc: func() core.Style {
-					return core.Style{Width: core.Pt(5), Height: core.Pt(5), CornerRadius: 3,
+					return core.Style{Width: core.Pt(6), Height: core.Pt(6), CornerRadius: 3,
 						Background: statusDot(colors, s()), FlexShrink: 0}
 				}},
 				core.Text{ContentFunc: func() string { return s().title.Get() }, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-					Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 12.5, LineHeight: 18},
+					Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 13.5, LineHeight: 19},
 					StyleFunc: func() core.Style {
 						w := ui.Regular
 						if selected() {
@@ -106,7 +106,7 @@ func (a *app) sessionRowFn(s func() *session) core.Node {
 					}}
 				}},
 				core.Text{ContentFunc: func() string { return viewkit.WhenText(s().updated.Get(), a.cx.Now()) }, MaxLines: 1,
-					Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9.5, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Faint)},
+					Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10.5, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Faint)},
 			},
 		},
 		Children:   a.sessionMenuItems(s),
@@ -122,7 +122,7 @@ func (a *app) sessionRowFn(s func() *session) core.Node {
 func (a *app) railFooter() core.Node {
 	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, JustifyContent: core.JustifySpaceBetween,
 		Width: core.Pct(100), Padding: core.Edges{Left: 2, Right: 2}}, Children: []core.Node{
-		hint("设置", ui.IconButton{Icon: lucide.Settings, Label: apptext.T("设置"), Size: 28, IconSize: 14.5,
+		hint("设置", ui.IconButton{Icon: lucide.Settings, Label: apptext.T("设置"), Size: 30, IconSize: 15.5,
 			Selected: func() bool { return a.paneVisible() && a.activePane.Get() == paneSettings }, OnPress: a.openSettingsPane}),
 		a.announceButton(),
 		a.feedbackButton(),
@@ -131,6 +131,6 @@ func (a *app) railFooter() core.Node {
 				return lucide.Sun()
 			}
 			return lucide.Moon()
-		}, Label: apptext.T("切换外观"), Size: 28, IconSize: 14.5, OnPress: a.cycleTheme}),
+		}, Label: apptext.T("切换外观"), Size: 30, IconSize: 15.5, OnPress: a.cycleTheme}),
 	}}
 }

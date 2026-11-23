@@ -9,6 +9,8 @@ package workbench
 // the session is doing, what its agent changed, who it is related to and
 // what it spent; every action behind those facts lives in the composer, the
 // context menu or the drawer's other tabs, so no control here repeats one.
+// A path is the exception: a folder or a session file is useful the moment
+// it is read, so each one carries its own copy, reveal and editor actions.
 
 import (
 	"fmt"
@@ -16,6 +18,7 @@ import (
 
 	"example.com/pideck-v2/internal/apptext"
 	"example.com/pideck-v2/internal/viewkit"
+	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -30,6 +33,12 @@ const (
 	// overviewTodosKey is where the session keeps whether the list is open
 	// in the overview; it is a row's open state like any other.
 	overviewTodosKey = "overview:todos"
+	// overviewLabelWidth is the column the session's rows keep for their
+	// names, wide enough for 思考 and 会话文件 at the drawer's width.
+	overviewLabelWidth = 66
+	// overviewRowHeight is one of the session's rows, tall enough for a
+	// two-line path beside its name.
+	overviewRowHeight = 26
 )
 
 // drawerOverview is the drawer's first tab.
@@ -42,7 +51,7 @@ func (a *app) drawerOverview() core.Node {
 			}}
 		}
 		return a.scrollStashFor("drawerOverview:1").Bind(cx, core.Scroll{Style: ui.FillRest, Children: []core.Node{
-			core.View{Style: core.Style{Padding: core.Edges{Top: 2, Bottom: 20, Right: 2, Left: 2}}, Children: []core.Node{
+			core.View{Style: core.Style{Padding: core.Edges{Top: 4, Bottom: 24, Right: 2, Left: 2}}, Children: []core.Node{
 				a.overviewHead(cx, s),
 				a.overviewContext(s),
 				a.overviewTodos(s),
@@ -56,9 +65,10 @@ func (a *app) drawerOverview() core.Node {
 	})
 }
 
-// overviewSection sets a block off from the one above it with a hairline.
+// overviewSection sets a block off from the one above it with a hairline and
+// the room a block needs to read as its own.
 func overviewSection(colors ui.Colors, head core.Node, rows ...core.Node) core.Node {
-	return core.View{Style: core.Style{Gap: 6, Padding: core.Edges{Top: 12}, Borders: core.Edges{Top: 1},
+	return core.View{Style: core.Style{Gap: 8, Padding: core.Edges{Top: 16}, Borders: core.Edges{Top: 1},
 		BorderColors: core.EdgeColors{Top: colors.Line()}}, Children: append([]core.Node{head}, rows...)}
 }
 
@@ -66,12 +76,12 @@ func overviewSection(colors ui.Colors, head core.Node, rows ...core.Node) core.N
 // follow it pushed to the row's end.
 func overviewLabel(colors ui.Colors, title string, trailing ...core.Node) core.Node {
 	children := []core.Node{core.Text{Content: title, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-		Style: core.Style{FontSize: 10, FontWeight: ui.Semibold, LetterSpacing: 0.6}, StyleFunc: ui.Colored(colors.Faint)}}
+		Style: core.Style{FontSize: 11, FontWeight: ui.Semibold, LetterSpacing: 0.4}, StyleFunc: ui.Colored(colors.Faint)}}
 	if len(trailing) > 0 {
 		children = append(children, core.View{Style: core.Style{FlexGrow: 1}},
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, FlexShrink: 0}, Children: trailing})
 	}
-	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinHeight: core.Pt(18)},
+	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinHeight: core.Pt(20)},
 		Children: children}
 }
 
@@ -80,9 +90,9 @@ func overviewLabel(colors ui.Colors, title string, trailing ...core.Node) core.N
 func overviewAction(colors ui.Colors, label, testID string, onPress func()) core.Node {
 	return core.View{OnPress: func(core.PressEvent) { onPress() }, Role: core.RoleButton, Label: label, TestID: testID,
 		StyleFunc: func() core.Style {
-			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Height: core.Pt(18), Padding: core.Symmetric(0, 5),
+			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Height: core.Pt(20), Padding: core.Symmetric(0, 6),
 				CornerRadius: 4, Transition: viewkit.PressMotion, Hover: &core.Style{Background: colors.Hover()}}
-		}, Children: []core.Node{ui.Text(label, 10, ui.Medium, colors.Muted)}}
+		}, Children: []core.Node{ui.Text(label, 11, ui.Medium, colors.Muted)}}
 }
 
 // overviewMeter is a thin bar of fill, from 0 to 1, in tint.
@@ -94,35 +104,93 @@ func overviewMeter(colors ui.Colors, fill func() float64, tint func() core.Color
 	}}}}
 }
 
+// pathMenu is a path's own actions: showing it in the file manager, or
+// opening it in the editor. They live behind one faint button so a line of
+// the overview stays a line; copying is the button beside it.
+func (a *app) pathMenu(colors ui.Colors, key string, full func() string, reveal func(), testID string) core.Node {
+	return ui.Menu{
+		Open:         func() bool { return a.overviewMore.Get() == key },
+		OnOpenChange: func(open bool, _ base.Reason) { a.setOverviewMore(key, open) },
+		Placement:    core.PlaceBottom, Align: core.AlignEnd,
+		Trigger: ui.Button{Icon: lucide.Ellipsis, Label: apptext.T("路径操作"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+			Side: 22, IconSize: 13, Tint: func() core.Color { return colors.Faint() }},
+		TestID: testID,
+		Children: []core.Node{
+			ui.MenuItem{Text: apptext.T("复制路径"), Icon: lucide.Copy, TestID: testID + "-copy",
+				OnSelect: func() { a.copyText(full(), "路径") }},
+			ui.MenuItem{Text: apptext.T("在文件管理器中显示"), Icon: lucide.FolderOpen, TestID: testID + "-reveal",
+				OnSelect: reveal},
+			ui.MenuItem{Text: apptext.T("在编辑器中打开"), Icon: lucide.Code, TestID: testID + "-edit",
+				OnSelect: func() { a.openPathInEditor(full()) }},
+		},
+	}
+}
+
+// setOverviewMore opens or closes one path's menu.
+func (a *app) setOverviewMore(key string, open bool) {
+	if open {
+		a.overviewMore.Set(key)
+		return
+	}
+	if a.overviewMore.GetUntracked() == key {
+		a.overviewMore.Set("")
+	}
+}
+
+// overviewPathLine is a path with its actions: pressing it shows the path in
+// the file manager, the button beside it copies, and the menu opens it in the
+// editor. What is drawn is shortened; what is copied and opened is not.
+func (a *app) overviewPathLine(colors ui.Colors, key string, lead func() *core.SVG, shown func() string, full func() string, reveal func(), testID string) core.Node {
+	body := core.Text{ContentFunc: shown, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
+		Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: viewkit.MonoFont(), FontSize: 11},
+		StyleFunc: ui.Colored(colors.Faint)}
+	press := core.View{OnPress: func(core.PressEvent) { reveal() }, Role: core.RoleButton,
+		Label: apptext.T("在文件管理器中显示"), TestID: testID + "-reveal-row",
+		StyleFunc: func() core.Style {
+			return core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), CornerRadius: 4,
+				Padding: core.Symmetric(0, 3), Margin: core.Edges{Left: -3}, Hover: &core.Style{Background: colors.Hover()}}
+		}, Children: []core.Node{body}}
+	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, MinHeight: core.Pt(24)},
+		Children: []core.Node{
+			ui.Icon(lead, 12, colors.Faint),
+			hintOf(full, press),
+			hintOf(func() string { return apptext.T("复制路径") }, core.View{
+				OnPress: func(core.PressEvent) { a.copyText(full(), "路径") }, Role: core.RoleButton,
+				Label: apptext.T("复制路径"), TestID: testID + "-copy",
+				StyleFunc: func() core.Style {
+					return core.Style{Width: core.Pt(22), Height: core.Pt(22), CornerRadius: 5, FlexShrink: 0,
+						AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
+						Hover: &core.Style{Background: colors.Hover()}}
+				}, Children: []core.Node{ui.Icon(lucide.Copy, 12, colors.Faint)}}),
+			a.pathMenu(colors, key, full, reveal, testID+"-menu"),
+		}}
+}
+
 // overviewHead is the session's identity: the state it is in, what it is
-// called, and the directory it works in.
+// called, and the folder it works in.
 func (a *app) overviewHead(cx *core.Scope, s *session) core.Node {
 	colors := ui.ColorsOf(cx)
 	state := []core.Node{
 		core.View{Style: core.Style{Width: core.Pt(6), Height: core.Pt(6), CornerRadius: 3, FlexShrink: 0},
 			StyleFunc: ui.Filled(func() core.Color { return statusDot(colors, s) })},
-		ui.Textf(func() string { return sessionStateText(s) }, 10.5, ui.Medium, func() core.Color { return statusDot(colors, s) }),
+		ui.Textf(func() string { return sessionStateText(s) }, 11.5, ui.Medium, func() core.Color { return statusDot(colors, s) }),
 	}
 	if !s.updated.Get().IsZero() {
 		state = append(state,
-			ui.Text("·", 10, ui.Regular, colors.Faint),
-			ui.Textf(func() string { return viewkit.WhenText(s.updated.Get(), cx.Now()) }, 10, ui.Regular, colors.Faint))
+			ui.Text("·", 11, ui.Regular, colors.Faint),
+			ui.Textf(func() string { return viewkit.WhenText(s.updated.Get(), cx.Now()) }, 11, ui.Regular, colors.Faint))
 	}
-	return core.View{Style: core.Style{Gap: 5, Padding: core.Edges{Top: 2}}, Children: []core.Node{
-		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5}, Children: state},
-		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignStart, Gap: 2}, Children: []core.Node{
+	return core.View{Style: core.Style{Gap: 8, Padding: core.Edges{Top: 4, Bottom: 4}}, Children: []core.Node{
+		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: state},
+		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignStart, Gap: 4}, Children: []core.Node{
 			core.Text{ContentFunc: func() string { return s.title.Get() }, MaxLines: 2, EllipsizeMode: core.EllipsizeTail,
-				Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 13.5, FontWeight: ui.Semibold, LineHeight: 19},
+				Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 14.5, FontWeight: ui.Semibold, LineHeight: 20},
 				StyleFunc: ui.Colored(colors.Text)},
 			hintOf(func() string { return apptext.T("重命名") }, ui.IconButton{Icon: lucide.Pencil, Label: apptext.T("重命名"),
-				Size: 22, IconSize: 11.5, Tint: colors.Faint, TestID: "overview-rename", OnPress: func() { a.askRename(s) }}),
+				Size: 24, IconSize: 12.5, Tint: colors.Faint, TestID: "overview-rename", OnPress: func() { a.askRename(s) }}),
 		}},
-		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4}, Children: []core.Node{
-			ui.Icon(lucide.Folder, 11, colors.Faint),
-			core.Text{Content: shortPath(s.WS, 46), MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-				Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: viewkit.MonoFont(), FontSize: 10},
-				StyleFunc: ui.Colored(colors.Faint)},
-		}},
+		a.overviewPathLine(colors, "ws", lucide.Folder, func() string { return shortPath(s.WS, 44) }, func() string { return s.WS },
+			func() { a.revealProject(a.workspaceFor(s.Target, s.WS)) }, "overview-ws"),
 	}}
 }
 
@@ -160,7 +228,7 @@ func (a *app) overviewTodos(s *session) core.Node {
 		}
 		head := overviewLabel(colors, apptext.T("待办"),
 			ui.Tabular(core.Text{Content: fmt.Sprintf("%d/%d", done, total),
-				Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)}),
+				Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 11}, StyleFunc: ui.Colored(colors.Faint)}),
 			overviewAction(colors, action, "overview-todos-all", func() { s.toggleOpen(overviewTodosKey) }))
 		rows := []core.Node{overviewMeter(colors, func() float64 {
 			if total <= 0 {
@@ -177,9 +245,9 @@ func (a *app) overviewTodos(s *session) core.Node {
 			for _, it := range shown {
 				list = append(list, overviewTodoRow(colors, it))
 			}
-			rows = append(rows, core.View{Style: core.Style{Direction: core.Column, Gap: 1}, Children: list})
+			rows = append(rows, core.View{Style: core.Style{Direction: core.Column, Gap: 2}, Children: list})
 			if more := len(items) - len(shown); more > 0 {
-				rows = append(rows, ui.Text(fmt.Sprintf(apptext.T("另有 %d 项"), more), 10, ui.Regular, colors.Faint))
+				rows = append(rows, ui.Text(fmt.Sprintf(apptext.T("另有 %d 项"), more), 11, ui.Regular, colors.Faint))
 			}
 			return overviewSection(colors, head, rows...)
 		}
@@ -202,11 +270,11 @@ func overviewTodoRow(colors ui.Colors, it todoItem) core.Node {
 	case "cancelled":
 		icon, tint = lucide.CircleX, colors.Faint
 	}
-	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignStart, Gap: 7, MinHeight: core.Pt(20),
+	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignStart, Gap: 8, MinHeight: core.Pt(22),
 		Padding: core.Edges{Right: 4}}, Children: []core.Node{
-		core.View{Style: core.Style{Padding: core.Edges{Top: 3}}, Children: []core.Node{ui.Icon(icon, 11, tint)}},
+		core.View{Style: core.Style{Padding: core.Edges{Top: 3}}, Children: []core.Node{ui.Icon(icon, 12, tint)}},
 		core.Text{Content: it.Text, MaxLines: 2, EllipsizeMode: core.EllipsizeTail,
-			Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11.5, LineHeight: 16},
+			Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 12.5, LineHeight: 17},
 			StyleFunc: func() core.Style {
 				ink := colors.Text()
 				if it.Status == "completed" || it.Status == "cancelled" {
@@ -255,9 +323,9 @@ func (a *app) overviewChanges(s *session) core.Node {
 		if added > 0 || removed > 0 {
 			trailing = append(trailing,
 				ui.Tabular(core.Text{Content: fmt.Sprintf("+%d", added),
-					Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Up)}),
+					Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 11}, StyleFunc: ui.Colored(colors.Up)}),
 				ui.Tabular(core.Text{Content: fmt.Sprintf("−%d", removed),
-					Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Danger)}))
+					Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 11}, StyleFunc: ui.Colored(colors.Danger)}))
 		}
 		shown := files
 		if len(shown) > overviewChangeLimit {
@@ -270,28 +338,28 @@ func (a *app) overviewChanges(s *session) core.Node {
 				OnPress: func(core.PressEvent) { a.openChangedFile(s, change.Path) },
 				Role:    core.RoleButton, Label: apptext.T("打开 ") + change.Path, TestID: "overview-change-" + strconv.Itoa(i),
 				StyleFunc: func() core.Style {
-					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(22),
-						Padding: core.Symmetric(0, 4), CornerRadius: 5, Hover: &core.Style{Background: colors.Hover()}}
+					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(24),
+						Padding: core.Symmetric(0, 5), Margin: core.Edges{Left: -5}, CornerRadius: 5, Hover: &core.Style{Background: colors.Hover()}}
 				},
 				Children: []core.Node{
 					core.Text{Content: change.Path, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-						Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: viewkit.MonoFont(), FontSize: 10.5},
+						Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: viewkit.MonoFont(), FontSize: 11.5},
 						StyleFunc: ui.Colored(colors.Muted)},
 				}}
 			if change.Added > 0 || change.Removed > 0 {
 				row.Children = append(row.Children,
 					ui.Tabular(core.Text{Content: fmt.Sprintf("+%d", change.Added),
-						Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Up)}),
+						Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 11}, StyleFunc: ui.Colored(colors.Up)}),
 					ui.Tabular(core.Text{Content: fmt.Sprintf("−%d", change.Removed),
-						Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Danger)}))
+						Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 11}, StyleFunc: ui.Colored(colors.Danger)}))
 			}
 			rows = append(rows, row)
 		}
 		if more := len(files) - len(shown); more > 0 {
-			rows = append(rows, ui.Text(fmt.Sprintf(apptext.T("另有 %d 项"), more), 10, ui.Regular, colors.Faint))
+			rows = append(rows, ui.Text(fmt.Sprintf(apptext.T("另有 %d 项"), more), 11, ui.Regular, colors.Faint))
 		}
 		return overviewSection(colors, overviewLabel(colors, fmt.Sprintf(apptext.T("修改 %d 个文件"), len(files)), trailing...),
-			core.View{Style: core.Style{Direction: core.Column, Gap: 1}, Children: rows})
+			core.View{Style: core.Style{Direction: core.Column, Gap: 2}, Children: rows})
 	})
 }
 
@@ -310,9 +378,9 @@ func (a *app) overviewRelations(s *session) core.Node {
 				title = apptext.T("原会话")
 			}
 			children := []core.Node{
-				ui.Icon(lucide.GitBranch, 11, colors.Faint),
+				ui.Icon(lucide.GitBranch, 12, colors.Faint),
 				core.Text{Content: fmt.Sprintf(apptext.T("分叉自 %s"), title), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-					Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11}, StyleFunc: ui.Colored(colors.Muted)},
+					Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 12}, StyleFunc: ui.Colored(colors.Muted)},
 			}
 			if a.byID[parentID] != nil {
 				children = append(children, ui.Button{Text: apptext.T("打开"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
@@ -322,7 +390,7 @@ func (a *app) overviewRelations(s *session) core.Node {
 						}
 					}})
 			}
-			rows = append(rows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinHeight: core.Pt(22)},
+			rows = append(rows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7, MinHeight: core.Pt(24)},
 				Children: children})
 		}
 		rows = append(rows, a.sessionRelationRows(cx, s)...)
@@ -330,7 +398,7 @@ func (a *app) overviewRelations(s *session) core.Node {
 			return nil
 		}
 		return overviewSection(colors, overviewLabel(colors, apptext.T("关联会话")),
-			core.View{Style: core.Style{Direction: core.Column, Gap: 2}, Children: rows})
+			core.View{Style: core.Style{Direction: core.Column, Gap: 3}, Children: rows})
 	})
 }
 
@@ -339,25 +407,28 @@ func (a *app) overviewRelations(s *session) core.Node {
 func (a *app) overviewSession(s *session) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
-		row := func(label string, children ...core.Node) core.Node {
-			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinHeight: core.Pt(22)},
-				Children: append([]core.Node{core.Text{Content: label,
-					Style: core.Style{FontSize: 11.5, Width: core.Pt(58), FlexShrink: 0}, StyleFunc: ui.Colored(colors.Faint)}}, children...)}
+		name := func(label string) core.Node {
+			return core.Text{Content: label, Style: core.Style{FontSize: 12.5, Width: core.Pt(overviewLabelWidth), FlexShrink: 0},
+				StyleFunc: ui.Colored(colors.Faint)}
 		}
 		value := func(text func() string, mono bool) core.Node {
-			st := core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11.5}
+			st := core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 12.5}
 			if mono {
-				st.FontSize, st.FontFamily = 10.5, viewkit.MonoFont()
+				st.FontSize, st.FontFamily = 11.5, viewkit.MonoFont()
 			}
 			return core.Text{ContentFunc: text, MaxLines: 2, EllipsizeMode: core.EllipsizeMiddle, Style: st,
 				StyleFunc: ui.Colored(colors.Text)}
 		}
-		icon := func(icon func() *core.SVG, label, testID string, onPress func()) core.Node {
+		icon := func(glyph func() *core.SVG, label, testID string, onPress func()) core.Node {
 			return core.View{OnPress: func(core.PressEvent) { onPress() }, Role: core.RoleButton, Label: label, TestID: testID,
 				StyleFunc: func() core.Style {
-					return core.Style{Width: core.Pt(22), Height: core.Pt(22), CornerRadius: 5, AlignItems: core.AlignCenter,
+					return core.Style{Width: core.Pt(24), Height: core.Pt(24), CornerRadius: 5, AlignItems: core.AlignCenter,
 						JustifyContent: core.JustifyCenter, Hover: &core.Style{Background: colors.Hover()}}
-				}, Children: []core.Node{ui.Icon(icon, 12, colors.Faint)}}
+				}, Children: []core.Node{ui.Icon(glyph, 13, colors.Faint)}}
+		}
+		row := func(label string, children ...core.Node) core.Node {
+			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(overviewRowHeight)},
+				Children: append([]core.Node{name(label)}, children...)}
 		}
 		rows := []core.Node{
 			row(apptext.T("模型"), value(func() string {
@@ -381,7 +452,14 @@ func (a *app) overviewSession(s *session) core.Node {
 			row(apptext.T("会话 ID"), value(func() string { return s.ID }, true),
 				icon(lucide.Copy, apptext.T("复制会话 ID"), "overview-copy-id", func() { a.copyText(s.ID, "会话 ID") })),
 			core.Show{When: func() bool { return s.File != "" }, Then: func(*core.Scope) core.Node {
-				return row(apptext.T("会话文件"), value(func() string { return shortPath(s.File, 44) }, true))
+				return row(apptext.T("会话文件"), core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)},
+					Children: []core.Node{a.overviewPathLine(colors, "file", lucide.FileText, func() string { return shortPath(s.File, 40) },
+						func() string { return s.File },
+						func() {
+							if err := revealFile(s.Target, s.File); err != nil {
+								a.toast(ui.ToastError, "打不开位置", err.Error())
+							}
+						}, "overview-file")}})
 			}},
 			core.Show{When: func() bool { return s.Target.remote() || s.External }, Then: func(*core.Scope) core.Node {
 				label := apptext.T("本机")
@@ -391,15 +469,15 @@ func (a *app) overviewSession(s *session) core.Node {
 				if s.External {
 					label = apptext.T("pi 本地会话 · 继续会写入原文件")
 				}
-				return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinHeight: core.Pt(22)},
+				return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinHeight: core.Pt(overviewRowHeight)},
 					Children: []core.Node{
-						core.View{Style: core.Style{Width: core.Pt(58), FlexShrink: 0, Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4},
-							Children: []core.Node{ui.Icon(lucide.Info, 11, colors.Faint)}},
-						ui.Text(label, 10.5, ui.Regular, colors.Faint),
+						core.View{Style: core.Style{Width: core.Pt(overviewLabelWidth), FlexShrink: 0, Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5},
+							Children: []core.Node{ui.Icon(lucide.Info, 12, colors.Faint)}},
+						ui.Text(label, 11.5, ui.Regular, colors.Faint),
 					}}
 			}},
 		}
 		return overviewSection(colors, overviewLabel(colors, apptext.T("这个会话")),
-			core.View{Style: core.Style{Direction: core.Column, Gap: 1}, Children: rows})
+			core.View{Style: core.Style{Direction: core.Column, Gap: 3}, Children: rows})
 	})
 }

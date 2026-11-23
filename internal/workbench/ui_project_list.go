@@ -49,10 +49,10 @@ func (a *app) projectHeader() core.Node {
 		colors := ui.ColorsOf(cx)
 		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6,
 			Padding: core.Edges{Top: 4, Right: 4, Bottom: 2, Left: 8}}, Children: []core.Node{
-			ui.Text(apptext.T("项目"), 10, ui.Semibold, colors.Faint),
+			ui.Text(apptext.T("项目"), 11, ui.Semibold, colors.Faint),
 			core.View{Style: core.Style{FlexGrow: 1}},
 			core.Text{ContentFunc: func() string { return fmt.Sprint(a.projectTotal()) }, TestID: "project-total",
-				Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
+				Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 11}, StyleFunc: ui.Colored(colors.Faint)},
 			a.addProjectMenu(),
 		}}
 	})
@@ -103,7 +103,7 @@ func (a *app) workspaceBlock(w func() *workspace) core.Node {
 				},
 				Role: core.RoleButton, LabelFunc: func() string { return w().label() }, TestID: "project-row",
 				StyleFunc: func() core.Style {
-					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7, Height: core.Pt(30), Padding: core.Symmetric(0, 8),
+					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Height: core.Pt(32), Padding: core.Symmetric(0, 8),
 						CornerRadius: ui.RadiusControl, Transition: viewkit.PressMotion,
 						Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
 				},
@@ -124,7 +124,7 @@ func (a *app) workspaceBlock(w func() *workspace) core.Node {
 						return lucide.Folder()
 					}, 14, colors.Muted),
 					core.Text{ContentFunc: func() string { return w().label() }, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-						Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 12.5, FontWeight: ui.Medium},
+						Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 13.5, LineHeight: 19, FontWeight: ui.Medium},
 						StyleFunc: ui.Colored(colors.Text)},
 					core.Show{When: func() bool { return w().Target.remote() }, Then: func(*core.Scope) core.Node {
 						return core.View{StyleFunc: func() core.Style {
@@ -187,7 +187,7 @@ func (a *app) workspaceBlock(w func() *workspace) core.Node {
 				if loading {
 					children = append(children, a.projectLoadingRows()...)
 				} else if len(children) == 0 {
-					children = append(children, core.Text{Content: apptext.T("还没有会话"), Style: core.Style{FontSize: 11, Padding: core.Edges{Left: 8, Top: 4}},
+					children = append(children, core.Text{Content: apptext.T("还没有会话"), Style: core.Style{FontSize: 12, Padding: core.Edges{Left: 8, Top: 5}},
 						StyleFunc: ui.Colored(ui.ColorsOf(cx).Faint)})
 				}
 				hidden := len(rest) - shown
@@ -275,7 +275,7 @@ func (a *app) projectCount(ws *workspace) core.Node {
 				Children: []core.Node{ui.SkeletonBlock{Width: core.Pt(13), Height: core.Pt(8)}}}
 		}
 		return core.View{TestID: "project-count", Children: []core.Node{
-			core.Text{Content: fmt.Sprint(projectSessionTotal(ws)), Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10},
+			core.Text{Content: fmt.Sprint(projectSessionTotal(ws)), Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 11},
 				StyleFunc: ui.Colored(colors.Faint)}}}
 	})
 }

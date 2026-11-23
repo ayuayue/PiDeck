@@ -36,10 +36,10 @@ func (a *app) drawerFiles() core.Node {
 				ui.Text(apptext.T("先打开一个工作区"), 12.5, ui.Regular, colors.Muted),
 			}}
 		}
-		head := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
-			ui.Icon(lucide.Folder, 12, colors.Muted),
+		head := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7}, Children: []core.Node{
+			ui.Icon(lucide.Folder, 13, colors.Muted),
 			core.Text{Content: filepath.Base(root), MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-				Style: core.Style{FlexGrow: 1, FontSize: 11.5, FontFamily: viewkit.MonoFont()}, StyleFunc: ui.Colored(colors.Muted)},
+				Style: core.Style{FlexGrow: 1, FontSize: 12.5, FontFamily: viewkit.MonoFont()}, StyleFunc: ui.Colored(colors.Muted)},
 		}}
 		empty := func() core.Node {
 			return core.View{Style: core.Style{Padding: core.Symmetric(10, 4)}, Children: []core.Node{
@@ -75,7 +75,7 @@ func (a *app) drawerFiles() core.Node {
 				},
 				Role: core.RoleButton, Label: node.Name, TestID: "file-row",
 				StyleFunc: func() core.Style {
-					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Height: core.Pt(25),
+					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7, Height: core.Pt(28),
 						Padding: core.Edges{Left: core.Points(4 + node.Depth*13), Right: 6}, CornerRadius: 6,
 						Transition: viewkit.PressMotion, Hover: &core.Style{Background: colors.Hover()},
 						Active: &core.Style{Background: colors.Pressed()}}

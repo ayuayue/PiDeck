@@ -11,6 +11,11 @@ import (
 )
 
 // Neutral tones from PiDeck's foundation.css.
+// The three lines a surface is drawn with: hairline rims a control, softLine
+// is the rule inside a block (between two rows of the drawer), and edge is a
+// region's boundary (where the rail ends and the content starts). PiDeck keeps
+// them apart so a boundary reads as a crisp line and never as a shadow, and so
+// a rule inside a block never competes with it.
 var (
 	ink      = core.RGB(0x202124)
 	inkDeep  = core.RGB(0x09090b)
@@ -18,7 +23,10 @@ var (
 	mist     = core.RGB(0x9a9a9a)
 	railGray = core.RGB(0xf0f0f0)
 	hairline = core.RGBA(0x0d0d0d, 0.13)
-	softLine = core.RGBA(0x0d0d0d, 0.08)
+	softLine = core.RGBA(0x0d0d0d, 0.07)
+	edge     = core.RGBA(0x0d0d0d, 0.12)
+	edgeDark = core.RGBA(0xffffff, 0.11)
+	softDark = core.RGBA(0xffffff, 0.07)
 	danger   = core.RGB(0xb42318)
 	success  = core.RGB(0x14703a)
 	warning  = core.RGB(0x854d0e)
@@ -90,6 +98,7 @@ func Theme() *core.Theme {
 		"field":       core.RGB(0xfbfbfb),
 		"fieldBorder": hairline,
 		"line":        softLine,
+		"edge":        edge,
 		"faint":       mist,
 		"accentFill":  core.RGB(0x18181b),
 		"light":       core.RGB(0x18181b),
@@ -106,7 +115,8 @@ func Theme() *core.Theme {
 		"raised":      core.RGB(0x262626),
 		"field":       core.RGB(0x171717),
 		"fieldBorder": core.RGBA(0xffffff, 0.14),
-		"line":        core.RGBA(0xffffff, 0.08),
+		"line":        softDark,
+		"edge":        edgeDark,
 		"faint":       core.RGB(0xa0a09a),
 		"accentFill":  core.RGB(0xe7e7e7),
 		"light":       core.RGB(0xe7e7e7),

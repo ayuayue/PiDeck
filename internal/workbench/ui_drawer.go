@@ -24,15 +24,15 @@ func (a *app) drawerPanel() core.Node {
 			if n == 0 {
 				return nil
 			}
-			return core.View{Style: core.Style{MinWidth: core.Pt(15), Height: core.Pt(15), Padding: core.Symmetric(0, 4),
+			return core.View{Style: core.Style{MinWidth: core.Pt(16), Height: core.Pt(16), Padding: core.Symmetric(0, 5),
 				CornerRadius: 8, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Background: colors.Inset()},
-				Children: []core.Node{ui.Text(fmt.Sprint(n), 8.5, ui.Medium, colors.Faint)}}
+				Children: []core.Node{ui.Text(fmt.Sprint(n), 9.5, ui.Medium, colors.Faint)}}
 		}),
 	}}
-	return core.View{Style: core.Style{Padding: core.All(12), Gap: 10, Width: core.Pct(100),
+	return core.View{Style: core.Style{Padding: core.All(14), Gap: 12, Width: core.Pct(100),
 		FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Direction: core.Column}, Children: []core.Node{
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4}, Children: []core.Node{
-			ui.Tabs[string]{Variant: ui.TabsUnderline, Size: ui.SizeSmall,
+			ui.Tabs[string]{Variant: ui.TabsUnderline, Size: ui.SizeDefault,
 				Label: apptext.T("会话面板"), TestID: "drawer-tabs", Value: a.drawerTab.Get,
 				Options: []ui.Option[string]{
 					{Value: "overview", Label: apptext.T("概览"), TestID: "drawer-tab-overview"},
@@ -48,11 +48,11 @@ func (a *app) drawerPanel() core.Node {
 			core.View{Style: core.Style{FlexGrow: 1}},
 			core.Show{When: func() bool { return a.drawerTab.Get() == "files" }, Then: func(cx *core.Scope) core.Node {
 				return core.View{Style: core.Style{Direction: core.Row, Gap: 2}, Children: []core.Node{
-					hintOf(func() string { return apptext.T("刷新文件") }, ui.IconButton{Icon: lucide.RefreshCw, Label: apptext.T("刷新文件"), Size: 26, IconSize: 12.5, OnPress: func() { a.files.reload() }}),
-					hintOf(func() string { return apptext.T("显示隐藏文件") }, ui.IconButton{Icon: lucide.Eye, Label: apptext.T("显示隐藏文件"), Size: 26, IconSize: 12.5, OnPress: func() { a.files.setHidden(!a.files.hidden.Get()) }}),
+					hintOf(func() string { return apptext.T("刷新文件") }, ui.IconButton{Icon: lucide.RefreshCw, Label: apptext.T("刷新文件"), Size: 28, IconSize: 13.5, OnPress: func() { a.files.reload() }}),
+					hintOf(func() string { return apptext.T("显示隐藏文件") }, ui.IconButton{Icon: lucide.Eye, Label: apptext.T("显示隐藏文件"), Size: 28, IconSize: 13.5, OnPress: func() { a.files.setHidden(!a.files.hidden.Get()) }}),
 				}}
 			}},
-			hintOf(func() string { return apptext.T("收起") }, ui.IconButton{Icon: lucide.X, Label: apptext.T("收起"), Size: 26, IconSize: 12.5,
+			hintOf(func() string { return apptext.T("收起") }, ui.IconButton{Icon: lucide.X, Label: apptext.T("收起"), Size: 28, IconSize: 13.5,
 				TestID: "drawer-close", OnPress: a.toggleDrawer}),
 		}},
 		core.View{Style: ui.FillRest, Children: []core.Node{

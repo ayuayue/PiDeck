@@ -48,7 +48,7 @@ func (a *app) railMore() core.Node {
 			Role:    core.RoleButton, Label: apptext.T("更多"), TestID: "rail-more",
 			Expanded: func() bool { return open },
 			StyleFunc: func() core.Style {
-				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Height: core.Pt(32), Padding: core.Symmetric(0, 8),
+				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 9, Height: core.Pt(32), Padding: core.Symmetric(0, 8),
 					CornerRadius: 7, Transition: viewkit.PressMotion,
 					Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
 			},
@@ -58,8 +58,8 @@ func (a *app) railMore() core.Node {
 						return lucide.ChevronDown()
 					}
 					return lucide.ChevronRight()
-				}, 14, colors.Faint),
-				core.Text{Content: apptext.T("更多"), Style: core.Style{FontSize: 13, LineHeight: 19}, StyleFunc: ui.Colored(colors.Text)},
+				}, 15, colors.Faint),
+				core.Text{Content: apptext.T("更多"), Style: core.Style{FontSize: 13.5, LineHeight: 19, FontWeight: ui.Medium}, StyleFunc: ui.Colored(colors.Text)},
 			},
 		})
 		if !open {
@@ -70,8 +70,8 @@ func (a *app) railMore() core.Node {
 				OnPress: func(core.PressEvent) { on() },
 				Role:    core.RoleButton, Label: apptext.T(label), TestID: id,
 				StyleFunc: func() core.Style {
-					st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Height: core.Pt(30),
-						Padding: core.Edges{Left: 30, Right: 8}, CornerRadius: 7, Transition: viewkit.PressMotion,
+					st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 9, Height: core.Pt(32),
+						Padding: core.Edges{Left: 32, Right: 8}, CornerRadius: 7, Transition: viewkit.PressMotion,
 						Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
 					if a.paneVisible() && a.activePane.Get() == pane {
 						st.Background = colors.Pressed()
@@ -79,8 +79,8 @@ func (a *app) railMore() core.Node {
 					return st
 				},
 				Children: []core.Node{
-					ui.Icon(icon, 13.5, colors.Muted),
-					ui.Text(apptext.T(label), 12.5, ui.Regular, colors.Text),
+					ui.Icon(icon, 14, colors.Muted),
+					ui.Text(apptext.T(label), 13, ui.Regular, colors.Text),
 				},
 			}
 		}
@@ -169,9 +169,9 @@ func (a *app) railActivity() core.Node {
 		waiting, running := a.activityGroups()
 		header := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Wrap: core.Wrap, Gap: 8,
 			Padding: core.Edges{Top: 2, Right: 8, Bottom: 2, Left: 8}}, Children: []core.Node{
-			core.Text{Content: apptext.T("需要确认 · %d", waiting), Style: core.Style{FontSize: 10.5, FontWeight: ui.Medium},
+			core.Text{Content: apptext.T("需要确认 · %d", waiting), Style: core.Style{FontSize: 11.5, FontWeight: ui.Medium},
 				StyleFunc: ui.Colored(colors.Warn)},
-			core.Text{Content: apptext.T("正在运行 · %d", running), Style: core.Style{FontSize: 10.5}, StyleFunc: ui.Colored(colors.Muted)},
+			core.Text{Content: apptext.T("正在运行 · %d", running), Style: core.Style{FontSize: 11.5}, StyleFunc: ui.Colored(colors.Muted)},
 		}}
 		if len(items) == 0 {
 			text := apptext.T("目前没有需要处理的对话")
@@ -181,7 +181,7 @@ func (a *app) railActivity() core.Node {
 			return core.View{Style: core.Style{Gap: 6, Padding: core.Symmetric(18, 10), AlignItems: core.AlignCenter}, Children: []core.Node{
 				header,
 				ui.Icon(lucide.CircleCheck, 20, colors.Faint),
-				core.Text{Content: text, Style: core.Style{FontSize: 11.5, TextAlign: core.TextAlignCenter}, StyleFunc: ui.Colored(colors.Muted)},
+				core.Text{Content: text, Style: core.Style{FontSize: 12.5, TextAlign: core.TextAlignCenter}, StyleFunc: ui.Colored(colors.Muted)},
 			}}
 		}
 		rows := make([]core.Node, 0, len(items)+1)
@@ -231,7 +231,7 @@ func (a *app) railChats() core.Node {
 				text = apptext.T("没有匹配的会话")
 			}
 			children = append(children, core.Text{Content: text,
-				Style: core.Style{FontSize: 11, Padding: core.Edges{Left: 8, Top: 6}}, StyleFunc: ui.Colored(colors.Faint)})
+				Style: core.Style{FontSize: 12, Padding: core.Edges{Left: 8, Top: 6}}, StyleFunc: ui.Colored(colors.Faint)})
 		}
 		return core.View{Style: core.Style{Gap: 4}, Children: children}
 	})
@@ -243,11 +243,11 @@ func (a *app) newChatRow() core.Node {
 	return core.View{OnPress: func(core.PressEvent) { a.openChat() }, Role: core.RoleButton,
 		Label: apptext.T("新对话"), TestID: "rail-new-chat",
 		StyleFunc: func() core.Style {
-			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7, Height: core.Pt(30), Padding: core.Symmetric(0, 8),
+			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Height: core.Pt(32), Padding: core.Symmetric(0, 8),
 				CornerRadius: 7, Transition: viewkit.PressMotion,
 				Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
 		}, Children: []core.Node{
-			ui.Icon(lucide.Plus, 13, colors.Muted),
-			ui.Text(apptext.T("新对话"), 12.5, ui.Regular, colors.Text),
+			ui.Icon(lucide.Plus, 14, colors.Muted),
+			ui.Text(apptext.T("新对话"), 13.5, ui.Regular, colors.Text),
 		}}
 }

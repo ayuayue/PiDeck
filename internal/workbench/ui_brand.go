@@ -75,24 +75,24 @@ func (a *app) brand() core.Node {
 			label, tone := a.piStatus(colors)
 			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 9,
 				MinWidth: core.Pt(0), MaxWidth: core.Pct(100)}, Children: []core.Node{
-				a.brandMark(28, "rail-brand-logo"),
+				a.brandMark(30, "rail-brand-logo"),
 				core.View{Style: core.Style{Gap: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
 					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinWidth: core.Pt(0)}, Children: []core.Node{
 						core.Text{ContentFunc: func() string {
 							_ = a.brandNameRev.Get()
 							return resolveBrandName(a.cfg.AppDisplayName)
 						}, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-							TestID: "rail-brand-name", Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 14, FontWeight: ui.Bold,
+							TestID: "rail-brand-name", Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 15, FontWeight: ui.Bold,
 								LetterSpacing: 0.4, MinWidth: core.Pt(0), FlexShrink: 1}, StyleFunc: ui.Colored(colors.Text)},
 						core.View{Style: core.Style{Padding: core.Symmetric(1, 5), CornerRadius: 4, FlexShrink: 0,
 							BorderWidth: 1, BorderColor: colors.Border()}, Children: []core.Node{
-							ui.Text("v2", 9, ui.Regular, colors.Faint),
+							ui.Text("v2", 10, ui.Regular, colors.Faint),
 						}},
 					}},
 					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, MinWidth: core.Pt(0)}, Children: []core.Node{
-						core.View{Style: core.Style{Width: core.Pt(5), Height: core.Pt(5), FlexShrink: 0, CornerRadius: 3, Background: tone}},
+						core.View{Style: core.Style{Width: core.Pt(6), Height: core.Pt(6), FlexShrink: 0, CornerRadius: 3, Background: tone}},
 						core.Text{Content: label, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-							Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10, FlexShrink: 1, MinWidth: core.Pt(0)}, StyleFunc: ui.Colored(colors.Muted)},
+							Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10.5, FlexShrink: 1, MinWidth: core.Pt(0)}, StyleFunc: ui.Colored(colors.Muted)},
 					}},
 				}},
 			}}
