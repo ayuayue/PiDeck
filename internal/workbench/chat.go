@@ -5,13 +5,14 @@ package workbench
 // The built-in chat: a real folder under the app's data that holds
 // conversations which belong to no project. It is a workspace like any
 // other, so pi keeps its sessions and the file drawer has somewhere to
-// look, but it is made on first use and marked in the rail.
+// look, but it is made on first use and shown in the rail's chat column
+// instead of among the projects.
 
 import (
 	"os"
 	"path/filepath"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -24,9 +25,20 @@ func (a *app) chatDir() string {
 	return filepath.Join(a.st.dir, "chat")
 }
 
-// openChat starts a session in the built-in chat folder, making the
-// folder and its pseudo project on first use.
-func (a *app) openChat() *session {
+// chatWorkspace is the built-in chat's project, nil before it was made.
+func (a *app) chatWorkspace() *workspace {
+	dir := a.chatDir()
+	if dir == "" {
+		return nil
+	}
+	return a.workspaceFor(localTarget, dir)
+}
+
+// ensureChatWorkspace makes the chat folder and its project on first use.
+func (a *app) ensureChatWorkspace() *workspace {
+	if ws := a.chatWorkspace(); ws != nil {
+		return ws
+	}
 	dir := a.chatDir()
 	if dir == "" {
 		return nil
@@ -35,22 +47,29 @@ func (a *app) openChat() *session {
 		a.toast(ui.ToastError, "无法创建内置对话目录", err.Error())
 		return nil
 	}
-	ws := a.workspaceFor(localTarget, dir)
+	ws := &workspace{Path: dir, Name: apptext.T("对话"), Chat: true, Pinned: true, Target: localTarget, Added: a.cx.Now(),
+		Expanded:  core.NewSignal(a.cx, true),
+		Sessions:  core.NewSignalFunc(a.cx, []*session{}, nil),
+		Pi:        core.NewSignalFunc(a.cx, []*session(nil), nil),
+		PiOpen:    core.NewSignal(a.cx, true),
+		PiLoading: core.NewSignal(a.cx, false),
+		Visible:   core.NewSignal(a.cx, 0)}
+	a.workspaces.Update(func(list []*workspace) []*workspace { return append(list, ws) })
+	a.trustProject(ws)
+	a.files.watch(dir)
+	a.saveProjects()
+	a.rescanPi()
+	return ws
+}
+
+// openChat starts a session in the built-in chat folder, making the
+// folder and its pseudo project on first use.
+func (a *app) openChat() *session {
+	ws := a.ensureChatWorkspace()
 	if ws == nil {
-		ws = &workspace{Path: dir, Name: apptext.T("对话"), Chat: true, Pinned: true, Target: localTarget, Added: a.cx.Now(),
-			Expanded:  core.NewSignal(a.cx, true),
-			Sessions:  core.NewSignalFunc(a.cx, []*session{}, nil),
-			Pi:        core.NewSignalFunc(a.cx, []*session(nil), nil),
-			PiOpen:    core.NewSignal(a.cx, true),
-			PiLoading: core.NewSignal(a.cx, false),
-			Visible:   core.NewSignal(a.cx, 0)}
-		a.workspaces.Update(func(list []*workspace) []*workspace { return append(list, ws) })
-		a.trustProject(ws)
-		a.files.watch(dir)
-		a.saveProjects()
-		a.rescanPi()
+		return nil
 	}
 	ws.Expanded.Set(true)
-	a.activeWS.Set(dir)
-	return a.newSession(dir)
+	a.activeWS.Set(projectWireKey(ws))
+	return a.newSession(projectWireKey(ws))
 }

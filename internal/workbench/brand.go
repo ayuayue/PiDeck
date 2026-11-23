@@ -17,8 +17,8 @@ import (
 	"unicode"
 	"unicode/utf16"
 
-	"example.com/pideck-lite/internal/appinfo"
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/appinfo"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/core"
 	"golang.org/x/image/draw"
 	_ "golang.org/x/image/webp"
@@ -33,7 +33,7 @@ const (
 	logoSourceMax    = 12 << 20
 	logoDataMax      = 1_500_000
 	logoPixelsMax    = 40_000_000
-	appRepoURL       = "https://github.com/ayuayue/PiDeck-Lite"
+	appRepoURL       = "https://github.com/ayuayue/PiDeck-V2"
 )
 
 // These are pi's official 4×4 TUI pixels and fixed brand colors. Keep the
@@ -207,6 +207,19 @@ func (a *app) brandChanged() {
 	}
 }
 
+func (a *app) brandNameChanged() {
+	if a.brandNameRev != nil {
+		a.brandNameRev.Update(func(n int) int { return n + 1 })
+	}
+}
+
+func (a *app) brandNameReloaded() {
+	a.brandNameChanged()
+	if a.brandInputRev != nil {
+		a.brandInputRev.Update(func(n int) int { return n + 1 })
+	}
+}
+
 // applyBrand reloads the cached image after startup or a settings restore.
 // A pending file read belongs to the previous settings and must not win.
 func (a *app) applyBrand() {
@@ -215,6 +228,7 @@ func (a *app) applyBrand() {
 	a.brandBusy.Set(false)
 	a.brandError.Set("")
 	a.brandChanged()
+	a.brandNameReloaded()
 }
 
 func (a *app) setLogoStyle(style string) {
@@ -223,7 +237,8 @@ func (a *app) setLogoStyle(style string) {
 	a.brandError.Set("")
 	a.cfg.LogoStyle = resolveLogoStyle(style)
 	if a.st != nil {
-		a.st.edit(func(c *config) { c.LogoStyle = a.cfg.LogoStyle })
+		a.st.change(func(c *config) { c.LogoStyle = a.cfg.LogoStyle })
+		a.saveConfigAsync()
 	}
 	a.brandChanged()
 }
@@ -231,9 +246,9 @@ func (a *app) setLogoStyle(style string) {
 func (a *app) setBrandName(value string) {
 	a.cfg.AppDisplayName = cleanBrandName(value)
 	if a.st != nil {
-		a.st.edit(func(c *config) { c.AppDisplayName = a.cfg.AppDisplayName })
+		a.st.change(func(c *config) { c.AppDisplayName = a.cfg.AppDisplayName })
 	}
-	a.brandChanged()
+	a.brandNameChanged()
 }
 
 func (a *app) clearBrandImage() {
@@ -243,18 +258,24 @@ func (a *app) clearBrandImage() {
 	a.brandError.Set("")
 	a.brandBusy.Set(false)
 	if a.st != nil {
-		a.st.edit(func(c *config) { c.LogoCustomImage = "" })
+		a.st.change(func(c *config) { c.LogoCustomImage = "" })
+		a.saveConfigAsync()
 	}
 	a.brandChanged()
 }
 
 func (a *app) resetBrand() {
-	a.cfg.LogoStyle, a.cfg.AppDisplayName = "", ""
-	a.clearBrandImage()
+	a.brandImageSeq++
+	a.cfg.LogoStyle, a.cfg.AppDisplayName, a.cfg.LogoCustomImage = "", "", ""
+	a.customBrand = brandImage{}
+	a.brandError.Set("")
+	a.brandBusy.Set(false)
 	if a.st != nil {
-		a.st.edit(func(c *config) { c.LogoStyle, c.AppDisplayName = "", "" })
+		a.st.change(func(c *config) { c.LogoStyle, c.AppDisplayName, c.LogoCustomImage = "", "", "" })
+		a.saveConfigAsync()
 	}
 	a.brandChanged()
+	a.brandNameReloaded()
 }
 
 func (a *app) pickBrandImage() {
@@ -285,7 +306,8 @@ func (a *app) pickBrandImage() {
 					a.cfg.LogoCustomImage, a.cfg.LogoStyle = value, logoStyleCustom
 					a.customBrand = asset
 					if a.st != nil {
-						a.st.edit(func(c *config) { c.LogoCustomImage, c.LogoStyle = value, logoStyleCustom })
+						a.st.change(func(c *config) { c.LogoCustomImage, c.LogoStyle = value, logoStyleCustom })
+						a.saveConfigAsync()
 					}
 					a.brandChanged()
 				})

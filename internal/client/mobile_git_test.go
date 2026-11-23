@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-lite/internal/remotewire"
+	"example.com/pideck-v2/internal/remotewire"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
@@ -19,7 +19,7 @@ func TestMobileGit(t *testing.T) {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
 	const token = "phone-token"
-	state := remotewire.Snapshot{Name: "PiDeck Lite", Host: "desk", Projects: []remotewire.Project{{
+	state := remotewire.Snapshot{Name: "PiDeck V2", Host: "desk", Projects: []remotewire.Project{{
 		Path: "/tmp/project", Name: "电脑项目", Sessions: []remotewire.Session{{ID: "s1", Title: "电脑上的会话"}},
 	}}}
 	var mu sync.Mutex
@@ -42,7 +42,7 @@ func TestMobileGit(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/ping", func(w http.ResponseWriter, r *http.Request) {
 		if check(w, r) {
-			_ = json.NewEncoder(w).Encode(map[string]any{"name": "PiDeck Lite", "host": "desk"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"name": "PiDeck V2", "host": "desk"})
 		}
 	})
 	mux.HandleFunc("/api/state", func(w http.ResponseWriter, r *http.Request) {
@@ -126,17 +126,20 @@ func TestMobileGit(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	t.Setenv("PIDECK_LITE_MOBILE", "1")
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_MOBILE", "1")
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	app := nsgotest.Start(t, Root, nsgotest.Size(420, 860))
 	app.WaitFor("id:mobile-server", 10*time.Second)
 	app.Type("id:mobile-server", server.URL)
 	app.Type("id:mobile-token", token)
 	app.Press("id:mobile-connect")
 	waitApp(app, "text:电脑项目", 15*time.Second)
-	app.WaitFor("id:mobile-git-0", 10*time.Second)
+	openPhoneRail(app)
+	app.WaitFor("id:mobile-project-more-0", 10*time.Second)
+	app.Press("id:mobile-project-more-0")
+	app.WaitFor("id:mobile-project-sheet", 5*time.Second)
+	app.Press("id:mobile-project-git")
 	for i := 0; i < 4; i++ {
-		app.Press("id:mobile-git-0")
 		if waitQuiet(app, "id:mobile-git", 2*time.Second) {
 			break
 		}

@@ -109,7 +109,7 @@ func TestACPDisconnectFinishesPendingPrompt(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.stop()
-	if _, err := c.initialize("PiDeck Lite", "test"); err != nil {
+	if _, err := c.initialize("PiDeck V2", "test"); err != nil {
 		t.Fatal(err)
 	}
 	result := make(chan error, 1)
@@ -132,7 +132,7 @@ func TestACPResumeWithAdvertisedCapability(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.stop()
-	if _, err := c.initialize("PiDeck Lite", "test"); err != nil {
+	if _, err := c.initialize("PiDeck V2", "test"); err != nil {
 		t.Fatal(err)
 	}
 	state, err := c.loadSession("s1", t.TempDir())
@@ -160,7 +160,7 @@ func TestACPClient(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.stop()
-	version, err := c.initialize("PiDeck Lite", "test")
+	version, err := c.initialize("PiDeck V2", "test")
 	if err != nil || version != 1 {
 		t.Fatalf("initialize = %d, %v", version, err)
 	}

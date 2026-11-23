@@ -6,7 +6,6 @@ package workbench
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -16,13 +15,13 @@ import (
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
-// requirePi skips a test that drives a real pi when it is not installed:
+// requirePi skips a test that drives a real pi when its CLI cannot start:
 // everything a session shows comes from pi, and a CI runner has none. Tests
 // that check what the app does without pi do not ask for this.
 func requirePi(t *testing.T) {
 	t.Helper()
-	if _, err := exec.LookPath("pi"); err != nil {
-		t.Skip("pi is not on PATH: this test drives a real pi")
+	if _, _, err := probePi("", ""); err != nil {
+		t.Skip("pi CLI cannot run --version: this test drives a real pi")
 	}
 }
 
@@ -30,8 +29,8 @@ func requirePi(t *testing.T) {
 // workspace through the folder browser.
 func startApp(t *testing.T, dir string, width, height core.Points) *nsgotest.App {
 	t.Helper()
-	if os.Getenv("PIDECK_LITE_HOME") == "" {
-		t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	if os.Getenv("PIDECK_V2_HOME") == "" {
+		t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	}
 	return openApp(t, dir, width, height)
 }
@@ -43,8 +42,8 @@ func openApp(t *testing.T, dir string, width, height core.Points) *nsgotest.App 
 	requirePi(t)
 	// Always give the app a data folder of its own: without one it would
 	// write its config and seed files into the working directory.
-	if os.Getenv("PIDECK_LITE_HOME") == "" {
-		t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	if os.Getenv("PIDECK_V2_HOME") == "" {
+		t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	}
 	t.Cleanup(closeAllPi)
 	app := nsgotest.Start(t, Root, nsgotest.Size(width, height))
@@ -273,7 +272,7 @@ func TestRestore(t *testing.T) {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
 	dir := workspaceWith(t)
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	t.Cleanup(closeAllPi)
 	app := openApp(t, dir, 1320, 860)
 	waitApp(app, "id:pi-ready", 90*time.Second)
@@ -322,7 +321,7 @@ func TestImport(t *testing.T) {
 	if err := os.WriteFile(src, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	t.Cleanup(closeAllPi)
 	app := nsgotest.Start(t, Root, nsgotest.Size(1320, 860))
 	app.Press("text:导入会话")
@@ -416,7 +415,7 @@ func TestDeleteSessionFromMenu(t *testing.T) {
 	if err := os.WriteFile(src, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	t.Cleanup(closeAllPi)
 	app := nsgotest.Start(t, Root, nsgotest.Size(1320, 860))
 	app.Press("text:导入会话")

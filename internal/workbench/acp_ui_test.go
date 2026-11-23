@@ -26,7 +26,7 @@ func TestACPPicker(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(workspace, "note.txt"), []byte("hello"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	app := openApp(t, workspace, 1280, 860)
 	app.Press("id:rail-palette")
 	app.WaitFor("text:新建 ACP 会话（选择预设）…", 5*time.Second)
@@ -62,7 +62,7 @@ func fakeACPApp(t *testing.T, size ...core.Points) *nsgotest.App {
 	if err := os.WriteFile(filepath.Join(dir, "fake.json"), preset, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	t.Setenv("PIDECK_FAKE_ACP", "1")
 	t.Setenv("PIDECK_FAKE_ACP_UI", "1")
 	t.Cleanup(closeAllACP)

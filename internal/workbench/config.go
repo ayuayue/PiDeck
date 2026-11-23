@@ -93,8 +93,11 @@ type config struct {
 	TerminalOpen   bool    `json:"terminalOpen,omitempty"`
 	TerminalHeight float64 `json:"terminalHeight,omitempty"`
 	// ChatWidthPct is the transcript and composer's share of the window
-	// width, 50 to 90; 0 keeps the default of 60.
+	// width, 50 to 90; 0 keeps the default of 80.
 	ChatWidthPct int `json:"chatWidthPct,omitempty"`
+	// GitChangesView lists the Git drawer's changes as a tree ("tree",
+	// the default) or as a flat list ("flat").
+	GitChangesView string `json:"gitChangesView,omitempty"`
 	// ChatWidth was that width in points before it became a percentage.
 	// It is read only to migrate an older file and is cleared on load.
 	ChatWidth int `json:"chatWidth,omitempty"`
@@ -250,6 +253,8 @@ type config struct {
 	TelemetryEnabled           *bool  `json:"telemetryEnabled,omitempty"`
 	TelemetryInstallID         string `json:"telemetryInstallId,omitempty"`
 	TelemetryLastHeartbeatDate string `json:"telemetryLastHeartbeatDate,omitempty"`
+	// SecurityLevel is the tool gate's level: off, standard or strict.
+	SecurityLevel string `json:"securityLevel,omitempty"`
 	// EditorCommand opens files outside the app; empty detects one.
 	EditorCommand string `json:"editorCommand,omitempty"`
 }

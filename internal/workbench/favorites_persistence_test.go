@@ -22,7 +22,7 @@ func startFavoriteFixture(t *testing.T) (*app, *nsgotest.App) {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	seed := []favoriteEntry{
 		{ID: "saved-session", Kind: favoriteSession, SessionID: "s1", SessionTitle: "saved conversation", CreatedAt: time.Unix(100, 0).UTC()},
 		{ID: "saved-reply", Kind: favoriteReply, SessionID: "s2", Text: "saved answer", CreatedAt: time.Unix(200, 0).UTC()},

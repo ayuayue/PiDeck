@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -22,9 +22,9 @@ func TestMobileLanguage(t *testing.T) {
 	for _, lang := range apptext.SupportedLanguages {
 		lang := lang
 		t.Run(lang, func(t *testing.T) {
-			t.Setenv("PIDECK_LITE_MOBILE", "1")
-			t.Setenv("PIDECK_LITE_LANG", lang)
-			t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+			t.Setenv("PIDECK_V2_MOBILE", "1")
+			t.Setenv("PIDECK_V2_LANG", lang)
+			t.Setenv("PIDECK_V2_HOME", t.TempDir())
 			app := nsgotest.Start(t, Root, nsgotest.Size(420, 860))
 			app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:"+apptext.Catalogs[lang]["连接"])) > 0 })
 			app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:"+apptext.Catalogs[lang]["扫码连接"])) > 0 })
@@ -38,8 +38,8 @@ func TestMobileLanguageSwitchAndRestore(t *testing.T) {
 	}
 	t.Cleanup(func() { apptext.SetLanguage(apptext.LangZhCN) })
 	dir := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", dir)
-	t.Setenv("PIDECK_LITE_LANG", apptext.LangEnUS)
+	t.Setenv("PIDECK_V2_HOME", dir)
+	t.Setenv("PIDECK_V2_LANG", apptext.LangEnUS)
 	raw, err := json.Marshal(mobileSaved{Language: apptext.LangJaJP})
 	if err != nil {
 		t.Fatal(err)

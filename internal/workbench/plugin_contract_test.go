@@ -16,9 +16,9 @@ func TestPluginManifestRuntimeCompatibility(t *testing.T) {
 		wantError    bool
 	}{
 		{"legacy", "", false},
-		{"explicit lite", `"schemaVersion":2,"runtime":"pideck-lite",`, false},
+		{"explicit v2", `"schemaVersion":2,"runtime":"pideck-v2",`, false},
 		{"electron", `"schemaVersion":1,"runtime":"pideck-electron",`, true},
-		{"future schema", `"schemaVersion":99,"runtime":"pideck-lite",`, true},
+		{"future schema", `"schemaVersion":99,"runtime":"pideck-v2",`, true},
 		{"unknown runtime", `"runtime":"future-runtime",`, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -1,5 +1,5 @@
-name: Lite UI Example
-id: dev.pideck.lite.examples.ui
+name: V2 UI Example
+id: dev.pideck.v2.examples.ui
 version: 1.0.0
 build_number: 1
 capabilities:

@@ -28,7 +28,7 @@ func jsonQuote(value string) string {
 // and from models.json after that.
 func TestTokenDanceKeySource(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("PIDECK_LITE_PI_CONFIG", dir)
+	t.Setenv("PIDECK_V2_PI_CONFIG", dir)
 	t.Setenv("TD_TEST_KEY", "from-env")
 	plain := "sk-" + "tokendance-1234"
 	if err := os.WriteFile(filepath.Join(dir, "models.json"),
@@ -67,7 +67,7 @@ func TestTokenDanceKeySource(t *testing.T) {
 // description the user has edited alone.
 func TestEnsureTokenDanceProvider(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("PIDECK_LITE_PI_CONFIG", dir)
+	t.Setenv("PIDECK_V2_PI_CONFIG", dir)
 	if err := ensureTokenDanceProvider(""); err != nil {
 		t.Fatal(err)
 	}
@@ -242,8 +242,8 @@ func TestTokenDanceSettingsRows(t *testing.T) {
 	}
 	home := t.TempDir()
 	cfgDir := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
-	t.Setenv("PIDECK_LITE_PI_CONFIG", cfgDir)
+	t.Setenv("PIDECK_V2_HOME", home)
+	t.Setenv("PIDECK_V2_PI_CONFIG", cfgDir)
 	t.Setenv("PI_CODING_AGENT_DIR", cfgDir)
 	app := nsgotest.Start(t, Root, nsgotest.Size(1280, 860))
 	app.Press("label:设置")

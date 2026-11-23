@@ -1,20 +1,19 @@
 package client
 
-// The phone build: it connects to a desktop PiDeck Lite server and browses
+// The phone build: it connects to a desktop PiDeck V2 server and browses
 // its projects, sessions and transcripts. The same package builds the
 // desktop; Root picks this screen on iOS and Android (or with
-// PIDECK_LITE_MOBILE=1 for a preview on a desktop).
+// PIDECK_V2_MOBILE=1 for a preview on a desktop).
 
 import (
 	"os"
 	"strings"
 
-	"example.com/pideck-lite/internal/alerts"
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/remotewire"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/alerts"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
-	"github.com/nsgo-dev/nsgo/microphone"
 )
 
 // mobileSaved is the last connection the phone used, and the ones before
@@ -78,6 +77,12 @@ type mobileApp struct {
 	ask        *core.Signal[*remotewire.Ask]
 	askText    *core.Signal[string]
 	askSending *core.Signal[bool]
+	// askPicks are the batch's answered questions and askTexts what each
+	// field holds; askKey names the request they belong to, so another
+	// turn's questions never inherit them.
+	askPicks *core.Signal[[]remotewire.AskAnswer]
+	askTexts *core.Signal[map[string]string]
+	askKey   string
 
 	// git is one project's repository, read-only.
 	gitOpen         *core.Signal[bool]
@@ -124,6 +129,7 @@ type mobileApp struct {
 	filesList    *core.Signal[[]remotewire.File]
 	filesBusy    *core.Signal[bool]
 	filesErr     *core.Signal[string]
+	filesSeq     int
 	fileOpen     *core.Signal[bool]
 	fileTitle    *core.Signal[string]
 	fileText     *core.Signal[string]
@@ -158,12 +164,6 @@ type mobileApp struct {
 	notifyOn  *core.Signal[bool]
 	soundName *core.Signal[string]
 	sounds    *alerts.Player
-	// voice is the microphone's state, idle, recording or busy; rec is the
-	// recording it started, and voiceInsert puts a transcript into the
-	// composer that began it.
-	voice       *core.Signal[string]
-	rec         *microphone.Recording
-	voiceInsert func(string)
 
 	// The rail's lists: the ways of working a session can start with, the
 	// desktop's cron tasks and its favorites.
@@ -237,9 +237,11 @@ type mobileApp struct {
 	longOpen *core.Signal[string]
 	// thoughtOpen holds the thinking blocks the user opened, thoughtFull
 	// the ones whose rest they asked for: a long block opens to its head
-	// first, so one reasoning does not fill the screen.
+	// first, so one reasoning does not fill the screen. procOpen holds the
+	// finished turns whose process the user unfolded.
 	thoughtOpen *core.Signal[[]string]
 	thoughtFull *core.Signal[[]string]
+	procOpen    *core.Signal[[]string]
 
 	// hits are the message matches for the list's query; searchSeq drops
 	// answers for a query the user already changed.
@@ -255,6 +257,9 @@ type mobileApp struct {
 	notice   *core.Signal[string]
 
 	stateLoading bool
+	// sessionSeq identifies each visit, including reopening the same session.
+	// Reads from an earlier visit cannot publish into the current one.
+	sessionSeq int
 	// transcriptSeq names the newest transcript read; an older reply that
 	// arrives after a switch is dropped instead of filling the page.
 	transcriptSeq int
@@ -265,7 +270,7 @@ type mobileApp struct {
 func newMobileApp(cx *core.Scope) *mobileApp {
 	cx.SetAppearance(core.AppearanceSystem)
 	cx.SetTheme(viewkit.Theme())
-	setting := strings.TrimSpace(os.Getenv("PIDECK_LITE_LANG"))
+	setting := strings.TrimSpace(os.Getenv("PIDECK_V2_LANG"))
 	apptext.SetLanguage(apptext.ResolveLanguage(setting, cx.Env().Locale()))
 	a := &mobileApp{
 		cx:                  cx,
@@ -275,7 +280,7 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		busy:                core.NewSignal(cx, false),
 		err:                 core.NewSignal(cx, ""),
 		connected:           core.NewSignal(cx, false),
-		serverName:          core.NewSignal(cx, "PiDeck Lite"),
+		serverName:          core.NewSignal(cx, "PiDeck V2"),
 		desktopVersion:      core.NewSignal(cx, ""),
 		state:               core.NewSignalFunc(cx, remotewire.Snapshot{}, nil),
 		active:              core.NewSignal(cx, ""),
@@ -290,6 +295,8 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		ask:                 core.NewSignalFunc(cx, (*remotewire.Ask)(nil), nil),
 		askText:             core.NewSignal(cx, ""),
 		askSending:          core.NewSignal(cx, false),
+		askPicks:            core.NewSignalFunc(cx, []remotewire.AskAnswer(nil), nil),
+		askTexts:            core.NewSignalFunc(cx, map[string]string(nil), nil),
 		reviewOpen:          core.NewSignal(cx, false),
 		reviewProject:       core.NewSignal(cx, ""),
 		reviewName:          core.NewSignal(cx, ""),
@@ -368,6 +375,8 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		toolOpen:            core.NewSignal(cx, ""),
 		longOpen:            core.NewSignal(cx, ""),
 		thoughtOpen:         core.NewSignalFunc(cx, []string(nil), nil),
+		thoughtFull:         core.NewSignalFunc(cx, []string(nil), nil),
+		procOpen:            core.NewSignalFunc(cx, []string(nil), nil),
 		hits:                core.NewSignalFunc(cx, []remotewire.Hit(nil), nil),
 		hitsBusy:            core.NewSignal(cx, false),
 		scroll:              &core.Ref{},
@@ -388,7 +397,6 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		soundOn:             core.NewSignal(cx, false),
 		notifyOn:            core.NewSignal(cx, false),
 		soundName:           core.NewSignal(cx, ""),
-		voice:               core.NewSignal(cx, voiceIdle),
 		agents:              core.NewSignalFunc(cx, []remotewire.Agent(nil), nil),
 		agentsBusy:          core.NewSignal(cx, false),
 		agentsErr:           core.NewSignal(cx, ""),
@@ -439,6 +447,10 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		}
 	}
 	cx.OnBackPress(func() bool {
+		if a.transcriptPicture.GetUntracked().Open {
+			a.closeTranscriptPicture()
+			return true
+		}
 		if a.drawerOpen.GetUntracked() {
 			a.openDrawer(false)
 			return true

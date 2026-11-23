@@ -1,0 +1,3 @@
+# Embedded preview source maps must be identical on all checkout platforms.
+/internal/workbench/plugin_examples/nsgo-session-tools/*.ts text eol=lf
+/internal/workbench/plugin_examples/nsgo-session-tools/*.tsx text eol=lf

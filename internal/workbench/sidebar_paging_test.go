@@ -42,7 +42,7 @@ func TestProjectSessionPaging(t *testing.T) {
 		}
 	}
 
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	t.Setenv("PI_CODING_AGENT_SESSION_DIR", piSessions)
 	raw, err := json.Marshal(config{Version: 1, Workspaces: []workspaceCfg{{Path: workspace, Name: "PagingProject"}},
 		Theme: "system", SidebarOpen: true, ScanPi: true})
@@ -88,7 +88,7 @@ func TestProjectSessionPaging(t *testing.T) {
 func TestProjectLoadingSkeleton(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	raw, err := json.Marshal(config{Version: 1, Workspaces: []workspaceCfg{{Path: workspace, Name: "LoadingProject"}},
 		Theme: "system", SidebarOpen: true, ScanPi: false})
 	if err != nil {

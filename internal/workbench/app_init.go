@@ -6,16 +6,16 @@ package workbench
 // views read; pi's events are folded in here, on the UI thread.
 
 import (
-	"example.com/pideck-lite/internal/remotewire"
+	"example.com/pideck-v2/internal/remotewire"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"example.com/pideck-lite/extensions"
-	"example.com/pideck-lite/internal/alerts"
-	"example.com/pideck-lite/internal/crashlog"
-	"example.com/pideck-lite/internal/sessionimport"
-	"example.com/pideck-lite/internal/volcvoice"
+	"example.com/pideck-v2/extensions"
+	"example.com/pideck-v2/internal/alerts"
+	"example.com/pideck-v2/internal/crashlog"
+	"example.com/pideck-v2/internal/sessionimport"
+	"example.com/pideck-v2/internal/volcvoice"
 	"github.com/nsgo-dev/nsgo/base/textview"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -31,7 +31,11 @@ func newApp(cx *core.Scope) *app {
 		activeWS:               core.NewSignal(cx, ""),
 		tabs:                   core.NewSignalFunc(cx, []string{}, nil),
 		activeID:               core.NewSignal(cx, ""),
-		activityOpen:           core.NewSignal(cx, false),
+		railTab:                core.NewSignal(cx, railTabProjects),
+		hoveredProject:         core.NewSignal(cx, ""),
+		projectMoreOpen:        core.NewSignal(cx, ""),
+		addProjectOpen:         core.NewSignal(cx, false),
+		railMoreOpen:           core.NewSignal(cx, false),
 		activePane:             core.NewSignal(cx, ""),
 		filter:                 core.NewSignal(cx, ""),
 		sidebar:                core.NewSignal(cx, true),
@@ -60,9 +64,14 @@ func newApp(cx *core.Scope) *app {
 		settingsRev:            core.NewSignal(cx, 0),
 		brandOpen:              core.NewSignal(cx, false),
 		brandRev:               core.NewSignal(cx, 0),
+		brandNameRev:           core.NewSignal(cx, 0),
+		brandInputRev:          core.NewSignal(cx, 0),
 		brandBusy:              core.NewSignal(cx, false),
 		brandError:             core.NewSignal(cx, ""),
 		settingsScroll:         &core.Ref{},
+		diagMem:                core.NewSignal(cx, diagMemory{}),
+		diagProcs:              core.NewSignal[*diagProcs](cx, nil),
+		diagLog:                core.NewSignal[*diagLogEvents](cx, nil),
 		addWS:                  core.NewSignal(cx, false),
 		addTarget:              core.NewSignal(cx, false),
 		addKind:                core.NewSignal(cx, int(targetWSL)),
@@ -103,12 +112,23 @@ func newApp(cx *core.Scope) *app {
 		skillStoreErr:          core.NewSignal(cx, ""),
 		skillStoreList:         core.NewSignalFunc(cx, []skillIndexEntry(nil), nil),
 		skillStoreInstalling:   core.NewSignal(cx, ""),
+		piStoreOpen:            core.NewSignal(cx, false),
+		piStoreQuery:           core.NewSignal(cx, ""),
+		piStoreBusy:            core.NewSignal(cx, false),
+		piStoreErr:             core.NewSignal(cx, ""),
+		piStoreList:            core.NewSignalFunc(cx, []piCatalogItem(nil), nil),
+		piStorePage:            core.NewSignal(cx, 1),
+		piStoreLast:            core.NewSignal(cx, 1),
+		piStoreInstalled:       core.NewSignalFunc(cx, []piPackage(nil), nil),
+		piStoreInstalledErr:    core.NewSignal(cx, ""),
+		piStoreActing:          core.NewSignal(cx, ""),
+		piStoreLocal:           core.NewSignal(cx, false),
+		piExtUpdateBusy:        core.NewSignal(cx, false),
 		marketOpen:             core.NewSignal(cx, false),
 		marketURL:              core.NewSignal(cx, ""),
 		marketBusy:             core.NewSignal(cx, false),
 		marketErr:              core.NewSignal(cx, ""),
 		marketList:             core.NewSignalFunc(cx, []marketEntry(nil), nil),
-		marketInstalling:       core.NewSignal(cx, ""),
 		imageOpen:              core.NewSignal(cx, false),
 		transcriptImage:        core.NewSignalFunc(cx, remotewire.Image{}, nil),
 		imagePrompt:            core.NewSignal(cx, ""),
@@ -210,7 +230,6 @@ func newApp(cx *core.Scope) *app {
 		favModels:              core.NewSignalFunc(cx, []string(nil), nil),
 		favOpen:                core.NewSignal(cx, false),
 		reviewOpen:             core.NewSignal(cx, false),
-		drafts:                 newDraftLibrary(cx),
 		browser:                newBrowserState(cx),
 		preview:                core.NewSignal(cx, (*filePreview)(nil)),
 		notifications:          newNotificationHistory(cx),
@@ -236,6 +255,8 @@ func newApp(cx *core.Scope) *app {
 		taskTimeout:            core.NewSignal(cx, "30"),
 		themes:                 core.NewSignalFunc(cx, []themeSpec(nil), nil),
 		plugins:                core.NewSignalFunc(cx, []plugin(nil), nil),
+		pluginArchive:          core.NewSignalFunc(cx, pluginArchiveSnapshot{}, nil),
+		pluginFileBusy:         core.NewSignal(cx, false),
 		providers:              core.NewSignalFunc(cx, []providerInfo(nil), nil),
 		usage:                  core.NewSignalFunc(cx, usageReport{}, nil),
 		usageLoading:           core.NewSignal(cx, false),
@@ -383,7 +404,7 @@ func newApp(cx *core.Scope) *app {
 	}
 
 	dataDir := cx.DataDir()
-	if custom := os.Getenv("PIDECK_LITE_HOME"); custom != "" {
+	if custom := os.Getenv("PIDECK_V2_HOME"); custom != "" {
 		dataDir = custom
 	}
 	a.dataDir = dataDir
@@ -394,20 +415,23 @@ func newApp(cx *core.Scope) *app {
 		return a
 	}
 	a.st = st
+	exitStore.Store(st)
 	a.notifications.load(st.dir)
 	a.memory = newMemoryView(cx, newMemoryStore(st.dir))
 	a.localToolsExtension = installLocalToolsExtension(st.dir)
 	a.organization.Set(st.organization)
-	a.drafts.items.Set(readDraftLibrary(st.dir))
 	a.draftsAtStart = readSessionDrafts(st.dir)
 	// The ask extension travels with the app: pi loads it with -e, and its
 	// questions reach the card.
 	askExtensionPath = installAskExtension(st.dir)
 	retryExtensionPath = installBundledExtension(st.dir, "pi-deck-retry-no-body.ts", extensions.RetryNoBody)
+	installBundledExtensions(st.dir)
+	installBundledSkills()
 	a.initDiag()
 	a.cfg = st.config()
 	a.reduceEffects.Set(a.cfg.ReduceEffects)
 	a.codeWrap.Set(a.cfg.CodeWrap)
+	securityPolicyPath = a.writeSecurityPolicy()
 	a.sounds = alerts.New(cx)
 	a.speech = &volcvoice.Client{}
 	a.loadCustomSound()
@@ -421,6 +445,7 @@ func newApp(cx *core.Scope) *app {
 	a.bgOpacity.Set(a.backgroundOpacity())
 	a.loadAuth()
 	a.chatWidthPctSig.Set(a.cfg.ChatWidthPct)
+	a.git.view.Set(a.gitChangesView())
 	a.editorWrap.Set(a.cfg.EditorWrap)
 	if a.cfg.TerminalFont > 0 {
 		a.termFont.Set(a.cfg.TerminalFont)
@@ -505,6 +530,11 @@ func newApp(cx *core.Scope) *app {
 			break
 		}
 	}
+	// A drawer restored on the Git tab reads the active project's
+	// repository, with or without an open session.
+	if a.drawer.GetUntracked() && a.drawerTab.GetUntracked() == "git" {
+		a.gitAttach()
+	}
 
 	a.loadACPArchives()
 	a.restoreDraftSessions()
@@ -545,6 +575,11 @@ func newApp(cx *core.Scope) *app {
 			a.activeWS.Set(projectWireKey(ws))
 		}
 		a.openSessionEager(sess)
+	}
+	if active != "" {
+		// A restored bar can be longer than the window: show the tab it
+		// left on.
+		a.revealTab(active)
 	}
 	if len(a.pendingTabs) > 0 {
 		for _, ws := range list {

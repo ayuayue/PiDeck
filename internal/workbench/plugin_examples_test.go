@@ -15,7 +15,7 @@ func TestBuiltinPluginExamplesUI(t *testing.T) {
 	if nsgotest.Target() != "" {
 		t.Skip("headless UI contract; platform runs are for pixels")
 	}
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	app := nsgotest.Start(t, Root, nsgotest.Size(1280, 860))
 	app.Press("label:设置")
 	app.Press("id:settings-tab-addons")
@@ -24,15 +24,15 @@ func TestBuiltinPluginExamplesUI(t *testing.T) {
 	for _, entry := range builtinPluginExamples() {
 		app.WaitFor("id:market-entry-"+entry.ID, 5*time.Second)
 	}
-	app.Press("id:market-install-lite-ui-basics")
+	app.Press("id:market-install-v2-ui-basics")
 	app.WaitFor("text:已安装 v1.0.0", 15*time.Second)
 	app.Press("id:market-close")
 	for _, id := range []string{"detailed", "topic", "points", "format-要点"} {
-		app.WaitFor("id:plugin-setting-lite-ui-basics-"+id, 5*time.Second)
+		app.WaitFor("id:plugin-setting-v2-ui-basics-"+id, 5*time.Second)
 	}
-	app.Press("id:plugin-setting-lite-ui-basics-detailed")
+	app.Press("id:plugin-setting-v2-ui-basics-detailed")
 	app.WaitUntil(5*time.Second, func() bool {
-		return !app.Find("id:plugin-setting-lite-ui-basics-detailed").Props.Checked
+		return !app.Find("id:plugin-setting-v2-ui-basics-detailed").Props.Checked
 	})
 }
 
@@ -51,8 +51,8 @@ func TestLegacyPluginIdentityMigrationDoesNotRewriteManifest(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := &app{st: st, cfg: st.config()}
-	list := a.loadPlugins()
-	if len(list) != 1 || list[0].Runtime != litePluginRuntime || list[0].SchemaVersion != litePluginSchema || len(list[0].Commands) != 1 {
+	list := a.loadPlugins(nil)
+	if len(list) != 1 || list[0].Runtime != v2PluginRuntime || list[0].SchemaVersion != v2PluginSchema || len(list[0].Commands) != 1 {
 		t.Fatalf("legacy migration=%+v", list)
 	}
 	got, err := os.ReadFile(path)

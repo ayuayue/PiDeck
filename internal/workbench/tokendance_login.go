@@ -22,12 +22,12 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 )
 
 const (
 	tokenDanceAuthPage     = "https://tokendance.space/auth"
-	tokenDanceKeyName      = "PiDeck Lite"
+	tokenDanceKeyName      = "PiDeck V2"
 	tokenDanceAuthWait     = 3 * time.Minute
 	tokenDanceCallbackPath = "/callback"
 )
@@ -152,7 +152,7 @@ func listenTokenDanceCode() (*tokenDanceCallback, error) {
 			_, _ = io.WriteString(w, "<p>没有收到授权码，回到应用重试。</p>")
 			return
 		}
-		_, _ = io.WriteString(w, "<p>授权完成，可以关闭这个页面回到 PiDeck Lite。</p>")
+		_, _ = io.WriteString(w, "<p>授权完成，可以关闭这个页面回到 PiDeck V2。</p>")
 		select {
 		case cb.codes <- code:
 		default:

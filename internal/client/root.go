@@ -4,13 +4,13 @@ import (
 	"os"
 	"runtime"
 
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
 // MobileMode selects the native mobile UI, including desktop previews.
 func MobileMode() bool {
-	return os.Getenv("PIDECK_LITE_MOBILE") == "1" || runtime.GOOS == "ios" || runtime.GOOS == "android"
+	return os.Getenv("PIDECK_V2_MOBILE") == "1" || runtime.GOOS == "ios" || runtime.GOOS == "android"
 }
 
 // Mode selects the remote client on phones, browsers and desktop previews.

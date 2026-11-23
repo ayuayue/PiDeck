@@ -8,8 +8,8 @@ package workbench
 import (
 	"strings"
 
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -113,6 +113,8 @@ func (a *app) settingsResources() core.Node {
 			Children: []core.Node{
 				ui.Button{Text: apptext.T("技能商店…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "skill-store-open",
 					OnPress: func() { a.openSkillStore() }},
+				ui.Button{Text: apptext.T("扩展商店…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "pi-store-open",
+					OnPress: func() { a.openPiExtensionStore() }},
 				ui.Button{Text: apptext.T("打开技能目录"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() {
 					if dirs := skillsDirs(); len(dirs) > 0 {
 						a.openResourcesDir(dirs[0])
@@ -121,6 +123,8 @@ func (a *app) settingsResources() core.Node {
 				ui.Button{Text: apptext.T("打开扩展目录"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() {
 					a.openResourcesDir(extensionsDir())
 				}},
+				ui.Button{Text: apptext.T("更新内置扩展"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "pi-ext-update",
+					Busy: a.piExtUpdateBusy.Get, OnPress: a.updateBundledPiExtensions},
 				ui.Button{Text: apptext.T("重新读取"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
 					a.resourcesLoaded = false
 					a.loadResources(true)

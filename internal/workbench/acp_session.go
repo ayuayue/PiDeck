@@ -10,10 +10,10 @@ import (
 	"fmt"
 	"time"
 
-	"example.com/pideck-lite/internal/alerts"
-	"example.com/pideck-lite/internal/appinfo"
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/remotewire"
+	"example.com/pideck-v2/internal/alerts"
+	"example.com/pideck-v2/internal/appinfo"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/remotewire"
 	"github.com/nsgo-dev/nsgo/ui"
 	"github.com/nsgo-dev/nsgo/ui/chat"
 )
@@ -103,7 +103,7 @@ func (a *app) startACPEngine(s *session, generation uint64, presetID, savedID, c
 		fail(apptext.T("启动 ACP 失败：%s", err.Error()))
 		return
 	}
-	if _, err := c.initialize("PiDeck Lite", appinfo.Version); err != nil {
+	if _, err := c.initialize("PiDeck V2", appinfo.Version); err != nil {
 		c.stop()
 		fail(apptext.T("ACP 握手失败：%s", err.Error()))
 		return

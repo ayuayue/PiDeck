@@ -8,16 +8,16 @@ import (
 	"runtime"
 	"strings"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
 func sessionLinkScheme() string {
 	if strings.HasSuffix(core.App().ID, ".dev") {
-		return "pideck-lite-dev"
+		return "pideck-v2-dev"
 	}
-	return "pideck-lite"
+	return "pideck-v2"
 }
 
 func sessionLinkID(raw, scheme string) string {

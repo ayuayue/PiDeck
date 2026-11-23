@@ -36,7 +36,7 @@ func TestExportTheme(t *testing.T) {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
 	app.Press("label:设置")
 	app.Press("id:settings-tab-look")
@@ -81,7 +81,7 @@ func TestCycleAppearance(t *testing.T) {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
 	read := func() string {
 		raw, err := os.ReadFile(filepath.Join(home, "config.json"))
@@ -107,7 +107,7 @@ func TestTerminalFont(t *testing.T) {
 	}
 	requirePi(t)
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
 	app.Press("label:设置")
 	app.Press("id:settings-tab-look")
@@ -151,7 +151,7 @@ func TestDeleteTheme(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{"id":"team","name":"团队主题","light":{"accent":"#ff0000"}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
 	app.Press("label:设置")
 	app.Press("id:settings-tab-look")

@@ -91,7 +91,7 @@ func TestFileTrash(t *testing.T) {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	dir := editorWorkspace(t)
 	for _, name := range []string{"note.txt", "extra.txt"} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte("hello"), 0o644); err != nil {

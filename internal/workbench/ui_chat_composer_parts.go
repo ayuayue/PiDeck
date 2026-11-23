@@ -6,13 +6,12 @@ package workbench
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/remotewire"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 	"github.com/nsgo-dev/nsgo/ui/chat"
@@ -51,16 +50,10 @@ func (a *app) composerModelControls(s *session) chat.View {
 			case backendOf(s) == "acp":
 				controls = append(controls, a.acpBadge(s))
 			default:
-				controls = append(controls, hintOf(func() string {
-					if m := s.model.Get(); m.ID != "" {
-						return apptext.T("模型 · %s", modelLabel(m))
-					}
-					return apptext.T("选择模型")
-				}, a.modelMenu(s, s.modelOpen)))
-				controls = append(controls, a.effortPicker(s))
+				controls = append(controls, a.modelMenu(s, s.modelOpen), a.effortPicker(s))
 			}
 			return core.View{TestID: "composer-model-controls",
-				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, FlexShrink: 0, MinWidth: core.Pt(0)}, Children: controls}
+				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, FlexShrink: 1, MinWidth: core.Pt(0), MaxWidth: core.Pct(100)}, Children: controls}
 		})
 	}
 }
@@ -148,34 +141,6 @@ func (a *app) composerTrailing(s *session) chat.View {
 	}
 }
 
-// contextValue describes the context window's use.
-func (a *app) contextValue(s *session) string {
-	st := s.stats.Get()
-	if st.ContextWindow > 0 {
-		return fmt.Sprintf("%s / %s (%.0f%%)", viewkit.Tokens(st.ContextTokens), viewkit.Tokens(st.ContextWindow), st.ContextPercent)
-	}
-	m := s.model.Get()
-	u := s.usage.Get()
-	if m.ContextWindow > 0 && u.Total > 0 {
-		return fmt.Sprintf("%s / %s", viewkit.Tokens(u.Total), viewkit.Tokens(m.ContextWindow))
-	}
-	return apptext.T("未测量")
-}
-
-// contextFraction is how full the context is, negative when unknown.
-func (a *app) contextFraction(s *session) float64 {
-	st := s.stats.Get()
-	if st.ContextWindow > 0 {
-		return min(1, float64(st.ContextTokens)/float64(st.ContextWindow))
-	}
-	m := s.model.Get()
-	u := s.usage.Get()
-	if m.ContextWindow > 0 && u.Total > 0 {
-		return min(1, float64(u.Total)/float64(m.ContextWindow))
-	}
-	return -1
-}
-
 // composerFooter is the row under the card: where the session runs, which
 // agent it carries, what is failing, and the usage panel.
 func (a *app) composerFooter(s *session) chat.View {
@@ -196,7 +161,7 @@ func (a *app) composerFooter(s *session) chat.View {
 					Style: core.Style{FlexShrink: 1, FontFamily: viewkit.MonoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)}
 			}},
 			core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}},
-			hintOf(func() string { return apptext.T("用量与上下文") }, a.usageMenu(s, s.usageOpen)),
+			a.usageStatsLine(s),
 		}}
 	}
 }

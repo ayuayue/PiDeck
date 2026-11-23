@@ -5,7 +5,7 @@ package workbench
 // The chat: turns with their tools, the composer, and the empty state.
 
 import (
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -17,7 +17,12 @@ import (
 const (
 	chatWidthPctMin     = 50
 	chatWidthPctMax     = 90
-	chatWidthPctDefault = 60
+	chatWidthPctDefault = 80
+	chatSidePadding     = 20
+	chatColumnMin       = 360
+	// chatColumnMax bounds the column on a wide window: past it the input
+	// box gets too wide to scan and the lines too long to read.
+	chatColumnMax = 860
 )
 
 // chatPane is the conversation and its composer.
@@ -29,21 +34,36 @@ func (a *app) chatPane() core.Node {
 			if s == nil {
 				return a.welcome()
 			}
+			selection := newChatSelection(cx)
 			return core.View{StyleFunc: func() core.Style {
-				return ui.FillRest.Merge(core.Style{Background: colors.Background(), Color: colors.Text()})
+				// PiDeck's paper canvas sits between the white cards and rail;
+				// derive it from the palette so custom themes keep their hue.
+				return ui.FillRest.Merge(core.Style{Background: ui.Mix(colors.Surface(), colors.Inset(), 0.45), Color: colors.Text()})
 			}, Children: []core.Node{
-				a.chatSurface(s),
+				a.chatSurface(cx, s, selection),
 				a.turnAxis(s),
 				core.Show{When: a.chatFindOpen.Get, Then: func(cx *core.Scope) core.Node { return a.chatFindBar(s) }},
 				core.Show{When: func() bool {
 					return len(s.turns.Get()) == 0 && !s.loaded.Get() && s.status.Get() != statusFailed
 				}, Then: func(cx *core.Scope) core.Node { return a.historySkeleton(s) }},
-				core.Show{When: func() bool {
-					return len(s.turns.Get()) == 0 && (s.loaded.Get() || s.status.Get() == statusFailed)
-				}, Then: func(cx *core.Scope) core.Node { return a.emptyChat(s) }},
 			}}
 		}),
 	}}
+}
+
+// chatColumnWidth eases the width limit when split panels leave less room
+// for the transcript and input. Both still fit inside the chat surface.
+func (a *app) chatColumnWidth(surface core.Points) core.Length {
+	pct := float32(a.chatWidthPct())
+	available := surface - 2*chatSidePadding
+	if available <= 0 {
+		return core.Pct(pct)
+	}
+	pct = min(100, max(pct, float32(100*chatColumnMin)/float32(available)))
+	if width := float32(available) * pct / 100; width > chatColumnMax {
+		return core.Pt(chatColumnMax)
+	}
+	return core.Pct(pct)
 }
 
 // chatWidthPct is the transcript and composer's share of the window, the
@@ -83,56 +103,59 @@ func (a *app) setChatWidthPct(pct int) {
 }
 
 // composerStack keeps the composer and its bars at the reading width.
-func (a *app) composerStack(s *session) core.Node {
+func (a *app) composerStack(s *session, width func() core.Length, editor *core.Ref) core.Node {
 	return core.View{Style: core.Style{Width: core.Pct(100), AlignItems: core.AlignCenter}, Children: []core.Node{
-		core.View{TestID: "composer-column", Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pct(float32(a.chatWidthPct())), MinWidth: core.Pt(0)}, Children: []core.Node{
-			a.trustBar(s), a.goalStrip(s), a.todoBar(s),
-			// An ask takes the composer's place while it waits: the answer
-			// is the only thing to send then.
-			core.Show{
-				When: func() bool { return s.showingAsk() != nil },
-				Then: func(*core.Scope) core.Node { return a.askPanel(s) },
-				Else: func(*core.Scope) core.Node {
-					return core.View{Style: core.Style{Gap: 0}, Children: []core.Node{a.queuePanel(s), a.draftChangeBar(s), a.composer(s)}}
+		core.View{TestID: "composer-column", Style: core.Style{Width: core.Pct(100), MinWidth: core.Pt(0)},
+			StyleFunc: func() core.Style { return core.Style{MaxWidth: width()} }, Children: []core.Node{
+				a.trustBar(s), a.goalStrip(s), a.todoBar(s),
+				// An ask takes the composer's place while it waits: the answer
+				// is the only thing to send then.
+				core.Show{
+					When: func() bool { return s.showingAsk() != nil },
+					Then: func(*core.Scope) core.Node { return a.askPanel(s) },
+					Else: func(*core.Scope) core.Node {
+						return core.View{Style: core.Style{Gap: 0}, Children: []core.Node{a.queuePanel(s), a.draftChangeBar(s), a.composer(s, editor)}}
+					},
 				},
-			},
-		}},
+			}},
 	}}
 }
 
 // transcript is the keyed list of turns, bounded to a window of the newest.
-func (a *app) transcript(s *session) core.Node {
+func (a *app) transcript(s *session, selection *chatSelection, width func() core.Length) core.Node {
 	return core.View{Style: core.Style{MinWidth: core.Pt(0), FlexShrink: 0, Width: core.Pct(100), AlignItems: core.AlignCenter}, Children: []core.Node{
-		core.View{Selectable: true, TestID: "transcript-column", Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pct(float32(a.chatWidthPct())), MinWidth: core.Pt(0), Gap: 48}, Children: []core.Node{
-			core.Show{When: func() bool { return len(s.turns.Get()) > s.window.Get() }, Then: func(cx *core.Scope) core.Node {
-				return a.loadEarlier(s)
-			}},
-			core.Each(func() []turn {
-				turns := s.turns.Get()
-				window := s.window.Get()
-				start := max(0, len(turns)-window)
-				list := turns[start:]
-				if q := a.findQuery(); q != "" {
-					kept := make([]turn, 0, len(list))
-					for _, t := range list {
-						if turnMatches(t, q) {
-							kept = append(kept, t)
+		core.View{Selectable: true, Ref: &selection.area, OnTextSelection: selection.changed, TestID: "transcript-column",
+			Style:     core.Style{Width: core.Pct(100), MinWidth: core.Pt(0), Gap: 48},
+			StyleFunc: func() core.Style { return core.Style{MaxWidth: width()} }, Children: []core.Node{
+				core.Show{When: func() bool { return len(s.turns.Get()) > s.window.Get() }, Then: func(cx *core.Scope) core.Node {
+					return a.loadEarlier(s)
+				}},
+				core.Each(func() []turn {
+					turns := s.turns.Get()
+					window := s.window.Get()
+					start := max(0, len(turns)-window)
+					list := turns[start:]
+					if q := a.findQuery(); q != "" {
+						kept := make([]turn, 0, len(list))
+						for _, t := range list {
+							if turnMatches(t, q) {
+								kept = append(kept, t)
+							}
 						}
+						list = kept
 					}
-					list = kept
-				}
-				return list
-			}, func(t turn) string { return t.ID }, func(cx *core.Scope, t func() turn, ix func() int) core.Node {
-				// Each turn reports where it sits, so a mark on the ruler can
-				// scroll to the turn it stands for.
-				return core.View{OnLayout: func(b core.Bounds) {
-					if s.tops == nil {
-						s.tops = map[string]float64{}
-					}
-					s.tops[t().ID] = float64(b.Origin.Y)
-				}, Children: []core.Node{a.turnView(s, t, ix)}}
-			}),
-		}},
+					return list
+				}, func(t turn) string { return t.ID }, func(cx *core.Scope, t func() turn, ix func() int) core.Node {
+					// Each turn reports where it sits, so a mark on the ruler can
+					// scroll to the turn it stands for.
+					return core.View{OnLayout: func(b core.Bounds) {
+						if s.tops == nil {
+							s.tops = map[string]float64{}
+						}
+						s.tops[t().ID] = float64(b.Origin.Y)
+					}, Children: []core.Node{a.turnView(s, t, ix)}}
+				}),
+			}},
 	}}
 }
 

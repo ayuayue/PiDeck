@@ -5,7 +5,7 @@ import (
 	"hash/fnv"
 	"strings"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -43,7 +43,7 @@ func (a *mobileApp) notifySession(id string, waiting bool) {
 	if waiting {
 		body = apptext.T("会话正在等待你的确认。")
 	}
-	_ = a.cx.ShowNotification(core.Notification{ID: a.notificationPrefix() + id, Title: "PiDeck Lite", Body: body, Silent: a.soundOn.GetUntracked()}, nil)
+	_ = a.cx.ShowNotification(core.Notification{ID: a.notificationPrefix() + id, Title: "PiDeck V2", Body: body, Silent: a.soundOn.GetUntracked()}, nil)
 }
 
 func (a *mobileApp) notificationSettings(colors ui.Colors) core.Node {

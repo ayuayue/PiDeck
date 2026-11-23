@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 

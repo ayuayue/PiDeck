@@ -11,8 +11,8 @@ import (
 	"fmt"
 	"sort"
 
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -62,20 +62,27 @@ func (a *app) settingsAddons() core.Node {
 			}
 			if plug.Path != "" {
 				dir, path := plug.Dir, plug.Path
-				openID := "plugin-open-" + plug.ID
+				key := plug.ID
 				if pluginIDs[plug.ID] > 1 {
 					// Conflicting manifests share the domain ID. Use their paths
 					// only to distinguish the repair controls, never plugin identity.
 					sum := sha256.Sum256([]byte(path))
-					openID += fmt.Sprintf("-%x", sum[:8])
+					key += fmt.Sprintf("-%x", sum[:8])
 				}
 				open := hintOf(func() string { return apptext.T("查看插件清单") }, ui.IconButton{Icon: lucide.FileText, Label: apptext.T("查看插件清单"), Size: 24, IconSize: 12,
-					TestID: openID, OnPress: func() {
+					TestID: "plugin-open-" + key, OnPress: func() {
 						a.settings.Set(false)
 						a.openEditorFile(dir, path)
 					}})
-				control = core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4},
-					Children: []core.Node{control, open}}
+				controls := []core.Node{control, open}
+				if canArchivePlugin(plug) {
+					controls = append(controls, hintOf(func() string { return apptext.T("卸载插件") }, ui.IconButton{
+						Icon: lucide.Trash, Label: apptext.T("卸载插件"), Size: 24, IconSize: 12,
+						TestID: "plugin-uninstall-" + key, Disabled: a.pluginFileBusy.Get,
+						OnPress: func() { a.uninstallPlugin(plug) },
+					}))
+				}
+				control = core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4}, Children: controls}
 			}
 			rows = append(rows, setRow(title, desc, control))
 			var lines []core.Node
@@ -156,6 +163,8 @@ func (a *app) settingsAddons() core.Node {
 					}},
 					ui.Button{Text: apptext.T("重新加载"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: a.reloadAddons},
 				}},
+				a.pluginArchiveSection(),
+				pluginPreviewSection(),
 			}},
 		}}
 	})

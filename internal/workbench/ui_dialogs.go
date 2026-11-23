@@ -8,7 +8,7 @@ package workbench
 import (
 	"runtime"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -67,6 +67,11 @@ func (a *app) renameDialog() core.Node {
 func (a *app) confirmDialog() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
+		primary := a.confirmPrimary
+		tone, tint, icon := colors.Danger(), colors.Danger, lucide.TriangleAlert
+		if primary {
+			tone, tint, icon = colors.Accent(), colors.Accent, lucide.Blocks
+		}
 		return ui.Dialog{
 			Open:         a.confirmOpen.Get,
 			OnOpenChange: func(open bool, _ base.Reason) { a.confirmOpen.Set(open) },
@@ -76,13 +81,15 @@ func (a *app) confirmDialog() core.Node {
 				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10}, Children: []core.Node{
 					core.View{StyleFunc: func() core.Style {
 						return core.Style{Width: core.Pt(30), Height: core.Pt(30), CornerRadius: 8, FlexShrink: 0,
-							Background: ui.Alpha(colors.Danger(), 0.10), AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter}
-					}, Children: []core.Node{ui.Icon(lucide.TriangleAlert, 15, colors.Danger)}},
+							Background: ui.Alpha(tone, 0.10), AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter}
+					}, Children: []core.Node{ui.Icon(icon, 15, tint)}},
 					core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 2}, Children: []core.Node{
 						core.Text{ContentFunc: func() string { return a.confirmHead.Get() },
 							Style: core.Style{FontSize: 14, FontWeight: ui.Semibold, LineHeight: 20}, StyleFunc: ui.Colored(colors.Text)},
-						core.Text{ContentFunc: func() string { return a.confirmWhy.Get() + apptext.T("后无法撤销") },
-							Style: core.Style{FontSize: 11}, StyleFunc: ui.Colored(colors.Faint)},
+						core.Show{When: func() bool { return !a.confirmPrimary }, Then: func(*core.Scope) core.Node {
+							return core.Text{ContentFunc: func() string { return a.confirmWhy.Get() + apptext.T("后无法撤销") },
+								Style: core.Style{FontSize: 11}, StyleFunc: ui.Colored(colors.Faint)}
+						}},
 					}},
 				}},
 				core.View{StyleFunc: func() core.Style {
@@ -96,7 +103,12 @@ func (a *app) confirmDialog() core.Node {
 			Footer: []core.Node{
 				ui.Button{Text: apptext.T("取消"), Variant: ui.ButtonGhost, TestID: "confirm-cancel", OnPress: func() { a.confirmOpen.Set(false) }},
 				ui.Button{Text: a.confirmWhy.Get(), Variant: ui.ButtonPrimary, TestID: "confirm-ok",
-					Color:   func() core.Color { return colors.Danger() },
+					Color: func() core.Color {
+						if a.confirmPrimary {
+							return colors.Accent()
+						}
+						return colors.Danger()
+					},
 					OnPress: func() { a.confirm() }},
 			},
 		}
@@ -109,4 +121,11 @@ func modKey() string {
 		return "⌘"
 	}
 	return "Ctrl+"
+}
+
+// panelFieldStyle is a form field inside a pane: the surface, hairline and
+// measure every editor shares, so the panes' fields line up.
+func panelFieldStyle(colors ui.Colors) core.Style {
+	return core.Style{MinHeight: core.Pt(34), Padding: core.Symmetric(6, 10), CornerRadius: ui.RadiusControl,
+		Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), Color: colors.Text(), FontSize: 13}
 }

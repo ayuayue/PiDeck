@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-lite/internal/remotewire"
+	"example.com/pideck-v2/internal/remotewire"
 )
 
 func TestReviewTimesAndLabels(t *testing.T) {

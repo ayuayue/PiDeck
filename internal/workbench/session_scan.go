@@ -66,7 +66,11 @@ func (a *app) rescanPi() {
 	}
 	if !a.cfg.ScanPi {
 		for _, ws := range a.workspaces.GetUntracked() {
-			ws.Pi.Set(nil)
+			// Session rows own open menus. A no-op refresh must not remount
+			// them when external history is already empty.
+			if len(ws.Pi.GetUntracked()) > 0 {
+				ws.Pi.Set(nil)
+			}
 			ws.PiLoading.Set(false)
 		}
 		return

@@ -9,9 +9,8 @@ import (
 	"slices"
 	"time"
 
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/remotewire"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/remotewire"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -218,16 +217,4 @@ func (a *mobileApp) transcriptImageRow(m remotewire.Message) core.Node {
 				TestID: "mobile-transcript-image", OnPress: func() { a.showTranscriptPicture(m.Image) }}
 		})
 	})
-}
-
-func (a *mobileApp) transcriptImageDialog() core.Node {
-	return viewkit.TranscriptImageDialog(func() bool { return a.transcriptPicture.Get().Open }, func() {
-		p := a.transcriptPicture.GetUntracked()
-		a.transcriptPictureSeq++
-		p.Open = false
-		a.transcriptPicture.Set(p)
-	}, func() ([]byte, string) {
-		p := a.transcriptPicture.Get()
-		return p.Image.Data, p.Image.MimeType
-	}, func(error) { a.flash(apptext.T("保存图片失败")) })
 }

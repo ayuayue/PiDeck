@@ -20,7 +20,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/viewkit"
 	"golang.org/x/text/encoding/simplifiedchinese"
 )
 
@@ -81,7 +81,7 @@ func (t target) shortLabel() string {
 
 // remoteDir is where pi keeps a remote target's sessions: the app's own
 // folder under the target user's home, expanded by its shell.
-const remoteDir = `$HOME/.pideck-lite/sessions`
+const remoteDir = `$HOME/.pideck-v2/sessions`
 
 // command builds the process that runs pi with args in dir, for a session
 // named by id in the app's store, or for an existing session file.
@@ -232,6 +232,7 @@ type envInfo struct {
 	AppDir         string
 	WSL            []wslDistro
 	SSH            []sshHost
+	TerminalShells []terminalShell
 	Probed         bool
 	Probing        bool
 	TargetsProbing bool
@@ -252,6 +253,7 @@ func piSessionsDir() string {
 // probeLocal finds pi here: its path, its version, where its sessions are.
 func probeLocal(info envInfo) envInfo {
 	info.SessionsDir = piSessionsDir()
+	info.TerminalShells = localTerminalShells()
 	info.Probing = false
 	info.Probed = true
 	path, version, err := probePi("", "")

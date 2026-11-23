@@ -1,14 +1,14 @@
 package client
 
-// The phone's read-only file browser: a project's files, and one file's
-// text, all through the desktop's API.
+// The phone's project file browser and editor; every operation goes through
+// the desktop's API.
 
 import (
 	"fmt"
 	"strings"
 
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -45,10 +45,12 @@ func (a *mobileApp) projectOf(id string) (path, name string) {
 
 // openFiles shows a project's file list.
 func (a *mobileApp) openFiles(project, name string) {
+	a.filesSeq++
 	a.filesProject.Set(project)
 	a.filesName.Set(name)
 	a.filesQuery.Set("")
 	a.filesList.Set(nil)
+	a.filesBusy.Set(false)
 	a.filesErr.Set("")
 	a.filesOpen.Set(true)
 	a.loadFiles()
@@ -61,11 +63,15 @@ func (a *mobileApp) loadFiles() {
 	if client == nil || project == "" || a.filesBusy.GetUntracked() {
 		return
 	}
+	request := a.filesSeq
 	a.filesBusy.Set(true)
 	a.filesErr.Set("")
 	go func() {
 		files, err := client.files(project)
 		a.cx.Post(func() {
+			if a.client != client || a.filesSeq != request || a.filesProject.GetUntracked() != project {
+				return
+			}
 			a.filesBusy.Set(false)
 			if err != nil {
 				a.filesErr.Set(remoteErrorText(err))
@@ -74,6 +80,41 @@ func (a *mobileApp) loadFiles() {
 			a.filesList.Set(files)
 		})
 	}()
+}
+
+// closeFilesView invalidates the list request and releases its loading state.
+func (a *mobileApp) closeFilesView() {
+	a.filesSeq++
+	a.filesBusy.Set(false)
+	a.filesOpen.Set(false)
+}
+
+// disconnectFileViews drops desktop data and invalidates reads and writes.
+// An edit already in progress remains visible as a local draft, without a
+// revision that could accidentally save it to another computer.
+func (a *mobileApp) disconnectFileViews() {
+	a.closeFilesView()
+	a.filesProject.Set("")
+	a.filesName.Set("")
+	a.filesQuery.Set("")
+	a.filesList.Set(nil)
+	a.filesErr.Set("")
+	a.filesMention.Set(false)
+	editing := a.fileEdit.open.GetUntracked()
+	draft := a.fileEdit.text.GetUntracked()
+	a.fileEdit.reset("", "")
+	if editing {
+		a.fileEdit.text.Set(draft)
+		a.fileEdit.open.Set(true)
+		a.fileEdit.err.Set(apptext.T("电脑已断开，编辑文本保留在编辑框中；复制后再连接"))
+	} else {
+		a.fileOpen.Set(false)
+		a.fileTitle.Set("")
+		a.fileErr.Set("")
+	}
+	a.fileText.Set("")
+	a.fileBusy.Set(false)
+	a.fileFind.Set("")
 }
 
 // openFile reads one file's text.
@@ -187,11 +228,17 @@ func (a *mobileApp) filesSheet() core.Node {
 				core.View{Style: core.Style{Gap: 1}, Children: rows}}})
 		}
 		return ui.Dialog{
-			Open:         a.filesOpen.Get,
-			OnOpenChange: func(open bool, _ base.Reason) { a.filesOpen.Set(open) },
-			Title:        a.filesTitle(),
-			TestID:       "mobile-files",
-			Style:        core.Style{Width: core.Pct(100), MaxWidth: core.Pt(560)},
+			Open: a.filesOpen.Get,
+			OnOpenChange: func(open bool, _ base.Reason) {
+				if open {
+					a.filesOpen.Set(true)
+				} else {
+					a.closeFilesView()
+				}
+			},
+			Title:  a.filesTitle(),
+			TestID: "mobile-files",
+			Style:  core.Style{Width: core.Pct(100), MaxWidth: core.Pt(560)},
 			Children: []core.Node{core.View{Style: core.Style{Gap: 8}, Children: []core.Node{
 				core.Input{Value: a.filesQuery.Get, OnChange: a.filesQuery.Set, Placeholder: apptext.T("筛选文件…"), Label: apptext.T("筛选文件"),
 					TestID: "mobile-files-filter",
@@ -201,7 +248,7 @@ func (a *mobileApp) filesSheet() core.Node {
 			}}},
 			Footer: []core.Node{
 				ui.Button{Text: apptext.T("刷新"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: a.loadFiles},
-				ui.Button{Text: apptext.T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.filesOpen.Set(false) }},
+				ui.Button{Text: apptext.T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: a.closeFilesView},
 			},
 		}
 	})

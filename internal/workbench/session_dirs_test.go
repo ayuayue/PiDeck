@@ -39,7 +39,7 @@ func TestPiSessionRootsFollowProjectSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PI_CODING_AGENT_SESSION_DIR", globalStore)
-	t.Setenv("PIDECK_LITE_PI_CONFIG", configDir)
+	t.Setenv("PIDECK_V2_PI_CONFIG", configDir)
 
 	roots := piSessionRoots([]string{project, project})
 	if len(roots) != 2 {
@@ -65,7 +65,7 @@ func TestPiSessionRootsFallBackToGlobal(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PI_CODING_AGENT_SESSION_DIR", globalStore)
-	t.Setenv("PIDECK_LITE_PI_CONFIG", configDir)
+	t.Setenv("PIDECK_V2_PI_CONFIG", configDir)
 
 	roots := piSessionRoots([]string{project})
 	if len(roots) != 2 || !samePath(roots[1], configured) {
@@ -105,8 +105,8 @@ func TestPiScanIncludesProjectSessionDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeSession(t, localStore, "only-local.jsonl", piSessionFile("only-local", project))
-	t.Setenv("PIDECK_LITE_HOME", home)
-	t.Setenv("PIDECK_LITE_PI_CONFIG", configDir)
+	t.Setenv("PIDECK_V2_HOME", home)
+	t.Setenv("PIDECK_V2_PI_CONFIG", configDir)
 	t.Setenv("PI_CODING_AGENT_SESSION_DIR", globalStore)
 	raw, err := json.Marshal(config{Version: 1, Theme: "system", SidebarOpen: true, ScanPi: true,
 		Workspaces: []workspaceCfg{{Path: project, Expanded: true, Added: time.Now()}}})
@@ -140,7 +140,7 @@ func TestProjectDefaultSortIsRecent(t *testing.T) {
 	home := t.TempDir()
 	older := t.TempDir()
 	newer := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	t.Setenv("PI_CODING_AGENT_SESSION_DIR", t.TempDir())
 	raw, err := json.Marshal(config{Version: 1, Theme: "system", SidebarOpen: true, ScanPi: false,
 		Workspaces: []workspaceCfg{

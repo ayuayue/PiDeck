@@ -10,6 +10,7 @@ import (
 	"database/sql"
 	"encoding/csv"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/url"
@@ -19,7 +20,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/assets"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
@@ -220,4 +222,17 @@ func (a *app) importChinesePrompts() {
 			a.toast(ui.ToastSuccess, apptext.T("已导入 %d 条", added), "")
 		})
 	}()
+}
+
+// officialPromptPack is PiDeck's bundled template pack, shown in the store
+// rather than written into the user's library at startup.
+func officialPromptPack() (promptPack, error) {
+	var pack promptPack
+	if err := json.Unmarshal(assets.OfficialPrompts, &pack); err != nil {
+		return promptPack{}, err
+	}
+	if len(pack.Prompts) == 0 {
+		return promptPack{}, errors.New("内置提示词包为空")
+	}
+	return pack, nil
 }

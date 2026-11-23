@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-lite/internal/remotewire"
+	"example.com/pideck-v2/internal/remotewire"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -54,7 +54,7 @@ func TestRemoteFiles(t *testing.T) {
 	write("big.txt", strings.Repeat("x", remoteFileMax+1))
 
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	raw, err := json.Marshal(config{Version: 1, Workspaces: []workspaceCfg{{Path: workspace, Name: "FilesProject"}},
 		Theme: "system", SidebarOpen: true, ScanPi: false})
 	if err != nil {

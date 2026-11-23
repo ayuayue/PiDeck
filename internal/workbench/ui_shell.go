@@ -6,7 +6,7 @@ package workbench
 // chat, and a drawer for the session's numbers and the project's files.
 
 import (
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/desktop"
@@ -16,7 +16,7 @@ import (
 
 // view is the whole window.
 func (a *app) view() core.Node {
-	return core.View{Style: ui.FillRest, Children: []core.Node{
+	return core.View{Style: ui.FillRest, StyleFunc: func() core.Style { return core.Style{FontFamily: a.cx.Theme().Sans} }, Children: []core.Node{
 		core.Dynamic(func(cx *core.Scope) core.Node {
 			a.langRev.Get()
 			// Appearance is read so a system light/dark flip rebuilds the
@@ -36,21 +36,15 @@ func (a *app) view() core.Node {
 		a.pluginNewDialog(),
 		a.promptStoreDialog(),
 		a.skillStoreDialog(),
+		a.piExtensionStoreDialog(),
 		a.mcpDialog(),
 		a.imageDialog(),
-		a.transcriptImageDialog(),
-		a.trajectoryDialog(),
-		a.delegationDialog(),
-		a.filePreviewDialog(),
 		a.visionDialog(),
-		a.translationDialog(),
 		a.promptTemplateDialog(),
 		a.browserApprovalDialog(),
 		a.settingsSyncDialog(),
 		a.confirmDialog(),
 		a.remoteQRDialog(),
-		a.reviewPatchDialog(),
-		a.gitDiffDialog(),
 		a.gitNewBranchDialog(),
 		a.gitStashDialog(),
 		a.gitTagsDialog(),
@@ -68,8 +62,6 @@ func (a *app) view() core.Node {
 		a.tdKeyDialog(),
 		a.tdRechargeDialog(),
 		a.supportDialog(),
-		a.gitFileHistoryDialog(),
-		a.gitBlameDialog(),
 		a.terminalRenameDialog(),
 		a.gotoLineDialog(),
 		a.quickOpenDialog(),

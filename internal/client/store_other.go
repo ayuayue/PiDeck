@@ -12,7 +12,7 @@ import (
 )
 
 func mobileStorePath(cx *core.Scope) string {
-	dir := os.Getenv("PIDECK_LITE_HOME")
+	dir := os.Getenv("PIDECK_V2_HOME")
 	if dir == "" {
 		dir = cx.DataDir()
 	}

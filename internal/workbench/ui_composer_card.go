@@ -10,9 +10,9 @@ package workbench
 import (
 	"strings"
 
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/remotewire"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -88,43 +88,63 @@ func (c *chatScroll) grown(core.Bounds) {
 	}
 }
 
-// chatSurface is the transcript, the blur and the composer floating over
-// it. The composer is as wide as the reading column, which the kit's own
-// floating layout could not widen. Its height is measured once and read
-// through StyleFuncs, so laying it out never rebuilds the tree it is in.
-func (a *app) chatSurface(s *session) core.Node {
+// chatSurface shows the centered composer before the first turn and docks
+// it over the transcript afterward. Both placements use the reading width.
+// The dock's measured height reserves space at the end of the transcript.
+func (a *app) chatSurface(cx *core.Scope, s *session, selection *chatSelection) core.Node {
 	scroll := s.conversation.Scroll()
 	composer := func() core.Points { return s.conversation.ComposerHeight() }
-	return core.View{TestID: "transcript", Style: ui.FillRest, Children: []core.Node{
-		core.Scroll{Ref: scroll, OnScroll: s.conversation.scrolled, TestID: "chat-transcript",
+	size := core.NewSignal(cx, core.Size{})
+	column := func() core.Length { return a.chatColumnWidth(size.Get().Width) }
+	start := core.NewMemo(cx, func() bool {
+		return len(s.turns.Get()) == 0 && (s.loaded.Get() || s.status.Get() == statusFailed)
+	}).Get
+	var editor core.Ref
+	// Moving the mounted input preserves its native caret, focus, and draft.
+	stack := core.NewHolder(cx, func(*core.Scope) core.Node { return a.composerStack(s, column, &editor) })
+	return core.View{TestID: "transcript", Style: ui.FillRest, OnLayout: func(b core.Bounds) {
+		selection.resized(b)
+		size.Set(b.Size)
+	}, Children: []core.Node{
+		core.Scroll{Ref: scroll, OnScroll: func(e core.ScrollEvent) {
+			if e.Offset.Y != s.conversation.lastY {
+				selection.clear()
+			}
+			s.conversation.scrolled(e)
+		}, TestID: "chat-transcript",
 			EdgeEffects: core.EdgeEffects{Bottom: core.EdgeEffectSoft},
 			Behavior:    core.ScrollBehavior{KeyboardDismissMode: core.KeyboardDismissInteractive},
 			Style:       ui.FillRest,
 			Children: []core.Node{
 				core.View{OnLayout: s.conversation.grown, StyleFunc: func() core.Style {
 					return core.Style{Width: core.Pct(100), MinWidth: core.Pt(0), FlexShrink: 0, AlignItems: core.AlignCenter,
-						Padding: core.Edges{Top: 22, Right: 20, Left: 20, Bottom: composer() + 30}}
-				}, Children: []core.Node{a.transcript(s)}},
+						Padding: core.Edges{Top: 22, Right: chatSidePadding, Left: chatSidePadding, Bottom: composer() + 30}}
+				}, Children: []core.Node{a.transcript(s, selection, column)}},
 			}},
 		// What scrolls under the card fades into it, so the card's edges
 		// never cut a line of text.
 		core.View{EdgeBar: core.EdgeBar{Scroll: scroll, Side: core.SideBottom}, PointerEvents: core.PointerEventsNone,
 			Style: core.Style{Position: core.Absolute, Left: core.Pt(0), Right: core.Pt(0), Bottom: core.Pt(0)},
 			StyleFunc: func() core.Style {
+				if start() {
+					return core.Style{Height: core.Pt(0)}
+				}
 				return core.Style{Height: core.Pt(max(0, composer()-6))}
 			}},
-		core.Show{When: func() bool { return !s.conversation.AtLatest() }, Then: func(cx *core.Scope) core.Node {
+		core.Show{When: func() bool { return !start() && !s.conversation.AtLatest() }, Then: func(cx *core.Scope) core.Node {
 			return a.jumpToLatest(s)
 		}},
-		core.View{PointerEvents: core.PointerEventsBoxNone, OnLayout: s.conversation.measured,
-			Style: core.Style{Position: core.Absolute, Left: core.Pt(0), Right: core.Pt(0), Bottom: core.Pt(0), AlignItems: core.AlignCenter},
-			StyleFunc: func() core.Style {
-				return core.Style{Padding: core.Edges{Right: 20, Bottom: 8, Left: 20}}
+		core.Show{When: start,
+			Then: func(*core.Scope) core.Node {
+				return a.emptyChat(s, stack.Place(), &editor, column, func() core.Points { return size.Get().Height })
 			},
-			// The column inside bounds itself by percentage; a second
-			// bound here would apply it twice and shrink the card.
-			Children: []core.Node{core.View{Style: core.Style{Width: core.Pct(100), MinWidth: core.Pt(0)},
-				Children: []core.Node{a.composerStack(s)}}}},
+			Else: func(*core.Scope) core.Node {
+				return core.View{PointerEvents: core.PointerEventsBoxNone, OnLayout: s.conversation.measured,
+					Style: core.Style{Position: core.Absolute, Left: core.Pt(0), Right: core.Pt(0), Bottom: core.Pt(0),
+						AlignItems: core.AlignCenter, Padding: core.Edges{Right: chatSidePadding, Bottom: 8, Left: chatSidePadding}},
+					Children: []core.Node{stack.Place()}}
+			}},
+		a.chatSelectionAction(selection),
 	}}
 }
 
@@ -155,17 +175,19 @@ type composerSuggestion struct {
 }
 
 // composer is the input card and its footer, floating under the transcript.
-func (a *app) composer(s *session) core.Node {
+func (a *app) composer(s *session, ref *core.Ref) core.Node {
 	return core.Func(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
 		font := a.composerFont()
 		line := a.composerLine()
-		height := core.NewSignal(cx, line)
+		height := core.NewSignal(cx, max(core.Points(48), line))
 		focused, dragging := core.NewSignal(cx, false), core.NewSignal(cx, false)
+		controlsWidth := core.NewSignal(cx, core.Points(0))
+		trailingWidth := core.NewSignal(cx, core.Points(0))
 		empty := func() bool { return strings.TrimSpace(s.draft.Get()) == "" }
 		imageBusy := func() bool { return a.aiBusy.Get() == "image" }
 		shell := func() (string, bool) {
-			if modeOf(s) == modeImage {
+			if s.agentMode.Get() == modeImage {
 				return "", false
 			}
 			return shellDraft(s.draft.Get())
@@ -186,7 +208,7 @@ func (a *app) composer(s *session) core.Node {
 		}
 		suggest, listed := core.NewSuggest(cx, core.SuggestOptions{}), core.NewSignal(cx, false)
 		var shown []composerSuggestion
-		editor := base.Input{Value: s.draft.Get, OnChange: s.draft.Set, Multiline: true, SubmitBehavior: core.SubmitBehaviorSubmit,
+		editor := base.Input{Ref: ref, Value: s.draft.Get, OnChange: s.draft.Set, Multiline: true, SubmitBehavior: core.SubmitBehaviorSubmit,
 			Label: apptext.T("消息"), PlaceholderFunc: a.composerPlaceholder(s), TestID: "composer", Suggest: suggest,
 			OnSubmit: func(string) { send() },
 			OnPaste: func(e core.PasteEvent) {
@@ -202,12 +224,12 @@ func (a *app) composer(s *session) core.Node {
 			OnFocus: func() { focused.Set(true) },
 			OnBlur:  func() { focused.Set(false) },
 			OnContentSizeChange: func(size core.Size) {
-				height.Set(min(10*line, max(line, size.Height)))
+				height.Set(min(10*line, max(core.Points(48), max(line, size.Height))))
 			},
 			Style: core.Style{Padding: core.Edges{Top: 4, Right: 14, Left: 14}, MinHeight: core.Pt(line + 4),
 				FontSize: font, LineHeight: line, TextAlignVertical: core.TextAlignVerticalTop},
 			StyleFunc: func() core.Style {
-				return core.Style{Height: core.Pt(height.Get() + 4), Color: colors.Text(), PlaceholderColor: colors.Faint(),
+				return core.Style{Height: core.Pt(height.Get() + 4), Color: colors.Text(), PlaceholderColor: colors.Muted(),
 					SelectionColor: cx.Palette().Selection, CaretColor: colors.Accent()}
 			},
 			Role: core.RoleCombobox, Expanded: listed.Get,
@@ -234,49 +256,64 @@ func (a *app) composer(s *session) core.Node {
 				return nil
 			},
 			OnOpen: func() { listed.Set(true) }, OnClose: func() { listed.Set(false) }})
-		body = append(body, core.View{Style: core.Style{Position: core.Relative, Direction: core.Row, MinWidth: core.Pt(0), Margin: core.Edges{Top: 8},
-			Padding: core.Symmetric(0, 10), AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
-			core.View{Style: core.Style{Direction: core.Row, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), AlignItems: core.AlignCenter, Gap: 4},
-				Children: []core.Node{core.Func(a.composerAccessory(s))}},
-			core.View{Style: core.Style{Direction: core.Row, FlexShrink: 0, AlignItems: core.AlignCenter, Gap: 4}, Children: []core.Node{
-				core.Func(a.composerTrailing(s)),
-				core.Dynamic(func(cx *core.Scope) core.Node {
-					if s.busyNow() && empty() {
-						return composerPill(cx, apptext.T("停止"), nil, func() core.Color { return ui.Alpha(colors.Danger(), 0.14) },
-							func() core.Color { return colors.Danger() }, func() { a.stop(s) })
+		body = append(body, core.View{OnLayout: func(b core.Bounds) { controlsWidth.Set(b.Size.Width) },
+			Style: core.Style{Position: core.Relative, Direction: core.Row, Wrap: core.Wrap, MinWidth: core.Pt(0), Margin: core.Edges{Top: 8},
+				Padding: core.Symmetric(0, 10), AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
+				core.View{Style: core.Style{Direction: core.Row, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), AlignItems: core.AlignCenter, Gap: 4},
+					Children: []core.Node{core.Func(a.composerAccessory(s))}},
+				core.View{OnLayout: func(b core.Bounds) { trailingWidth.Set(b.Size.Width) },
+					Style: core.Style{Direction: core.Row, FlexShrink: 0, AlignItems: core.AlignCenter, Gap: 4}, Children: []core.Node{
+						core.Func(a.composerTrailing(s)),
+						core.Dynamic(func(cx *core.Scope) core.Node {
+							if s.busy() && empty() {
+								return composerPill(cx, apptext.T("停止"), nil, func() core.Color { return ui.Alpha(colors.Danger(), 0.14) },
+									func() core.Color { return colors.Danger() }, func() { a.stop(s) })
+							}
+							label := apptext.T("发送")
+							if _, ok := shell(); ok {
+								label = apptext.T("运行命令")
+							}
+							if s.filesLoading() {
+								label = apptext.T("正在读取")
+							}
+							return composerPill(cx, label, func() bool { return !canSend() }, func() core.Color {
+								if canSend() {
+									return colors.AccentFill()
+								}
+								return colors.Hover()
+							}, func() core.Color {
+								if canSend() {
+									return colors.OnAccent()
+								}
+								return colors.Muted()
+							}, send)
+						}),
+					}},
+				core.View{TestID: "composer-model-anchor", StyleFunc: func() core.Style {
+					st := core.Style{MinWidth: core.Pt(0), AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
+						PointerEvents: core.PointerEventsBoxNone}
+					if controlsWidth.Get() < 560 {
+						// Stay in the normal flow when a drawer or a narrow window
+						// leaves too little room between attachments and Send.
+						st.Width = core.Pct(100)
+						st.Padding = core.Edges{Top: 4}
+						return st
 					}
-					label := apptext.T("发送")
-					if _, ok := shell(); ok {
-						label = apptext.T("运行命令")
-					}
-					if s.filesLoading() {
-						label = apptext.T("正在读取")
-					}
-					return composerPill(cx, label, func() bool { return !canSend() }, func() core.Color {
-						if canSend() {
-							return colors.AccentFill()
-						}
-						return colors.Hover()
-					}, func() core.Color {
-						if canSend() {
-							return colors.OnAccent()
-						}
-						return colors.Muted()
-					}, send)
-				}),
-			}},
-			core.View{TestID: "composer-model-anchor", Style: core.Style{Position: core.Absolute, Top: core.Pt(0), Left: core.Pt(0), Right: core.Pt(0), Bottom: core.Pt(0),
-				AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, PointerEvents: core.PointerEventsBoxNone},
-				Children: []core.Node{core.Func(a.composerModelControls(s))}},
-		}})
-		card := core.View{TestID: "composer-card", Style: core.Style{MinWidth: core.Pt(0), Padding: core.Symmetric(10, 0), CornerRadius: 14,
+					st.Position = core.Absolute
+					st.Top, st.Left, st.Right, st.Bottom = core.Pt(0), core.Pt(0), core.Pt(0), core.Pt(0)
+					st.Padding = core.Symmetric(0, trailingWidth.Get()+8)
+					return st
+				},
+					Children: []core.Node{core.Func(a.composerModelControls(s))}},
+			}})
+		card := core.View{TestID: "composer-card", Style: core.Style{MinWidth: core.Pt(0), MinHeight: core.Pt(112), Padding: core.Symmetric(10, 0), CornerRadius: 20,
 			BorderWidth: 1, FlexShrink: 0, Transition: viewkit.PressMotion},
 			StyleFunc: func() core.Style {
 				surface := ui.Alpha(colors.Surface(), 1)
 				if dragging.Get() {
 					surface = ui.Mix(surface, colors.Text(), 0.05)
 				}
-				border := ui.Mix(colors.Border(), colors.Text(), 0.14)
+				border := colors.Border()
 				switch {
 				case dragging.Get():
 					border = ui.Alpha(colors.Accent(), 0.8)
@@ -298,37 +335,38 @@ func (a *app) composer(s *session) core.Node {
 	})
 }
 
-// composerPill is Send or Stop: a capsule of text, disabled while it
+// composerPill is the compact Send or Stop action, disabled while it
 // cannot run.
 func composerPill(cx *core.Scope, label string, disabled func() bool, background, foreground func() core.Color, press func()) core.Node {
 	return base.Button{Label: label, Disabled: disabled, OnPress: func(core.PressEvent) { press() },
-		Style: core.Style{Height: core.Pt(26), Padding: core.Symmetric(0, 12), FlexShrink: 0, CornerRadius: 13,
+		Style: core.Style{Height: core.Pt(28), Padding: core.Symmetric(0, 12), FlexShrink: 0, CornerRadius: 8,
 			AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Disabled: &core.Style{Cursor: core.CursorDefault}},
 		StyleFunc: func() core.Style {
 			return core.Style{Background: background(), Hover: &core.Style{Opacity: core.Alpha(0.9)},
 				Active: &core.Style{Opacity: core.Alpha(0.8)}, FocusVisible: ui.FocusRing(cx, 2)}
 		},
-		Children: []core.Node{core.Text{Content: label, Style: core.Style{FontSize: 12.5, FontWeight: ui.Semibold},
+		Children: []core.Node{core.Text{Content: label, Style: core.Style{FontSize: 13, FontWeight: ui.Medium},
 			StyleFunc: ui.Colored(foreground)}}}
 }
 
 // composerPlaceholder is the field's prompt while it is empty.
 func (a *app) composerPlaceholder(s *session) func() string {
 	return func() string {
+		mode := s.agentMode.Get()
 		switch {
-		case modeOn(s, modeImage):
+		case mode == modeImage:
 			return apptext.T("描述要画的画面…")
-		case s.busyNow() && delivery(s) == deliveryFollowUp:
+		case s.busy() && deliveryFor(s.backend, s.sendMode.Get()) == deliveryFollowUp:
 			return apptext.T("运行中：回车排到这一轮结束后")
-		case s.busyNow():
+		case s.busy():
 			return apptext.T("运行中：回车插入引导，或点停止")
 		case backendOf(s) == "acp" && !s.readySig.Get():
 			return apptext.T("正在启动 agent…")
 		case !s.readySig.Get():
 			return apptext.T("正在启动 pi…")
-		case modeOn(s, modePlan):
+		case mode == modePlan:
 			return apptext.T("写下要计划的事…")
-		case modeOn(s, modeGoal):
+		case mode == modeGoal:
 			return apptext.T("写下目标，它会自己往下做…")
 		}
 		return apptext.T("给 pi 发消息…")

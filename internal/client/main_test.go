@@ -10,7 +10,7 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	os.Setenv("PIDECK_LITE_LANG", "zh-CN")
+	os.Setenv("PIDECK_V2_LANG", "zh-CN")
 	nsgotest.Main(m)
 }
 

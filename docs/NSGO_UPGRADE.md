@@ -1,6 +1,6 @@
 # NSGo upgrade
 
-PiDeck Lite was upgraded from the pseudo-version:
+PiDeck V2 was upgraded from the pseudo-version:
 
 ```text
 github.com/nsgo-dev/nsgo v0.0.0-20261115143443-330763d1c121

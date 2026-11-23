@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-lite/internal/relaywire"
+	"example.com/pideck-v2/internal/relaywire"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -14,8 +14,8 @@ import (
 // the connect button on a short screen, where the keyboard leaves little
 // room: the form must start at the top so the button stays reachable.
 func TestMobileConnectRelayLinkLayout(t *testing.T) {
-	t.Setenv("PIDECK_LITE_MOBILE", "1")
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_MOBILE", "1")
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	var built *mobileApp
 	root := func(cx *core.Scope) core.Node {
 		built = newMobileApp(cx)

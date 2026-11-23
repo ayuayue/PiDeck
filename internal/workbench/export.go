@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/ui/chat"
 )
 
@@ -29,7 +29,7 @@ func renderSessionHTML(d exportData) string {
 	var b strings.Builder
 	title := d.Title
 	if title == "" {
-		title = "PiDeck Lite 会话"
+		title = "PiDeck V2 会话"
 	}
 	fmt.Fprintf(&b, `<!doctype html><html lang="%s"><head><meta charset="utf-8">`, html.EscapeString(apptext.CurrentLanguage()))
 	b.WriteString("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">")
@@ -133,7 +133,7 @@ func renderSessionMarkdown(d exportData) string {
 	var b strings.Builder
 	title := d.Title
 	if title == "" {
-		title = "PiDeck Lite 会话"
+		title = "PiDeck V2 会话"
 	}
 	fmt.Fprintf(&b, "# %s\n\n", title)
 	if d.Project != "" {

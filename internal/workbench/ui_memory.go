@@ -9,8 +9,8 @@ import (
 	"slices"
 	"strings"
 
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -118,11 +118,11 @@ func (a *app) memoryPane() core.Node {
 		}, slices.Equal)
 		return core.View{Style: ui.FillRest, TestID: "memory-pane", Children: []core.Node{
 			a.paneHeader("智能体记忆", "保留项目约定、决策和常用做法。", ui.Button{Text: apptext.T("新建记忆"), TestID: "memory-new", Disabled: state.busy.Get, OnPress: func() {
-				state.edit.Set(memoryEntry{ID: newSessionID(), Project: a.draftProject()})
+				state.edit.Set(memoryEntry{ID: newSessionID(), Project: a.activeProjectKey()})
 			}}),
 			core.Show{When: func() bool { return state.edit.Get().ID != "" }, Then: func(cx *core.Scope) core.Node { return a.memoryEditor(cx) }, Else: func(cx *core.Scope) core.Node {
 				return core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0), Padding: core.All(12), Gap: 8}, Children: []core.Node{
-					core.Input{Value: state.query.Get, OnChange: state.query.Set, Placeholder: apptext.T("搜索记忆"), Label: apptext.T("搜索记忆"), TestID: "memory-search", Style: draftFieldStyle(colors)},
+					core.Input{Value: state.query.Get, OnChange: state.query.Set, Placeholder: apptext.T("搜索记忆"), Label: apptext.T("搜索记忆"), TestID: "memory-search", Style: panelFieldStyle(colors)},
 					core.List{Count: func() int { return len(items.Get()) }, Key: func(i int) any { return items.Get()[i].ID }, EstimatedSize: 56, Style: ui.FillRest,
 						Empty: ui.Text(apptext.T("没有匹配的记忆"), 12, ui.Regular, colors.Muted), Row: func(cx *core.Scope, row core.ListRow) core.Node {
 							return core.Dynamic(func(cx *core.Scope) core.Node {
@@ -179,10 +179,10 @@ func (a *app) memoryRow(cx *core.Scope, entry memoryEntry) core.Node {
 
 func (a *app) memoryEditor(cx *core.Scope) core.Node {
 	draft := a.memory.edit
-	style := draftFieldStyle(ui.ColorsOf(cx))
+	style := panelFieldStyle(ui.ColorsOf(cx))
 	bodyStyle := style
 	bodyStyle.MinHeight, bodyStyle.FlexGrow, bodyStyle.TextAlignVertical = core.Pt(110), 1, core.TextAlignVerticalTop
-	project := a.draftProject()
+	project := a.activeProjectKey()
 	return core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0), Padding: core.All(12), Gap: 8}, Children: []core.Node{
 		core.Input{Value: func() string { return draft.Get().Title }, OnChange: func(title string) { draft.Update(func(e memoryEntry) memoryEntry { e.Title = title; return e }) },
 			Placeholder: apptext.T("标题"), Label: apptext.T("标题"), TestID: "memory-title", Style: style},

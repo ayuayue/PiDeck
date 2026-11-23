@@ -1,6 +1,6 @@
-# PiDeck Lite architecture
+# PiDeck V2 architecture
 
-PiDeck Lite has one Go program with two hosts. The desktop host owns pi and ACP processes, files, Git, terminals and the loopback HTTP service. Android, iOS and Web run the client host and use that HTTP API. Both hosts render with NSGo.
+PiDeck V2 has one Go program with two hosts. The desktop host owns pi and ACP processes, files, Git, terminals and the loopback HTTP service. Android, iOS and Web run the client host and use that HTTP API. Both hosts render with NSGo.
 
 ## Package boundaries
 
@@ -8,12 +8,14 @@ Dependencies point down this list. A package may import a package below it when 
 
 | Package | Role | Local dependencies |
 | --- | --- | --- |
-| module root | NSGo bootstrap, platform-specific `Root`, window frame and shutdown | `client`, `crashlog`, `workbench` |
+| module root | NSGo bootstrap, platform-specific `Root`, window frame and shutdown | `client`, `crashlog`, `locales`, `workbench` |
+| `locales` | NSGo catalogs for native permission prompts | none |
 | `internal/client` | Android, iOS, Web and desktop mobile preview | `alerts`, `assets`, `appinfo`, `apptext`, `remotewire`, `viewkit` |
 | `internal/workbench` | Desktop application and loopback server | shared packages, `sessionimport`, `schedule` |
 | `internal/sessionimport` | External transcript readers and pi JSONL writer | `apptext` |
 | `internal/alerts` | Notification sounds: embedded sounds, default per moment, one decoded player | `assets`, NSGo |
 | `internal/volcvoice` | Speech to text at Volcano Engine's flash endpoint, one WAV in and one transcript out | standard library |
+| `internal/officedoc` | Read-only words and cells of .docx and .xlsx files | standard library |
 | `internal/viewkit` | Display helpers shared by the hosts | `apptext`, NSGo |
 | `internal/crashlog` | Crash reports | `appinfo` |
 | `internal/remotewire` | JSON transport types | standard library |
@@ -29,7 +31,7 @@ as a Cloudflare Worker (the recommended deployment: no server, no fixed IP). Nei
 of the desktop or phone binaries. The relay copies bytes only: the desktop's TLS lives inside the
 tunnel, so the relay never reads the token or a session.
 
-`internal/architecture/structure_test.go` is the executable version of this table. Every package under `internal/` needs an explicit rule there. Add the rule and this table together before introducing a package.
+`internal/architecture/structure_test.go` is the executable version of this table. Every package under `internal/` needs an explicit rule there. Add the rule and this table together before introducing a package. NSGo's generated `.nsgo` caches may sit beside an example; they are outside the source scan.
 
 The workbench and client are separate application hosts. `client` must not import `workbench`, `sessionimport`, desktop services, SQLite, or process execution. Pure matching algorithms and DTOs move to packages below both hosts.
 

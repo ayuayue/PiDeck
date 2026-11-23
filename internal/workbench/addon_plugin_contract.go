@@ -6,25 +6,25 @@ import (
 	"fmt"
 	"strings"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 )
 
 const (
-	litePluginRuntime = "pideck-lite"
-	litePluginSchema  = 2
+	v2PluginRuntime = "pideck-v2"
+	v2PluginSchema  = 2
 )
 
 // normalizePluginIdentity migrates legacy identity in memory. It never
-// edits the manifest and never interprets a foreign runtime as Lite.
+// edits the manifest and never interprets a foreign runtime as V2.
 func normalizePluginIdentity(p *plugin) bool {
 	p.Runtime = strings.TrimSpace(p.Runtime)
 	if p.Runtime == "" {
-		p.Runtime = litePluginRuntime
+		p.Runtime = v2PluginRuntime
 	}
 	if p.SchemaVersion == 0 {
-		p.SchemaVersion = litePluginSchema
+		p.SchemaVersion = v2PluginSchema
 	}
-	if p.Runtime != litePluginRuntime || p.SchemaVersion != litePluginSchema {
+	if p.Runtime != v2PluginRuntime || p.SchemaVersion != v2PluginSchema {
 		p.Error = apptext.T("插件清单不兼容：%s", fmt.Sprintf("runtime=%q, schemaVersion=%d", p.Runtime, p.SchemaVersion))
 		return false
 	}

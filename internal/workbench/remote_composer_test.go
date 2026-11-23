@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-lite/internal/remotewire"
+	"example.com/pideck-v2/internal/remotewire"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -68,7 +68,7 @@ func TestRemoteComposerControls(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(piDir, "models.json"), rawModels, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PIDECK_LITE_PI_CONFIG", piDir)
+	t.Setenv("PIDECK_V2_PI_CONFIG", piDir)
 
 	home := t.TempDir()
 	// The app keeps a watcher on the workspace; its folder is removed by
@@ -81,7 +81,7 @@ func TestRemoteComposerControls(t *testing.T) {
 		time.Sleep(200 * time.Millisecond)
 		_ = os.RemoveAll(workspace)
 	})
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	raw, err := json.Marshal(config{Version: 1, Workspaces: []workspaceCfg{{Path: workspace, Name: "ComposerProject"}},
 		Theme: "system", SidebarOpen: true, ScanPi: false,
 		ImageProvider: "acme", ImageModel: "img-1", ImageSize: "512x512",

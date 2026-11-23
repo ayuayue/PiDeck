@@ -7,14 +7,14 @@ package workbench
 
 import (
 	"context"
-	"example.com/pideck-lite/internal/remotewire"
+	"example.com/pideck-v2/internal/remotewire"
 	"os"
 	"sync"
 	"time"
 
-	"example.com/pideck-lite/internal/alerts"
-	"example.com/pideck-lite/internal/sessionimport"
-	"example.com/pideck-lite/internal/volcvoice"
+	"example.com/pideck-v2/internal/alerts"
+	"example.com/pideck-v2/internal/sessionimport"
+	"example.com/pideck-v2/internal/volcvoice"
 	"github.com/nsgo-dev/nsgo/base/textview"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -56,7 +56,6 @@ type app struct {
 	// favMu guards the list the dialog reads.
 	favOpen             *core.Signal[bool]
 	reviewOpen          *core.Signal[bool]
-	drafts              draftLibrary
 	draftsAtStart       map[string]storedSessionDraft
 	pendingTabs         []string // saved tabs waiting for their remote history scan
 	pendingActive       string
@@ -72,6 +71,7 @@ type app struct {
 	reduceEffects       *core.Signal[bool]
 	codeWrap            *core.Signal[bool]
 	preview             *core.Signal[*filePreview]
+	previewAudio        *previewPlayer
 	notifications       *notificationHistory
 	translation         *core.Signal[*translationDraft]
 	promptTemplate      *core.Signal[*promptTemplateForm]
@@ -85,27 +85,30 @@ type app struct {
 
 	// Scheduled tasks: the list, run history and the editor's fields.
 	// taskMu guards the list the ticker and the UI both touch.
-	taskMu       sync.Mutex
-	tasks        []*scheduledTask
-	taskRuns     []taskRun
-	taskRunning  map[string]bool
-	taskOpen     *core.Signal[bool]
-	taskFormOpen *core.Signal[bool]
-	taskRev      *core.Signal[int]
-	taskErr      *core.Signal[string]
-	taskEditID   *core.Signal[string]
-	taskName     *core.Signal[string]
-	taskCron     *core.Signal[string]
-	taskPrompt   *core.Signal[string]
-	taskProject  *core.Signal[string]
-	taskBackend  *core.Signal[string]
-	taskPreset   *core.Signal[string]
-	taskPersona  *core.Signal[string]
-	taskEnabled  *core.Signal[bool]
-	taskTimeout  *core.Signal[string]
-	themes       *core.Signal[[]themeSpec]
-	plugins      *core.Signal[[]plugin]
-	providers    *core.Signal[[]providerInfo]
+	taskMu          sync.Mutex
+	tasks           []*scheduledTask
+	taskRuns        []taskRun
+	taskRunning     map[string]bool
+	taskOpen        *core.Signal[bool]
+	taskFormOpen    *core.Signal[bool]
+	taskRev         *core.Signal[int]
+	taskErr         *core.Signal[string]
+	taskEditID      *core.Signal[string]
+	taskName        *core.Signal[string]
+	taskCron        *core.Signal[string]
+	taskPrompt      *core.Signal[string]
+	taskProject     *core.Signal[string]
+	taskBackend     *core.Signal[string]
+	taskPreset      *core.Signal[string]
+	taskPersona     *core.Signal[string]
+	taskEnabled     *core.Signal[bool]
+	taskTimeout     *core.Signal[string]
+	themes          *core.Signal[[]themeSpec]
+	plugins         *core.Signal[[]plugin]
+	pluginArchive   *core.Signal[pluginArchiveSnapshot]
+	pluginFileBusy  *core.Signal[bool]
+	providers       *core.Signal[[]providerInfo]
+	providerLoadSeq uint64
 	// usage is the local statistics report, read from the session files
 	// the first time the usage page opens.
 	usage        *core.Signal[usageReport]
@@ -310,11 +313,22 @@ type app struct {
 	events eventBus
 	inHook bool
 
-	workspaces   *core.Signal[[]*workspace]
-	activeWS     *core.Signal[string]
-	tabs         *core.Signal[[]string]
-	activeID     *core.Signal[string]
-	activityOpen *core.Signal[bool]
+	workspaces *core.Signal[[]*workspace]
+	activeWS   *core.Signal[string]
+	tabs       *core.Signal[[]string]
+	activeID   *core.Signal[string]
+	// railTab is the rail's visible column: activity, chat or projects.
+	railTab *core.Signal[string]
+	// hoveredProject is the project row the pointer rests on, by key, so
+	// its actions can show while it is hovered.
+	hoveredProject *core.Signal[string]
+	// projectMoreOpen is the project whose row menu is open, by key: its
+	// trigger stays out while the menu is, so the pointer can reach it.
+	projectMoreOpen *core.Signal[string]
+	// addProjectOpen is the add-project menu beside the project count.
+	addProjectOpen *core.Signal[bool]
+	// railMoreOpen folds 更多 open and shut.
+	railMoreOpen *core.Signal[bool]
 	// activePane is the split pane filling the work area, "" for the
 	// session's own view.
 	activePane *core.Signal[string]
@@ -349,6 +363,8 @@ type app struct {
 	settingsRev   *core.Signal[int]
 	brandOpen     *core.Signal[bool]
 	brandRev      *core.Signal[int]
+	brandNameRev  *core.Signal[int]
+	brandInputRev *core.Signal[int]
 	brandBusy     *core.Signal[bool]
 	brandError    *core.Signal[string]
 	customBrand   brandImage
@@ -358,15 +374,23 @@ type app struct {
 	settingsScroll *core.Ref
 	settingsOffset core.Point
 	settingsTab    *core.Signal[string]
-	addWS          *core.Signal[bool]
-	addTarget      *core.Signal[bool]
-	addKind        *core.Signal[int]
-	addWhere       *core.Signal[string]
-	addPath        *core.Signal[string]
-	importOpen     *core.Signal[bool]
-	renameOpen     *core.Signal[bool]
-	renameText     *core.Signal[string]
-	renameID       string
+	// tabRefs are the open tabs' elements, by tab id: the bar scrolls the
+	// focused one into sight so a full bar never hides it.
+	tabRefs map[string]*core.Ref
+	// The diagnostics page reads these, and a slow tick fills them, so
+	// showing what is running never rebuilds the page's scroll view.
+	diagMem    *core.Signal[diagMemory]
+	diagProcs  *core.Signal[*diagProcs]
+	diagLog    *core.Signal[*diagLogEvents]
+	addWS      *core.Signal[bool]
+	addTarget  *core.Signal[bool]
+	addKind    *core.Signal[int]
+	addWhere   *core.Signal[string]
+	addPath    *core.Signal[string]
+	importOpen *core.Signal[bool]
+	renameOpen *core.Signal[bool]
+	renameText *core.Signal[string]
+	renameID   string
 	// The file name dialog: new file, new folder or rename.
 	fileOpOpen   *core.Signal[bool]
 	fileOpTitle  *core.Signal[string]
@@ -416,17 +440,33 @@ type app struct {
 	skillStoreList       *core.Signal[[]skillIndexEntry]
 	skillStoreInstalling *core.Signal[string]
 	skillStoreDone       map[string]bool
+	// The pi extension store: `pi list` plus pi.dev's package directory.
+	piStoreOpen         *core.Signal[bool]
+	piStoreQuery        *core.Signal[string]
+	piStoreBusy         *core.Signal[bool]
+	piStoreErr          *core.Signal[string]
+	piStoreList         *core.Signal[[]piCatalogItem]
+	piStorePage         *core.Signal[int]
+	piStoreLast         *core.Signal[int]
+	piStoreInstalled    *core.Signal[[]piPackage]
+	piStoreInstalledErr *core.Signal[string]
+	piStoreActing       *core.Signal[string]
+	piStoreLocal        *core.Signal[bool]
+	// A new query or close invalidates posted catalog results.
+	piStoreGen    uint64
+	piStoreCancel context.CancelFunc
 	// The plugin market.
-	marketOpen       *core.Signal[bool]
-	marketURL        *core.Signal[string]
-	marketBusy       *core.Signal[bool]
-	marketErr        *core.Signal[string]
-	marketList       *core.Signal[[]marketEntry]
-	marketInstalling *core.Signal[string]
+	marketOpen *core.Signal[bool]
+	marketURL  *core.Signal[string]
+	marketBusy *core.Signal[bool]
+	marketErr  *core.Signal[string]
+	marketList *core.Signal[[]marketEntry]
 	// Request ownership is UI-only. Every replacement/close invalidates
 	// posted results; installation state remains owned by its signal.
 	marketRequestGen    uint64
 	marketRequestCancel context.CancelFunc
+	// Hot update for the bundled pi extensions.
+	piExtUpdateBusy *core.Signal[bool]
 	// Image generation.
 	imageOpen       *core.Signal[bool]
 	transcriptImage *core.Signal[remotewire.Image]
@@ -454,6 +494,7 @@ type app struct {
 	confirmHead    *core.Signal[string]
 	confirmBody    *core.Signal[string]
 	confirmWhy     *core.Signal[string]
+	confirmPrimary bool
 	confirmFn      func()
 	// askSeq redraws the ask card when its request changes.
 	askSeq *core.Signal[int]
@@ -573,6 +614,8 @@ type app struct {
 	closedTabs []string
 	// addonsGen drops a stale plugin reload that finished after a newer one.
 	addonsGen int
+	// A successful file change remains busy until the current inventory is published.
+	pluginFilesReloaded func()
 	// piScanGen drops a pi history scan that finished after a newer one.
 	piScanGen        int
 	gitNewBranchName *core.Signal[string]
@@ -609,4 +652,10 @@ type app struct {
 	mainHooked      bool
 	mainTries       int
 	lastTray        time.Time
+	// lastHeapRelease is when idle heap last went back to the system, so a
+	// big transcript release costs one pause and not one per tick.
+	lastHeapRelease time.Time
+	// releasing guards one collection at a time, so a second press does not
+	// queue another full GC behind the first.
+	releasing bool
 }

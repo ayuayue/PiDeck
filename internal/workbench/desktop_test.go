@@ -78,7 +78,7 @@ func TestRetiredDesktopPet(t *testing.T) {
 	} {
 		t.Run(platform.name, func(t *testing.T) {
 			home := t.TempDir()
-			t.Setenv("PIDECK_LITE_HOME", home)
+			t.Setenv("PIDECK_V2_HOME", home)
 			if err := os.WriteFile(filepath.Join(home, "config.json"),
 				[]byte(`{"petEnabled":true,"petPackage":"missing-pet","sidebarOpen":true,"scanPi":false,"telemetryEnabled":false}`), 0o600); err != nil {
 				t.Fatal(err)

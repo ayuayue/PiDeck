@@ -9,6 +9,9 @@ package workbench
 
 import (
 	"fmt"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,6 +23,36 @@ import (
 
 // defaultTerminalHeight is the panel's height when none was dragged.
 const defaultTerminalHeight = 280.0
+
+type terminalShell struct {
+	id, name, path string
+}
+
+// localTerminalShells detects the Windows alternatives to NSGo's
+// default shell. WSL and SSH use the shell for their workspace target.
+func localTerminalShells() []terminalShell {
+	if runtime.GOOS != "windows" {
+		return nil
+	}
+	var available []terminalShell
+	for _, shell := range []terminalShell{
+		{id: "pwsh", name: "PowerShell", path: "pwsh.exe"},
+		{id: "powershell", name: "Windows PowerShell", path: "powershell.exe"},
+		{id: "cmd", name: "cmd", path: "cmd.exe"},
+	} {
+		if path, err := exec.LookPath(shell.path); err == nil {
+			shell.path = path
+			available = append(available, shell)
+		}
+	}
+	if git, err := exec.LookPath("git.exe"); err == nil {
+		bash := filepath.Join(filepath.Dir(git), "..", "bin", "bash.exe")
+		if path, err := exec.LookPath(bash); err == nil {
+			available = append(available, terminalShell{id: "git-bash", name: "Git Bash", path: path})
+		}
+	}
+	return available
+}
 
 // termState is a tab's lifecycle.
 type termState int
@@ -73,7 +106,10 @@ type terminalHost struct {
 	findOpen *core.Signal[bool]
 	findText *core.Signal[string]
 
-	count int
+	// Keyboard navigation keeps the focus on the selected tab when the
+	// grid mounts. Opening the panel or a new shell focuses the grid.
+	keepTabFocus bool
+	count        int
 	// done says the app is going away; a terminal still starting closes
 	// instead of reaching a window that is gone.
 	done atomic.Bool
@@ -165,8 +201,18 @@ func newTerminalHost(cx *core.Scope) *terminalHost {
 }
 
 // newTab adds a tab and starts its shell.
-func (h *terminalHost) newTab(cwd string, t target) *termTab {
-	return h.addTab(cwd, t, nil)
+func (h *terminalHost) newTab(cwd string, t target, shell terminalShell) *termTab {
+	if t.remote() || shell.path == "" {
+		return h.addTab(cwd, t, nil)
+	}
+	return h.addTab(cwd, t, func(tab *termTab) {
+		tab.startCommand = []string{shell.path}
+		title := shell.name
+		if name := lastPathPart(cwd); name != "" {
+			title += " · " + name
+		}
+		tab.Title.Set(title)
+	})
 }
 
 // newCommandTab adds a tab that runs one command instead of a shell, and
@@ -206,6 +252,7 @@ func (h *terminalHost) addTab(cwd string, t target, setup func(*termTab)) *termT
 	if setup != nil {
 		setup(tab)
 	}
+	h.keepTabFocus = false
 	h.tabs.Update(func(list []*termTab) []*termTab { return append(list, tab) })
 	h.active.Set(tab.ID)
 	h.start(tab)
@@ -230,7 +277,7 @@ func (h *terminalHost) start(tab *termTab) {
 	tab.find.Set(sgt.SearchStatus{})
 	opts := sgt.Options{
 		Dir: tab.Cwd,
-		Env: []string{"PIDECK_LITE=1"},
+		Env: []string{"PIDECK_V2=1"},
 		OnTitle: func(title string) {
 			// A shell often starts by naming its own executable; the
 			// tab's own name serves better than a truncated path.
@@ -381,7 +428,7 @@ func (h *terminalHost) activeTab() *termTab { return h.find(h.active.GetUntracke
 
 // selectTab brings a tab to the front and ends a search that belonged to
 // the one before it.
-func (h *terminalHost) selectTab(id string) {
+func (h *terminalHost) selectTab(id string, keepFocus bool) {
 	if h.active.GetUntracked() == id || h.find(id) == nil {
 		return
 	}
@@ -391,6 +438,7 @@ func (h *terminalHost) selectTab(id string) {
 		}
 		old.find.Set(sgt.SearchStatus{})
 	}
+	h.keepTabFocus = keepFocus
 	h.active.Set(id)
 	h.findOpen.Set(false)
 	h.findText.Set("")

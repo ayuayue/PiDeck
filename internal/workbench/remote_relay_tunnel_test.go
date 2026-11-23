@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-lite/internal/relaywire"
+	"example.com/pideck-v2/internal/relaywire"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 	"golang.org/x/net/websocket"
@@ -54,7 +54,7 @@ func (r *tunnelRelay) pair() {
 // TestRelayTunnelServesTheAPI checks the desktop's outbound connector: a
 // phone reaches /api/ping through the tunnel and the desktop's own TLS.
 func TestRelayTunnelServesTheAPI(t *testing.T) {
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	var built *app
 	root := func(cx *core.Scope) core.Node {
 		built = newApp(cx)
@@ -126,7 +126,7 @@ func TestRelayTunnelServesTheAPI(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&ping); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if ping.Name != "PiDeck Lite" {
+	if ping.Name != "PiDeck V2" {
 		t.Fatalf("ping = %+v", ping)
 	}
 

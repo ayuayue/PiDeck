@@ -22,8 +22,8 @@ import (
 	"sync"
 	"time"
 
-	"example.com/pideck-lite/internal/sessionimport"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/sessionimport"
+	"example.com/pideck-v2/internal/viewkit"
 )
 
 // importScanWorkers bounds concurrent source scans; each scan reads headers.

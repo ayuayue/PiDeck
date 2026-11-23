@@ -95,7 +95,7 @@ func (h *helper) emulator() (string, error) {
 }
 
 func (h *helper) readRemote() (remoteConfig, error) {
-	dir := os.Getenv("PIDECK_LITE_HOME")
+	dir := os.Getenv("PIDECK_V2_HOME")
 	if dir == "" {
 		base, err := os.UserConfigDir()
 		if err != nil {

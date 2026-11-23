@@ -25,7 +25,7 @@ import (
 func fakeProviders(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
-	t.Setenv("PIDECK_LITE_PI_CONFIG", dir)
+	t.Setenv("PIDECK_V2_PI_CONFIG", dir)
 	raw := `{"providers":{"fake":{"api":"openai-completions","baseUrl":"http://127.0.0.1:9",
 		"apiKey":"k","models":[{"id":"fast","name":"Fast"},{"id":"smart","name":"Smart"}]}}}`
 	if err := os.WriteFile(filepath.Join(dir, "models.json"), []byte(raw), 0o644); err != nil {
@@ -67,7 +67,7 @@ func TestLLMAnthropic(t *testing.T) {
 func TestToolModelsPerTool(t *testing.T) {
 	fakeProviders(t)
 	home, workspace := editorWorkspace(t), editorWorkspace(t)
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	raw, _ := json.Marshal(config{Version: 1, Workspaces: []workspaceCfg{{Path: workspace, Name: "ToolProject"}},
 		Theme: "system", SidebarOpen: true})
 	if err := os.WriteFile(filepath.Join(home, "config.json"), raw, 0o644); err != nil {
@@ -80,6 +80,7 @@ func TestToolModelsPerTool(t *testing.T) {
 	built.settingsTab.Set("models")
 	screen.Advance(300 * time.Millisecond)
 	screen.WaitFor("id:tool-commit-provider", 5*time.Second)
+	screen.WaitFor("id:provider-configure-fake", 10*time.Second)
 
 	screen.Press("id:tool-commit-provider")
 	screen.WaitFor("id:tool-commit-provider-0", 5*time.Second)
@@ -103,7 +104,7 @@ func TestToolModelsPerTool(t *testing.T) {
 func TestPromptToolsUseTheirModel(t *testing.T) {
 	fakeProviders(t)
 	home, workspace := editorWorkspace(t), editorWorkspace(t)
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	raw, _ := json.Marshal(config{Version: 1, Workspaces: []workspaceCfg{{Path: workspace, Name: "ToolProject"}},
 		Theme: "system", SidebarOpen: true,
 		ToolModels: map[string]toolModelCfg{
@@ -161,7 +162,7 @@ func TestCommitSummaryUsesCommitTool(t *testing.T) {
 	run("add", ".")
 
 	home := editorWorkspace(t)
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	raw, _ := json.Marshal(config{Version: 1, Workspaces: []workspaceCfg{{Path: workspace, Name: "CommitProject", Expanded: true}},
 		Theme: "system", SidebarOpen: true})
 	if err := os.WriteFile(filepath.Join(home, "config.json"), raw, 0o644); err != nil {

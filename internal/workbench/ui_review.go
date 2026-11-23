@@ -12,8 +12,8 @@ import (
 	"strconv"
 	"strings"
 
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -126,6 +126,23 @@ func (a *app) reviewToolbar(cx *core.Scope) core.Node {
 		}}
 }
 
+// reviewScopeRow is what the list reads: the repository of the open
+// project, and which of its repositories when it holds more than one.
+func (a *app) reviewScopeRow(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6,
+		Padding: core.Edges{Left: 20, Right: 20, Bottom: 6}}, Children: []core.Node{
+		a.reviewRepoMenu(cx),
+		core.View{Style: core.Style{FlexGrow: 1}},
+		core.Text{ContentFunc: func() string {
+			if a.review.state.Get().Loading {
+				return apptext.T("正在读取…")
+			}
+			return ""
+		}, MaxLines: 1, Style: core.Style{FontSize: 10.5}, StyleFunc: ui.Colored(colors.Faint)},
+	}}
+}
+
 // reviewKindIcon is the tab's icon, in the accent when the tab is on.
 func (a *app) reviewKindIcon(kind string, on func() bool) core.Node {
 	icon := lucide.GitPullRequest
@@ -166,6 +183,10 @@ func (a *app) reviewList(cx *core.Scope, st reviewState) core.Node {
 	case st.Missing:
 		return reviewNotice(colors, lucide.Terminal, apptext.T("这台机器上没有 GitHub CLI"),
 			apptext.T("装好 gh 并在终端运行 gh auth login，评审面板就会列出项目里的拉取请求与议题。"),
+			apptext.T("重新读取"), func() { a.review.reload() })
+	case st.NeedsLogin:
+		return reviewNotice(colors, lucide.KeyRound, apptext.T("GitHub CLI 还没登录"),
+			apptext.T("在终端运行 gh auth login，选好账号并授权；评审面板接着读这个仓库的拉取请求与议题。"),
 			apptext.T("重新读取"), func() { a.review.reload() })
 	case st.Error != "" && len(st.Items) == 0:
 		return reviewNotice(colors, lucide.TriangleAlert, apptext.T("读不到 GitHub"), st.Error,

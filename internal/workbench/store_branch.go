@@ -13,7 +13,7 @@ import (
 	"slices"
 	"time"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 )
 
 type branchPoint struct {

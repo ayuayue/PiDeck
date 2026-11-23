@@ -1,9 +1,9 @@
 package client
 
-// The phone build: it connects to a desktop PiDeck Lite server and browses
+// The phone build: it connects to a desktop PiDeck V2 server and browses
 // its projects, sessions and transcripts. The same package builds the
 // desktop; Root picks this screen on iOS and Android (or with
-// PIDECK_LITE_MOBILE=1 for a preview on a desktop).
+// PIDECK_V2_MOBILE=1 for a preview on a desktop).
 
 import (
 	"bytes"
@@ -11,22 +11,29 @@ import (
 	"image"
 	_ "image/jpeg"
 	_ "image/png"
+	"io"
 	"net/url"
 	"os"
 	"strings"
 	"time"
 
-	"example.com/pideck-lite/assets"
-	"example.com/pideck-lite/internal/appinfo"
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/relaywire"
-	"example.com/pideck-lite/internal/remotewire"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/assets"
+	"example.com/pideck-v2/internal/appinfo"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/relaywire"
+	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/liyue201/goqr"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
 )
+
+const maxScanImageBytes = 6 << 20
+const maxScanImagePixels = 20_000_000
+
+var errScanImageTooLarge = errors.New("scan image exceeds limit")
+var errScanImageDimensionsTooLarge = errors.New("scan image dimensions exceed limit")
 
 // connectView asks for the desktop's link and token.
 func (a *mobileApp) connectView(cx *core.Scope) core.Node {
@@ -92,7 +99,7 @@ func (a *mobileApp) connectView(cx *core.Scope) core.Node {
 		core.Image{Source: core.ImageSource{Data: assets.LogoPNG}, ResizeMode: core.Contain, Label: "PiDeck",
 			Style: core.Style{Width: core.Pt(64), Height: core.Pt(64), CornerRadius: 18, AlignSelf: core.AlignCenter}},
 		core.View{Style: core.Style{Gap: 4, AlignItems: core.AlignCenter}, Children: []core.Node{
-			ui.Text("PiDeck Lite", 24, ui.Bold, colors.Text),
+			ui.Text("PiDeck V2", 24, ui.Bold, colors.Text),
 			ui.Text(apptext.T("连接电脑上的会话"), 13, ui.Regular, colors.Muted),
 		}},
 		card,
@@ -159,13 +166,42 @@ func (a *mobileApp) scanImage() {
 		if len(files) == 0 {
 			return
 		}
-		data, readErr := os.ReadFile(files[0].Path)
-		if readErr != nil || len(data) == 0 {
-			a.err.Set("读不到这张图片")
-			return
-		}
-		a.useScanned(data)
+		path := files[0].Path
+		go func() {
+			data, readErr := readScanImage(path)
+			a.cx.Post(func() {
+				if errors.Is(readErr, errScanImageTooLarge) {
+					a.err.Set(apptext.T("图片太大，上限 6 MB"))
+					return
+				}
+				if readErr != nil || len(data) == 0 {
+					a.err.Set(apptext.T("读不到这张图片"))
+					return
+				}
+				a.useScanned(data)
+			})
+		}()
 	})
+}
+
+// readScanImage bounds gallery input before decoding an untrusted image.
+func readScanImage(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	if info, err := f.Stat(); err == nil && info.Size() > maxScanImageBytes {
+		return nil, errScanImageTooLarge
+	}
+	data, err := io.ReadAll(io.LimitReader(f, maxScanImageBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxScanImageBytes {
+		return nil, errScanImageTooLarge
+	}
+	return data, nil
 }
 
 // useScanned decodes a picture and connects to what it holds.
@@ -173,32 +209,76 @@ func (a *mobileApp) useScanned(data []byte) {
 	go func() {
 		link, err := decodeQRLink(data)
 		a.cx.Post(func() {
+			if errors.Is(err, errScanImageTooLarge) {
+				a.err.Set(apptext.T("图片太大，上限 6 MB"))
+				return
+			}
+			if errors.Is(err, errScanImageDimensionsTooLarge) {
+				a.err.Set(apptext.T("图片尺寸过大，无法识别二维码"))
+				return
+			}
 			if err != nil || link == "" {
-				a.err.Set("这张图里没有二维码")
+				a.err.Set(apptext.T("这张图里没有二维码"))
 				return
 			}
-			client, token, cerr := newRemoteClient(link, "")
-			if cerr != nil {
-				a.err.Set(cerr.Error())
-				return
-			}
-			a.server.Set(client.source)
-			a.token.Set(token)
-			a.connect()
+			a.connectScanned(link)
 		})
 	}()
 }
 
-// scanQR reads a connection link from a photo of the desktop's code.
-func (a *mobileApp) scanQR() {
-	if !a.cx.Env().CanTakePhoto() {
-		a.err.Set("这台设备没有可用的相机，用下面的链接和令牌连接吧")
+// connectScanned validates untrusted QR text before putting it in the form.
+func (a *mobileApp) connectScanned(text string) {
+	client, token, err := newRemoteClient(text, "")
+	if err != nil {
+		a.err.Set(err.Error())
 		return
 	}
+	if token == "" {
+		client.close()
+		a.server.Set(client.source)
+		a.token.Set("")
+		a.err.Set(apptext.T("请填写访问令牌，或粘贴完整的连接链接"))
+		return
+	}
+	client.close()
+	a.server.Set(client.source)
+	a.token.Set(token)
+	a.connect()
+}
+
+// scanQR prefers the live scanner and keeps photo capture as a platform fallback.
+func (a *mobileApp) scanQR() {
 	a.err.Set("")
+	env := a.cx.Env()
+	if env.CanScanCode() {
+		a.cx.ScanCode(core.ScanOptions{}, func(code *core.ScannedCode, err error) {
+			if errors.Is(err, core.ErrNoScanner) && a.cx.Env().CanTakePhoto() {
+				a.scanQRPhoto()
+				return
+			}
+			if err != nil {
+				a.err.Set(apptext.T("扫码失败：%s", err.Error()))
+				return
+			}
+			if code == nil {
+				return
+			}
+			a.connectScanned(code.Text)
+		})
+		return
+	}
+	if !env.CanTakePhoto() {
+		a.err.Set(apptext.T("这台设备没有可用的相机，用下面的链接和令牌连接吧"))
+		return
+	}
+	a.scanQRPhoto()
+}
+
+// scanQRPhoto reads a code from a single photo on platforms without live scanning.
+func (a *mobileApp) scanQRPhoto() {
 	a.cx.TakePhoto(core.PhotoOptions{MaxDimension: 1600}, func(photo *core.PickedFile, err error) {
 		if err != nil {
-			a.err.Set("打开相机失败：" + err.Error())
+			a.err.Set(apptext.T("打开相机失败：%s", err.Error()))
 			return
 		}
 		if photo == nil || len(photo.Data) == 0 {
@@ -210,6 +290,16 @@ func (a *mobileApp) scanQR() {
 
 // decodeQRLink reads the first QR code in a JPEG or PNG.
 func decodeQRLink(data []byte) (string, error) {
+	if len(data) > maxScanImageBytes {
+		return "", errScanImageTooLarge
+	}
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return "", err
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 || int64(cfg.Width)*int64(cfg.Height) > maxScanImagePixels {
+		return "", errScanImageDimensionsTooLarge
+	}
 	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		return "", err
@@ -237,7 +327,7 @@ func (a *mobileApp) connect() {
 		return
 	}
 	if token == "" {
-		a.err.Set("请填写访问令牌，或粘贴完整的连接链接")
+		a.err.Set(apptext.T("请填写访问令牌，或粘贴完整的连接链接"))
 		return
 	}
 	gen := a.gen
@@ -305,6 +395,12 @@ func (a *mobileApp) pasteAndConnect() {
 			a.err.Set(apptext.T("剪贴板里没有链接"))
 			return
 		}
+		if client, token, err := newRemoteClient(text, ""); err == nil {
+			client.close()
+			if token != "" {
+				a.token.Set(token)
+			}
+		}
 		a.server.Set(text)
 		a.connect()
 	})
@@ -347,6 +443,8 @@ func (a *mobileApp) disconnect() { a.disconnectWith("") }
 
 func (a *mobileApp) disconnectWith(message string) {
 	a.gen++
+	a.sessionSeq++
+	a.disconnectFileViews()
 	a.client.close()
 	a.client = nil
 	a.busy.Set(false)
@@ -357,11 +455,10 @@ func (a *mobileApp) disconnectWith(message string) {
 	a.messages.Set(nil)
 	a.transcriptErr.Set("")
 	a.transcriptBusy.Set(false)
+	a.olderBusy.Set(false)
 	a.ask.Set(nil)
 	a.state.Set(remotewire.Snapshot{})
-	if message != "" {
-		a.err.Set(message)
-	}
+	a.err.Set(message)
 }
 
 // startPolling keeps the project list and the open transcript current.

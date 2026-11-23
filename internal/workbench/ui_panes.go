@@ -10,8 +10,9 @@ package workbench
 // the way a second document stays open.
 
 import (
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -24,12 +25,24 @@ const (
 	paneAgents        = "agents"
 	paneFavorites     = "favorites"
 	paneReview        = "review"
-	paneDrafts        = "drafts"
 	paneBrowser       = "browser"
-	paneActivity      = "activity"
 	paneMemory        = "memory"
 	paneNotifications = "notifications"
 	paneVideo         = "video"
+	// The file pages: a preview of a file, a patch, and the commits and
+	// lines behind a path. They show in the work area as the settings do,
+	// so reading a file never covers the chat with a dialog.
+	panePreview     = "preview"
+	paneDiff        = "diff"
+	paneFileHistory = "file-history"
+	paneBlame       = "blame"
+	paneReviewPatch = "review-patch"
+	// A conversation's own material: a tool result's picture, the turn's
+	// trajectory, the agents it handed work to, and a translation.
+	paneTranscriptImage = "transcript-image"
+	paneTrajectory      = "trajectory"
+	paneDelegation      = "delegation"
+	paneTranslation     = "translation"
 )
 
 // paneDef is one split pane: its tab, whether it is open, and its page.
@@ -49,8 +62,6 @@ func (a *app) panes() []paneDef {
 	return []paneDef{
 		{ID: paneSettings, Label: "设置", Icon: lucide.Settings, Open: a.settings.Get, Set: a.settings.Set,
 			TestID: "settings", Body: a.settingsPane},
-		{ID: paneActivity, Label: "活动", Icon: lucide.Activity, Open: a.activityOpen.Get, Set: a.activityOpen.Set,
-			TestID: "activity-pane", Body: a.activityPane},
 		{ID: paneTasks, Label: "定时任务", Icon: lucide.CalendarClock, Open: a.taskOpen.Get, Set: a.taskOpen.Set,
 			TestID: "tasks-dialog", Body: a.tasksPane},
 		{ID: paneAgents, Label: "智能体", Icon: lucide.Bot, Open: a.agentManageOpen.Get, Set: a.agentManageOpen.Set,
@@ -59,14 +70,57 @@ func (a *app) panes() []paneDef {
 			TestID: "favorites-dialog", Body: a.favoritesPane},
 		{ID: paneReview, Label: "评审", Icon: lucide.GitPullRequest, Open: a.reviewOpen.Get, Set: a.reviewOpen.Set,
 			TestID: "review-pane", Body: a.reviewPane},
-		{ID: paneDrafts, Label: "草稿本", Icon: lucide.BookOpen, Open: a.drafts.open.Get, Set: a.drafts.open.Set,
-			TestID: "drafts-pane", Body: a.draftsPane},
 		{ID: paneBrowser, Label: "浏览器", Icon: lucide.Globe, Open: a.browser.open.Get, Set: a.browser.open.Set},
 		{ID: paneMemory, Label: "智能体记忆", Icon: lucide.BookOpen, Open: a.memory.open.Get, Set: a.memory.open.Set,
 			TestID: "memory-pane", Body: a.memoryPane},
 		{ID: paneNotifications, Label: "通知历史", Icon: lucide.Bell, Open: a.notifications.open.Get, Set: a.notifications.open.Set,
 			TestID: "notifications-pane", Body: a.notificationHistoryPane},
 		{ID: paneVideo, Label: "视频生成", Icon: lucide.Video, Open: a.video.open.Get, Set: a.video.open.Set, TestID: "video-pane", Body: a.videoPane},
+		// A preview has no tab of its own until a file opens in it, and its
+		// close gives the file back: the audio it plays stops there too.
+		{ID: panePreview, Label: "文件预览", Icon: lucide.Eye, Open: func() bool { return a.preview.Get() != nil },
+			Set: func(open bool) {
+				if !open {
+					a.closeFilePreview()
+				}
+			},
+			TestID: "file-preview", Body: a.previewPane},
+		{ID: paneDiff, Label: "改动", Icon: lucide.FileDiff, Open: a.gitDiffOpen.Get, Set: a.gitDiffOpen.Set,
+			TestID: "git-diff", Body: a.diffPane},
+		{ID: paneFileHistory, Label: "文件历史", Icon: lucide.Clock, Open: a.gitFileHistoryOpen.Get,
+			Set: a.gitFileHistoryOpen.Set, TestID: "git-file-history-dialog", Body: a.fileHistoryPane},
+		{ID: paneBlame, Label: "追溯", Icon: lucide.UserRoundSearch, Open: a.gitBlameOpen.Get,
+			Set: a.gitBlameOpen.Set, TestID: "git-blame", Body: a.blamePane},
+		{ID: paneReviewPatch, Label: "补丁", Icon: lucide.FileDiff, Open: a.review.patchOpen.Get,
+			Set: a.review.patchOpen.Set, TestID: "review-patch-dialog", Body: a.reviewPatchPane},
+		{ID: paneTranscriptImage, Label: "图片", Icon: lucide.Image, Open: func() bool { return len(a.transcriptImage.Get().Data) > 0 },
+			Set: func(open bool) {
+				if !open {
+					a.transcriptImage.Set(remotewire.Image{})
+				}
+			},
+			TestID: "transcript-image-viewer", Body: a.transcriptImagePane},
+		{ID: paneTrajectory, Label: "轨迹", Icon: lucide.Compass, Open: func() bool { return a.trajectory.Get() != nil },
+			Set: func(open bool) {
+				if !open {
+					a.trajectory.Set(nil)
+				}
+			},
+			TestID: "trajectory-dialog", Body: a.trajectoryPane},
+		{ID: paneDelegation, Label: "子代理", Icon: lucide.Bot, Open: func() bool { return a.delegationSession.Get() != nil },
+			Set: func(open bool) {
+				if !open {
+					a.delegationSession.Set(nil)
+				}
+			},
+			TestID: "delegate-history", Body: a.delegationPane},
+		{ID: paneTranslation, Label: "翻译", Icon: lucide.Languages, Open: func() bool { return a.translation.Get() != nil },
+			Set: func(open bool) {
+				if !open {
+					a.closeTranslation()
+				}
+			},
+			TestID: "translate-dialog", Body: a.translationPane},
 	}
 }
 
@@ -92,6 +146,7 @@ func (a *app) openPane(id string) {
 	}
 	p.Set(true)
 	a.activePane.Set(id)
+	a.revealTab(paneTabKey(id))
 	if id == paneReview {
 		a.reviewAttach()
 	}
@@ -105,6 +160,7 @@ func (a *app) closePane(id string) {
 		return
 	}
 	p.Set(false)
+	a.forgetTab(paneTabKey(id))
 	if id == paneSettings {
 		// The page's search starts empty next time, as the dialog's did.
 		a.settingsQuery.Set("")
@@ -167,9 +223,9 @@ func (a *app) openPaneIDs() []string {
 // the active pane: switching tabs swaps the page without a frame of the
 // session behind it.
 //
-// Every pane reads its width here, not in its own page: one centred
-// column, as wide as the chat's reading width, with the chat's 20-point
-// gutters so both columns measure the same share of the work area.
+// Most panes use the chat's reading width. Settings gets the work area's
+// full measure because provider rows and configuration controls need room
+// for their labels, status and actions together.
 func (a *app) paneView() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = a.langRev.Get()
@@ -178,18 +234,31 @@ func (a *app) paneView() core.Node {
 		if !ok || !p.Open() {
 			return core.View{Style: ui.FillRest}
 		}
+		maxWidth := core.Pct(float32(a.chatWidthPct()))
+		switch p.ID {
+		case paneSettings, paneDiff, panePreview, paneFileHistory, paneBlame, paneReviewPatch, paneTranscriptImage, paneDelegation:
+			// Pages that show content a conversation column is too narrow
+			// for: provider rows, patches, previews, long paths and a
+			// delegate's records.
+			maxWidth = core.Pt(1320)
+		case paneTrajectory:
+			maxWidth = core.Pt(1100)
+		}
 		return core.View{TestID: p.TestID, StyleFunc: func() core.Style {
 			return core.Style{Direction: core.Column, FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), MinWidth: core.Pt(0),
 				AlignItems: core.AlignCenter, Padding: core.Edges{Left: 20, Right: 20},
 				Background: colors.Background()}
 		}, Children: []core.Node{
 			core.View{TestID: "pane-column", StyleFunc: func() core.Style {
-				return core.Style{Direction: core.Column, Width: core.Pct(100), MaxWidth: core.Pct(float32(a.chatWidthPct())),
+				return core.Style{Direction: core.Column, Width: core.Pct(100), MaxWidth: maxWidth,
 					FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), MinWidth: core.Pt(0)}
 			}, Children: []core.Node{p.Body()}},
 		}}
 	})
 }
+
+// paneTabKey is a pane tab's ref key, apart from a session's id.
+func paneTabKey(id string) string { return "pane:" + id }
 
 // paneTab is one pane's tab: its icon and name, and a close button.
 func (a *app) paneTab(def paneDef) core.Node {
@@ -198,6 +267,7 @@ func (a *app) paneTab(def paneDef) core.Node {
 	label := apptext.T(def.Label)
 	return core.View{
 		TestID:  "pane-tab-" + def.ID,
+		Ref:     a.tabRef(paneTabKey(def.ID)),
 		OnPress: func(core.PressEvent) { a.openPane(def.ID) },
 		Role:    core.RoleTab, Label: label,
 		StyleFunc: func() core.Style {

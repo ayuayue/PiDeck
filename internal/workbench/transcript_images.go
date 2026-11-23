@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strings"
 
-	"example.com/pideck-lite/internal/remotewire"
+	"example.com/pideck-v2/internal/remotewire"
 )
 
 const transcriptImagesPerMessage = 4

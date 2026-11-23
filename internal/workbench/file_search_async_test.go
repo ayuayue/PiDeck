@@ -19,7 +19,7 @@ func startFileSearchFixture(t *testing.T, root string) (*app, *nsgotest.App) {
 	if nsgotest.Target() != "" {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	var a *app
 	screen := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		a = &app{

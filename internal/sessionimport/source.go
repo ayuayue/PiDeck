@@ -446,7 +446,7 @@ func homePath(parts ...string) string {
 // names, else the tool's own place. A nonstandard install, or a test, can
 // point a source elsewhere without touching the app's settings.
 func importRoot(key string, parts ...string) string {
-	if dir := strings.TrimSpace(os.Getenv("PIDECK_LITE_IMPORT_" + strings.ToUpper(key) + "_DIR")); dir != "" {
+	if dir := strings.TrimSpace(os.Getenv("PIDECK_V2_IMPORT_" + strings.ToUpper(key) + "_DIR")); dir != "" {
 		return dir
 	}
 	return homePath(parts...)

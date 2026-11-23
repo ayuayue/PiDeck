@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-lite/internal/sessionimport"
+	"example.com/pideck-v2/internal/sessionimport"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -27,11 +27,11 @@ func TestImportDialogImportsSelection(t *testing.T) {
 	store := t.TempDir()
 	empty := t.TempDir()
 	for _, key := range []string{"qoder", "codex", "cursor", "kimi", "minimax", "zcode", "opencode", "workbuddy", "codebuddy"} {
-		t.Setenv("PIDECK_LITE_IMPORT_"+strings.ToUpper(key)+"_DIR", empty)
+		t.Setenv("PIDECK_V2_IMPORT_"+strings.ToUpper(key)+"_DIR", empty)
 	}
 	t.Setenv("APPDATA", t.TempDir()) // Kimi Work's share folder is found there
-	t.Setenv("PIDECK_LITE_HOME", home)
-	t.Setenv("PIDECK_LITE_IMPORT_CLAUDE_DIR", store)
+	t.Setenv("PIDECK_V2_HOME", home)
+	t.Setenv("PIDECK_V2_IMPORT_CLAUDE_DIR", store)
 	dir := filepath.Join(store, "C--work-proj--")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
@@ -102,25 +102,25 @@ func TestImportDialogFromProjectImportsThere(t *testing.T) {
 	elsewhere := t.TempDir()
 	empty := t.TempDir()
 	for _, key := range []string{"qoder", "cursor", "kimi", "minimax", "zcode", "opencode", "workbuddy", "codebuddy"} {
-		t.Setenv("PIDECK_LITE_IMPORT_"+strings.ToUpper(key)+"_DIR", empty)
+		t.Setenv("PIDECK_V2_IMPORT_"+strings.ToUpper(key)+"_DIR", empty)
 	}
 	t.Setenv("APPDATA", t.TempDir())
 
 	claudeDir := t.TempDir()
-	t.Setenv("PIDECK_LITE_IMPORT_CLAUDE_DIR", claudeDir)
+	t.Setenv("PIDECK_V2_IMPORT_CLAUDE_DIR", claudeDir)
 	head := `{"type":"user","sessionId":"c1","cwd":"` + filepath.ToSlash(elsewhere) + `","uuid":"u1","timestamp":"2026-06-01T10:00:00Z","message":{"role":"user","content":"别的目录里的会话"}}` + "\n"
 	if err := os.WriteFile(filepath.Join(claudeDir, "c1.jsonl"), []byte(head), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	codexDir := t.TempDir()
-	t.Setenv("PIDECK_LITE_IMPORT_CODEX_DIR", codexDir)
+	t.Setenv("PIDECK_V2_IMPORT_CODEX_DIR", codexDir)
 	rollout := `{"timestamp":"2026-06-01T10:00:00Z","type":"session_meta","payload":{"id":"x1","cwd":"` + filepath.ToSlash(elsewhere) + `"}}` + "\n" +
 		`{"timestamp":"2026-06-01T10:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Codex 的会话"}]}}` + "\n"
 	if err := os.WriteFile(filepath.Join(codexDir, "rollout-x1.jsonl"), []byte(rollout), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	raw, err := json.Marshal(config{Version: 1, Theme: "system", SidebarOpen: true,
 		Workspaces: []workspaceCfg{{Path: proj, Expanded: true, Added: time.Now()}}})
 	if err != nil {

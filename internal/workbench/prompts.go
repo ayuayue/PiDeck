@@ -19,8 +19,8 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-lite/assets"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/assets"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/ui"
 	yaml "go.yaml.in/yaml/v3"
 )
@@ -38,6 +38,7 @@ type promptItem struct {
 // promptPackEntry is one prompt in a pack. Prompt is an alias for Body,
 // so a shared file can use whichever name it likes.
 type promptPackEntry struct {
+	Slug     string   `yaml:"slug" json:"slug"`
 	Title    string   `yaml:"title" json:"title"`
 	Body     string   `yaml:"body" json:"body"`
 	Prompt   string   `yaml:"prompt" json:"prompt"`

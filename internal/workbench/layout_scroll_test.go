@@ -20,7 +20,7 @@ import (
 func TestSettingsPageScrolls(t *testing.T) {
 	home := editorWorkspace(t)
 	workspace := editorWorkspace(t)
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	raw, err := json.Marshal(config{Version: 1, Workspaces: []workspaceCfg{{Path: workspace, Name: "ScrollProject"}},
 		Theme: "system", SidebarOpen: true})
 	if err != nil {
@@ -64,7 +64,7 @@ func TestGitHistoryScrolls(t *testing.T) {
 		run("commit", "-q", "-m", fmt.Sprintf("commit %d", i+1))
 	}
 	home := editorWorkspace(t)
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	raw, err := json.Marshal(config{Version: 1, Workspaces: []workspaceCfg{{Path: workspace, Name: "GitProject", Expanded: true}},
 		Theme: "system", SidebarOpen: true})
 	if err != nil {
@@ -73,9 +73,29 @@ func TestGitHistoryScrolls(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "config.json"), raw, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	root := func(cx *core.Scope) core.Node { return newApp(cx).view() }
+	var built *app
+	root := func(cx *core.Scope) core.Node { built = newApp(cx); return built.view() }
 	screen := nsgotest.Start(t, root, nsgotest.Size(1280, 860))
 	screen.Press("id:git-toggle")
-	screen.WaitUntil(30*time.Second, func() bool { return len(screen.Query("id:git-commit-row")) > 20 })
-	screen.Scroll("id:git-log-search", 500)
+	// The newest five commits are listed; the rest wait behind the
+	// section's button, so the panel keeps its shape.
+	screen.WaitUntil(30*time.Second, func() bool { return len(screen.Query("id:git-commit-row")) == gitHistoryShown })
+	if rows := screen.Query("id:git-commit-row"); rows[0].Props.Label != "commit 30" {
+		t.Fatalf("newest commit = %q, want commit 30", rows[0].Props.Label)
+	}
+	screen.Press("id:git-log-more")
+	screen.WaitUntil(10*time.Second, func() bool { return len(screen.Query("id:git-commit-row")) > 5 })
+	// The drawer scrolls, and a status poll leaves the reader where they
+	// are: a poll must not rebuild the scroll view.
+	screen.Scroll("id:git-scroll", 400)
+	before := screen.Find("id:git-scroll").Offset.Y
+	if before <= 0 {
+		t.Fatalf("the drawer did not scroll: offset %v", before)
+	}
+	built.git.poll()
+	screen.WaitUntil(20*time.Second, func() bool { return !built.git.working })
+	screen.Settle()
+	if got := screen.Find("id:git-scroll").Offset.Y; got != before {
+		t.Fatalf("a status poll moved the drawer from %v to %v", before, got)
+	}
 }

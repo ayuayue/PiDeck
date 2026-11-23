@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
@@ -49,6 +49,65 @@ func (a *app) openGitFor(ws *workspace) {
 func (a *app) gitAttach() {
 	if !a.git.attach(a.activeWorkspace()) {
 		a.git.refreshAll()
+	}
+}
+
+// gitChangesView is how the changes are listed: the stored choice, or the
+// flat list, which fits more paths in the drawer, when the config does not
+// name one.
+func (a *app) gitChangesView() string {
+	if a.cfg.GitChangesView == gitViewTree {
+		return gitViewTree
+	}
+	return gitViewFlat
+}
+
+// setGitChangesView switches between the tree and the flat list, and keeps
+// the choice.
+func (a *app) setGitChangesView(view string) {
+	if view != gitViewFlat {
+		view = gitViewTree
+	}
+	if a.git.view.GetUntracked() == view {
+		return
+	}
+	a.git.view.Set(view)
+	a.cfg.GitChangesView = view
+	if a.st != nil {
+		a.st.edit(func(c *config) { c.GitChangesView = view })
+	}
+}
+
+// toggleGitFolder folds or opens one folder of the changes tree.
+func (a *app) toggleGitFolder(path string) {
+	a.git.collapsed.Update(func(folded map[string]bool) map[string]bool {
+		out := make(map[string]bool, len(folded)+1)
+		for k, v := range folded {
+			out[k] = v
+		}
+		if out[path] {
+			delete(out, path)
+		} else {
+			out[path] = true
+		}
+		return out
+	})
+}
+
+// showAllGitFiles lifts the changes list's row limit.
+func (a *app) showAllGitFiles() { a.git.filesShown.Set(gitFilesAll) }
+
+// collapseGitFiles puts the changes list back to its first page.
+func (a *app) collapseGitFiles() { a.git.filesShown.Set(gitFilesShown) }
+
+// moreGitHistory shows another page of commits, reading more from the
+// repository when the loaded ones run out.
+func (a *app) moreGitHistory() {
+	st := a.git.state.GetUntracked()
+	shown := a.git.historyShown.GetUntracked() + gitHistoryPage
+	a.git.historyShown.Set(shown)
+	if shown >= len(st.Commits) && st.LogLimit > 0 && len(st.Commits) >= st.LogLimit {
+		a.git.loadMore()
 	}
 }
 
@@ -228,7 +287,7 @@ func (a *app) openBlame(path string) {
 	a.gitBlamePath.Set(path)
 	a.gitBlame = nil
 	a.gitBlameErr.Set("")
-	a.gitBlameOpen.Set(true)
+	a.openPane(paneBlame)
 	a.gitBlameRev.Update(func(n int) int { return n + 1 })
 	go func() {
 		ranges, err := readFileBlame(t, dir, path)
@@ -255,7 +314,7 @@ func (a *app) openFileHistory(path string) {
 	a.gitFileHistoryPath.Set(path)
 	a.gitFileHistory = nil
 	a.gitFileHistoryErr.Set("")
-	a.gitFileHistoryOpen.Set(true)
+	a.openPane(paneFileHistory)
 	a.gitFileHistoryRev.Update(func(n int) int { return n + 1 })
 	go func() {
 		commits, err := readFileHistory(t, dir, path, 50)

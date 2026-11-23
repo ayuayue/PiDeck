@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -18,7 +18,7 @@ import (
 // TestToastPlacement checks a toast stacks at the top right, clear of the
 // header and of the window's edge.
 func TestToastPlacement(t *testing.T) {
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	const width, height = 1320, 860
 	var built *app
 	root := func(cx *core.Scope) core.Node { built = newApp(cx); return built.view() }

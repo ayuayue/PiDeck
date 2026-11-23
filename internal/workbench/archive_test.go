@@ -59,7 +59,7 @@ func TestArchiveSession(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "config.json"), cfg, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	app := nsgotest.Start(t, Root, nsgotest.Size(1280, 860))
 	rowOf := func() string {
 		rows := app.Query("id:session-row")

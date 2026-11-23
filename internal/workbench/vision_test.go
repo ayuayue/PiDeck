@@ -113,8 +113,8 @@ func TestVisionDialog(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(cfgDir, "models.json"), []byte(models), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PIDECK_LITE_HOME", home)
-	t.Setenv("PIDECK_LITE_PI_CONFIG", cfgDir)
+	t.Setenv("PIDECK_V2_HOME", home)
+	t.Setenv("PIDECK_V2_PI_CONFIG", cfgDir)
 	app := openApp(t, workspace, 1280, 860)
 	app.Press("id:rail-palette")
 	app.Type("label:命令", "描述图片")

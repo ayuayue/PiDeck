@@ -1,6 +1,6 @@
 package client
 
-// The mobile build's HTTP client for a desktop PiDeck Lite server.
+// The mobile build's HTTP client for a desktop PiDeck V2 server.
 
 import (
 	"bytes"
@@ -18,10 +18,10 @@ import (
 	"syscall"
 	"time"
 
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/relaywire"
-	"example.com/pideck-lite/internal/remotewire"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/relaywire"
+	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck-v2/internal/viewkit"
 )
 
 // errRemoteAuth says the token was refused, so the phone must reconnect.
@@ -61,7 +61,7 @@ func newRemoteClient(raw, token string) (*remoteClient, string, error) {
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return nil, "", errors.New("连接地址只支持 http 或 https")
 	}
-	if q := u.Query().Get("token"); q != "" {
+	if q := u.Query().Get("token"); q != "" && token == "" {
 		token = q
 	}
 	base := u.Scheme + "://" + u.Host
@@ -219,15 +219,6 @@ func (c *remoteClient) postWithin(path string, in, out any, limit time.Duration)
 		return fmt.Errorf("电脑返回的数据不对：%w", err)
 	}
 	return nil
-}
-
-// voice sends a WAV recording to the desktop, which transcribes it; the
-// reply is what it said, empty when it held no speech.
-func (c *remoteClient) voice(wav []byte) (string, error) {
-	var out remotewire.VoiceText
-	err := c.postWithin("/api/voice", remotewire.VoiceRequest{Format: "wav", Data: base64.StdEncoding.EncodeToString(wav)},
-		&out, 60*time.Second)
-	return out.Text, err
 }
 
 // createSession starts a session in a project and returns its id. An

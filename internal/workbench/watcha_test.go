@@ -121,7 +121,7 @@ func TestSupportDialog(t *testing.T) {
 	old := watchaEdge
 	watchaEdge = srv.URL
 	defer func() { watchaEdge = old }()
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	app := nsgotest.Start(t, Root, nsgotest.Size(1180, 900))
 	app.Press("label:设置")
 	app.WaitFor("id:settings-tab-about", 10*time.Second)

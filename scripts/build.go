@@ -22,13 +22,13 @@ func (h *helper) devTarget(target string) {
 }
 
 func (h *helper) devPreview() {
-	h.report(h.runEnv([]string{"PIDECK_LITE_MOBILE=1"}, "go", "tool", "nsgo", "dev"))
+	h.report(h.runEnv([]string{"PIDECK_V2_MOBILE=1"}, "go", "tool", "nsgo", "dev"))
 }
 
 func (h *helper) buildTarget(target string) {
 	if err := h.nsgo("build", "-target", target); err != nil {
 		if runtime.GOOS == "windows" && strings.HasPrefix(target, "windows") {
-			fmt.Println("\n提示：目标程序正在运行时 Windows 会锁住 exe；先关掉 PiDeck Lite 再构建。")
+			fmt.Println("\n提示：目标程序正在运行时 Windows 会锁住 exe；先关掉 PiDeck V2 再构建。")
 		}
 		h.report(err)
 		return

@@ -1,3 +1,5 @@
+//go:build !js && !android && !ios
+
 package workbench
 
 import (
@@ -47,8 +49,8 @@ func TestPromptLibraryLoadsInBackground(t *testing.T) {
 		t.Skip("driven headless; native runs verify pixels")
 	}
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
-	t.Setenv("PIDECK_LITE_PI_CONFIG", t.TempDir())
+	t.Setenv("PIDECK_V2_HOME", home)
+	t.Setenv("PIDECK_V2_PI_CONFIG", t.TempDir())
 	if err := os.MkdirAll(filepath.Join(home, "prompts"), 0o700); err != nil {
 		t.Fatal(err)
 	}

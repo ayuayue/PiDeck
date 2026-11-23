@@ -104,7 +104,7 @@ func (a *app) startEngine(s *session, withMemory, withTrajectory, withBrowser bo
 	if withMemory {
 		url, token, closeListener, err := a.startMemoryTools(s)
 		if err == nil {
-			local = piLocalTools{extension: a.localToolsExtension, env: []string{"PIDECK_LITE_MEMORY_URL=" + url, "PIDECK_LITE_MEMORY_TOKEN=" + token}}
+			local = piLocalTools{extension: a.localToolsExtension, env: []string{"PIDECK_V2_MEMORY_URL=" + url, "PIDECK_V2_MEMORY_TOKEN=" + token}}
 			listeners = append(listeners, closeListener)
 		}
 	}
@@ -114,7 +114,7 @@ func (a *app) startEngine(s *session, withMemory, withTrajectory, withBrowser bo
 		})
 		if err == nil {
 			local.extension = a.localToolsExtension
-			local.env = append(local.env, "PIDECK_LITE_BROWSER_URL="+url, "PIDECK_LITE_BROWSER_TOKEN="+token)
+			local.env = append(local.env, "PIDECK_V2_BROWSER_URL="+url, "PIDECK_V2_BROWSER_TOKEN="+token)
 			listeners = append(listeners, closeListener)
 		} else {
 			a.cx.Post(func() { a.browser.err.Set(err.Error()); a.revokeBrowser() })
@@ -122,7 +122,7 @@ func (a *app) startEngine(s *session, withMemory, withTrajectory, withBrowser bo
 	}
 	if withTrajectory {
 		local.extension = a.localToolsExtension
-		local.env = append(local.env, "PIDECK_LITE_TRACE=1")
+		local.env = append(local.env, "PIDECK_V2_TRACE=1")
 	}
 	c, err := startPi(s.Target, a.piPath(), s.WS, a.st.sessions, s.ID, sessionFile,
 		func(ev piEvent) { a.onPiEvent(s, ev) },
@@ -248,7 +248,10 @@ func (a *app) fetchHistory(s *session, c *piClient) {
 	}
 	if err := c.call(map[string]any{"type": "get_messages"}, &msgs, 40*time.Second); err == nil {
 		history, items := turnsFromMessages(msgs.Messages), todosFromMessages(msgs.Messages)
-		a.cx.Post(func() { a.historyFromPi(s, history, items) })
+		a.cx.Post(func() {
+			a.publishHistoryPerf(s, msgs.Messages)
+			a.historyFromPi(s, history, items)
+		})
 		return
 	}
 	a.cx.Post(func() { a.historyReady(s) })
@@ -296,6 +299,7 @@ func (a *app) loadHistoryFromFile(s *session) {
 			if a.activeID.GetUntracked() == s.ID {
 				a.animateNextLayout()
 			}
+			a.publishHistoryPerf(s, msgs)
 			a.fillHistory(s, history, items, false)
 			s.histFile = len(msgs)
 			a.historyReady(s)

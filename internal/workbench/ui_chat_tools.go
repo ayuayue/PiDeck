@@ -8,136 +8,124 @@ import (
 	"fmt"
 	"strings"
 
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
 	"github.com/nsgo-dev/nsgo/ui/chat"
 )
 
-// noteBlock is a system note, such as a compaction summary.
-func (a *app) noteBlock(title, body string) core.Node {
-	return core.Dynamic(func(cx *core.Scope) core.Node {
-		colors := ui.ColorsOf(cx)
-		children := []core.Node{
-			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7}, Children: []core.Node{
-				ui.Icon(lucide.Minimize2, 13, colors.Faint),
-				core.Text{Content: title, Style: core.Style{FontSize: a.readingRowFont(), FontWeight: ui.Medium},
-					StyleFunc: ui.Colored(colors.Muted)},
-			}},
-		}
-		if body != "" {
-			children = append(children, viewkit.MarkdownSized(body, func() bool { return false }, false, a.readingRowFont(), a.readingRowLine(), core.Style{Color: colors.Muted()}))
-		}
-		return core.View{StyleFunc: func() core.Style {
-			return core.Style{Gap: 8, Padding: core.Symmetric(8, 12), CornerRadius: ui.RadiusControl,
-				BorderWidth: 1, BorderColor: colors.Border(), Background: colors.Inset()}
-		}, Children: children}
-	})
-}
-
 // toolRow is one tool call: its verb and target, a live line while it
 // runs, and its output or diff once the user opens it. While a call runs
 // its row opens by itself, so output arrives in place; the user's own
 // choice then wins. The state lives on the session, keyed by the call, so
-// rebuilding the turn never closes a row the user opened.
-func (a *app) toolRow(s *session, run toolRun) core.Node {
-	return core.Dynamic(func(cx *core.Scope) core.Node {
+// toolRow is one tool call inside a process group: its verb and target, a
+// live line while it runs, and its output or diff once the user opens it.
+// While a call runs its row opens by itself, so output arrives in place;
+// the user's own choice then wins. The state lives on the session, keyed by
+// the call, so a rebuild never closes a row the user opened.
+func (a *app) toolRow(s *session, run func() toolRun) core.Node {
+	return core.Func(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
-		s.uiSeq.Get() // redraw when a row opens or closes
-		key := s.ID + "/" + run.CallID
-		running := run.Status == chat.Running
-		open := s.toolOpen(key, running)
-		body := toolBodyText(run)
-		hasBody := body != "" || len(run.Images) > 0
+		key := s.ID + "/tool/" + run().CallID
+		running := func() bool { return run().Status == chat.Running }
+		open := func() bool {
+			s.uiSeq.Get() // redraw when a row opens or closes
+			return s.toolOpen(key, running())
+		}
+		hasBody := func() bool {
+			r := run()
+			return toolBodyText(r) != "" || len(r.Images) > 0
+		}
 		rowSize, detailSize := a.readingRowFont(), a.readingDetailFont()
 		header := []core.Node{
-			ui.IconOf(func() *core.SVG { return toolIcon(run) }, 14, func() core.Color {
+			ui.IconOf(func() *core.SVG { return toolIcon(run()) }, 14, func() core.Color {
 				switch {
-				case run.IsError:
+				case run().IsError:
 					return colors.Danger()
-				case running:
+				case running():
 					return colors.Info()
 				}
 				return colors.Muted()
 			}),
-			core.Text{Content: apptext.T(run.Action), MaxLines: 1,
+			core.Text{ContentFunc: func() string { return apptext.T(run().Action) }, MaxLines: 1,
 				Style:     core.Style{FontSize: rowSize, FontWeight: ui.Medium, FlexShrink: 0},
 				StyleFunc: ui.Colored(colors.Muted)},
-			core.Text{Content: shorten(run.Detail, 140), MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
+			core.Text{ContentFunc: func() string { return shorten(run().Detail, 140) }, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
 				Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: viewkit.MonoFont(), FontSize: detailSize},
 				StyleFunc: ui.Colored(colors.Faint)},
+			core.Show{When: func() bool { r := run(); return r.Added > 0 || r.Removed > 0 }, Then: func(*core.Scope) core.Node {
+				return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, FlexShrink: 0},
+					Children: []core.Node{
+						ui.Tabular(core.Text{ContentFunc: func() string { return fmt.Sprintf("+%d", run().Added) },
+							Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: detailSize}, StyleFunc: ui.Colored(colors.Up)}),
+						ui.Tabular(core.Text{ContentFunc: func() string { return fmt.Sprintf("−%d", run().Removed) },
+							Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: detailSize}, StyleFunc: ui.Colored(colors.Danger)}),
+					}}
+			}},
+			core.Show{When: func() bool { return len(run().Nested) > 0 }, Then: func(*core.Scope) core.Node {
+				return core.Text{ContentFunc: func() string { return apptext.T("内含 %d 次调用", len(run().Nested)) }, MaxLines: 1,
+					Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: detailSize, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Faint)}
+			}},
+			core.Show{When: running, Then: func(*core.Scope) core.Node { return ui.Spinner{Size: 10} }},
+			core.Show{When: func() bool { r := run(); return r.Status != chat.Running && r.DurationMs > 0 }, Then: func(*core.Scope) core.Node {
+				return ui.Tabular(core.Text{ContentFunc: func() string { return fmt.Sprintf("%d ms", run().DurationMs) },
+					Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: detailSize, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Faint)})
+			}},
+			core.Show{When: func() bool { return run().IsError }, Then: func(*core.Scope) core.Node {
+				return core.Text{Content: apptext.T("失败"), Style: core.Style{FontSize: detailSize, FontWeight: ui.Medium, FlexShrink: 0},
+					StyleFunc: ui.Colored(colors.Danger)}
+			}},
+			core.Show{When: hasBody, Then: func(*core.Scope) core.Node {
+				return ui.IconOf(disclosure(open), 12, colors.Faint)
+			}},
 		}
-		if run.Added > 0 || run.Removed > 0 {
-			header = append(header, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, FlexShrink: 0},
-				Children: []core.Node{
-					ui.Tabular(core.Text{Content: fmt.Sprintf("+%d", run.Added), Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: detailSize},
-						StyleFunc: ui.Colored(colors.Up)}),
-					ui.Tabular(core.Text{Content: fmt.Sprintf("−%d", run.Removed), Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: detailSize},
-						StyleFunc: ui.Colored(colors.Danger)}),
-				}})
-		}
-		if len(run.Nested) > 0 {
-			header = append(header, core.Text{Content: fmt.Sprintf("内含 %d 次调用", len(run.Nested)), MaxLines: 1,
-				Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: detailSize, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Faint)})
-		}
-		switch {
-		case running:
-			header = append(header, ui.Spinner{Size: 10})
-		case run.DurationMs > 0:
-			header = append(header, ui.Tabular(core.Text{Content: fmt.Sprintf("%d ms", run.DurationMs),
-				Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: detailSize, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Faint)}))
-		}
-		if run.IsError {
-			header = append(header, core.Text{Content: apptext.T("失败"), Style: core.Style{FontSize: detailSize, FontWeight: ui.Medium, FlexShrink: 0},
-				StyleFunc: ui.Colored(colors.Danger)})
-		}
-		if hasBody {
-			header = append(header, ui.IconOf(func() *core.SVG {
-				if open {
-					return lucide.ChevronDown()
-				}
-				return lucide.ChevronRight()
-			}, 12, colors.Faint))
-		}
-		rows := []core.Node{core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(28),
-			Padding: core.Symmetric(2, 6), MinWidth: core.Pt(0)}, Children: header}}
-		if open && hasBody {
-			children := a.toolBodyNodes(cx, run)
-			if len(run.Images) > 0 {
-				tiles := make([]core.Node, 0, len(run.Images))
-				for _, img := range run.Images {
-					tiles = append(tiles, a.transcriptImageTile(img))
-				}
-				children = append(children, core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: tiles})
-			}
-			rows = append(rows, core.View{Style: core.Style{MinWidth: core.Pt(0), MaxHeight: core.Pt(320), Borders: core.Edges{Top: 1},
+		body := core.Show{When: func() bool { return open() && hasBody() }, Then: func(cx *core.Scope) core.Node {
+			children := []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
+				return core.Group(a.toolBodyNodes(cx, run()))
+			})}
+			return core.View{Style: core.Style{MinWidth: core.Pt(0), MaxHeight: core.Pt(320), Borders: core.Edges{Top: 1},
 				BorderColors: core.EdgeColors{Top: colors.Now().Line}}, Children: []core.Node{
 				core.Scroll{Style: core.Style{MinWidth: core.Pt(0)}, Children: []core.Node{
-					core.View{Style: core.Style{Padding: core.Symmetric(8, 10), Gap: 4}, Children: children},
+					core.View{Style: core.Style{Padding: core.Symmetric(8, 10), Gap: 4}, Children: append(children,
+						core.Show{When: func() bool { return len(run().Images) > 0 }, Then: func(cx *core.Scope) core.Node {
+							images := run().Images
+							tiles := make([]core.Node, 0, len(images))
+							for _, img := range images {
+								tiles = append(tiles, a.transcriptImageTile(img))
+							}
+							return core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: tiles}
+						}})},
 				}},
-			}})
-		}
+			}}
+		}}
 		return core.View{
 			OnPress: func(core.PressEvent) {
-				if !hasBody {
+				if !hasBody() {
 					return
 				}
 				s.toggleOpen(key)
 			},
-			Role: core.RoleButton, Label: strings.TrimSpace(run.Action + " " + run.Detail),
+			Role: core.RoleButton, LabelFunc: func() string {
+				r := run()
+				return strings.TrimSpace(r.Action + " " + r.Detail)
+			},
 			StyleFunc: func() core.Style {
 				st := core.Style{MinWidth: core.Pt(0), CornerRadius: 8, Background: core.Transparent, Overflow: core.Hidden}
-				if hasBody {
+				if hasBody() {
 					st.Hover = &core.Style{Background: ui.Mix(colors.Background(), colors.Text(), 0.04)}
 				}
-				if open {
+				if open() {
 					st.Background = ui.Mix(colors.Background(), colors.Text(), 0.03)
 				}
 				return st
 			},
-			Children: rows,
+			Children: []core.Node{
+				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(28),
+					Padding: core.Symmetric(2, 6), MinWidth: core.Pt(0)}, Children: header},
+				body,
+			},
 		}
 	})
 }

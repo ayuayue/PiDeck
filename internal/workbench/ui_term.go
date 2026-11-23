@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/base"
 	sgt "github.com/nsgo-dev/nsgo/base/terminal"
 	"github.com/nsgo-dev/nsgo/core"
@@ -21,25 +21,27 @@ import (
 
 // addTerminalTab opens a tab running in a workspace, or in the home
 // directory when there is none.
-func (a *app) addTerminalTab(ws *workspace) *termTab {
+func (a *app) addTerminalTab(ws *workspace, shell terminalShell) *termTab {
 	a.animateNextLayout()
 	cwd, t := "", localTarget
 	if ws != nil {
 		cwd, t = ws.Path, ws.Target
 	}
-	tab := a.term.newTab(cwd, t)
+	tab := a.term.newTab(cwd, t, shell)
 	a.term.open.Set(true)
 	a.remember()
 	return tab
 }
 
 // newTerminalTab opens a tab in the active project.
-func (a *app) newTerminalTab() *termTab { return a.addTerminalTab(a.activeWorkspace()) }
+func (a *app) newTerminalTab() *termTab {
+	return a.addTerminalTab(a.activeWorkspace(), terminalShell{})
+}
 
 // openTerminalFor opens the panel on a project's folder.
 func (a *app) openTerminalFor(ws *workspace) {
 	a.term.open.Set(true)
-	a.addTerminalTab(ws)
+	a.addTerminalTab(ws, terminalShell{})
 }
 
 // toggleTerminal shows or hides the panel, starting a tab the first time.
@@ -51,6 +53,7 @@ func (a *app) toggleTerminal() {
 		return
 	}
 	a.animateNextLayout()
+	a.term.keepTabFocus = false
 	a.term.open.Set(true)
 	if len(a.term.tabs.GetUntracked()) == 0 {
 		a.newTerminalTab()
@@ -184,19 +187,20 @@ func (a *app) terminalHeader(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	tab := func(t *termTab) core.Node {
 		on := func() bool { return a.term.active.Get() == t.ID }
-		return ui.ContextMenu{Trigger: core.View{
-			OnPress: func(core.PressEvent) {
-				if a.term.active.Get() != t.ID {
+		return ui.ContextMenu{Trigger: base.Tab{
+			OnPress: func(e core.PressEvent) {
+				if a.term.active.GetUntracked() != t.ID {
 					a.animateNextLayout()
 				}
-				a.term.selectTab(t.ID)
+				// Roving focus invokes the tab with a zero press event.
+				a.term.selectTab(t.ID, e.Keyboard || e.Clicks == 0)
 			},
-			Role: core.RoleTab, LabelFunc: func() string { return t.Title.Get() }, TestID: "terminal-tab",
+			Selected: on, LabelFunc: t.Title.Get, TestID: "terminal-tab",
 			StyleFunc: func() core.Style {
 				st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, Height: core.Pt(25),
 					Padding: core.Edges{Left: 8, Right: 3}, CornerRadius: 6, MaxWidth: core.Pt(190), MinWidth: core.Pt(0),
 					Transition: viewkit.PressMotion, Hover: &core.Style{Background: colors.Hover()},
-					Active: &core.Style{Background: colors.Pressed()}}
+					Active: &core.Style{Background: colors.Pressed()}, FocusVisible: ui.FocusRing(cx, -2)}
 				if on() {
 					st.Background = colors.Surface()
 					st.BorderWidth = 1
@@ -238,13 +242,15 @@ func (a *app) terminalHeader(cx *core.Scope) core.Node {
 			Borders: core.Edges{Bottom: 1}, BorderColors: core.EdgeColors{Bottom: colors.Line()}}
 	}, Children: []core.Node{
 		core.Scroll{Horizontal: true, HideIndicator: true, Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
-			Children: []core.Node{core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 3}, Children: []core.Node{
-				core.Each(a.term.tabs.Get, func(t *termTab) string { return t.ID }, func(cx *core.Scope, t func() *termTab, _ func() int) core.Node {
-					return tab(t())
-				}),
-			}}},
+			Children: []core.Node{base.Tabs{Label: apptext.T("终端"), TestID: "terminal-tabs",
+				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 3}, Children: []core.Node{
+					core.Each(a.term.tabs.Get, func(t *termTab) string { return t.ID }, func(cx *core.Scope, t func() *termTab, _ func() int) core.Node {
+						return tab(t())
+					}),
+				}}},
 		},
 		a.pressIcon(lucide.Plus, apptext.T("新建终端"), 24, 12, nil, func() { a.newTerminalTab() }, "terminal-new"),
+		a.terminalShellMenu(),
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 1}, Children: []core.Node{
 			a.pressIcon(lucide.Search, apptext.T("搜索终端"), 25, 12.5, nil, func() {
 				a.term.findOpen.Set(true)
@@ -262,11 +268,45 @@ func (a *app) terminalHeader(cx *core.Scope) core.Node {
 	}}
 }
 
+func (a *app) terminalShellMenu() core.Node {
+	return core.Show{
+		When: func() bool {
+			ws := a.activeWorkspace()
+			shells := a.env.Get().TerminalShells
+			return len(shells) > 0 && (ws == nil || !ws.Target.remote())
+		},
+		Then: func(cx *core.Scope) core.Node {
+			return ui.Menu{
+				Trigger:   ui.Button{Icon: lucide.ChevronDown, Label: apptext.T("选择 Shell"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, Side: 22, IconSize: 12},
+				TestID:    "terminal-shell-picker",
+				Placement: core.PlaceTop,
+				Align:     core.AlignEnd,
+				Children: []core.Node{
+					core.Dynamic(func(cx *core.Scope) core.Node {
+						ws := a.activeWorkspace()
+						if ws != nil && ws.Target.remote() {
+							return nil
+						}
+						shells := a.env.Get().TerminalShells
+						items := []core.Node{ui.MenuItem{Text: apptext.T("默认 Shell"), TestID: "terminal-shell-default",
+							OnSelect: func() { a.newTerminalTab() }}}
+						for _, shell := range shells {
+							items = append(items, ui.MenuItem{Text: shell.name, TestID: "terminal-shell-" + shell.id,
+								OnSelect: func() { a.addTerminalTab(a.activeWorkspace(), shell) }})
+						}
+						return core.Group(items)
+					}),
+				},
+			}
+		},
+	}
+}
+
 // terminalFindBar searches the tab in front.
 func (a *app) terminalFindBar(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	status := core.Dynamic(func(cx *core.Scope) core.Node {
-		tab := a.term.activeTab()
+		tab := a.term.find(a.term.active.Get())
 		if tab == nil {
 			return nil
 		}
@@ -317,7 +357,9 @@ func (a *app) terminalBody() core.Node {
 					ui.Button{Text: apptext.T("新建终端"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.newTerminalTab() }},
 				}}
 		}
-		tab := a.term.activeTab()
+		// The grid follows selection even when the list of running
+		// shells stays the same.
+		tab := a.term.find(a.term.active.Get())
 		if tab == nil {
 			return nil
 		}
@@ -349,11 +391,12 @@ func (a *app) terminalView(cx *core.Scope, tab *termTab) core.Node {
 	th := terminalTheme(cx.Palette(), cx.Dark())
 	view := sgt.View{
 		Terminal:  tab.term,
+		Ref:       tab.ref,
 		Font:      core.Font{Family: viewkit.MonoFont(), Size: core.Points(a.termFont.Get())},
 		Theme:     th,
 		DarkTheme: th,
 		Padding:   sgt.Padding{X: 8, Y: 6},
-		AutoFocus: true,
+		AutoFocus: !a.term.keepTabFocus,
 		TestID:    "terminal-view",
 		Style:     core.Style{FlexGrow: 1, MinWidth: core.Pt(0), MinHeight: core.Pt(0)},
 	}

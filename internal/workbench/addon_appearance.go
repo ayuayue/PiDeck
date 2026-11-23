@@ -25,7 +25,7 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -69,6 +69,12 @@ func (a *app) applyTheme() {
 			for k, v := range spec.Tokens {
 				base.Tokens[k] = v
 			}
+			if f := strings.TrimSpace(spec.Tokens["font-sans"]); f != "" {
+				base.Sans = f
+			}
+			if f := strings.TrimSpace(spec.Tokens["font-mono"]); f != "" {
+				base.Mono = f
+			}
 		}
 		if spec.Radius > 0 {
 			base.Radius = core.Points(spec.Radius)
@@ -86,6 +92,9 @@ func (a *app) applyTheme() {
 	if f := strings.TrimSpace(a.cfg.MonoFont); f != "" {
 		base.Mono = f
 	}
+	// Class-based UI and explicit code styles resolve the same effective
+	// font. A theme token must not override the user's font preference.
+	base.Tokens["font-sans"], base.Tokens["font-mono"] = base.Sans, base.Mono
 	// Every view that names a monospaced family goes through monoFont, so
 	// the setting reaches the app's own text as the theme's does.
 	viewkit.MonoFamily = base.Mono

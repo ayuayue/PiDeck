@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-lite/assets"
+	"example.com/pideck-v2/assets"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -120,7 +120,7 @@ func TestBrandPopoverAndSettings(t *testing.T) {
 		t.Skip("headless picker and persistence coverage")
 	}
 	dir := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", dir)
+	t.Setenv("PIDECK_V2_HOME", dir)
 	var built *app
 	screen := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		built = newApp(cx)
@@ -169,6 +169,10 @@ func TestBrandPopoverAndSettings(t *testing.T) {
 	if built.cfg.LogoCustomImage != savedImage {
 		t.Fatal("invalid image replaced the existing logo")
 	}
+	screen.WaitUntil(5*time.Second, func() bool {
+		c := readConfig(t, dir)
+		return c.LogoCustomImage == savedImage && c.AppDisplayName == "我的 Pi 工作台"
+	})
 	if c := readConfig(t, dir); c.LogoCustomImage != savedImage || c.AppDisplayName != "我的 Pi 工作台" {
 		t.Fatal("custom branding was not saved")
 	}
@@ -182,6 +186,10 @@ func TestBrandPopoverAndSettings(t *testing.T) {
 		t.Fatal("clearing an image did not fall back to TUI")
 	}
 	screen.Press("id:brand-reset")
+	screen.WaitUntil(5*time.Second, func() bool {
+		c := readConfig(t, dir)
+		return c.LogoStyle == "" && c.LogoCustomImage == "" && c.AppDisplayName == ""
+	})
 	if c := readConfig(t, dir); c.LogoStyle != "" || c.LogoCustomImage != "" || c.AppDisplayName != "" {
 		t.Fatal("reset did not restore all brand defaults")
 	}
@@ -200,10 +208,41 @@ func TestBrandPopoverAndSettings(t *testing.T) {
 	}
 }
 
+// The name field saves when it is left, so quitting from inside it would
+// drop the edit; the exit path saves once more.
+func TestQuitSavesNameStillTypedInTheField(t *testing.T) {
+	if nsgotest.Target() != "" {
+		t.Skip("headless quit and persistence coverage")
+	}
+	dir := t.TempDir()
+	t.Setenv("PIDECK_V2_HOME", dir)
+	var built *app
+	screen := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		built = newApp(cx)
+		return built.view()
+	}, nsgotest.Size(1200, 800))
+	t.Cleanup(built.closeDiag)
+	screen.Press("id:rail-brand")
+	screen.Press("id:brand-customize")
+	screen.WaitFor("id:brand-display-name", 5*time.Second)
+	const typed = "离开输入框前退出"
+	screen.Type("id:brand-display-name", typed)
+	if got := built.st.config().AppDisplayName; got != typed {
+		t.Fatalf("typing did not reach the in-memory config: %q", got)
+	}
+	if raw, err := os.ReadFile(filepath.Join(dir, "config.json")); err == nil && strings.Contains(string(raw), typed) {
+		t.Fatal("the focused field saved before the quit, so the test proves nothing")
+	}
+	Shutdown()
+	if c := readConfig(t, dir); c.AppDisplayName != typed {
+		t.Fatalf("quitting from the focused field saved %q, want %q", c.AppDisplayName, typed)
+	}
+}
+
 // This is also the native screenshot fixture: a long name at the smallest
 // rail width, the version panel, and both shipped appearances.
 func TestBrandScreens(t *testing.T) {
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	var built *app
 	screen := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		built = newApp(cx)
@@ -242,6 +281,7 @@ func TestBrandScreens(t *testing.T) {
 	screen.WaitFor("id:brand-image-choose", 5*time.Second)
 	shot(screen, "brand/05-custom-settings")
 	screen.Press("id:settings-tab-general")
+	screen.Press("id:language-select")
 	screen.Press("text:English")
 	screen.Press("id:settings-tab-look")
 	screen.Resize(960, 640)

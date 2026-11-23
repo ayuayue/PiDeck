@@ -9,9 +9,9 @@ import (
 	"encoding/base64"
 	"strings"
 
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/remotewire"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -185,7 +185,7 @@ func (a *mobileApp) drawImage() {
 // insertMention puts an @path into the draft, so pi reads that file. The
 // new-session page keeps its text apart until the session exists.
 func (a *mobileApp) insertMention(path string) {
-	a.filesOpen.Set(false)
+	a.closeFilesView()
 	a.filesMention.Set(false)
 	if a.active.GetUntracked() == "" {
 		a.initDraft.Set(mention(a.initDraft.GetUntracked(), path))

@@ -10,9 +10,9 @@ import (
 	"fmt"
 	"strings"
 
-	"example.com/pideck-lite/internal/alerts"
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/alerts"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -71,9 +71,9 @@ func (a *app) settingsGeneral() core.Node {
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}}, Children: []core.Node{
 				setGroup("界面",
 					setRow("语言", "界面文案；切换后立即生效，未翻译的条目保留中文。",
-						core.View{Style: core.Style{Width: core.Pt(300), MaxWidth: core.Pct(100)}, Children: []core.Node{
-							choiceChips(languageChoices(), func() string { return a.cfg.Language }, a.setLanguage),
-						}}),
+						ui.Select[string]{Options: languageOptions(), Value: func() string { return a.cfg.Language }, OnChange: a.setLanguage,
+							Label: apptext.T("语言"), TestID: "language-select",
+							Style: core.Style{Width: core.Pt(220), Height: core.Pt(28), FontSize: 11}}),
 					setDivider(),
 					setRow("内容宽度", "对话正文与输入框占窗口宽度的比例；窄一些更好读，宽一些能放下更多代码。",
 						core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Width: core.Pt(230)}, Children: []core.Node{
@@ -158,7 +158,7 @@ func (a *app) settingsGeneral() core.Node {
 					setDivider(),
 					setRow("测试通知", "发一条系统通知，确认这台机器收得到。",
 						ui.Button{Text: apptext.T("发一条"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
-							a.notifyDesktop("pideck:test", "PiDeck Lite", "通知已开启，一轮完成时会这样提醒。", func(shown bool) {
+							a.notifyDesktop("pideck:test", "PiDeck V2", "通知已开启，一轮完成时会这样提醒。", func(shown bool) {
 								if !shown {
 									a.toast(ui.ToastInfo, "系统没有接收通知", "请检查系统的通知权限，或安装后再试。")
 								}
@@ -252,6 +252,21 @@ func (a *app) settingsGeneral() core.Node {
 
 								a.bumpSettings()
 							}}),
+				),
+				setGroup("安全",
+					setRow("工具安全门", "标准会先确认危险命令并保护敏感文件；严格再把文件访问限制在工作目录内，写操作也要逐一确认。",
+						ui.Select[string]{
+							Options: []ui.Option[string]{
+								{Value: "off", Label: apptext.T("安全门关闭")},
+								{Value: "standard", Label: apptext.T("标准")},
+								{Value: "strict", Label: apptext.T("严格")},
+							},
+							Value:    func() string { return a.securityLevelID() },
+							OnChange: a.setSecurityLevel,
+							Label:    apptext.T("工具安全门"),
+							TestID:   "security-level",
+							Style:    core.Style{Width: core.Pt(170), Height: core.Pt(28), FontSize: 11},
+						}),
 				),
 			}},
 		}}

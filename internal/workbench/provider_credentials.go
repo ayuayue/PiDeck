@@ -174,32 +174,46 @@ func mergeProviders(cfgs []providerConfig, catalog []providerConfig, entries []a
 	}
 	out := make([]providerInfo, 0, len(cfgs)+len(catalog)+len(entries))
 	seen := map[string]bool{}
-	add := func(id, api, baseURL string, models int, builtin bool) {
+	add := func(id, api, baseURL string, models []modelConfig, builtin bool) {
 		if id == "" || seen[id] {
 			return
 		}
 		seen[id] = true
 		out = append(out, providerInfo{ID: id, API: api, BaseURL: baseURL, Models: models,
-			Builtin: builtin, Credential: credentialOf(id, byID[id], configs[id])})
+			Configured: configs[id] != nil, Builtin: builtin, Credential: credentialOf(id, byID[id], configs[id])})
 	}
 	for _, cfg := range cfgs {
-		add(cfg.ID, cfg.API, cfg.BaseURL, len(cfg.Models), false)
+		add(cfg.ID, cfg.API, cfg.BaseURL, cfg.Models, false)
 	}
 	for _, cfg := range catalog {
-		add(cfg.ID, cfg.API, cfg.BaseURL, len(cfg.Models), true)
+		add(cfg.ID, cfg.API, cfg.BaseURL, cfg.Models, true)
 	}
 	for _, e := range entries {
-		add(e.Provider, "", "", 0, false)
+		add(e.Provider, "", "", nil, false)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
 }
 
-// readProviderStatus is the provider list the settings page shows, with
-// each provider's credential and pi's answer for it. Call it off the UI
-// thread: it reads pi's files and starts pi once per provider.
-func readProviderStatus(piPath string) []providerInfo {
-	entries, _ := readAuthEntries()
-	list := mergeProviders(readProviderConfigs(), readCatalogProviders(), entries)
-	return probeProviders(piPath, list)
+// loadProviders publishes file information before asking pi to verify
+// credentials, which may take longer than the file read. Only the newest
+// load can replace either snapshot.
+func (a *app) loadProviders(piPath string) {
+	a.providerLoadSeq++
+	seq := a.providerLoadSeq
+	publish := func(list []providerInfo) {
+		a.cx.Post(func() {
+			if a.providerLoadSeq == seq {
+				a.providers.Set(list)
+			}
+		})
+	}
+	go func() {
+		entries, _ := readAuthEntries()
+		list := mergeProviders(readProviderConfigs(), readCatalogProviders(), entries)
+		publish(list)
+		if piPath != "" && len(list) > 0 {
+			publish(probeProviders(piPath, list))
+		}
+	}()
 }

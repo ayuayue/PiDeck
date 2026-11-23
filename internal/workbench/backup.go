@@ -23,7 +23,7 @@ import (
 )
 
 // backupItems are the data folder's entries a settings backup carries.
-var backupItems = []string{"config.json", sessionOrganizationFile, draftsFile, balanceAccountsFile, promptTemplateFile, "plugins", "themes", "prompts", "agents", "acp", "sounds"}
+var backupItems = []string{"config.json", sessionOrganizationFile, balanceAccountsFile, promptTemplateFile, "plugins", pluginArchiveDir, "themes", "prompts", "agents", "acp", "sounds"}
 
 const (
 	backupFileLimit  = 10 << 20
@@ -134,12 +134,12 @@ func (a *app) settingsZip() ([]byte, error) {
 // backupPathAllowed says whether a zip entry belongs in a settings backup.
 func backupPathAllowed(name string) bool {
 	name = filepath.ToSlash(strings.TrimPrefix(name, "./"))
-	if name == "config.json" || name == sessionOrganizationFile || name == draftsFile {
+	if name == "config.json" || name == sessionOrganizationFile {
 		return true
 	}
-	head := strings.SplitN(name, "/", 2)[0]
 	for _, item := range backupItems {
-		if item != "config.json" && item != sessionOrganizationFile && item != draftsFile && head == item {
+		if item != "config.json" && item != sessionOrganizationFile &&
+			(name == item || strings.HasPrefix(name, item+"/")) {
 			return true
 		}
 	}
@@ -228,13 +228,13 @@ func (a *app) reloadSettingsAfterImport() {
 	a.st.organization = org
 	a.st.organizationMu.Unlock()
 	a.organization.Set(org)
-	a.drafts.items.Set(readDraftLibrary(a.st.dir))
 	a.reduceEffects.Set(a.cfg.ReduceEffects)
 	a.codeWrap.Set(a.cfg.CodeWrap)
 	a.bgImage.Set(a.cfg.wallpaper())
 	a.bgOpacity.Set(a.backgroundOpacity())
 	a.applyBrand()
 	a.chatWidthPctSig.Set(a.cfg.ChatWidthPct)
+	a.git.view.Set(a.gitChangesView())
 	a.applyLanguage()
 	a.applyFonts()
 	a.prompts.Set(a.loadPrompts())

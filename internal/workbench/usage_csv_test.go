@@ -31,12 +31,12 @@ func TestUsageCSV(t *testing.T) {
 	if len(records) < 8 {
 		t.Fatalf("records = %d:\n%s", len(records), text)
 	}
-	for _, want := range []string{"PiDeck Lite 用量", "2026-05-31", "m1", "acme", "shop", "/work/shop", "150", "0.1200"} {
+	for _, want := range []string{"PiDeck V2 用量", "2026-05-31", "m1", "acme", "shop", "/work/shop", "150", "0.1200"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("CSV lacks %q:\n%s", want, text)
 		}
 	}
-	if records[0][0] != "PiDeck Lite 用量" || records[0][1] != "2026-05-01 ~ 2026-06-01" {
+	if records[0][0] != "PiDeck V2 用量" || records[0][1] != "2026-05-01 ~ 2026-06-01" {
 		t.Fatalf("header = %v", records[0])
 	}
 }

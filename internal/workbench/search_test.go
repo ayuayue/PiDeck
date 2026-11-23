@@ -74,7 +74,7 @@ func TestSearchOpensSession(t *testing.T) {
 	}
 	home := editorWorkspace(t)
 	workspace := editorWorkspace(t)
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	t.Setenv("PI_CODING_AGENT_SESSION_DIR", t.TempDir())
 	dir := filepath.Join(home, "sessions", "--x--")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -165,7 +165,7 @@ func TestSearchScope(t *testing.T) {
 	}
 	home := editorWorkspace(t)
 	workspace := editorWorkspace(t)
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	t.Setenv("PI_CODING_AGENT_SESSION_DIR", t.TempDir())
 	dir := filepath.Join(home, "sessions", "--x--")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -203,7 +203,7 @@ func TestSearchEnterOpensFirst(t *testing.T) {
 	}
 	home := editorWorkspace(t)
 	workspace := editorWorkspace(t)
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	t.Setenv("PI_CODING_AGENT_SESSION_DIR", t.TempDir())
 	dir := filepath.Join(home, "sessions", "--x--")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -269,8 +269,8 @@ func TestSearchRecentClearSurvivesResultRefresh(t *testing.T) {
 
 func startSearchDialog(t *testing.T) (*app, *nsgotest.App) {
 	t.Helper()
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
-	t.Setenv("PIDECK_LITE_PI_CONFIG", t.TempDir())
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_PI_CONFIG", t.TempDir())
 	t.Setenv("PI_CODING_AGENT_SESSION_DIR", t.TempDir())
 	var a *app
 	screen := nsgotest.Start(t, func(cx *core.Scope) core.Node {

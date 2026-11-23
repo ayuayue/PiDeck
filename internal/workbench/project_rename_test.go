@@ -35,7 +35,7 @@ func TestProjectRename(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "config.json"), cfg, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	app := nsgotest.Start(t, Root, nsgotest.Size(1280, 860))
 	app.WaitFor("role:button 旧项目名", 10*time.Second)
 	for i := 0; i < 4; i++ {

@@ -8,8 +8,8 @@ package workbench
 import (
 	"strings"
 
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -25,7 +25,6 @@ func (a *app) pluginMarketDialog() core.Node {
 		if a.plugins != nil {
 			a.plugins.Get() // rebuild when an install finishes
 		}
-		installing := a.marketInstalling.Get()
 		var rows []core.Node
 		for _, e := range list {
 			entry := e
@@ -64,15 +63,12 @@ func (a *app) pluginMarketDialog() core.Node {
 					Children: []core.Node{ui.Text(label, 9, ui.Medium, colors.Faint)}})
 				if entry.Version != "" && installed.Version != "" && entry.Version != installed.Version {
 					row = append(row, ui.Button{Text: apptext.T("更新到 %s", entry.Version), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
-						TestID: "market-update-" + entry.ID, Disabled: func() bool { return installing != "" },
+						TestID: "market-update-" + entry.ID, Disabled: a.pluginFileBusy.Get,
 						OnPress: func() { a.installFromMarket(entry) }})
 				}
 			} else {
 				row = append(row, ui.Button{Text: apptext.T("安装"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
-					TestID: "market-install-" + entry.ID,
-					Disabled: func() bool {
-						return installing != ""
-					},
+					TestID: "market-install-" + entry.ID, Disabled: a.pluginFileBusy.Get,
 					OnPress: func() { a.installFromMarket(entry) }})
 			}
 			rows = append(rows, core.View{TestID: "market-entry-" + entry.ID,
@@ -108,7 +104,7 @@ func (a *app) pluginMarketDialog() core.Node {
 					ui.Button{Text: apptext.T("官方索引"), Size: ui.SizeSmall, Variant: ui.ButtonGhost, TestID: "market-official", OnPress: func() { a.discoverPlugins(false) }},
 					ui.Button{Text: apptext.T("GitHub 社区"), Size: ui.SizeSmall, Variant: ui.ButtonGhost, TestID: "market-community", OnPress: func() { a.discoverPlugins(true) }},
 				}},
-				ui.Text(apptext.T("Lite 条目可安装声明式清单；其他运行时仅打开项目。内置示例可离线安装。"), 11, ui.Regular, colors.Muted),
+				ui.Text(apptext.T("V2 条目可安装声明式清单；其他运行时仅打开项目。内置示例可离线安装。"), 11, ui.Regular, colors.Muted),
 				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 					core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
 						core.Input{Value: a.marketURL.Get, OnChange: a.marketURL.Set, Placeholder: "https://…/plugins.json",

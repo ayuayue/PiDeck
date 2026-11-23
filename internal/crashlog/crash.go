@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"example.com/pideck-lite/internal/appinfo"
+	"example.com/pideck-v2/internal/appinfo"
 )
 
 // crashDirName is the folder crash logs go in, under the data folder.
@@ -42,7 +42,7 @@ func WriteReport(dataDir string, recovered any, stack []byte) (string, error) {
 		stack = stack[:64<<10]
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "PiDeck Lite %s\n", appinfo.Version)
+	fmt.Fprintf(&b, "PiDeck V2 %s\n", appinfo.Version)
 	fmt.Fprintf(&b, "time: %s\n", time.Now().Format(time.RFC3339))
 	fmt.Fprintf(&b, "platform: %s/%s\n", runtime.GOOS, runtime.GOARCH)
 	fmt.Fprintf(&b, "go: %s\n\n", runtime.Version())
@@ -126,11 +126,11 @@ func DataDir() string {
 	if dir != "" {
 		return dir
 	}
-	if custom := strings.TrimSpace(os.Getenv("PIDECK_LITE_HOME")); custom != "" {
+	if custom := strings.TrimSpace(os.Getenv("PIDECK_V2_HOME")); custom != "" {
 		return custom
 	}
 	if base, err := os.UserConfigDir(); err == nil {
-		return filepath.Join(base, "dev.nsgo.pidecklite")
+		return filepath.Join(base, "dev.nsgo.pideckv2")
 	}
 	return ""
 }

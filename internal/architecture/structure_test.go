@@ -16,14 +16,15 @@ import (
 	"testing"
 )
 
-const module = "example.com/pideck-lite/"
+const module = "example.com/pideck-v2/"
 
 // Dependencies point from application hosts toward smaller reusable packages.
 // Tests follow the same rule so a test helper cannot reconnect isolated hosts.
 var dependencies = map[string][]string{
-	".":                      {"internal/client", "internal/crashlog", "internal/workbench"},
+	".":                      {"internal/client", "internal/crashlog", "internal/workbench", "locales"},
 	"assets":                 {},
 	"extensions":             {},
+	"locales":                {},
 	"webassets":              {},
 	"scripts":                {},
 	"cmd/pideck-relay":       {"internal/relay"},
@@ -31,6 +32,7 @@ var dependencies = map[string][]string{
 	"internal/architecture":  {},
 	"internal/appinfo":       {},
 	"internal/apptext":       {},
+	"internal/officedoc":     {},
 	"internal/crashlog":      {"internal/appinfo"},
 	"internal/relaywire":     {},
 	"internal/relay":         {"internal/relaywire"},
@@ -44,7 +46,7 @@ var dependencies = map[string][]string{
 	},
 	"internal/workbench": {
 		"assets", "extensions", "webassets", "internal/alerts", "internal/appinfo", "internal/apptext",
-		"internal/crashlog", "internal/relaywire", "internal/remotewire", "internal/schedule",
+		"internal/crashlog", "internal/officedoc", "internal/relaywire", "internal/remotewire", "internal/schedule",
 		"internal/sessionimport", "internal/viewkit", "internal/volcvoice",
 	},
 }
@@ -73,8 +75,11 @@ func sources(t *testing.T) []source {
 		}
 		rel = filepath.ToSlash(rel)
 		if entry.IsDir() {
+			if entry.Name() == ".nsgo" {
+				return fs.SkipDir // generated tooling, including caches beside TSX examples
+			}
 			switch rel {
-			case ".git", ".nsgo", "dist", "webassets/site":
+			case ".git", "dist", "webassets/site":
 				return fs.SkipDir
 			}
 			return nil

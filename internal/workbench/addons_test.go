@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -112,7 +112,7 @@ func TestPluginAndThemeFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	app.st = st
-	plugins := app.loadPlugins()
+	plugins := app.loadPlugins(app.cfg.DisabledPlugins)
 	if len(plugins) != 1 || plugins[0].Name != "团队提示词" || len(plugins[0].Commands) != 1 {
 		t.Fatalf("plugins = %+v", plugins)
 	}
@@ -180,7 +180,7 @@ func TestPluginManifestV2(t *testing.T) {
 		t.Fatal(err)
 	}
 	app.st = st
-	plugins := app.loadPlugins()
+	plugins := app.loadPlugins(app.cfg.DisabledPlugins)
 	if len(plugins) != 1 {
 		t.Fatalf("plugins = %+v", plugins)
 	}
@@ -232,7 +232,7 @@ func TestPluginDisabled(t *testing.T) {
 	}
 	st.edit(func(c *config) { c.DisabledPlugins = []string{"team"} })
 	app := &app{st: st, cfg: st.config()}
-	plugins := app.loadPlugins()
+	plugins := app.loadPlugins(app.cfg.DisabledPlugins)
 	if len(plugins) != 1 || !plugins[0].Disabled {
 		t.Fatalf("plugins = %+v", plugins)
 	}
@@ -291,7 +291,7 @@ func TestPiSessionsInRail(t *testing.T) {
 	if err := os.WriteFile(src, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	t.Setenv("PI_CODING_AGENT_SESSION_DIR", piSessions)
 	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
 	app.PickDirectories = func(core.DirectoriesRequest) []core.Directory {
@@ -308,7 +308,7 @@ func TestSettingsTabs(t *testing.T) {
 	if nsgotest.Target() != "" {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
 	app.Press("label:设置")
 	app.WaitFor("id:settings-tab-env", 5*time.Second)
@@ -357,7 +357,7 @@ func TestSessionGroups(t *testing.T) {
 	now := time.Now().UTC()
 	write("aaaaaaaa-0000-4000-8000-000000000001", now.Format("2026-01-02T15:04:05.000Z"), "今天的会话")
 	write("bbbbbbbb-0000-4000-8000-000000000002", now.Add(-50*time.Hour).Format("2026-01-02T15:04:05.000Z"), "更早的会话")
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	t.Setenv("PI_CODING_AGENT_SESSION_DIR", piSessions)
 	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
 	app.PickDirectories = func(core.DirectoriesRequest) []core.Directory {
@@ -529,7 +529,7 @@ func TestPluginSettingUI(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "team.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	app := openApp(t, workspace, 1280, 860)
 	app.Press("label:设置")
 	app.Press("id:settings-tab-addons")
@@ -655,7 +655,7 @@ func TestPluginHookCommand(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "config.json"), cfg, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	app := nsgotest.Start(t, Root, nsgotest.Size(1280, 860))
 	// Plugins load in the background; wait until this one is listed.
 	app.WaitFor("id:welcome-primary", 10*time.Second)
@@ -692,7 +692,7 @@ func TestPluginAgentPicker(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "config.json"), cfg, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	t.Cleanup(closeAllPi)
 	app := nsgotest.Start(t, Root, nsgotest.Size(1280, 860))
 	app.WaitFor("id:welcome-chat", 10*time.Second)
@@ -734,7 +734,7 @@ func TestPluginHookSessionCreated(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "config.json"), cfg, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	app := nsgotest.Start(t, Root, nsgotest.Size(1280, 860))
 	app.WaitFor("id:welcome-primary", 10*time.Second)
 	app.Press("label:设置")
@@ -761,7 +761,7 @@ func TestPluginManifestOpen(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "team.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	app := nsgotest.Start(t, Root, nsgotest.Size(1280, 860))
 	app.Press("label:设置")
 	app.Press("id:settings-tab-addons")
@@ -778,7 +778,7 @@ func TestSettingsToggles(t *testing.T) {
 	if nsgotest.Target() != "" {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
 	app.Press("label:设置")
 	app.Press("id:settings-tab-general")

@@ -20,7 +20,7 @@ func marketLifecycleApp(cx *core.Scope, st *store) *app {
 	return &app{cx: cx, lifetime: cx.Context(), st: st, cfg: st.config(),
 		marketOpen: core.NewSignal(cx, false), marketURL: core.NewSignal(cx, ""),
 		marketBusy: core.NewSignal(cx, false), marketErr: core.NewSignal(cx, ""),
-		marketList: core.NewSignalFunc(cx, []marketEntry(nil), nil), marketInstalling: core.NewSignal(cx, ""),
+		marketList: core.NewSignalFunc(cx, []marketEntry(nil), nil), pluginFileBusy: core.NewSignal(cx, false),
 		chatWidthPctSig: core.NewSignal(cx, 80)}
 }
 
@@ -141,10 +141,10 @@ func TestMarketReopenPreservesInstallationGuard(t *testing.T) {
 	}
 	nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		a := marketLifecycleApp(cx, st)
-		a.marketInstalling.Set("team")
+		a.pluginFileBusy.Set(true)
 		a.openPluginMarket()
-		if got := a.marketInstalling.GetUntracked(); got != "team" {
-			t.Fatalf("reopen cleared active installation=%q", got)
+		if !a.pluginFileBusy.GetUntracked() {
+			t.Fatal("reopen cleared active installation")
 		}
 		return nil
 	})

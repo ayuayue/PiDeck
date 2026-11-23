@@ -26,8 +26,12 @@ type review struct {
 	mu     sync.Mutex
 	path   string
 	target target
+	// repoPath is the repository gh reads, when the user picked one of the
+	// project's; empty means the project's own.
+	repoPath string
 
 	state       *core.Signal[reviewState]
+	repos       *core.Signal[[]reviewRepo]
 	kind        *core.Signal[string]
 	filter      *core.Signal[string]
 	query       *core.Signal[string]
@@ -62,6 +66,7 @@ func newReview(cx *core.Scope) *review {
 	return &review{
 		cx:          cx,
 		state:       core.NewSignalFunc(cx, reviewState{}, nil),
+		repos:       core.NewSignalFunc(cx, []reviewRepo(nil), nil),
 		kind:        core.NewSignal(cx, reviewPR),
 		filter:      core.NewSignal(cx, filterOpen),
 		query:       core.NewSignal(cx, ""),
@@ -85,10 +90,14 @@ func (r *review) attachedTo(ws *workspace) bool {
 	return path == r.path && t.key() == r.target.key()
 }
 
-// repo is the project commands run in.
+// repo is the directory gh runs in: the repository the user picked, else
+// the project's own folder.
 func (r *review) repo() (target, string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.repoPath != "" {
+		return r.target, r.repoPath
+	}
 	return r.target, r.path
 }
 
@@ -102,7 +111,7 @@ func (r *review) attach(ws *workspace) bool {
 	r.mu.Lock()
 	same := path == r.path && t.key() == r.target.key()
 	if !same {
-		r.path, r.target = path, t
+		r.path, r.target, r.repoPath = path, t, ""
 	}
 	r.mu.Unlock()
 	if same {
@@ -117,9 +126,11 @@ func (r *review) attach(ws *workspace) bool {
 	r.query.Set("")
 	if path == "" {
 		r.state.Set(reviewState{Checked: true})
+		r.repos.Set(nil)
 		return true
 	}
 	r.state.Set(reviewState{Loading: true, Limit: r.limit})
+	r.loadReviewRepos()
 	r.reload()
 	return true
 }
@@ -340,8 +351,9 @@ func (r *review) poll() {
 			}
 			r.working = false
 			old := r.state.GetUntracked()
-			if st.Error != "" && st.Missing {
-				// gh went away: say so rather than keep stale rows.
+			if st.Error != "" && (st.Missing || st.NeedsLogin) {
+				// gh went away or lost its login: say so rather than keep
+				// stale rows.
 				r.state.Set(st)
 				return
 			}
@@ -491,7 +503,8 @@ func readReviewPatch(t target, dir string, number int) (string, error) {
 	return out, nil
 }
 
-// reviewMissing marks a state that could not run gh at all.
+// reviewMissing marks a state that could not run gh at all: no GitHub CLI,
+// or one with no account behind it.
 func reviewMissing(state reviewState, err error) reviewState {
 	if errors.Is(err, errNoGH) {
 		state.Missing = true
@@ -499,7 +512,20 @@ func reviewMissing(state reviewState, err error) reviewState {
 		return state
 	}
 	state.Error = reviewErrorText(err)
+	state.NeedsLogin = reviewNeedsLogin(state.Error)
 	return state
+}
+
+// reviewNeedsLogin says gh's failure is the account rather than the
+// repository: gh says so itself when it has no login.
+func reviewNeedsLogin(message string) bool {
+	lower := strings.ToLower(message)
+	for _, hint := range []string{"gh auth login", "auth login", "not logged in", "no oauth token", "authentication required", "authentication failed"} {
+		if strings.Contains(lower, hint) {
+			return true
+		}
+	}
+	return false
 }
 
 // reviewErrorText is a command's failure as one line.

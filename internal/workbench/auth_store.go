@@ -9,6 +9,7 @@ package workbench
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 )
 
 // Where an api_key entry's value comes from.
@@ -146,7 +147,7 @@ func readAuthEntries() ([]authEntry, error) {
 	var out []authEntry
 	for _, name := range names {
 		var fields map[string]any
-		if json.Unmarshal(doc[name], &fields) != nil {
+		if json.Unmarshal(doc[name], &fields) != nil || fields == nil {
 			continue
 		}
 		entry := authEntry{Provider: name}
@@ -208,8 +209,8 @@ func replaceAuthKey(provider, key string) error {
 	}
 	var fields map[string]any
 	if raw, ok := doc[provider]; ok {
-		if json.Unmarshal(raw, &fields) != nil {
-			return fmt.Errorf("「%s」不是一个对象，先在原始 JSON 里改", provider)
+		if json.Unmarshal(raw, &fields) != nil || fields == nil {
+			return errors.New(apptext.T("「%s」不是一个对象，先在原始 JSON 里改", provider))
 		}
 	} else {
 		fields = map[string]any{"type": "api_key"}
@@ -255,6 +256,10 @@ func readAuthDoc() (map[string]json.RawMessage, error) {
 	}
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		return nil, fmt.Errorf("auth.json 不是有效的 JSON：%w", err)
+	}
+	// JSON null decodes successfully but is not a credentials object.
+	if doc == nil {
+		return nil, errors.New(apptext.T("「%s」不是一个对象，先在原始 JSON 里改", "auth.json"))
 	}
 	return doc, nil
 }

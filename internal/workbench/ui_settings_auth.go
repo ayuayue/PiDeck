@@ -11,10 +11,17 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
+
+func (a *app) settingsCredentials() core.Node {
+	return a.providerSettingsPage("settings-page", a.authGroup(), core.View{Style: core.Style{Direction: core.Row}, Children: []core.Node{
+		ui.Button{Text: apptext.T("编辑 auth.json"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+			OnPress: func() { a.openPiConfigFile("auth.json") }},
+	}})
+}
 
 // authGroup lists pi's credentials file with a way to check, replace, and
 // remove each entry, and pi's own answer for the providers above it.

@@ -46,7 +46,7 @@ func TestPaletteSessions(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "config.json"), cfg, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	app := nsgotest.Start(t, Root, nsgotest.Size(1280, 860))
 	app.Press("id:rail-palette")
 	app.Type("label:命令", "调色板会话")
@@ -68,7 +68,7 @@ func TestRecentCommands(t *testing.T) {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
 	app.Press("id:rail-palette")
 	app.WaitFor("id:palette", 10*time.Second)

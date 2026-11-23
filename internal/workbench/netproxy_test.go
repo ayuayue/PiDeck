@@ -72,12 +72,13 @@ func TestProxySettingsUI(t *testing.T) {
 		agentProxy.set("", "")
 	})
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
 	app.Press("label:设置")
 	app.Press("id:settings-tab-env")
 	app.WaitFor("id:proxy-app", 5*time.Second)
 	app.Type("id:proxy-app", "http://127.0.0.1:7890")
+	app.Press("id:settings-tab-look")
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		raw, err := os.ReadFile(filepath.Join(home, "config.json"))
@@ -88,5 +89,9 @@ func TestProxySettingsUI(t *testing.T) {
 			t.Fatalf("config = %s", raw)
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+	req, _ := http.NewRequest("GET", "https://api.example.com/v1/models", nil)
+	if proxy, err := appProxy.proxyFunc(req); err != nil || proxy == nil || proxy.Host != "127.0.0.1:7890" {
+		t.Fatalf("saved application proxy = %v, %v", proxy, err)
 	}
 }

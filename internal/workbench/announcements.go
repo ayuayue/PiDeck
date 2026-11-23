@@ -21,13 +21,13 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-lite/internal/appinfo"
+	"example.com/pideck-v2/internal/appinfo"
 )
 
 // Where the feed lives, and how often it is read.
 const (
 	announceOwner  = "ayuayue"
-	announceRepo   = "PiDeck-Lite"
+	announceRepo   = "PiDeck-V2"
 	announceFile   = "announcements.json"
 	announceBranch = "main"
 	// announceEvery is the wait between reads, and announceStartup the

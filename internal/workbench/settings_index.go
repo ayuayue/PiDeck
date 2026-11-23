@@ -9,7 +9,7 @@ package workbench
 import (
 	"strings"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 )
 
 // settingEntry is one setting in the index.
@@ -31,6 +31,7 @@ var settingsIndex = []settingEntry{
 	{"general", "一轮完成时通知", "notification done turn"},
 	{"general", "只在窗口隐藏时通知", "notify hidden focus"},
 	{"general", "匿名使用统计", "telemetry analytics posthog usage privacy 遥测 统计"},
+	{"general", "工具安全门", "security gate tool policy bash confirm deny workspace 安全 拦截 确认"},
 	{"general", "测试通知", "test notification"},
 	{"general", "通知历史", "notification history bell inbox"},
 	{"general", "提示音", "sound alert chime bell pop buzz 声音 铃声 提示音"},
@@ -48,13 +49,15 @@ var settingsIndex = []settingEntry{
 	{"integrations", "App ID", "voice volcengine appid 火山 应用"},
 	{"integrations", "Access Token", "voice volcengine token 火山 令牌 凭据"},
 	{"models", "供应商与认证", "provider model auth api key"},
+	{"models", "添加供应商", "provider model add custom api base url"},
 	{"models", "刷新模型目录", "models catalog 目录 刷新 更新"},
 	{"models", "自动刷新模型目录", "auto model catalog 后台 自动"},
 	{"models", "文本翻译", "translate translation language model"},
 	{"models", "提示词增强模板", "prompt enhance template instruction rewrite 模板 润色 改写"},
 	{"env", "检查 pi 版本", "terminal cli pi 更新 version"},
 	{"env", "会话链接", "deep link session protocol url"},
-	{"models", "pi 凭据", "auth credentials api key token 凭据 密钥"},
+	{"credentials", "pi 凭据", "auth credentials api key token 凭据 密钥"},
+	{"pi", "pi 设置", "pi settings.json hide thinking retry compaction 隐藏思考 重试 压缩"},
 	{"models", "TokenDance 账户", "tokendance 词元跳动 balance 余额充值 recharge payment 拉取模型"},
 	{"about", "请作者喝咖啡", "watcha 爱猹收 tip 打赏 coffee 支持"},
 	{"keys", "键位", "keybinding shortcut keyboard"},
@@ -84,9 +87,11 @@ var settingsIndex = []settingEntry{
 	{"addons", "插件", "plugin extension"},
 	{"addons", "插件市场", "plugin market registry"},
 	{"addons", "插件设置", "plugin settings"},
+	{"addons", "NSGo 插件预览", "nsgo plugin preview ui function 会话统计示例"},
 	{"resources", "技能", "skill SKILL.md"},
 	{"resources", "技能商店", "skill store index install"},
 	{"resources", "扩展", "extension package"},
+	{"resources", "扩展商店", "extension store pi.dev install remove update pi list"},
 	{"mcp", "MCP 服务器", "mcp server tools"},
 	{"mcp", "添加服务器", "mcp add server url command"},
 	{"mcp", "智能体记忆", "memory timeline markdown MCP session_search 导入 导出 项目 笔记"},

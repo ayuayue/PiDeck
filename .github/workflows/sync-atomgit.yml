@@ -1,0 +1,154 @@
+name: 同步到 AtomGit
+
+# AtomGit 上的 ayuayue/PiDeck-V2 是国内可达的镜像：
+# - 应用的公告读取先走它的 contents 接口（GitHub raw 只兜底）；
+# - 发版后把 Release 正文与安装包附件同步过去，国内用户也能从 AtomGit 下载。
+# 仓库最初由 GitHub 导入，之后由这里推送，避免两边分叉。
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tags:
+        description: "要同步的 Release Tag：auto = GitHub 最新 Release；也可填 v2.0.0 或用逗号分隔多个"
+        required: false
+        type: string
+        default: auto
+      force_resync:
+        description: "强制重传：先删掉 AtomGit 上该 tag 的全部附件再传（同版本号重建产物后重发版时用）"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# 同一时间只跑一次：release 事件与手动触发并发会互相抢占远端的写。
+concurrency:
+  group: sync-atomgit
+  cancel-in-progress: false
+
+env:
+  # 发版时 release:published 先于附件上传完成触发，要等清单稳定再同步，
+  # 否则会把只传了一半的安装包镜像过去。
+  ASSET_WAIT_DEADLINE_SECONDS: "1200"
+  ASSET_POLL_INTERVAL_SECONDS: "60"
+  ASSET_STABLE_REQUIRED: "3"
+
+jobs:
+  sync:
+    name: 同步分支、标签与 Release
+    # dev 通道的预发布不同步：AtomGit 只镜像 stable 更新源。
+    if: ${{ !(github.event_name == 'release' && github.event.release.prerelease) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 标签与完整历史；浅克隆推不过去，也读不到旧 Release。
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # AtomGit 官方的加速方案：runner 跨境直连对象存储很慢，固定解析到
+      # 官方代理 IP；只在本次 runner 内生效，不改仓库。
+      - name: AtomGit 代理解析加速
+        run: |
+          echo "159.138.147.37 api.atomgit.com" | sudo tee -a /etc/hosts
+          echo "159.138.147.37 file.atomgit.com" | sudo tee -a /etc/hosts
+          echo "159.138.147.37 file.gitcode.com" | sudo tee -a /etc/hosts
+          getent hosts api.atomgit.com file.atomgit.com file.gitcode.com
+
+      - name: 推送 main 与标签
+        env:
+          ATOMGIT_TOKEN: ${{ secrets.ATOMGIT_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ATOMGIT_TOKEN}" ]; then
+            echo "::error::缺少 ATOMGIT_TOKEN：在仓库 Secrets 里添加 AtomGit 访问令牌（api、write_repository）。"
+            exit 1
+          fi
+          # 令牌走凭据助手，不拼进 URL：失败信息里不会带出它。
+          # shellcheck disable=SC2016  # 这段是 git 的凭据助手，$ATOMGIT_TOKEN 由它在运行时展开
+          push() {
+            git -c credential.helper='!f() { echo username=ayuayue; echo "password=${ATOMGIT_TOKEN}"; }; f' \
+              push https://atomgit.com/ayuayue/PiDeck-V2.git "$@"
+          }
+          # 标签触发时 HEAD 是标签所在的提交；主分支按 origin/main 推。
+          git fetch --no-tags origin main
+          push "FETCH_HEAD:refs/heads/main"
+          if git tag | grep -q .; then
+            push 'refs/tags/*:refs/tags/*'
+          fi
+
+      - name: 解析要同步的 tag
+        id: resolve
+        if: ${{ github.event_name == 'release' || github.event_name == 'workflow_dispatch' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_TAGS: ${{ github.event.inputs.tags }}
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          tags="$INPUT_TAGS"
+          if [ "$tags" = "auto" ] || [ -z "$tags" ]; then tags=""; fi
+          if [ -z "$tags" ] && [ "$EVENT_NAME" = "release" ]; then tags="$RELEASE_TAG"; fi
+          if [ -z "$tags" ]; then
+            tags=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName)
+          fi
+          # 只同步应用版本 tag（vX.Y.Z）；非版本文档类标签会抢走 AtomGit 的 latest。
+          tags=$(echo "$tags" | tr ',' '\n' | sed 's/[[:space:]]//g' | grep -E '^v[0-9]' | paste -sd, -)
+          if [ -z "$tags" ]; then
+            echo "::error::没有可同步的应用版本 tag（vX.Y.Z）"
+            exit 1
+          fi
+          echo "同步 tag：${tags}"
+          echo "tags=${tags}" >> "$GITHUB_OUTPUT"
+
+      - name: 等 Release 附件传完
+        if: ${{ github.event_name == 'release' || github.event_name == 'workflow_dispatch' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAGS: ${{ steps.resolve.outputs.tags }}
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + ASSET_WAIT_DEADLINE_SECONDS))
+          for tag in $(echo "$TAGS" | tr ',' ' '); do
+            stable=0
+            last=""
+            while [ $SECONDS -lt $deadline ]; do
+              sig=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" \
+                --jq '[.assets[] | .name + ":" + (.size | tostring)] | sort | join("|")' 2>/dev/null) || sig=""
+              if [ -n "$sig" ] && [ "$sig" = "$last" ]; then
+                stable=$((stable + 1))
+              else
+                stable=0
+              fi
+              last="$sig"
+              echo "  ${tag}：附件清单 ${#sig} 字节，稳定 ${stable}/${ASSET_STABLE_REQUIRED}"
+              if [ "$stable" -ge "$ASSET_STABLE_REQUIRED" ]; then break; fi
+              sleep "$ASSET_POLL_INTERVAL_SECONDS"
+            done
+            if [ "$stable" -lt "$ASSET_STABLE_REQUIRED" ]; then
+              echo "::warning::${tag} 的附件在 ${ASSET_WAIT_DEADLINE_SECONDS}s 内没稳定；按当前清单继续，缺的可手动重跑补齐。"
+            fi
+          done
+
+      - name: 同步 Release 与附件
+        if: ${{ github.event_name == 'release' || github.event_name == 'workflow_dispatch' }}
+        env:
+          ATOMGIT_TOKEN: ${{ secrets.ATOMGIT_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAGS: ${{ steps.resolve.outputs.tags }}
+          FORCE_RESYNC: ${{ github.event.inputs.force_resync }}
+        run: |
+          set -euo pipefail
+          extra=""
+          if [ "${FORCE_RESYNC}" = "true" ]; then extra="--force-resync"; fi
+          node scripts/sync-release-to-atomgit.mjs --tags "$TAGS" --gh-repo "$GITHUB_REPOSITORY" $extra

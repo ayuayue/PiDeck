@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"example.com/pideck-lite/internal/alerts"
+	"example.com/pideck-v2/internal/alerts"
 )
 
 func TestAlertSourceFallsBack(t *testing.T) {

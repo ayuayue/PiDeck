@@ -122,7 +122,7 @@ func TestUsagePage(t *testing.T) {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	t.Setenv("PI_CODING_AGENT_SESSION_DIR", t.TempDir())
 	dir := filepath.Join(home, "sessions", "--x--")
 	if err := os.MkdirAll(dir, 0o755); err != nil {

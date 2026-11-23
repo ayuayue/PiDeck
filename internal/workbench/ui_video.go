@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -57,7 +57,7 @@ func (a *app) videoPane() core.Node {
 			return core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
 				ui.Text(apptext.T(label), 12, ui.Medium, colors.Muted),
 				core.Input{Value: s.Get, OnChange: s.Set, Label: apptext.T(label), TestID: id, Multiline: multi,
-					Style: draftFieldStyle(colors).Merge(core.Style{Height: core.Pt(height), Padding: core.All(8)})},
+					Style: panelFieldStyle(colors).Merge(core.Style{Height: core.Pt(height), Padding: core.All(8)})},
 			}}
 		}
 		return core.View{Style: ui.FillRest, Children: []core.Node{
@@ -99,7 +99,7 @@ func (a *app) videoJobRow(cx *core.Scope, j videoJob) core.Node {
 	colors := ui.ColorsOf(cx)
 	var actions []core.Node
 	if j.Stored {
-		actions = append(actions, ui.Button{Text: apptext.T("预览"), Size: ui.SizeSmall, Variant: ui.ButtonSecondary, TestID: "video-preview-" + j.ID, OnPress: func() { a.openFilePreview(a.videoPath(j), "video") }},
+		actions = append(actions, ui.Button{Text: apptext.T("预览"), Size: ui.SizeSmall, Variant: ui.ButtonSecondary, TestID: "video-preview-" + j.ID, OnPress: func() { a.openFilePreview(a.videoPath(j), previewVideo) }},
 			ui.Button{Text: apptext.T("在系统应用中打开"), Size: ui.SizeSmall, Variant: ui.ButtonGhost, TestID: "video-open-" + j.ID, OnPress: func() { a.cx.OpenURL(fileURL(a.videoPath(j)), nil) }})
 	}
 	if j.State == "running" {

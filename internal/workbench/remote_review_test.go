@@ -24,7 +24,7 @@ import (
 func TestRemoteReviewRefusals(t *testing.T) {
 	workspace := t.TempDir()
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	raw, err := json.Marshal(config{Version: 1, Workspaces: []workspaceCfg{{Path: workspace, Name: "ReviewProject"}},
 		Theme: "system", SidebarOpen: true, ScanPi: false})
 	if err != nil {

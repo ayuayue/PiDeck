@@ -6,13 +6,15 @@ package workbench
 // views read; pi's events are folded in here, on the UI thread.
 
 import (
+	"fmt"
 	"path"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"time"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -32,6 +34,13 @@ func (a *app) activeWorkspace() *workspace {
 		return list[0]
 	}
 	return nil
+}
+
+// activeProjectKey is the active project's key, "" when there is none:
+// what a per-project entry is scoped to. It keeps the target prefix older
+// entries were stored with.
+func (a *app) activeProjectKey() string {
+	return trustKey(a.activeWorkspace())
 }
 
 // busy reports whether a turn is in flight, including a prompt that was
@@ -132,6 +141,16 @@ func (a *app) tick() {
 			a.lastTray = now
 			a.updateTray()
 		}
+		if beats%60 == 0 {
+			a.releaseIdleHeap(now)
+		}
+		// The diagnostics page shows live figures: three seconds between
+		// passes keeps them current without redrawing the page on every
+		// beat, which would push the reader back to the top.
+		if beats%3 == 0 && a.paneVisible() && a.activePaneID() == paneSettings &&
+			a.settingsTab.GetUntracked() == "diagnostics" {
+			a.diagRefresh()
+		}
 		// pi writes its sessions into its own store; a pass now and then
 		// brings in the ones started in a terminal or another app, which
 		// nothing else would ever tell the rail about.
@@ -141,6 +160,90 @@ func (a *app) tick() {
 		a.cx.AfterFunc(time.Second, loop)
 	}
 	a.cx.Post(loop)
+}
+
+// heapReleaseIdle is how much idle heap is worth handing back, and
+// heapReleaseShare how much of the heap may stay idle: a full collection
+// costs one pause, so it only runs when there is a lot to return. A heap
+// that is mostly idle falls below what the runtime would ever shrink to on
+// its own.
+const (
+	heapReleaseIdle  = 512 << 20
+	heapReleaseShare = 40
+	heapReleaseEvery = 2 * time.Minute
+)
+
+// heapReleaseDue says whether the heap has enough idle pages to be worth
+// handing back now: not while a reply is being written, where the pause
+// would show as a dropped frame, and not more often than every
+// heapReleaseEvery.
+func heapReleaseDue(mem runtime.MemStats, since, every time.Duration, running bool) bool {
+	if running || since < every || mem.HeapSys == 0 {
+		return false
+	}
+	return mem.HeapIdle >= heapReleaseIdle && mem.HeapIdle*100/mem.HeapSys >= heapReleaseShare
+}
+
+// releaseIdleHeap returns pages the heap no longer needs. Go gives them up on
+// its own schedule and slowly, so a window that once held a few gigabytes of
+// transcript keeps showing that peak long after it was closed.
+func (a *app) releaseIdleHeap(now time.Time) {
+	var mem runtime.MemStats
+	runtime.ReadMemStats(&mem)
+	if !heapReleaseDue(mem, now.Sub(a.lastHeapRelease), heapReleaseEvery, a.anyTurnRunning()) {
+		return
+	}
+	a.releaseHeap(func(uint64) {})
+}
+
+// releaseMemory hands the heap's idle pages back on the person's word, which
+// is safe at any time: it only runs one more collection and returns pages
+// nothing refers to. It says what came back so the press has an answer.
+func (a *app) releaseMemory() {
+	a.releaseHeap(func(freed uint64) {
+		if freed == 0 {
+			a.toast(ui.ToastInfo, "没有可释放的内存", "堆里没有空闲页；关掉大会话或大文件预览后再试。")
+			return
+		}
+		a.toast(ui.ToastInfo, "已释放内存", fmt.Sprintf(apptext.T("归还了 %.0f MB 给系统。"), float64(freed)/(1<<20)))
+	})
+}
+
+// releaseHeap runs a full collection off the interface thread and reports how
+// much the heap gave back, measured as the drop in committed heap.
+func (a *app) releaseHeap(done func(freed uint64)) {
+	if a.releasing {
+		return
+	}
+	a.releasing = true
+	go func() {
+		var before, after runtime.MemStats
+		runtime.ReadMemStats(&before)
+		debug.FreeOSMemory()
+		runtime.ReadMemStats(&after)
+		freed := uint64(0)
+		if before.Sys > after.Sys {
+			freed = before.Sys - after.Sys
+		}
+		a.cx.Post(func() {
+			a.releasing = false
+			a.lastHeapRelease = a.cx.Now()
+			a.diagRefresh()
+			done(freed)
+		})
+	}()
+}
+
+// anyTurnRunning says whether a reply, a retry or an approval is still in
+// flight anywhere: a collection then would land mid-stream.
+func (a *app) anyTurnRunning() bool {
+	for _, s := range a.all {
+		switch s.status.GetUntracked() {
+		case statusRunning, statusWaiting:
+			return true
+		}
+	}
+	return false
 }
 
 // animateNextLayout eases the next batch's moves, inserts and deletes,

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-lite/internal/remotewire"
+	"example.com/pideck-v2/internal/remotewire"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -15,7 +15,7 @@ import (
 // delayed replies can be tested without a clock race or a real polling loop.
 func newConnectionTestApp(t *testing.T) (*mobileApp, <-chan func()) {
 	t.Helper()
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	posts := make(chan func(), 16)
 	cx := core.NewRoot(core.RootOptions{CheckCommits: true, Post: func(fn func()) { posts <- fn }})
 	t.Cleanup(cx.Dispose)
@@ -34,7 +34,23 @@ func newConnectionTestApp(t *testing.T) (*mobileApp, <-chan func()) {
 		messages:       core.NewSignalFunc(cx, []remotewire.Message(nil), nil),
 		transcriptErr:  core.NewSignal(cx, ""),
 		transcriptBusy: core.NewSignal(cx, false),
+		olderBusy:      core.NewSignal(cx, false),
 		ask:            core.NewSignalFunc(cx, (*remotewire.Ask)(nil), nil),
+		filesOpen:      core.NewSignal(cx, false),
+		filesProject:   core.NewSignal(cx, ""),
+		filesName:      core.NewSignal(cx, ""),
+		filesQuery:     core.NewSignal(cx, ""),
+		filesList:      core.NewSignalFunc(cx, []remotewire.File(nil), nil),
+		filesBusy:      core.NewSignal(cx, false),
+		filesErr:       core.NewSignal(cx, ""),
+		fileOpen:       core.NewSignal(cx, false),
+		fileTitle:      core.NewSignal(cx, ""),
+		fileText:       core.NewSignal(cx, ""),
+		fileEdit:       newMobileFileEditor(cx),
+		fileBusy:       core.NewSignal(cx, false),
+		fileErr:        core.NewSignal(cx, ""),
+		fileFind:       core.NewSignal(cx, ""),
+		filesMention:   core.NewSignal(cx, false),
 		refreshing:     core.NewSignal(cx, false),
 		running:        core.NewSignal(cx, false),
 		language:       core.NewSignal(cx, ""),
@@ -138,6 +154,21 @@ func TestMobileStatePollAfterDisconnectStaysDisconnected(t *testing.T) {
 	}
 }
 
+func TestMobileDisconnectClearsPreviousConnectionNotice(t *testing.T) {
+	a, _ := newConnectionTestApp(t)
+	a.connected.Set(true)
+	a.err.Set("previous connection failed")
+
+	a.disconnect()
+
+	if a.connected.GetUntracked() {
+		t.Fatal("disconnect left the app connected")
+	}
+	if got := a.err.GetUntracked(); got != "" {
+		t.Fatalf("disconnect left stale notice %q", got)
+	}
+}
+
 func TestMobileStatePollCurrentConnection(t *testing.T) {
 	for _, status := range []int{http.StatusOK, http.StatusUnauthorized, http.StatusForbidden} {
 		t.Run(http.StatusText(status), func(t *testing.T) {
@@ -215,6 +246,27 @@ func TestMobileConnectIgnoresCancelledAttempt(t *testing.T) {
 				t.Fatalf("cancelled connection was published: connected=%v busy=%v error=%q recent=%+v", a.connected.GetUntracked(), a.busy.GetUntracked(), a.err.GetUntracked(), a.recent.GetUntracked())
 			}
 		})
+	}
+}
+
+func TestMobileScanWithoutTokenKeepsAddressAndClearsOldToken(t *testing.T) {
+	a, _ := newConnectionTestApp(t)
+	a.server.Set("http://old.example:8787")
+	a.token.Set("old-token")
+
+	a.connectScanned("http://new.example:8787")
+
+	if got := a.server.GetUntracked(); got != "http://new.example:8787" {
+		t.Fatalf("server = %q, want scanned address", got)
+	}
+	if got := a.token.GetUntracked(); got != "" {
+		t.Fatalf("token = %q, want empty token for scanned address", got)
+	}
+	if got := a.err.GetUntracked(); got == "" {
+		t.Fatal("missing token did not prompt the user")
+	}
+	if a.busy.GetUntracked() || a.connected.GetUntracked() {
+		t.Fatal("scan without token started a connection")
 	}
 }
 

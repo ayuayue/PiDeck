@@ -11,9 +11,8 @@ import (
 	"strconv"
 	"strings"
 
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/viewkit"
-	"github.com/nsgo-dev/nsgo/base"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -240,17 +239,14 @@ func (a *app) patchButton(colors ui.Colors) core.Node {
 		ui.Button{Text: apptext.T("查看补丁"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, Icon: lucide.FileDiff,
 			TestID: "review-patch",
 			OnPress: func() {
-				a.review.patchOpen.Set(true)
+				a.openPane(paneReviewPatch)
 				a.review.loadPatch()
 			}}}}
 }
 
-// reviewPatchDialog shows the pull request's whole diff.
-func (a *app) reviewPatchDialog() core.Node {
+// reviewPatchPane shows the pull request's whole diff in the work area.
+func (a *app) reviewPatchPane() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		if !a.review.patchOpen.Get() {
-			return nil
-		}
 		colors := ui.ColorsOf(cx)
 		st := a.review.state.Get()
 		title := apptext.T("补丁")
@@ -273,20 +269,16 @@ func (a *app) reviewPatchDialog() core.Node {
 			return uidiff.View{Patch: func() string { return st.Patch }, Unified: true, Selectable: true, SoftWrap: true,
 				Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0)}}
 		})
-		return ui.Dialog{
-			Open: a.review.patchOpen.Get, OnOpenChange: func(open bool, _ base.Reason) { a.review.patchOpen.Set(open) },
-			Title: title, TestID: "review-patch-dialog",
-			Style: core.Style{Width: core.Pt(900), Height: core.Pt(640)},
-			Children: []core.Node{core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0), BorderWidth: 1,
-				BorderColor: colors.Border(), CornerRadius: 8, Overflow: core.Hidden}, Children: []core.Node{body}}},
-			Footer: []core.Node{
-				ui.Button{Text: apptext.T("复制补丁"), Variant: ui.ButtonGhost, OnPress: func() {
-					a.copyText(a.review.state.GetUntracked().Patch, "补丁")
-				}},
-				core.View{Style: core.Style{FlexGrow: 1}},
-				ui.Button{Text: apptext.T("关闭"), Variant: ui.ButtonPrimary, OnPress: func() { a.review.patchOpen.Set(false) }},
-			},
-		}
+		return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)},
+			Children: []core.Node{
+				a.paneHeader(title, apptext.T("拉取请求的完整改动"), ui.Button{Text: apptext.T("复制补丁"),
+					Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
+						a.copyText(a.review.state.GetUntracked().Patch, "补丁")
+					}}),
+				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Padding: core.Symmetric(10, 0)},
+					Children: []core.Node{core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0), BorderWidth: 1,
+						BorderColor: colors.Border(), CornerRadius: 8, Overflow: core.Hidden}, Children: []core.Node{body}}}},
+			}}
 	})
 }
 

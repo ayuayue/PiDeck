@@ -8,13 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-lite/internal/remotewire"
+	"example.com/pideck-v2/internal/remotewire"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
 func TestMobileTranscriptLoadsInlineImageAndSharesPendingRequest(t *testing.T) {
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	var requests atomic.Int32
 	started, release := make(chan struct{}), make(chan struct{})
 	defer func() {

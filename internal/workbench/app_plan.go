@@ -6,7 +6,7 @@ package workbench
 // views read; pi's events are folded in here, on the UI thread.
 
 import (
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 

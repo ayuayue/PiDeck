@@ -5,12 +5,9 @@ package workbench
 // The chat: turns with their tools, the composer, and the empty state.
 
 import (
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"fmt"
-	"path/filepath"
-	"strings"
-
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -66,7 +63,7 @@ func (a *app) changeSummary(s *session, t func() turn) core.Node {
 			for i, c := range changes {
 				change := c
 				row := core.View{
-					OnPress: func(core.PressEvent) { a.openChangeFile(s, change.Path) },
+					OnPress: func(core.PressEvent) { a.openChangedFile(s, change.Path) },
 					Role:    core.RoleButton, Label: apptext.T("打开 ") + change.Path, TestID: fmt.Sprintf("turn-change-%d", i),
 					StyleFunc: func() core.Style {
 						return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(24),
@@ -91,19 +88,4 @@ func (a *app) changeSummary(s *session, t func() turn) core.Node {
 		}
 		return core.View{Style: core.Style{Gap: 1, MinWidth: core.Pt(0)}, Children: rows}
 	})
-}
-
-// openChangeFile opens a path a tool changed, resolving it against the
-// session's folder when it is relative.
-func (a *app) openChangeFile(s *session, path string) {
-	if s == nil || path == "" || strings.HasSuffix(path, "…") {
-		return
-	}
-	if i := strings.Index(path, " 等 "); i > 0 {
-		path = path[:i]
-	}
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(s.WS, path)
-	}
-	a.openEditorFile(s.WS, path)
 }

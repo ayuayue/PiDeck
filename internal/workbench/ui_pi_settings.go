@@ -2,18 +2,26 @@
 
 package workbench
 
-// pi's own settings, as controls in the models section: the few fields
+// pi's own settings, as controls in their own section: the few fields
 // the app can show without losing what the file holds.
 
 import (
 	"strconv"
 	"strings"
 
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
+
+func (a *app) settingsPi() core.Node {
+	return a.providerSettingsPage("settings-page", core.Dynamic(func(*core.Scope) core.Node { return a.piSettingsGroup() }),
+		core.View{Style: core.Style{Direction: core.Row}, Children: []core.Node{
+			ui.Button{Text: apptext.T("编辑 settings.json"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+				OnPress: func() { a.openPiConfigFile("settings.json") }},
+		}})
+}
 
 // piSettingsGroup draws pi's settings rows.
 func (a *app) piSettingsGroup() core.Node {

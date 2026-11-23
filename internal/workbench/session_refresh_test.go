@@ -37,7 +37,7 @@ func startProjectApp(t *testing.T, cwd func(proj string) string) (*nsgotest.App,
 	home := t.TempDir()
 	proj := t.TempDir()
 	store := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	t.Setenv("PI_CODING_AGENT_SESSION_DIR", store)
 	dir := filepath.Join(store, "--pi--")
 	if err := os.MkdirAll(dir, 0o755); err != nil {

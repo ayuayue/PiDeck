@@ -1,4 +1,4 @@
-// PiDeck Lite 开发助手：一条命令列出开发、打包和 Android 相关的常用操作。
+// PiDeck V2 开发助手：一条命令列出开发、打包和 Android 相关的常用操作。
 //
 // 不带参数时打开菜单，挑一个数字就行：
 //
@@ -35,7 +35,7 @@ import (
 
 // appID 和 activity 是 adb 启动应用要用的；id 也从 nsgo.yaml 读，这里只是兜底。
 const (
-	fallbackID      = "dev.nsgo.pidecklite"
+	fallbackID      = "dev.nsgo.pideckv2"
 	activity        = "dev.oneo.nsgo.NsgoActivity"
 	preferredAVD    = "medium_phone"
 	emulatorTimeout = 4 * time.Minute
@@ -172,7 +172,7 @@ func findRoot() (string, error) {
 
 // readManifest 从 nsgo.yaml 顶层读名字、id 和版本，读不到就用兜底值。
 func readManifest(root string) (name, id, version string) {
-	name, id, version = "PiDeck Lite", fallbackID, "?"
+	name, id, version = "PiDeck V2", fallbackID, "?"
 	raw, err := os.ReadFile(filepath.Join(root, "nsgo.yaml"))
 	if err != nil {
 		return name, id, version

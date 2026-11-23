@@ -40,8 +40,18 @@ func (a *app) rename() {
 	a.renameOpen.Set(false)
 }
 
-// askConfirm opens a confirmation with an action.
+// askConfirm opens a confirmation with a destructive action.
 func (a *app) askConfirm(title, body, action string, fn func()) {
+	a.askConfirmAs(false, title, body, action, fn)
+}
+
+// askConfirmPrimary opens a confirmation whose action is not destructive.
+func (a *app) askConfirmPrimary(title, body, action string, fn func()) {
+	a.askConfirmAs(true, title, body, action, fn)
+}
+
+func (a *app) askConfirmAs(primary bool, title, body, action string, fn func()) {
+	a.confirmPrimary = primary
 	a.confirmHead.Set(title)
 	a.confirmBody.Set(body)
 	a.confirmWhy.Set(action)

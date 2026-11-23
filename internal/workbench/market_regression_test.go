@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -80,7 +81,7 @@ func TestMarketRefusesCrossRuntimeInstallAndUpdate(t *testing.T) {
 	var requested bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		requested = true
-		_, _ = w.Write([]byte(`{"schemaVersion":2,"runtime":"pideck-lite","id":"team","name":"Team","version":"2.0.0","contributes":{"agents":[{"id":"a","name":"A","prompt":"x"}]}}`))
+		_, _ = w.Write([]byte(`{"schemaVersion":2,"runtime":"pideck-v2","id":"team","name":"Team","version":"2.0.0","contributes":{"agents":[{"id":"a","name":"A","prompt":"x"}]}}`))
 	}))
 	defer srv.Close()
 	entry := marketEntry{ID: "team", Name: "Team", Runtime: "pideck-electron", Version: "2.0.0", URL: srv.URL}
@@ -95,9 +96,9 @@ func TestMarketRefusesCrossRuntimeInstallAndUpdate(t *testing.T) {
 	if err := os.WriteFile(path, []byte(previous), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	entry.Runtime = litePluginRuntime
+	entry.Runtime = v2PluginRuntime
 	if _, err := a.installMarketPlugin(entry); err == nil {
-		t.Fatal("replaced an installed foreign-runtime manifest with a Lite manifest")
+		t.Fatal("replaced an installed foreign-runtime manifest with a V2 manifest")
 	}
 	got, err := os.ReadFile(path)
 	if err != nil || string(got) != previous {
@@ -105,17 +106,17 @@ func TestMarketRefusesCrossRuntimeInstallAndUpdate(t *testing.T) {
 	}
 }
 
-func TestOfficialRegistryRoutesLiteAndElectronSeparately(t *testing.T) {
+func TestOfficialRegistryRoutesV2AndElectronSeparately(t *testing.T) {
 	raw := []byte(`{"schemaVersion":1,"plugins":[
 		{"id":"notes","name":"Notes","repo":"owner/plugins","subpath":"plugins/notes"},
-		{"id":"lite-notes","name":"Lite notes","repo":"owner/plugins","runtime":"pideck-lite","url":"https://example.com/lite.json"},
+		{"id":"ext-notes","name":"Notes","repo":"owner/plugins","runtime":"pideck-v2","url":"https://example.com/ext.json"},
 		{"id":"future","name":"Future","repo":"owner/plugins","runtime":"unknown","url":"https://example.com/future.json"}
 	]}`)
 	list, err := parseOfficialPlugins(raw)
 	if err != nil || len(list) != 3 {
 		t.Fatalf("list=%+v, err=%v", list, err)
 	}
-	if !list[0].External || list[1].External || list[1].ID != "lite-notes" || list[1].URL != "https://example.com/lite.json" || !list[2].External {
+	if !list[0].External || list[1].External || list[1].ID != "ext-notes" || list[1].URL != "https://example.com/ext.json" || !list[2].External {
 		t.Fatalf("registry lost runtime boundary: %+v", list)
 	}
 }
@@ -125,13 +126,76 @@ func TestMixedRegistryV2RequiresRuntime(t *testing.T) {
 		_, _ = w.Write([]byte(`{"schemaVersion":2,"plugins":[
 			{"id":"legacy","name":"Missing runtime","repo":"owner/plugins"},
 			{"id":"notes","name":"Notes","repo":"owner/plugins","runtime":"pideck-electron"},
-			{"id":"lite","name":"Lite","repo":"owner/plugins","runtime":"pideck-lite","url":"https://example.com/lite.json"}
+			{"id":"ext","name":"V2","repo":"owner/plugins","runtime":"pideck-v2","url":"https://example.com/ext.json"}
 		]}`))
 	}))
 	defer srv.Close()
 	list, err := fetchPluginIndex(context.Background(), srv.URL)
-	if err != nil || len(list) != 2 || !list[0].External || list[1].External || list[1].ID != "lite" {
+	if err != nil || len(list) != 2 || !list[0].External || list[1].External || list[1].ID != "ext" {
 		t.Fatalf("mixed registry=%+v, err=%v", list, err)
+	}
+}
+
+func TestOfficialRegistryPrefersMixedFeedAndFallsBackBeforePublish(t *testing.T) {
+	for _, published := range []bool{true, false} {
+		name := "legacy fallback"
+		if published {
+			name = "mixed feed"
+		}
+		t.Run(name, func(t *testing.T) {
+			requests := make(chan string, 3)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests <- r.URL.Path
+				switch r.URL.Path {
+				case "/registry-v2.json":
+					if !published {
+						http.NotFound(w, r)
+						return
+					}
+					_, _ = fmt.Fprintf(w, `{"schemaVersion":2,"plugins":[
+						{"id":"notes","name":"Notes","repo":"owner/plugins","runtime":"pideck-electron"},
+						{"id":"ext-notes","name":"Notes","version":"1.0.0","repo":"owner/plugins","runtime":"pideck-v2","url":"http://%s/plugin.json"}
+					]}`, r.Host)
+				case "/registry.json":
+					_, _ = w.Write([]byte(`{"schemaVersion":1,"plugins":[{"id":"notes","name":"Notes","repo":"owner/plugins"}]}`))
+				case "/plugin.json":
+					_, _ = w.Write([]byte(`{"schemaVersion":2,"runtime":"pideck-v2","id":"ext-notes","version":"1.0.0","name":"Notes","contributes":{"commands":[{"id":"note","title":"Note","action":{"type":"insert","prompt":"example"}}]}}`))
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer srv.Close()
+			list, err := fetchOfficialPlugins(t.Context(), []string{srv.URL + "/registry-v2.json", srv.URL + "/registry.json"})
+			want := 1
+			if published {
+				want = 2
+			}
+			if err != nil || len(list) != want || !list[0].External {
+				t.Fatalf("official feed=%+v err=%v, want %d entries with Electron discovery", list, err, want)
+			}
+			wantRequests := 1
+			if !published {
+				wantRequests++
+			}
+			if len(requests) != wantRequests || <-requests != "/registry-v2.json" {
+				t.Fatal("did not try the mixed feed first and fall back only when needed")
+			}
+			if !published {
+				if got := <-requests; got != "/registry.json" {
+					t.Fatalf("fallback request=%q, want /registry.json", got)
+				}
+				return
+			}
+			st, err := newStore(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			a := &app{st: st, lifetime: t.Context()}
+			plugin, err := a.installMarketPlugin(list[1])
+			if err != nil || plugin.ID != "ext-notes" || len(plugin.Commands) != 1 {
+				t.Fatalf("official install=%+v err=%v", plugin, err)
+			}
+		})
 	}
 }
 
@@ -224,7 +288,7 @@ func TestBuiltinPluginExamplesInstallOfflineAndCoverContributions(t *testing.T) 
 		if err != nil {
 			t.Fatalf("install %s: %v", entry.ID, err)
 		}
-		if p.Runtime != litePluginRuntime || p.SchemaVersion != litePluginSchema || len(p.Warnings) != 0 ||
+		if p.Runtime != v2PluginRuntime || p.SchemaVersion != v2PluginSchema || len(p.Warnings) != 0 ||
 			len(p.Commands) == 0 || len(p.ThemeSpecs) == 0 || len(p.Contributes.Settings) == 0 ||
 			len(p.Contributes.Keybindings) == 0 || len(p.Contributes.Hooks) == 0 || len(p.Contributes.Agents) == 0 {
 			t.Fatalf("incomplete example %s: %+v", entry.ID, p)
@@ -239,7 +303,7 @@ func TestBuiltinPluginExamplesInstallOfflineAndCoverContributions(t *testing.T) 
 			t.Fatalf("saved example %s=%q, err=%v", entry.ID, raw, err)
 		}
 	}
-	if plugins := a.loadPlugins(); len(plugins) != len(entries) {
+	if plugins := a.loadPlugins(nil); len(plugins) != len(entries) {
 		t.Fatalf("loaded %d examples, want %d", len(plugins), len(entries))
 	}
 }

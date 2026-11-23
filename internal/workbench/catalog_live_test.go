@@ -1,3 +1,5 @@
+//go:build !js && !android && !ios
+
 package workbench
 
 import (
@@ -10,8 +12,8 @@ import (
 
 // Read-only public source validation is opt-in; normal tests never need a network.
 func TestLivePublicCatalogs(t *testing.T) {
-	if os.Getenv("PIDECK_LITE_TEST_CATALOGS") != "1" {
-		t.Skip("set PIDECK_LITE_TEST_CATALOGS=1 for public catalog probes")
+	if os.Getenv("PIDECK_V2_TEST_CATALOGS") != "1" {
+		t.Skip("set PIDECK_V2_TEST_CATALOGS=1 for public catalog probes")
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 6*time.Minute)
 	defer cancel()
@@ -47,7 +49,7 @@ func TestLivePublicCatalogs(t *testing.T) {
 	t.Run("chinese", func(t *testing.T) {
 		var pack promptPack
 		var err error
-		if fixture := os.Getenv("PIDECK_LITE_TEST_CHINESE_DB"); fixture != "" {
+		if fixture := os.Getenv("PIDECK_V2_TEST_CHINESE_DB"); fixture != "" {
 			pack, err = readChinesePrompts(ctx, fixture)
 			t.Log("using the supplied release database fixture")
 		} else {
@@ -65,21 +67,43 @@ func TestLivePublicCatalogs(t *testing.T) {
 		}
 	})
 	t.Run("plugins", func(t *testing.T) {
-		var last error
-		for _, source := range officialPluginSources {
-			raw, err := downloadCatalogData(ctx, source, 1<<20)
-			if err != nil {
-				last = err
-				continue
-			}
-			list, err := parseOfficialPlugins(raw)
-			if err != nil {
-				last = err
-				continue
-			}
-			t.Logf("official registry: %d plugins", len(list))
-			return
+		list, err := fetchOfficialPlugins(ctx, officialPluginSources)
+		if err != nil {
+			t.Fatal(err)
 		}
-		t.Fatal(last)
+		t.Logf("official registry: %d plugins", len(list))
+	})
+	t.Run("pi-packages", func(t *testing.T) {
+		catalogCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		page, err := fetchPiCatalog(catalogCtx, "", 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page.Items) == 0 || page.Total < len(page.Items) {
+			t.Fatalf("pi.dev directory: %d items, total %d", len(page.Items), page.Total)
+		}
+		t.Logf("pi.dev directory: %d items, %d total, first %q (%s)",
+			len(page.Items), page.Total, page.Items[0].Name, page.Items[0].InstallSource)
+	})
+	t.Run("pi-extension-manifest", func(t *testing.T) {
+		manifestCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		manifest, err := fetchPiExtensionManifest(manifestCtx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(manifest.Files) == 0 {
+			t.Fatal("remote manifest has no files")
+		}
+		file := manifest.Files[0]
+		data, err := fetchPiExtensionRepoFile(manifestCtx, "resources/extensions/"+file.Name, piExtensionFileMax)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !piExtensionContentMatches(data, file) {
+			t.Fatalf("%s does not match the manifest", file.Name)
+		}
+		t.Logf("pi extensions: version %s, %d files; verified %s", manifest.Version, len(manifest.Files), file.Name)
 	})
 }

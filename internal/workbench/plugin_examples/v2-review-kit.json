@@ -1,11 +1,11 @@
 {
   "schemaVersion": 2,
-  "runtime": "pideck-lite",
-  "id": "lite-review-kit",
+  "runtime": "pideck-v2",
+  "id": "v2-review-kit",
   "name": "代码审查工具箱",
   "version": "1.0.0",
   "description": "配置审查范围、准备或主动发送审查提示词、选择审查智能体；提交后刷新 Git 状态。",
-  "author": "PiDeck Lite",
+  "author": "PiDeck V2",
   "themes": [
     {
       "name": "示例审查绿",
@@ -25,8 +25,8 @@
       {"id": "prepare", "title": "审查工具箱：准备审查", "icon": "git", "action": {"type": "prompt", "prompt": "请审查${setting:scope}，重点是${setting:focus}。检查回归测试=${setting:tests}。优先展示${setting:limit}个最重要的问题，给出文件位置、触发条件和最小修复建议。"}},
       {"id": "send", "title": "审查工具箱：立即发送审查", "description": "此命令会直接启动一轮；仅在你主动选择时执行。", "icon": "play", "action": {"type": "send", "prompt": "请审查${setting:scope}，重点是${setting:focus}。检查回归测试=${setting:tests}。优先展示${setting:limit}个问题；先列问题，再列验证结果。"}},
       {"id": "git", "title": "审查工具箱：显示 Git 面板", "icon": "git", "action": {"type": "command", "command": "git"}},
-      {"id": "theme", "title": "审查工具箱：应用审查绿主题", "icon": "palette", "action": {"type": "theme", "theme": "plugin:lite-review-kit:0"}},
-      {"id": "docs", "title": "审查工具箱：打开贡献规范", "icon": "globe", "action": {"type": "url", "url": "https://github.com/ayuayue/PiDeck-Lite/blob/main/CONTRIBUTING.md"}}
+      {"id": "theme", "title": "审查工具箱：应用审查绿主题", "icon": "palette", "action": {"type": "theme", "theme": "plugin:v2-review-kit:0"}},
+      {"id": "docs", "title": "审查工具箱：打开贡献规范", "icon": "globe", "action": {"type": "url", "url": "https://github.com/ayuayue/PiDeck-V2/blob/main/CONTRIBUTING.md"}}
     ],
     "keybindings": [{"command": "prepare", "key": "mod+alt+r"}],
     "agents": [{"id": "reviewer", "name": "示例代码审查员", "description": "先检查正确性，再检查边界和失败路径。", "prompt": "你是一名代码审查员。先读项目规范和同类实现，聚焦正确性、输入边界、权限与失败路径；只报告能定位到代码的问题，给出触发条件与最小修复，不顺手修改无关文件。"}],

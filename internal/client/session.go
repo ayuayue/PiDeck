@@ -1,18 +1,18 @@
 package client
 
-// The phone build: it connects to a desktop PiDeck Lite server and browses
+// The phone build: it connects to a desktop PiDeck V2 server and browses
 // its projects, sessions and transcripts. The same package builds the
 // desktop; Root picks this screen on iOS and Android (or with
-// PIDECK_LITE_MOBILE=1 for a preview on a desktop).
+// PIDECK_V2_MOBILE=1 for a preview on a desktop).
 
 import (
 	"errors"
 	"time"
 
-	"example.com/pideck-lite/internal/alerts"
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/remotewire"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/alerts"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -213,6 +213,7 @@ func (a *mobileApp) syncMode(snap remotewire.Snapshot) {
 
 // openSession downloads a session's transcript.
 func (a *mobileApp) openSession(id, title string) {
+	a.sessionSeq++
 	a.active.Set(id)
 	a.activeTitle.Set(title)
 	a.messages.Set(nil)
@@ -236,6 +237,7 @@ func (a *mobileApp) openSession(id, title string) {
 }
 
 func (a *mobileApp) closeSession() {
+	a.sessionSeq++
 	a.active.Set("")
 	a.messages.Set(nil)
 	a.running.Set(false)
@@ -245,6 +247,7 @@ func (a *mobileApp) closeSession() {
 	a.findSelected.Set(transcriptRowKey{})
 	a.resetTranscriptPicture()
 	a.transcriptErr.Set("")
+	a.transcriptBusy.Set(false)
 	a.transcriptTruncated.Set(false)
 	a.messagesBefore.Set(0)
 	a.olderBusy.Set(false)
@@ -263,17 +266,15 @@ func (a *mobileApp) refreshTranscript() {
 	// poll that was already in flight.
 	a.transcriptSeq++
 	seq := a.transcriptSeq
+	visit := a.sessionSeq
 	a.transcriptBusy.Set(true)
 	go func() {
 		t, err := client.transcript(id, 0)
 		a.cx.Post(func() {
-			if seq != a.transcriptSeq {
+			if a.client != client || visit != a.sessionSeq || seq != a.transcriptSeq || a.active.GetUntracked() != id {
 				return
 			}
 			a.transcriptBusy.Set(false)
-			if a.active.GetUntracked() != id {
-				return
-			}
 			if err != nil {
 				if errors.Is(err, errRemoteAuth) {
 					a.disconnectWith(remoteErrorText(err))
@@ -292,6 +293,7 @@ func (a *mobileApp) refreshTranscript() {
 			wasRunning := a.running.GetUntracked()
 			wasAsk := a.ask.GetUntracked() != nil
 			a.running.Set(t.Running)
+			a.resetAskDraft(t.Ask)
 			a.ask.Set(t.Ask)
 			switch {
 			case wasRunning && !t.Running:
@@ -314,14 +316,15 @@ func (a *mobileApp) loadOlderTranscript() {
 	if client == nil || id == "" || before <= 0 || a.olderBusy.Get() {
 		return
 	}
+	visit := a.sessionSeq
 	a.olderBusy.Set(true)
 	go func() {
 		t, err := client.transcript(id, before)
 		a.cx.Post(func() {
-			a.olderBusy.Set(false)
-			if a.active.GetUntracked() != id {
+			if a.client != client || visit != a.sessionSeq || a.active.GetUntracked() != id {
 				return
 			}
+			a.olderBusy.Set(false)
 			if err != nil {
 				if errors.Is(err, errRemoteAuth) {
 					a.disconnectWith(remoteErrorText(err))

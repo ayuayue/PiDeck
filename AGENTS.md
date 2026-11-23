@@ -1,4 +1,4 @@
-# AGENTS.md — PiDeck Lite 工程规范
+# AGENTS.md — PiDeck V2 工程规范
 
 本文件约束在本仓库工作的编码代理（含子代理）。它与 `ARCHITECTURE.md`（包边界与状态所有权）、
 `CONTRIBUTING.md`（提交与验证流程）配套。冲突时优先级：本次用户指令 > 本文件的硬约束 >
@@ -152,7 +152,7 @@
 | 插件贡献 | `plugin.json` 的 `contributes`（commands / themes / keybindings / settings / hooks / agents） | 只允许声明式动作：填提示词、执行内置命令、开链接、切主题；插件不跑代码 |
 | 事件 | `events.go` 的常量与订阅者 | 文档、hook 引用写法、防递归 |
 | ACP 预设 | `acp_presets.go` | 安装元数据、官网链接、启动参数 |
-| 会话导入源 | `sessionimport/source.go` 注册 + 独立转换器 | 测试 fixture、`PIDECK_LITE_IMPORT_*` 覆盖、README 来源列表 |
+| 会话导入源 | `sessionimport/source.go` 注册 + 独立转换器 | 测试 fixture、`PIDECK_V2_IMPORT_*` 覆盖、README 来源列表 |
 | 远程 API | `internal/remotewire` 的 DTO + `remote_http.go` 路由 | 客户端调用、令牌校验、README 接口表 |
 | 文案 | `apptext` + 六个语言目录 | 第 4.6 节 |
 | 共享显示逻辑 | `internal/viewkit` | 两套宿主共用，不引入桌面依赖 |
@@ -171,7 +171,7 @@
 ### 6.1 分层与选择器
 
 - 纯逻辑：表驱动，放被测包同目录的 `*_test.go`。
-- 包内集成：`t.TempDir()` + `PIDECK_LITE_HOME`，不碰真实用户目录。
+- 包内集成：`t.TempDir()` + `PIDECK_V2_HOME`，不碰真实用户目录。
 - 无头 UI：`nsgotest.Start(t, Root, nsgotest.Size(...))`，选择器优先级
   `id:` > 稳定 `TestID` > 用户可见 `text:` > `role:`；`nth=` 只用于确认过的列表。
 - 端到端：`requirePi(t)` 在 PATH 无 pi 时 `t.Skip`，不联网、不依赖已登录凭据。

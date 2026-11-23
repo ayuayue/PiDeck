@@ -10,7 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/viewkit"
 )
 
 // settingField declares one app setting.
@@ -44,7 +44,7 @@ var appSettingFields = []settingField{
 	{Key: "reduceEffects", Type: "bool", Default: false},
 	{Key: "codeWrap", Type: "bool", Default: false},
 	{Key: "backgroundVideo", Type: "text", Default: ""},
-	{Key: "chatWidthPct", Type: "number", Default: 60, Min: intPtr(chatWidthPctMin), Max: intPtr(chatWidthPctMax)},
+	{Key: "chatWidthPct", Type: "number", Default: chatWidthPctDefault, Min: intPtr(chatWidthPctMin), Max: intPtr(chatWidthPctMax)},
 	{Key: "imageCount", Type: "enum", Default: 1, Values: []string{"0", "1", "2", "4"}},
 	{Key: "imageProvider", Type: "text", Default: ""},
 	{Key: "imageModel", Type: "text", Default: ""},
@@ -67,6 +67,7 @@ var appSettingFields = []settingField{
 	{Key: "voiceAccessToken", Type: "text", Default: ""},
 	{Key: "voiceLocalUrl", Type: "text", Default: ""},
 	{Key: "telemetryEnabled", Type: "bool", Default: true},
+	{Key: "securityLevel", Type: "enum", Default: "off", Values: []string{"off", "standard", "strict"}},
 	{Key: "feishuEnabled", Type: "bool", Default: false},
 	{Key: "feishuInbound", Type: "bool", Default: false},
 	{Key: "feishuReply", Type: "bool", Default: false},

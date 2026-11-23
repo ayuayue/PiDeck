@@ -6,8 +6,8 @@ package client
 // than following the desktop's config.
 
 import (
-	"example.com/pideck-lite/internal/alerts"
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/alerts"
+	"example.com/pideck-v2/internal/apptext"
 )
 
 // phoneAlertVolume is fixed: the phone's own volume buttons are the

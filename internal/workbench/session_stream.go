@@ -96,6 +96,9 @@ func (a *app) flushStream(s *session) {
 	if text != "" || s.streamText.GetUntracked() != "" {
 		s.streamText.Set(text)
 	}
+	if text != "" || think != "" {
+		a.noteFirstToken(s)
+	}
 	if think != "" || s.streamThinking.GetUntracked() != "" {
 		s.streamThinking.Set(think)
 	}

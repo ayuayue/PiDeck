@@ -18,7 +18,7 @@ import (
 
 func TestBackgroundImageAndOpacity(t *testing.T) {
 	home, workspace := editorWorkspace(t), editorWorkspace(t)
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	raw, _ := json.Marshal(config{Version: 1, Workspaces: []workspaceCfg{{Path: workspace, Name: "BgProject"}},
 		Theme: "system", SidebarOpen: true})
 	if err := os.WriteFile(filepath.Join(home, "config.json"), raw, 0o644); err != nil {
@@ -62,7 +62,7 @@ func TestBackgroundOpacityDrag(t *testing.T) {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	var built *app
 	root := func(cx *core.Scope) core.Node { built = newApp(cx); return built.view() }
 	app := nsgotest.Start(t, root, nsgotest.Size(1280, 860))

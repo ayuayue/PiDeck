@@ -28,7 +28,7 @@ func TestPluginDuplicateIDsKeepIdentityAndBlockAllContributions(t *testing.T) {
 		}
 	}
 	a := &app{st: st, cfg: st.config()}
-	plugins := a.loadPlugins()
+	plugins := a.loadPlugins(a.cfg.DisabledPlugins)
 	if len(plugins) != 2 {
 		t.Fatalf("plugins=%+v, want two visible conflicts", plugins)
 	}
@@ -49,6 +49,8 @@ func TestPluginDuplicateIDsKeepIdentityAndBlockAllContributions(t *testing.T) {
 		s := &session{draft: core.NewSignal(cx, "original")}
 		a.cx, a.activeID, a.byID = cx, core.NewSignal(cx, "s"), map[string]*session{"s": s}
 		a.plugins = core.NewSignalFunc(cx, plugins, nil)
+		a.pluginArchive = core.NewSignalFunc(cx, pluginArchiveSnapshot{}, nil)
+		a.pluginFileBusy = core.NewSignal(cx, false)
 		a.runPluginCommand("team", "change")
 		if got := s.draft.GetUntracked(); got != "original" {
 			t.Errorf("conflicting plugin executed: draft=%q", got)
@@ -75,7 +77,7 @@ func TestPluginDuplicateIDsKeepIdentityAndBlockAllContributions(t *testing.T) {
 		t.Fatal(err)
 	}
 	a.cfg.DisabledPlugins = []string{"team"}
-	plugins = a.loadPlugins()
+	plugins = a.loadPlugins(a.cfg.DisabledPlugins)
 	if len(plugins) != 1 {
 		t.Fatalf("plugins after resolving conflict=%+v", plugins)
 	}

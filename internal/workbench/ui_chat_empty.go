@@ -8,9 +8,8 @@ import (
 	"fmt"
 	"time"
 
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/viewkit"
-	"github.com/nsgo-dev/nsgo/base"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -44,74 +43,63 @@ func (a *app) historySkeleton(s *session) core.Node {
 	}
 }
 
-// emptyChat is shown over a conversation with no turns yet.
-func (a *app) emptyChat(s *session) core.Node {
-	return core.Dynamic(func(cx *core.Scope) core.Node {
-		colors := ui.ColorsOf(cx)
-		ws := a.workspaceOf(s.WS)
-		name := "这个项目"
-		if ws != nil {
-			name = ws.label()
-		}
-		return core.View{Style: core.Style{Position: core.Absolute, Top: core.Pt(0), Left: core.Pt(0), Right: core.Pt(0),
-			AlignItems: core.AlignCenter, PointerEvents: core.PointerEventsBoxNone},
-			StyleFunc: func() core.Style { return core.Style{Bottom: core.Pt(s.conversation.ComposerHeight())} },
+// emptyChat centers the input while the transcript has no turns. The
+// content can grow past the viewport when the draft or a panel is tall.
+func (a *app) emptyChat(s *session, composer core.Node, editor *core.Ref, column func() core.Length, height func() core.Points) core.Node {
+	colors := ui.ColorsOf(a.cx)
+	return core.Scroll{TestID: "chat-start", Style: core.Style{Position: core.Absolute, Top: core.Pt(0),
+		Left: core.Pt(0), Right: core.Pt(0), Bottom: core.Pt(0)}, Children: []core.Node{
+		core.View{Style: core.Style{AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
+			Padding: core.Symmetric(24, chatSidePadding)},
+			StyleFunc: func() core.Style { return core.Style{MinHeight: core.Pt(height())} },
 			Children: []core.Node{
-				core.View{Style: core.Style{FlexGrow: 1, Width: core.Pct(100), MaxWidth: core.Pt(640), MinHeight: core.Pt(0)}, Children: []core.Node{
-					core.Scroll{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0)}, Children: []core.Node{
-						core.View{Style: core.Style{FlexGrow: 1, JustifyContent: core.JustifyCenter, Padding: core.Symmetric(24, 20), Gap: 22,
-							MinHeight: core.Pt(0)}, Children: []core.Node{
-							core.View{Style: core.Style{AlignItems: core.AlignCenter, Gap: 10}, Children: []core.Node{
-								a.brandMark(56, "empty-chat-logo"),
-								core.Text{Content: apptext.T("在 %s 里做点什么", name), Style: core.Style{FontSize: 20, FontWeight: ui.Semibold, LineHeight: 27},
-									StyleFunc: ui.Colored(colors.Text)},
-								core.Text{ContentFunc: func() string {
-									m := s.model.Get()
-									model := apptext.T("本机 pi")
-									if m.ID != "" {
-										model = m.shortLabel()
-									}
-									return apptext.T("%s · 会话保存在应用自己的目录", model)
-								}, Style: core.Style{FontSize: 12, TextAlign: core.TextAlignCenter}, StyleFunc: ui.Colored(colors.Muted)},
-							}},
-							core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 10}, Children: []core.Node{
-								a.suggestion(apptext.T("看看这个项目"), apptext.T("先看看当前目录里有什么，用一句话概括它是做什么的。")),
-								a.suggestion(apptext.T("跑一遍测试"), apptext.T("找到这个项目的测试命令，跑一遍，把失败项列出来。")),
-								a.suggestion(apptext.T("解释一处代码"), apptext.T("挑这个项目里最关键的一个文件，解释它的结构。")),
-								a.suggestion(apptext.T("修一个小问题"), apptext.T("看看最近的改动，指出最可能出问题的地方并修掉。")),
-							}},
-							core.Text{Content: apptext.T("Enter 发送 · Shift+Enter 换行 · ⌘K 命令面板"),
-								Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10, TextAlign: core.TextAlignCenter}, StyleFunc: ui.Colored(colors.Faint)},
-						}},
-					}},
+				core.View{Style: core.Style{AlignItems: core.AlignCenter, Gap: 16, Margin: core.Edges{Bottom: 44}}, Children: []core.Node{
+					a.brandMark(64, "empty-chat-logo"),
+					core.Text{ContentFunc: func() string {
+						if ws := a.workspaceFor(s.Target, s.WS); ws != nil && !ws.Chat {
+							return apptext.T("在 %s 里做点什么", ws.label())
+						}
+						return apptext.T("开始新的会话")
+					}, MaxLines: 2, EllipsizeMode: core.EllipsizeTail,
+						Style:     core.Style{FontSize: 22, FontWeight: ui.Medium, LineHeight: 30, TextAlign: core.TextAlignCenter},
+						StyleFunc: ui.Colored(colors.Text)},
 				}},
-			}}
-	})
+				core.Show{When: func() bool {
+					ws := a.workspaceFor(s.Target, s.WS)
+					return ws != nil && !ws.Chat && s.agentMode.Get() == modeNormal && s.showingAsk() == nil
+				}, Then: func(*core.Scope) core.Node { return starterPrompts(s, editor, column) }},
+				composer,
+			}},
+	}}
 }
 
-// suggestion fills the draft with a prompt.
-func (a *app) suggestion(title, prompt string) core.Node {
-	colors := ui.ColorsOf(a.cx)
-	return core.View{Style: core.Style{Width: core.Pct(48), FlexGrow: 1}, Children: []core.Node{
-		core.View{
-			OnPress: func(core.PressEvent) {
-				if s := a.active(); s != nil {
+func starterPrompts(s *session, editor *core.Ref, column func() core.Length) core.Node {
+	hasDraft := func() bool { return s.draft.Get() != "" }
+	button := func(id, title, prompt string) core.Node {
+		return ui.Button{Text: title, Variant: ui.ButtonOutline, TestID: "chat-starter-" + id, Disabled: hasDraft,
+			OnPress: func() {
+				if s.draft.GetUntracked() == "" {
 					s.draft.Set(prompt)
+					editor.Focus()
 				}
-			},
-			Role: core.RoleButton, Label: title,
-			StyleFunc: func() core.Style {
-				return core.Style{Direction: core.Column, Gap: 4, Padding: core.All(12), CornerRadius: ui.RadiusControl,
-					Background: colors.Surface(), BorderWidth: 1, BorderColor: colors.Border(),
-					Hover: &core.Style{Background: colors.Hover(), BorderColor: colors.Text()}}
-			},
-			Children: []core.Node{
-				ui.Text(title, 12.5, ui.Semibold, colors.Text),
-				core.Text{Content: prompt, MaxLines: 2, EllipsizeMode: core.EllipsizeTail,
-					Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: ui.Colored(colors.Muted)},
-			},
-		},
-	}}
+			}}
+	}
+	return core.View{TestID: "chat-starter-prompts",
+		Style: core.Style{Direction: core.Row, Wrap: core.Wrap, JustifyContent: core.JustifyCenter, Gap: 8,
+			Width: core.Pct(100), Margin: core.Edges{Bottom: 26}},
+		StyleFunc: func() core.Style {
+			style := core.Style{MaxWidth: column()}
+			// Keep the composer in place as the user starts typing.
+			if hasDraft() {
+				style.Visibility = core.VisibilityHidden
+			}
+			return style
+		}, Children: []core.Node{
+			button("overview", apptext.T("看看这个项目"), apptext.T("先看看当前目录里有什么，用一句话概括它是做什么的。")),
+			button("tests", apptext.T("跑一遍测试"), apptext.T("找到这个项目的测试命令，跑一遍，把失败项列出来。")),
+			button("explain", apptext.T("解释一处代码"), apptext.T("挑这个项目里最关键的一个文件，解释它的结构。")),
+			button("fix", apptext.T("修一个小问题"), apptext.T("看看最近的改动，指出最可能出问题的地方并修掉。")),
+		}}
 }
 
 // welcome is shown when there is no session at all.
@@ -128,7 +116,7 @@ func (a *app) welcome() core.Node {
 			Children: []core.Node{
 				core.View{Style: core.Style{AlignItems: core.AlignCenter, Gap: 14, MaxWidth: core.Pt(420)}, Children: []core.Node{
 					a.brandMark(64, "welcome-logo"),
-					core.Text{Content: "PiDeck Lite", Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 22, FontWeight: ui.Bold, LetterSpacing: 0.4},
+					core.Text{Content: "PiDeck V2", Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 22, FontWeight: ui.Bold, LetterSpacing: 0.4},
 						StyleFunc: ui.Colored(colors.Text)},
 					core.Text{Content: sub, Style: core.Style{FontSize: 13, TextAlign: core.TextAlignCenter, LineHeight: 20}, StyleFunc: ui.Colored(colors.Muted)},
 					core.View{Style: core.Style{Direction: core.Row, Gap: 8}, Children: []core.Node{
@@ -178,6 +166,3 @@ func duration(d time.Duration) string {
 	}
 	return fmt.Sprintf("%dh%02dm", int(d.Hours()), int(d.Minutes())%60)
 }
-
-// keep base imported for menu items built here as the UI grows.
-var _ = base.ReasonSelect

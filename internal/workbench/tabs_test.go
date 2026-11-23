@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
@@ -54,7 +54,7 @@ func TestReopenTab(t *testing.T) {
 	if testing.Short() || nsgotest.Target() != "" {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
-	t.Setenv("PIDECK_LITE_HOME", editorWorkspace(t))
+	t.Setenv("PIDECK_V2_HOME", editorWorkspace(t))
 	app := startApp(t, workspaceWith(t), 1320, 860)
 	waitApp(app, "id:pi-ready", 90*time.Second)
 	app.Key("mod+n")

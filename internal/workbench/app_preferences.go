@@ -7,9 +7,44 @@ package workbench
 
 import (
 	"sort"
+	"sync"
+	"sync/atomic"
 
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/ui"
 )
+
+var configWrites sync.WaitGroup
+
+// exitStore is the open workbench's config store, kept so the exit path can
+// save settings an input still holds: name, editor and proxy fields save when
+// the field is left, and quitting from a focused field never sends that blur.
+var exitStore atomic.Pointer[store]
+
+// flushConfigAtExit writes what the last open workbench still held in memory.
+// The app is past reporting failures, so a failed save is dropped.
+func flushConfigAtExit() {
+	if st := exitStore.Load(); st != nil {
+		_ = st.save()
+	}
+}
+
+// saveConfigAsync keeps config file IO off the UI thread. The store serializes
+// saves and snapshots its latest in-memory config when each save starts.
+func (a *app) saveConfigAsync() {
+	if a.st == nil {
+		return
+	}
+	st, cx := a.st, a.cx
+	configWrites.Add(1)
+	go func() {
+		defer configWrites.Done()
+		if err := st.save(); err != nil {
+			cx.Post(func() { a.toast(ui.ToastError, apptext.T("保存失败"), err.Error()) })
+		}
+	}()
+}
 
 // settingsTick subscribes the caller to settings changes; pages call it so a
 // switch redraws with the value it now holds.
@@ -45,6 +80,20 @@ func (a *app) restoreSettingsScroll() {
 	a.cx.Post(func() {
 		a.settingsScroll.ScrollTo(at, false)
 		a.cx.Post(func() { a.settingsScroll.ScrollTo(at, false) })
+	})
+}
+
+// resetSettingsScroll starts a newly selected section at its heading rather
+// than carrying the previous section's offset into its different content.
+func (a *app) resetSettingsScroll() {
+	a.settingsOffset = core.Point{}
+	if a.settingsScroll == nil {
+		return
+	}
+	ref := a.settingsScroll
+	a.cx.Post(func() {
+		ref.ScrollTo(core.Point{}, false)
+		a.cx.Post(func() { ref.ScrollTo(core.Point{}, false) })
 	})
 }
 

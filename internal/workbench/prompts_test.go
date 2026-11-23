@@ -76,7 +76,7 @@ func TestPromptLibraryDialog(t *testing.T) {
 	}
 	home := editorWorkspace(t)
 	workspace := editorWorkspace(t)
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	if err := os.WriteFile(filepath.Join(workspace, "note.txt"), []byte("hello"), 0o644); err != nil {
 		t.Fatal(err)
 	}

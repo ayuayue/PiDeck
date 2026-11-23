@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/remotewire"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/ui"
 	"github.com/nsgo-dev/nsgo/ui/chat"
 )
@@ -25,6 +25,19 @@ func planPrompt(text string) string {
 		apptext.T("2. 每步的验证方式；") + "\n" +
 		apptext.T("3. 可能的风险与回滚。") + "\n" +
 		apptext.T("等我确认后再执行。") + "\n" + "\n" + text
+}
+
+// piPlanModeMarker selects PiDeck's plan-mode extension. The extension strips
+// it before the model sees the message and switches pi to read-only tools.
+const piPlanModeMarker = "__PI_DECK_PLAN_MODE__"
+
+// planRequest picks the extension's marker when it is installed, and the
+// plain text instructions otherwise.
+func (a *app) planRequest(text string) string {
+	if a.hasBundledExtension("pi-deck-plan-mode.ts") {
+		return piPlanModeMarker + "\n" + text
+	}
+	return planPrompt(text)
 }
 
 // submitTurn starts a turn, asking for a plan when plan is true.
@@ -41,7 +54,7 @@ func (a *app) submitTurn(s *session, text string, images []remotewire.Image, pla
 		text = personaPrompt(p.Prompt, text)
 	}
 	if plan {
-		text = planPrompt(text)
+		text = a.planRequest(text)
 	}
 	goal := modeOn(s, modeGoal)
 	if goal {
@@ -52,9 +65,13 @@ func (a *app) submitTurn(s *session, text string, images []remotewire.Image, pla
 		}
 		text = goalPrompt(text)
 	}
+	sourcePrompt := text
+	if plan {
+		sourcePrompt = strings.TrimSpace(strings.TrimPrefix(sourcePrompt, piPlanModeMarker))
+	}
 	a.cx.Batch(func() {
 		if s.title.GetUntracked() == "新会话" || s.title.GetUntracked() == "" || s.title.GetUntracked() == "未命名会话" {
-			name := viewkit.FirstLine(text, 28)
+			name := viewkit.FirstLine(original, 28)
 			if name == "" {
 				name = "图片消息"
 			}
@@ -65,7 +82,7 @@ func (a *app) submitTurn(s *session, text string, images []remotewire.Image, pla
 		}
 		turnID := fmt.Sprintf("t%d", a.cx.Now().UnixNano())
 		s.turns.Update(func(ts []turn) []turn {
-			return append(ts, turn{ID: turnID, sourcePrompt: text, Prompt: original, Images: images, Status: chat.Running, Start: a.cx.Now(),
+			return append(ts, turn{ID: turnID, sourcePrompt: sourcePrompt, Prompt: original, Images: images, Status: chat.Running, Start: a.cx.Now(),
 				Model: s.model.GetUntracked().ID, Plan: plan, Goal: goal})
 		})
 		s.status.Set(statusStarting)

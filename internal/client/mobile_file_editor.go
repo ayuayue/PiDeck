@@ -3,9 +3,9 @@ package client
 import (
 	"strings"
 
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/remotewire"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -44,6 +44,10 @@ func (a *mobileApp) closeFileView() {
 	a.fileEdit.reset("", "")
 	a.fileBusy.Set(false)
 	a.fileOpen.Set(false)
+	a.fileTitle.Set("")
+	a.fileText.Set("")
+	a.fileErr.Set("")
+	a.fileFind.Set("")
 }
 
 func (a *mobileApp) fileEditorBody(colors ui.Colors) core.Node {
@@ -63,7 +67,9 @@ func (a *mobileApp) fileEditorActions() []core.Node {
 		return []core.Node{
 			ui.Button{Text: apptext.T("放弃修改"), Variant: ui.ButtonGhost, TestID: "mobile-file-discard", Disabled: e.saving.Get,
 				OnPress: func() { e.open.Set(false); e.err.Set("") }},
-			ui.Button{Text: apptext.T("保存"), TestID: "mobile-file-save", Disabled: e.saving.Get, OnPress: a.submitFileEdit},
+			ui.Button{Text: apptext.T("保存"), TestID: "mobile-file-save", Disabled: func() bool {
+				return e.saving.Get() || !e.writable.Get()
+			}, OnPress: a.submitFileEdit},
 		}
 	}
 	rows := []core.Node{ui.Button{Text: apptext.T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: a.closeFileView}}

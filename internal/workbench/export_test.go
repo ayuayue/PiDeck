@@ -170,7 +170,7 @@ func TestShareExportRedactsStandaloneTokens(t *testing.T) {
 
 func TestExportClosedSessionDefaultsToShareCopy(t *testing.T) {
 	home, project := t.TempDir(), t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	const id = "closed-share"
 	const title = "私有会话名称"
 	const secret = "fixture-value-for-share-export"
@@ -255,7 +255,7 @@ func TestExportDialogMarkdown(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "note.txt"), []byte("hello"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	app := startApp(t, dir, 1280, 860)
 	app.Key("mod+j")
 	app.WaitFor("id:drawer-tab-overview", 5*time.Second)

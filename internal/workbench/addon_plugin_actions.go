@@ -25,7 +25,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 )
 
 // appEvents are the events a plugin hook may listen to.

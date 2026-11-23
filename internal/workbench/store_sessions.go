@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // importSession copies a session file into the app's own store, so it can
@@ -33,7 +34,7 @@ func (s *store) importSession(src string) (sessionMeta, error) {
 	}
 	err = json.NewDecoder(bufio.NewReader(f)).Decode(&head)
 	f.Close()
-	if err != nil || head.Type != "session" || head.ID == "" {
+	if err != nil || head.Type != "session" || !validPiSessionID(head.ID) {
 		return sessionMeta{}, fmt.Errorf("不是有效的 pi 会话文件")
 	}
 	existing, _ := filepath.Glob(filepath.Join(s.sessions, "*", "*_"+head.ID+".jsonl"))
@@ -49,7 +50,7 @@ func (s *store) importSession(src string) (sessionMeta, error) {
 	if err != nil {
 		return sessionMeta{}, err
 	}
-	if err := os.WriteFile(dst, data, 0o644); err != nil {
+	if err := writeFileAtomic(dst, data, 0o644); err != nil {
 		return sessionMeta{}, err
 	}
 	m, ok := s.readMeta(dst, nil)
@@ -57,6 +58,15 @@ func (s *store) importSession(src string) (sessionMeta, error) {
 		return sessionMeta{}, fmt.Errorf("导入后无法读取该会话")
 	}
 	return m, nil
+}
+
+// validPiSessionID keeps imported IDs portable and safe in filename globs.
+func validPiSessionID(id string) bool {
+	if id == "" || len(id) > 128 || strings.TrimRight(id, ". ") != id ||
+		strings.ContainsAny(id, `/\<>:"|?*[]`) || strings.ContainsFunc(id, unicode.IsControl) {
+		return false
+	}
+	return true
 }
 
 // duplicateSession copies a session file under a new id, so the copy can

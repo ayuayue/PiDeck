@@ -23,7 +23,7 @@ func TestTaskFavoritesAgentWindows(t *testing.T) {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
 	home, workspace := t.TempDir(), t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	raw, _ := json.Marshal(config{Version: 1, Workspaces: []workspaceCfg{{Path: workspace, Name: "TaskProject"}},
 		Theme: "system", SidebarOpen: true})
 	if err := os.WriteFile(filepath.Join(home, "config.json"), raw, 0o644); err != nil {

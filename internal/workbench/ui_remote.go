@@ -10,8 +10,8 @@ import (
 	"fmt"
 	"strings"
 
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -20,7 +20,7 @@ import (
 
 // selfHostDocsURL is the step-by-step guide for a user's own tunnel or
 // Worker.
-const selfHostDocsURL = "https://github.com/ayuayue/PiDeck-Lite/blob/main/docs/remote-self-host.md"
+const selfHostDocsURL = "https://github.com/ayuayue/PiDeck-V2/blob/main/docs/remote-self-host.md"
 
 // settingsRemote draws the remote access section.
 func (a *app) settingsRemote() core.Node {
@@ -290,7 +290,7 @@ func (a *app) settingsRemote() core.Node {
 				),
 				setGroup("手机端",
 					core.View{Style: core.Style{Gap: 4, Padding: core.Symmetric(4, 2)}, Children: []core.Node{
-						core.Text{Content: apptext.T("手机打开 PiDeck Lite，把上面的「复制链接」粘贴到地址栏并连接。手机端当前可浏览项目和会话历史。"),
+						core.Text{Content: apptext.T("手机打开 PiDeck V2，把上面的「复制链接」粘贴到地址栏并连接。手机端当前可浏览项目和会话历史。"),
 							Style: core.Style{FontSize: 11, LineHeight: 17}, StyleFunc: ui.Colored(colors.Muted)},
 						core.Text{Content: apptext.T("链接里包含访问令牌，不要转发给不可信的设备。"), Style: core.Style{FontSize: 10.5, LineHeight: 16},
 							StyleFunc: ui.Colored(colors.Faint)},
@@ -335,7 +335,7 @@ func (a *app) remoteQRDialog() core.Node {
 		Open:         a.qrOpen.Get,
 		OnOpenChange: func(open bool, _ base.Reason) { a.qrOpen.Set(open) },
 		Title:        apptext.T("扫码连接"),
-		Description:  apptext.T("手机端打开 PiDeck Lite，点「扫码连接」对着这里扫。"),
+		Description:  apptext.T("手机端打开 PiDeck V2，点「扫码连接」对着这里扫。"),
 		TestID:       "remote-qr",
 		Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
 			png := a.qrPNG

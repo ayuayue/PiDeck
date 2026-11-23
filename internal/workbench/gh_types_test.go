@@ -17,7 +17,7 @@ const prListJSON = `[
  {"number":8,"title":"Fix CI bot PRs","state":"MERGED","isDraft":false,
   "author":{"login":"ayuayue","name":"caoayu"},"updatedAt":"2026-11-17T06:33:00Z",
   "headRefName":"fix/ci-bot-prs","baseRefName":"main","reviewDecision":"APPROVED",
-  "additions":151,"deletions":115,"url":"https://github.com/ayuayue/PiDeck-Lite/pull/8",
+  "additions":151,"deletions":115,"url":"https://github.com/ayuayue/PiDeck-V2/pull/8",
   "labels":[{"name":"ci"},{"name":""}],
   "statusCheckRollup":[
     {"__typename":"CheckRun","name":"test (ubuntu-latest)","status":"COMPLETED","conclusion":"SUCCESS"},
@@ -152,7 +152,7 @@ func TestDecodeReviewDetail(t *testing.T) {
 
 const issueJSON = `{"number":2,"title":"Listed","state":"CLOSED","stateReason":"COMPLETED",
  "author":{"login":"houko"},"updatedAt":"2026-11-13T13:13:01Z",
- "url":"https://github.com/ayuayue/PiDeck-Lite/issues/2",
+ "url":"https://github.com/ayuayue/PiDeck-V2/issues/2",
  "body":"thanks","labels":[{"name":"docs"}],
  "comments":[{"author":{"login":"owner"},"body":"done","createdAt":"2026-11-14T00:00:00Z"}]}`
 
@@ -193,7 +193,7 @@ func TestReviewMessagesAndRepo(t *testing.T) {
 	if got := ghMessage("", 2); got != "gh 退出码 2" {
 		t.Errorf("empty stderr = %q", got)
 	}
-	if got := repoFromURL("https://github.com/ayuayue/PiDeck-Lite/pull/8"); got != "ayuayue/PiDeck-Lite" {
+	if got := repoFromURL("https://github.com/ayuayue/PiDeck-V2/pull/8"); got != "ayuayue/PiDeck-V2" {
 		t.Errorf("repoFromURL = %q", got)
 	}
 	if got := repoFromURL("https://ghe.example.com/team/repo/issues/1"); got != "team/repo" {

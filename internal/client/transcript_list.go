@@ -1,13 +1,12 @@
 package client
 
 import (
-	"fmt"
 	"slices"
 	"strings"
 	"time"
 
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/remotewire"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/remotewire"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -17,29 +16,78 @@ import (
 // cannot change the key of the match already on screen.
 type transcriptRowKey struct{ Turn, Ordinal int }
 
+// The kinds of row the phone draws.
+const (
+	// rowLine is one line of the conversation.
+	rowLine = iota
+	// rowProcess is a finished turn's thinking and tool calls, folded into
+	// the one summary row the desktop closes a turn with.
+	rowProcess
+	// rowWorking is the spinner under a turn that is still going.
+	rowWorking
+)
+
 type transcriptRow struct {
 	key      transcriptRowKey
+	kind     int
 	messages []remotewire.Message
-	toolFold bool
 	live     bool
+	turn     int
 }
 
-func transcriptRows(messages []remotewire.Message, searching bool) []transcriptRow {
+// isProcessLine says a message is part of a turn's process rather than its
+// conversation.
+func isProcessLine(m remotewire.Message) bool {
+	return m.Role == "thinking" || m.Role == "tool"
+}
+
+// transcriptRows groups the loaded messages into rows. The running turn
+// keeps its process open, so a call appears as pi makes it; every finished
+// turn folds its process into one row, as the desktop does.
+func transcriptRows(messages []remotewire.Message, searching bool, liveTurn int) []transcriptRow {
 	rows := make([]transcriptRow, 0, len(messages))
 	ordinals := make(map[int]int)
+	next := func(turn int) transcriptRowKey {
+		ordinals[turn]++
+		return transcriptRowKey{turn, ordinals[turn]}
+	}
 	for i := 0; i < len(messages); {
-		m := messages[i]
-		j := i + 1
-		fold := !searching && m.Role == "tool"
-		if fold {
-			for j < len(messages) && messages[j].Turn == m.Turn && messages[j].Role == "tool" {
-				j++
+		turn := messages[i].Turn
+		j := i
+		for j < len(messages) && messages[j].Turn == turn {
+			j++
+		}
+		part := messages[i:j]
+		i = j
+		if searching || turn == liveTurn {
+			// Searching shows every line it might match, and the running
+			// turn shows its process as it happens.
+			for _, m := range part {
+				rows = append(rows, transcriptRow{key: next(turn), kind: rowLine,
+					messages: []remotewire.Message{m}, turn: turn, live: turn == liveTurn})
+			}
+			continue
+		}
+		var process []remotewire.Message
+		for _, m := range part {
+			if isProcessLine(m) {
+				process = append(process, m)
 			}
 		}
-		rows = append(rows, transcriptRow{key: transcriptRowKey{m.Turn, ordinals[m.Turn] + 1},
-			messages: messages[i:j], toolFold: fold, live: i >= len(messages)-2})
-		ordinals[m.Turn] += j - i
-		i = j
+		emitted := false
+		for _, m := range part {
+			if isProcessLine(m) {
+				if !emitted {
+					rows = append(rows, transcriptRow{key: next(turn), kind: rowProcess, messages: process, turn: turn})
+					emitted = true
+				}
+				continue
+			}
+			rows = append(rows, transcriptRow{key: next(turn), kind: rowLine, messages: []remotewire.Message{m}, turn: turn})
+		}
+	}
+	if liveTurn >= 0 && !searching {
+		rows = append(rows, transcriptRow{key: transcriptRowKey{liveTurn, -1}, kind: rowWorking, turn: liveTurn, live: true})
 	}
 	return rows
 }
@@ -63,8 +111,17 @@ func transcriptMatches(rows []transcriptRow, query string) []int {
 func (a *mobileApp) transcriptList() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		query := core.NewMemo(cx, func() string { return strings.ToLower(strings.TrimSpace(a.findText.Get())) })
+		liveTurn := core.NewMemo(cx, func() int {
+			messages := a.messages.Get()
+			if !a.running.Get() || len(messages) == 0 {
+				return -1
+			}
+			// The last turn is the one pi is working on: the desktop sends
+			// its live words under that turn's number.
+			return messages[len(messages)-1].Turn
+		})
 		rows := core.NewMemoFunc(cx, func() []transcriptRow {
-			return transcriptRows(a.messages.Get(), query.Get() != "")
+			return transcriptRows(a.messages.Get(), query.Get() != "", liveTurn.Get())
 		}, nil)
 		matches := core.NewMemoFunc(cx, func() []int { return transcriptMatches(rows.Get(), query.Get()) }, slices.Equal)
 		selected := func() int {
@@ -125,11 +182,14 @@ func (a *mobileApp) transcriptList() core.Node {
 							return nil
 						}
 						r := list[i]
-						if r.toolFold {
-							return a.toolBlock(cx, r.messages, fmt.Sprintf("%d/%d", r.key.Turn, r.key.Ordinal))
+						if r.kind == rowWorking {
+							return workingRow(colors)
+						}
+						if r.kind == rowProcess {
+							return a.processRow(cx, r)
 						}
 						match := r.key == a.findSelected.Get()
-						body := a.message(cx, r.messages[0], r.live && a.running.Get(), match)
+						body := a.message(cx, r.messages[0], r.live, match, r.key)
 						if match {
 							return core.View{TestID: "mobile-find-selected", Style: core.Style{Padding: core.All(4), CornerRadius: ui.RadiusControl},
 								StyleFunc: func() core.Style { return core.Style{Background: ui.Alpha(colors.Accent(), 0.10)} }, Children: []core.Node{body}}

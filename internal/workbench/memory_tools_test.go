@@ -1,3 +1,5 @@
+//go:build !js && !android && !ios
+
 package workbench
 
 import (
@@ -73,13 +75,13 @@ func TestMemoryProjectBoundaryAndConflicts(t *testing.T) {
 }
 
 func TestPiMemoryToolsAndSystemTrajectory(t *testing.T) {
-	if os.Getenv("PIDECK_LITE_TEST_PI_TOOLS") == "" {
-		t.Skip("set PIDECK_LITE_TEST_PI_TOOLS to run pi 1.5 against the loopback model fixture")
+	if os.Getenv("PIDECK_V2_TEST_PI_TOOLS") == "" {
+		t.Skip("set PIDECK_V2_TEST_PI_TOOLS to run pi 1.5 against the loopback model fixture")
 	}
 	requirePi(t)
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	piDir := t.TempDir()
-	t.Setenv("PIDECK_LITE_PI_CONFIG", piDir)
+	t.Setenv("PIDECK_V2_PI_CONFIG", piDir)
 	t.Setenv("PI_CODING_AGENT_DIR", piDir)
 	t.Setenv("PI_OFFLINE", "1")
 	t.Setenv("PI_TELEMETRY", "0")
@@ -124,7 +126,7 @@ func TestPiMemoryToolsAndSystemTrajectory(t *testing.T) {
 	defer stop()
 	c, err := startPi(localTarget, "", project, a.st.sessions, s.ID, "", nil, nil, nil, piLocalTools{
 		extension: a.localToolsExtension,
-		env:       []string{"PIDECK_LITE_MEMORY_URL=" + url, "PIDECK_LITE_MEMORY_TOKEN=" + token, "PIDECK_LITE_TRACE=1"},
+		env:       []string{"PIDECK_V2_MEMORY_URL=" + url, "PIDECK_V2_MEMORY_TOKEN=" + token, "PIDECK_V2_TRACE=1"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -153,7 +155,7 @@ func TestPiMemoryToolsAndSystemTrajectory(t *testing.T) {
 	app.WaitUntil(10*time.Second, func() bool { return len(requests) > 0 })
 	request := <-requests
 	if !strings.Contains(request, "memory_search") || !strings.Contains(request, "session_search") {
-		t.Fatal("pi did not offer Lite's project memory tools to the model")
+		t.Fatal("pi did not offer V2's project memory tools to the model")
 	}
 	if !strings.Contains(request, "trajectory-fixture-marker") {
 		t.Fatal("pi did not include project instructions in the model request")

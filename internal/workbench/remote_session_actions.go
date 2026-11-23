@@ -8,13 +8,14 @@ package workbench
 // the LAN, over Tailscale or over EasyTier.
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
 	"time"
 
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/remotewire"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/remotewire"
 )
 
 // sessionAnswer answers the question a session is waiting on, so a turn
@@ -24,6 +25,9 @@ func (h *remoteHost) sessionAnswer(w http.ResponseWriter, r *http.Request, id st
 		Confirmed *bool  `json:"confirmed"`
 		Value     string `json:"value"`
 		Cancelled bool   `json:"cancelled"`
+		// Answers are a batch ask's questions, answered or skipped from the
+		// phone's own card.
+		Answers []remotewire.AskAnswer `json:"answers"`
 	}
 	if err := decodeRemoteBody(r, &body); err != nil {
 		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -76,6 +80,24 @@ func (h *remoteHost) sessionAnswer(w http.ResponseWriter, r *http.Request, id st
 				return
 			}
 			value["value"] = body.Value
+		case remotewire.AskMethodBatch:
+			// The phone answered the card's questions itself: build the
+			// envelope the extension reads, after checking every answer.
+			wire, err := askAnswersFromWire(ask, body.Answers, body.Cancelled)
+			if err != nil {
+				failure = err
+				return
+			}
+			if body.Cancelled && len(body.Answers) == 0 {
+				value["cancelled"] = true
+				break
+			}
+			data, err := json.Marshal(wire)
+			if err != nil {
+				failure = err
+				return
+			}
+			value["value"] = string(data)
 		default:
 			value["cancelled"] = true
 		}

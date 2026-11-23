@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
@@ -91,20 +91,15 @@ func (a *app) loadPluginIndex() {
 }
 
 func (a *app) installFromMarket(entry marketEntry) {
-	if a.marketInstalling.GetUntracked() != "" {
-		return
-	}
-	a.marketInstalling.Set(entry.ID)
-	go func() {
-		p, err := a.installMarketPlugin(entry)
-		a.cx.Post(func() {
-			a.marketInstalling.Set("")
-			if err != nil {
-				a.toast(ui.ToastError, "安装失败", err.Error())
-				return
-			}
-			a.toast(ui.ToastSuccess, "已安装 "+p.Name, "在 设置 → 扩展 里查看。")
-			a.reloadAddons()
-		})
-	}()
+	var installed plugin
+	a.changePluginFiles(func() (err error) {
+		installed, err = a.installMarketPlugin(entry)
+		return err
+	}, func(err error) {
+		if err != nil {
+			a.toast(ui.ToastError, "安装失败", err.Error())
+			return
+		}
+		a.toast(ui.ToastSuccess, "已安装 "+installed.Name, "在 设置 → 扩展 里查看。")
+	})
 }

@@ -13,7 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 	"go.yaml.in/yaml/v3"
 )
 

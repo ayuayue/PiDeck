@@ -7,8 +7,8 @@ package workbench
 // sits at its end, so a section reads top to bottom.
 
 import (
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -54,10 +54,10 @@ type choice[T comparable] struct {
 	Label string
 }
 
-func languageChoices() []choice[string] {
-	options := []choice[string]{{apptext.LangSystem, apptext.LanguageName(apptext.LangSystem)}}
+func languageOptions() []ui.Option[string] {
+	options := []ui.Option[string]{{Value: apptext.LangSystem, Label: apptext.LanguageName(apptext.LangSystem)}}
 	for _, code := range apptext.SupportedLanguages {
-		options = append(options, choice[string]{code, apptext.LanguageName(code)})
+		options = append(options, ui.Option[string]{Value: code, Label: apptext.LanguageName(code)})
 	}
 	return options
 }

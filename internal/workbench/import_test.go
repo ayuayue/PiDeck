@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-lite/internal/sessionimport"
+	"example.com/pideck-v2/internal/sessionimport"
 )
 
 // importFixture writes a source file and imports it, returning the listing.

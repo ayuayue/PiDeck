@@ -23,7 +23,7 @@ func TestTrustGate(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(workspace, "note.txt"), []byte("hello"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	app := nsgotest.Start(t, Root, nsgotest.Size(1280, 860))
 	app.Press("id:rail-palette")
 	app.Press("text:浏览文件夹添加工作区")

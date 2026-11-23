@@ -168,7 +168,7 @@ func TestAnnouncementAndFeedbackDialogs(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "announcements-cache.json"), raw, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
 	app.Press("id:rail-announcements")
 	app.WaitFor("id:announce-dialog", 5*time.Second)

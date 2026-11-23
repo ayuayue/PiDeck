@@ -5,7 +5,7 @@ package workbench
 // The dialog that starts a plugin.
 
 import (
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -17,23 +17,6 @@ func (a *app) openPluginNew() {
 	a.pluginNewName.Set("")
 	a.pluginNewDesc.Set("")
 	a.pluginNewOpen.Set(true)
-}
-
-// createPluginFromDialog makes the folder and reloads the add-ons.
-func (a *app) createPluginFromDialog() {
-	id, name, desc := a.pluginNewID.GetUntracked(), a.pluginNewName.GetUntracked(), a.pluginNewDesc.GetUntracked()
-	go func() {
-		path, err := a.createPlugin(id, name, desc)
-		a.cx.Post(func() {
-			if err != nil {
-				a.toast(ui.ToastWarning, apptext.T("建不了这个插件"), err.Error())
-				return
-			}
-			a.pluginNewOpen.Set(false)
-			a.reloadAddons()
-			a.toast(ui.ToastSuccess, apptext.T("插件已创建"), path)
-		})
-	}()
 }
 
 // pluginNewDialog asks for a new plugin's id, name and description.
@@ -65,7 +48,7 @@ func (a *app) pluginNewDialog() core.Node {
 			Footer: []core.Node{
 				ui.Button{Text: apptext.T("取消"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
 					OnPress: func() { a.pluginNewOpen.Set(false) }},
-				ui.Button{Text: apptext.T("创建"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "plugin-new-create",
+				ui.Button{Text: apptext.T("创建"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "plugin-new-create", Disabled: a.pluginFileBusy.Get,
 					OnPress: a.createPluginFromDialog},
 			},
 		}

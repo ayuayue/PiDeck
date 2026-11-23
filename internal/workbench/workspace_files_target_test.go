@@ -1,3 +1,5 @@
+//go:build !js && !android && !ios
+
 package workbench
 
 import (
@@ -14,9 +16,9 @@ import (
 // This opt-in test uses an isolated project and a unique fixture under the
 // target's app-owned sessions directory. It doesn't start an agent.
 func TestWSLWorkspaceRoundTrip(t *testing.T) {
-	distro := os.Getenv("PIDECK_LITE_TEST_WSL")
+	distro := os.Getenv("PIDECK_V2_TEST_WSL")
 	if distro == "" {
-		t.Skip("set PIDECK_LITE_TEST_WSL to exercise a WSL distribution")
+		t.Skip("set PIDECK_V2_TEST_WSL to exercise a WSL distribution")
 	}
 	target := target{Kind: targetWSL, Distro: distro}
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
@@ -34,17 +36,17 @@ func TestWSLWorkspaceRoundTrip(t *testing.T) {
 		return strings.TrimSpace(string(out))
 	}
 	id := newSessionID()
-	root := run(`set -eu; mktemp -d /tmp/pideck-lite-XXXXXX`)
+	root := run(`set -eu; mktemp -d /tmp/pideck-v2-XXXXXX`)
 	var trash string
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if !strings.HasPrefix(root, "/tmp/pideck-lite-") || path.Dir(root) != "/tmp" {
+		if !strings.HasPrefix(root, "/tmp/pideck-v2-") || path.Dir(root) != "/tmp" {
 			return
 		}
 		cmd, err := target.workspaceCommand(ctx, "/", `
-rm -f "$2/note.txt" "$HOME/.pideck-lite/sessions/$3.jsonl"
-if [ -n "$4" ]; then rm -f "$HOME/.pideck-lite/trash/$4"; fi
+rm -f "$2/note.txt" "$HOME/.pideck-v2/sessions/$3.jsonl"
+if [ -n "$4" ]; then rm -f "$HOME/.pideck-v2/trash/$4"; fi
 rmdir "$2"`, root, id, trash)
 		if err == nil {
 			err = cmd.Run()
@@ -56,8 +58,8 @@ rmdir "$2"`, root, id, trash)
 	file := run(`
 set -eu
 printf 'before\n' > "$2/note.txt"
-dir="$HOME/.pideck-lite/sessions"
-[ ! -L "$HOME/.pideck-lite" ] && [ ! -L "$dir" ]
+dir="$HOME/.pideck-v2/sessions"
+[ ! -L "$HOME/.pideck-v2" ] && [ ! -L "$dir" ]
 mkdir -p "$dir"
 file="$dir/$3.jsonl"
 printf '%s\n' "$4" '{"type":"message","id":"entry","message":{"role":"user","content":"history"}}' > "$file"
@@ -85,14 +87,14 @@ printf '%s\n' "$file"
 	if err != nil || len(msgs) != 1 || msgs[0].EntryID != "entry" {
 		t.Fatalf("remote transcript: %v, %v", msgs, err)
 	}
-	if _, err := target.trashSession(ctx, root+"/.pideck-lite/sessions/not-owned.jsonl"); !errors.Is(err, errFilePath) {
+	if _, err := target.trashSession(ctx, root+"/.pideck-v2/sessions/not-owned.jsonl"); !errors.Is(err, errFilePath) {
 		t.Fatalf("deleting outside the app's remote store: %v", err)
 	}
 	trash, err = target.trashSession(ctx, file)
 	if err != nil || trash == "" {
 		t.Fatalf("move session to remote trash: %q, %v", trash, err)
 	}
-	if got := run(`set -eu; test ! -e "$2"; cat "$HOME/.pideck-lite/trash/$3"`, file, trash); !strings.Contains(got, `"content":"history"`) {
+	if got := run(`set -eu; test ! -e "$2"; cat "$HOME/.pideck-v2/trash/$3"`, file, trash); !strings.Contains(got, `"content":"history"`) {
 		t.Fatalf("remote trash contents: %q", got)
 	}
 }

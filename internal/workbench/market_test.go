@@ -73,7 +73,7 @@ func TestInstallMarketPlugin(t *testing.T) {
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("installed file: %v", err)
 	}
-	list := a.loadPlugins()
+	list := a.loadPlugins(nil)
 	if len(list) != 1 || list[0].ID != "team" || len(list[0].Commands) != 1 {
 		t.Fatalf("plugins = %+v", list)
 	}
@@ -108,7 +108,7 @@ func TestPluginMarketUI(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(workspace, "note.txt"), []byte("hello"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	app := openApp(t, workspace, 1280, 860)
 	app.Press("label:设置")
 	app.Press("id:settings-tab-addons")

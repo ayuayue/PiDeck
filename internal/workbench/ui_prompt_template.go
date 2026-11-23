@@ -3,7 +3,7 @@
 package workbench
 
 import (
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -78,7 +78,7 @@ func (a *app) promptTemplateDialog() core.Node {
 			}, Children: []core.Node{
 				ui.Text(apptext.T("描述希望如何改写草稿。模板作为系统指令发送，原始草稿会单独提交；不会改变聊天模型。"), 12, ui.Regular, colors.Muted),
 				core.Input{Value: form.text.Get, OnChange: form.text.Set, Multiline: true, Disabled: form.busy.Get,
-					Label: apptext.T("增强指令"), TestID: "prompt-template-text", Style: draftFieldStyle(colors).Merge(core.Style{Height: core.Pt(230),
+					Label: apptext.T("增强指令"), TestID: "prompt-template-text", Style: panelFieldStyle(colors).Merge(core.Style{Height: core.Pt(230),
 						TextAlignVertical: core.TextAlignVerticalTop, FontSize: a.composerFont(), LineHeight: a.composerLine()})},
 				core.Text{ContentFunc: form.message.Get, Style: core.Style{FontSize: 12}, StyleFunc: ui.Colored(colors.Danger)},
 			}, Footer: []core.Node{

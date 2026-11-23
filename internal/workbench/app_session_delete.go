@@ -10,7 +10,7 @@ import (
 	"slices"
 	"time"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/ui"
 	"github.com/nsgo-dev/nsgo/ui/chat"
 )
@@ -139,7 +139,7 @@ func (t target) trashSession(ctx context.Context, file string) (string, error) {
 	}
 	name := newSessionID() + ".jsonl"
 	cmd, err := t.workspaceCommand(ctx, "/", targetSessionGuard+`
-trash="$HOME/.pideck-lite/trash"
+trash="$HOME/.pideck-v2/trash"
 [ ! -L "$trash" ] && mkdir -p "$trash" || exit 43
 mv "$file" "$trash/$3"`, file, name)
 	if err != nil {

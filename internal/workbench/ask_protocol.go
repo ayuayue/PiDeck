@@ -12,6 +12,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck-v2/internal/viewkit"
 )
 
 // askOption is one choice: what it shows, what it answers with, and the
@@ -218,4 +222,112 @@ type askAnswerWire struct {
 type askResponseWire struct {
 	Cancelled bool            `json:"cancelled,omitempty"`
 	Answers   []askAnswerWire `json:"answers"`
+}
+
+// askAnswersFromWire is the batch envelope the phone's answers make: every
+// question of the request is settled, answered or skipped, after each value
+// is checked against the question it answers. The extension reads the same
+// envelope it reads from the desktop card.
+func askAnswersFromWire(ask *extensionAsk, answers []remotewire.AskAnswer, cancelled bool) (askResponseWire, error) {
+	given := make(map[string]remotewire.AskAnswer, len(answers))
+	for _, ans := range answers {
+		given[ans.ID] = ans
+	}
+	out := askResponseWire{Cancelled: cancelled, Answers: make([]askAnswerWire, 0, len(ask.Questions))}
+	for _, q := range ask.Questions {
+		in, ok := given[q.ID]
+		if !ok {
+			return askResponseWire{}, fmt.Errorf("还有题目没回答：%s", viewkit.FirstLine(q.Question, 40))
+		}
+		signed, ok := askAnswerFromWire(q, in)
+		if !ok {
+			return askResponseWire{}, fmt.Errorf("这个答案对不上题目：%s", viewkit.FirstLine(q.Question, 40))
+		}
+		out.Answers = append(out.Answers, askAnswerWire{ID: q.ID, Type: q.Type, Value: signed.Value,
+			Label: signed.Label, WasCustom: signed.WasCustom, Skipped: signed.Skipped})
+	}
+	return out, nil
+}
+
+// askAnswerFromWire reads one phone answer the way its question's type
+// says, refusing a value the question never offered.
+func askAnswerFromWire(q askQuestion, in remotewire.AskAnswer) (askAnswer, bool) {
+	if in.Skipped {
+		return askAnswer{Skipped: true}, true
+	}
+	switch q.Type {
+	case askSelect, askInput, askEditor:
+		text, ok := in.Value.(string)
+		if !ok {
+			return askAnswer{}, false
+		}
+		text = strings.TrimSpace(text)
+		if text == "" {
+			return askAnswer{}, false
+		}
+		if q.Type != askSelect {
+			return askAnswer{Value: text, Label: text}, true
+		}
+		if !askHasOption(q, text) {
+			if !q.AllowOther {
+				return askAnswer{}, false
+			}
+			return askAnswer{Value: text, Label: text, WasCustom: true}, true
+		}
+		return askAnswer{Value: text, Label: askOptionLabel(q, text)}, true
+	case askMultiSelect:
+		values, ok := askStringList(in.Value)
+		if !ok || len(values) == 0 {
+			return askAnswer{}, false
+		}
+		labels := make([]string, 0, len(values))
+		for _, value := range values {
+			if !askHasOption(q, value) {
+				return askAnswer{}, false
+			}
+			labels = append(labels, askOptionLabel(q, value))
+		}
+		return askAnswer{Value: values, Label: strings.Join(labels, "、")}, true
+	case askConfirm:
+		yes, ok := in.Value.(bool)
+		if !ok {
+			return askAnswer{}, false
+		}
+		label := apptext.T("否")
+		if yes {
+			label = apptext.T("是")
+		}
+		return askAnswer{Value: yes, Label: label}, true
+	}
+	return askAnswer{}, false
+}
+
+// askHasOption says the question offers that value.
+func askHasOption(q askQuestion, value string) bool {
+	for _, opt := range q.Options {
+		if opt.Value == value {
+			return true
+		}
+	}
+	return false
+}
+
+// askStringList reads a multi_select value, which JSON may spell as the
+// list it is or as one string.
+func askStringList(v any) ([]string, bool) {
+	switch list := v.(type) {
+	case []string:
+		return list, true
+	case []any:
+		out := make([]string, 0, len(list))
+		for _, item := range list {
+			text, ok := item.(string)
+			if !ok {
+				return nil, false
+			}
+			out = append(out, text)
+		}
+		return out, true
+	}
+	return nil, false
 }

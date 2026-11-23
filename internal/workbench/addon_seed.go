@@ -25,8 +25,8 @@ import (
 	"path/filepath"
 )
 
-// ensureAddonDirs makes the folders the app documents, with an example
-// plugin and theme, so the formats are discoverable.
+// ensureAddonDirs makes the folders the app documents and seeds a theme
+// and an agent. Plugin examples are installed explicitly in the market.
 func (a *app) ensureAddonDirs() {
 	if a.st == nil {
 		return
@@ -65,38 +65,5 @@ func (a *app) ensureAddonDirs() {
 	}
 	if dir := a.pluginsDir(); dir != "" {
 		_ = os.MkdirAll(dir, 0o755)
-		example := filepath.Join(dir, "example-plugin.json")
-		if _, err := os.Stat(example); os.IsNotExist(err) {
-			_ = writeFileAtomic(example, []byte(`{
-  "schemaVersion": 2,
-  "runtime": "pideck-lite",
-  "id": "example",
-  "name": "示例插件",
-  "version": "1.0.0",
-  "description": "几条常做的提示词，命令面板里就能直接选用。",
-  "contributes": {
-    "settings": [
-      {"key": "style", "label": "总结风格", "type": "select", "default": "要点", "options": ["要点", "一段话"]}
-    ],
-    "commands": [
-      {
-        "id": "review-changes",
-        "title": "梳理当前改动",
-        "group": "示例插件",
-        "icon": "git",
-        "action": {"type": "prompt", "prompt": "看看工作区里未提交的改动，用${setting:style}说明它们做了什么、有没有风险。"}
-      },
-      {
-        "id": "open-readme",
-        "title": "打开 PiDeck Lite 仓库",
-        "group": "示例插件",
-        "icon": "globe",
-        "action": {"type": "url", "url": "https://github.com/ayuayue/PiDeck-Lite"}
-      }
-    ]
-  }
-}
-`), 0o644)
-		}
 	}
 }

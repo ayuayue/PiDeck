@@ -8,9 +8,9 @@ package workbench
 // project paths, project or session names, file names, prompts, provider
 // settings, webhooks or keys.
 //
-// PiDeck and PiDeck Lite report into one PostHog project so the two can be
+// PiDeck and PiDeck V2 report into one PostHog project so the two can be
 // compared side by side. Every event here names its app in the "app"
-// property ("pideck-lite"), which an insight filters on; PiDeck's own
+// property ("pideck-v2"), which an insight filters on; PiDeck's own
 // events are the ones without the property.
 
 import (
@@ -26,8 +26,8 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-lite/internal/appinfo"
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/appinfo"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -37,8 +37,8 @@ const (
 	// telemetryApp is the value of the shared project's "app" property
 	// that marks this app's events; PiDeck's own events carry no app
 	// property, so they are the ones it filters out.
-	telemetryApp     = "pideck-lite"
-	telemetryAppName = "PiDeck Lite"
+	telemetryApp     = "pideck-v2"
+	telemetryAppName = "PiDeck V2"
 	// The defaults point at PiDeck's project and host; POSTHOG_PROJECT_KEY
 	// and POSTHOG_HOST point a build elsewhere.
 	defaultTelemetryProjectKey = "phc_xgJ8gFUMgExZEEPzZ7VRa7698ENcaDRquWZVGYb2dCFK"

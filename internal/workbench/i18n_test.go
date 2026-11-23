@@ -6,11 +6,12 @@ package workbench
 // settings and command palette rely on.
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
@@ -61,28 +62,40 @@ func TestLanguageSwitch(t *testing.T) {
 	if nsgotest.Target() != "" {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	t.Cleanup(func() { apptext.SetLanguage(apptext.LangZhCN) })
 	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
 	app.Press("label:设置")
 	app.Press("id:settings-tab-general")
 	app.WaitFor("id:settings-tab-general", 5*time.Second)
-	for _, code := range apptext.SupportedLanguages {
-		app.WaitFor("text:"+apptext.LanguageName(code), 5*time.Second)
-	}
-	app.Press("text:English")
+	app.WaitFor("id:language-select", 5*time.Second)
+	app.Press("id:language-select")
+	app.WaitFor("id:language-select-2", 5*time.Second)
+	app.Press("id:language-select-2")
 	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:Interface")) > 0 })
 	if len(app.Query("text:通用")) != 0 {
 		t.Fatal("the Chinese section label is still there after switching to English")
 	}
-	app.Press("text:简体中文")
+	app.Press("id:language-select")
+	app.WaitFor("id:language-select-1", 5*time.Second)
+	app.Press("id:language-select-1")
 	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:界面")) > 0 })
 	for _, code := range []string{apptext.LangKoKR, apptext.LangJaJP, apptext.LangRuRU, apptext.LangFrFR} {
-		app.Press("text:" + apptext.LanguageName(code))
+		index := 0
+		for i, option := range languageOptions() {
+			if option.Value == code {
+				index = i
+				break
+			}
+		}
+		app.Press("id:language-select")
+		app.WaitFor(fmt.Sprintf("id:language-select-%d", index), 5*time.Second)
+		app.Press(fmt.Sprintf("id:language-select-%d", index))
 		app.WaitUntil(5*time.Second, func() bool { return apptext.CurrentLanguage() == code })
 		app.WaitFor("id:settings-tab-general", 5*time.Second)
 	}
-	app.Press("text:简体中文")
+	app.Press("id:language-select")
+	app.Press("id:language-select-1")
 }
 
 // TestMainUILabels checks the rail, welcome and composer strings have
@@ -96,7 +109,7 @@ func TestMainUILabels(t *testing.T) {
 		"先添加一个项目文件夹，再开会话。", "打开一个会话，或者新建一个。",
 		"添加工作区", "导入会话", "运行中：回车插入引导，或点停止",
 		"正在启动 pi…", "给 pi 发消息…", "看看这个项目", "跑一遍测试",
-		"解释一处代码", "修一个小问题", "Enter 发送 · Shift+Enter 换行 · ⌘K 命令面板",
+		"解释一处代码", "修一个小问题", "在 %s 里做点什么", "开始新的会话",
 		"收藏", "取消收藏", "复制会话", "删除会话", "在此新建会话", "移除项目",
 		"选择模型", "用量", "会话面板", "按最近活动排序", "按名称排序",
 		"搜索命令、会话或工作区…", "没有匹配的命令", "选择这个文件夹", "系统选择器",
@@ -120,11 +133,12 @@ func TestMainLanguageSwitch(t *testing.T) {
 	if nsgotest.Target() != "" {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	t.Cleanup(func() { apptext.SetLanguage(apptext.LangZhCN) })
 	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
 	app.Press("label:设置")
 	app.Press("id:settings-tab-general")
+	app.Press("id:language-select")
 	app.Press("text:English")
 	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:Interface")) > 0 })
 	app.Key("escape")

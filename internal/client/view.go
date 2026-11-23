@@ -1,9 +1,9 @@
 package client
 
-// The phone build: it connects to a desktop PiDeck Lite server and browses
+// The phone build: it connects to a desktop PiDeck V2 server and browses
 // its projects, sessions and transcripts. The same package builds the
 // desktop; Root picks this screen on iOS and Android (or with
-// PIDECK_LITE_MOBILE=1 for a preview on a desktop).
+// PIDECK_V2_MOBILE=1 for a preview on a desktop).
 
 import (
 	"github.com/nsgo-dev/nsgo/core"
@@ -14,7 +14,7 @@ import (
 func (a *mobileApp) view() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		a.language.Get()
-		return core.View{Style: ui.FillRest, Children: []core.Node{
+		return core.View{Style: ui.FillRest, StyleFunc: func() core.Style { return core.Style{FontFamily: cx.Theme().Sans} }, Children: []core.Node{
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				if a.connected.Get() {
 					return a.shell(cx)
@@ -38,7 +38,6 @@ func (a *mobileApp) view() core.Node {
 			a.tasksSheet(),
 			a.favoritesSheet(),
 			a.favoriteTextSheet(),
-			a.transcriptImageDialog(),
 			a.reviewSheet(),
 			a.reviewDetailSheet(),
 			a.reviewPatchSheet(),
@@ -47,6 +46,8 @@ func (a *mobileApp) view() core.Node {
 			a.gitBranchesSheet(),
 			a.filesSheet(),
 			a.fileSheet(),
+			// The picture covers the whole screen, so it is drawn last.
+			a.transcriptImageViewer(),
 		}}
 	})
 }

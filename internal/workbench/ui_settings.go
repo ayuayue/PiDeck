@@ -10,7 +10,8 @@ import (
 	"fmt"
 	"strings"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
+	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -23,44 +24,48 @@ type settingsSection struct {
 	Icon    func() *core.SVG
 	Title   string
 	Summary string
+	Config  bool
 }
 
 // settingsSections are the sections, in order.
 func settingsSections() []settingsSection {
 	return []settingsSection{
-		{"general", "通用", lucide.Settings2, "通用", "新会话的默认值，以及侧栏读什么。"},
-		{"models", "模型与认证", lucide.Cpu, "模型与认证", "pi 认识哪些供应商、各自有多少模型、凭据是否可用。"},
-		{"usage", "用量", lucide.ChartColumn, "用量", "从本地会话文件统计 token、费用、模型与项目分布。"},
-		{"keys", "键位", lucide.Keyboard, "键位", "每个命令的快捷键；留空则不绑定，改坏了可以恢复默认。"},
-		{"look", "外观", lucide.Palette, "外观", "配色与主题文件。"},
-		{"remote", "远程", lucide.Globe, "远程访问", "让手机连接这台电脑上的项目和会话。"},
-		{"env", "环境", lucide.Terminal, "环境", "pi 在哪里、能不能用；WSL 与 SSH 目标。"},
-		{"mcp", "MCP", lucide.Plug, "MCP 服务器", "给 pi 挂上外部工具服务器；列表与增删走 pi mcp。"},
-		{"addons", "插件", lucide.Puzzle, "插件", "插件给命令面板加命令，给外观加主题。"},
-		{"resources", "资源", lucide.Package, "资源", "pi 的技能与扩展：看它们做什么，打开或停用。"},
-		{"integrations", "集成", lucide.Webhook, "集成", "把一轮完成的消息发到飞书群。"},
-		{"diagnostics", "诊断", lucide.Stethoscope, "诊断", "运行中的进程、内存与最近的日志。"},
-		{"data", "数据", lucide.HardDrive, "数据", "会话与配置在磁盘上的位置。"},
-		{"about", "关于", lucide.Info, "关于", "版本、许可与来源。"},
+		{"general", "通用", lucide.Settings2, "通用", "新会话的默认值，以及侧栏读什么。", false},
+		{"models", "模型与认证", lucide.Cpu, "模型与认证", "pi 认识哪些供应商、各自有多少模型、凭据是否可用。", true},
+		{"credentials", "pi 凭据", lucide.KeyRound, "pi 凭据", "pi 先看 auth.json，再看 models.json 的 apiKey，最后看环境变量。", true},
+		{"pi", "pi 设置", lucide.Settings, "pi 设置", "编辑 settings.json", true},
+		{"usage", "用量", lucide.ChartColumn, "用量", "从本地会话文件统计 token、费用、模型与项目分布。", false},
+		{"keys", "键位", lucide.Keyboard, "键位", "每个命令的快捷键；留空则不绑定，改坏了可以恢复默认。", false},
+		{"look", "外观", lucide.Palette, "外观", "配色与主题文件。", false},
+		{"remote", "远程", lucide.Globe, "远程访问", "让手机连接这台电脑上的项目和会话。", true},
+		{"env", "环境", lucide.Terminal, "环境", "pi 在哪里、能不能用；WSL 与 SSH 目标。", true},
+		{"mcp", "MCP", lucide.Plug, "MCP 服务器", "给 pi 挂上外部工具服务器；列表与增删走 pi mcp。", true},
+		{"addons", "插件", lucide.Puzzle, "插件", "插件给命令面板加命令，给外观加主题。", true},
+		{"resources", "资源", lucide.Package, "资源", "pi 的技能与扩展：看它们做什么，打开或停用。", true},
+		{"integrations", "集成", lucide.Webhook, "集成", "把一轮完成的消息发到飞书群。", true},
+		{"diagnostics", "诊断", lucide.Stethoscope, "诊断", "运行中的进程、内存与最近的日志。", false},
+		{"data", "数据", lucide.HardDrive, "数据", "会话与配置在磁盘上的位置。", false},
+		{"about", "关于", lucide.Info, "关于", "版本、许可与来源。", false},
 	}
 }
 
 // settingsPane is the settings page: its rail beside the section's rows.
 func (a *app) settingsPane() core.Node {
 	colors := ui.ColorsOf(a.cx)
-	nav := make([]core.Node, 0, len(settingsSections()))
+	var system, config []core.Node
 	for _, sec := range settingsSections() {
 		s := sec
 		on := func() bool { return a.settingsTab.Get() == s.ID }
-		nav = append(nav, core.Dynamic(func(cx *core.Scope) core.Node {
+		row := core.Dynamic(func(cx *core.Scope) core.Node {
 			_ = a.langRev.Get()
 			colors := ui.ColorsOf(cx)
-			return core.View{
-				OnPress: func(core.PressEvent) { a.openSettingsSection(s.ID) },
-				Role:    core.RoleTab, Label: apptext.T(s.Label), TestID: "settings-tab-" + s.ID,
+			return base.Tab{
+				OnPress:  func(core.PressEvent) { a.openSettingsSection(s.ID) },
+				Selected: on, Label: apptext.T(s.Label), TestID: "settings-tab-" + s.ID,
 				StyleFunc: func() core.Style {
 					st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Height: core.Pt(30),
-						Padding: core.Symmetric(0, 9), CornerRadius: 7, Hover: &core.Style{Background: colors.Hover()}}
+						Padding: core.Symmetric(0, 9), CornerRadius: 7, Hover: &core.Style{Background: colors.Hover()},
+						FocusVisible: ui.FocusRing(cx, -2)}
 					if on() {
 						st.Background = colors.Pressed()
 					}
@@ -83,8 +88,21 @@ func (a *app) settingsPane() core.Node {
 						}},
 				},
 			}
-		}))
+		})
+		if s.Config {
+			config = append(config, row)
+		} else {
+			system = append(system, row)
+		}
 	}
+	group := func(label string, rows []core.Node) core.Node {
+		return core.View{Style: core.Style{Gap: 2}, Children: append([]core.Node{
+			core.Text{Content: apptext.T(label), Role: core.RoleHeader,
+				Style:     core.Style{FontSize: 11, FontWeight: ui.Semibold, Padding: core.Edges{Left: 9, Top: 6, Bottom: 4}},
+				StyleFunc: ui.Colored(colors.Muted)},
+		}, rows...)}
+	}
+	nav := []core.Node{group("系统设置", system), group("配置管理", config)}
 	return core.View{TestID: "settings", StyleFunc: func() core.Style {
 		return core.Style{Direction: core.Row, FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), MinWidth: core.Pt(0),
 			Background: colors.Background()}
@@ -147,6 +165,7 @@ func (a *app) openSettingsPane() {
 // openSettingsSection switches to a section and runs its loader.
 func (a *app) openSettingsSection(id string) {
 	a.settingsTab.Set(id)
+	a.resetSettingsScroll()
 	if a.st != nil && a.cfg.SettingsTab != id {
 		a.cfg.SettingsTab = id
 		a.st.edit(func(c *config) { c.SettingsTab = id })
@@ -167,12 +186,18 @@ func (a *app) loadSettingsSection(id string) {
 		// The built-in account's balance is a network read, so it refreshes
 		// when the section opens rather than on every redraw.
 		a.tdRefresh()
+	case "credentials":
+		a.loadAuth()
 	case "usage":
 		a.loadUsage(false)
 	case "resources":
 		a.loadResources(false)
 	case "mcp":
 		a.loadMCPServers(true)
+	case "diagnostics":
+		// The page reads figures the tick fills, so fill them before it
+		// shows rather than after the first pass.
+		a.diagRefresh()
 	}
 }
 
@@ -184,12 +209,14 @@ func (a *app) settingsRail(nav []core.Node) core.Node {
 		colors := ui.ColorsOf(cx)
 		query := strings.ToLower(strings.TrimSpace(a.settingsQuery.Get()))
 		if query == "" {
-			return core.View{Style: core.Style{Gap: 2}, Children: nav}
+			return core.Scroll{TestID: "settings-navigation", Style: ui.FillRest,
+				Children: []core.Node{base.Tabs{Label: apptext.T("设置"), Style: core.Style{Gap: 8}, Children: nav}}}
 		}
 		hits := searchSettings(query)
 		if len(hits) == 0 {
-			return core.Text{Content: apptext.T("没有匹配的设置"), Style: core.Style{FontSize: 11, Padding: core.Symmetric(6, 8)},
-				StyleFunc: ui.Colored(colors.Faint)}
+			return core.Scroll{TestID: "settings-search-results", Style: ui.FillRest,
+				Children: []core.Node{core.Text{Content: apptext.T("没有匹配的设置"), Style: core.Style{FontSize: 11, Padding: core.Symmetric(6, 8)},
+					StyleFunc: ui.Colored(colors.Faint)}}}
 		}
 		bySection := map[string]int{}
 		var rows []core.Node
@@ -213,7 +240,8 @@ func (a *app) settingsRail(nav []core.Node) core.Node {
 				},
 			})
 		}
-		return core.Scroll{TestID: "settings-page", Ref: a.settingsScroll, OnScroll: a.settingsScrolled, Style: ui.FillRest, Children: []core.Node{core.View{Style: core.Style{Gap: 1}, Children: rows}}}
+		return core.Scroll{TestID: "settings-search-results", Style: ui.FillRest,
+			Children: []core.Node{core.View{Style: core.Style{Gap: 1}, Children: rows}}}
 	})
 }
 
@@ -229,6 +257,10 @@ func (a *app) settingsContent() core.Node {
 		switch a.settingsTab.Get() {
 		case "models":
 			return a.settingsModels()
+		case "credentials":
+			return a.settingsCredentials()
+		case "pi":
+			return a.settingsPi()
 		case "usage":
 			return a.settingsUsage()
 		case "keys":

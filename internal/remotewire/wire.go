@@ -139,6 +139,43 @@ type Ask struct {
 	Title   string   `json:"title"`
 	Message string   `json:"message"`
 	Options []string `json:"options,omitempty"`
+	// Questions is a batch ask: each one carries its own shape and choices,
+	// so the phone shows the same card the desktop does.
+	Questions []AskQuestion `json:"questions,omitempty"`
+	// Review asks for a page of all answers before they are sent.
+	Review bool `json:"review,omitempty"`
+}
+
+// AskQuestion is one question of a batch: what it asks, how it is answered,
+// and the choices a select or multi_select offers.
+type AskQuestion struct {
+	ID          string      `json:"id"`
+	Type        string      `json:"type"`
+	Question    string      `json:"question"`
+	Options     []AskOption `json:"options,omitempty"`
+	AllowOther  bool        `json:"allowOther,omitempty"`
+	Placeholder string      `json:"placeholder,omitempty"`
+	Prefill     string      `json:"prefill,omitempty"`
+}
+
+// AskOption is one choice: what it shows, what it answers with, and the
+// line under it.
+type AskOption struct {
+	Label       string `json:"label"`
+	Value       string `json:"value,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+// AskAnswer is one question's answer travelling from the phone: the value
+// the model receives, and whether the question was let go instead. Value is
+// a string, a bool, or a list of strings, as the question's type says.
+type AskAnswer struct {
+	ID        string `json:"id"`
+	Type      string `json:"type,omitempty"`
+	Value     any    `json:"value,omitempty"`
+	Label     string `json:"label,omitempty"`
+	WasCustom bool   `json:"wasCustom,omitempty"`
+	Skipped   bool   `json:"skipped,omitempty"`
 }
 
 type Snapshot struct {
@@ -171,6 +208,27 @@ type Message struct {
 	Turn int `json:"turn,omitempty"`
 	// Image is an opaque reference for the transcript attachment endpoint.
 	Image string `json:"image,omitempty"`
+	// Tool is what a "tool" line did, when the desktop knows more than the
+	// line's words: its verb, its target, how it ended, and what it wrote.
+	Tool *ToolLine `json:"tool,omitempty"`
+}
+
+// ToolLine is one tool call as the phone draws it: the same row the desktop
+// shows, with the sizes the call cost and what it printed.
+type ToolLine struct {
+	// Name is the tool as pi spells it, so a client can draw its glyph.
+	Name   string `json:"name,omitempty"`
+	Action string `json:"action,omitempty"`
+	Detail string `json:"detail,omitempty"`
+	// Status is "running", "done" or "error".
+	Status     string `json:"status,omitempty"`
+	Added      int    `json:"added,omitempty"`
+	Removed    int    `json:"removed,omitempty"`
+	DurationMs int64  `json:"durationMs,omitempty"`
+	// Nested is how many calls the tool made itself.
+	Nested int `json:"nested,omitempty"`
+	// Output is what the call wrote, cut to what a page carries.
+	Output string `json:"output,omitempty"`
 }
 
 type Transcript struct {

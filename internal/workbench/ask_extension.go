@@ -10,7 +10,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"example.com/pideck-lite/extensions"
+	"example.com/pideck-v2/extensions"
 )
 
 // askExtensionName is the file pi loads.
@@ -31,10 +31,43 @@ func installLocalToolsExtension(dir string) string {
 	return installBundledExtension(dir, "pi-deck-local-tools.ts", extensions.LocalTools)
 }
 
+// installBundledExtension writes the bundled extension under dir and returns
+// its path. A copy already holding what this build ships is left alone.
+//
+// A file pi already loads under the same name wins outright: writing ours and
+// passing it with -e would register the same tools twice.
 func installBundledExtension(dir, name string, contents []byte) string {
-	if dir == "" {
+	if dir == "" || piLoadsExtension(name) {
 		return ""
 	}
+	return writeBundledExtension(dir, name, contents)
+}
+
+// piLoadsExtension reports whether pi's own extension folder already holds a
+// file with this name. Users and PiDeck keep their copies there, and pi loads
+// that copy without -e.
+func piLoadsExtension(name string) bool {
+	dir := extensionsDir()
+	if dir == "" || name == "" {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(dir, name))
+	return err == nil && !info.IsDir()
+}
+
+// extensionToInject is the path to pass with -e, or "" when pi would load a
+// same-named file itself. Checked again at spawn time so a copy added while
+// the app runs is not registered twice.
+func extensionToInject(path string) string {
+	if path == "" || piLoadsExtension(filepath.Base(path)) {
+		return ""
+	}
+	return path
+}
+
+// writeBundledExtension is the file half of installBundledExtension, also
+// used for modules that ride beside an injected extension.
+func writeBundledExtension(dir, name string, contents []byte) string {
 	folder := filepath.Join(dir, "extensions")
 	path := filepath.Join(folder, name)
 	if cur, err := os.ReadFile(path); err == nil && string(cur) == string(contents) {

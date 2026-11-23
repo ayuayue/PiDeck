@@ -65,7 +65,7 @@ func TestAgentSession(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(workspace, "note.txt"), []byte("hello"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	app := openApp(t, workspace, 1280, 860)
 	app.Press("id:rail-palette")
 	app.WaitFor("text:用智能体新建会话…", 5*time.Second)

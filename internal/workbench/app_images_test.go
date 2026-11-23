@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-lite/internal/remotewire"
+	"example.com/pideck-v2/internal/remotewire"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -20,7 +20,7 @@ import (
 
 func newFileDropFixture(t *testing.T) (*app, *session, <-chan func()) {
 	t.Helper()
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	posts := make(chan func(), 32)
 	cx := core.NewRoot(core.RootOptions{
 		CheckCommits: true, Clock: core.NewManualClock(time.Unix(1, 0)),

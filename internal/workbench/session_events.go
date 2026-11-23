@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"strings"
 
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/ui"
 	"github.com/nsgo-dev/nsgo/ui/chat"
 )
@@ -36,6 +36,9 @@ func (a *app) applyEvent(s *session, ev piEvent) {
 				s.streamThinking.Set("")
 				s.liveTools.Set(nil)
 			})
+			// The reply's clock starts here: its first token and its total
+			// are both counted from the message it answers.
+			s.replyStart, s.replyTTFT = a.cx.Now(), 0
 			a.ensureTurn(s)
 		}
 	case "message_end":
@@ -149,11 +152,20 @@ func (a *app) commitAssistant(s *session, msg piMessage) {
 	blocks := msg.blocks()
 	var thinking, prose strings.Builder
 	var calls []piContent
+	// proseAt is how many calls came before the prose, so the step reads in
+	// the order pi wrote it.
+	proseAt := -1
 	for _, b := range blocks {
 		switch b.Type {
 		case "thinking":
 			thinking.WriteString(b.Thinking)
 		case "text":
+			if proseAt < 0 {
+				proseAt = len(calls)
+			}
+			if prose.Len() > 0 {
+				prose.WriteString("\n\n")
+			}
 			prose.WriteString(b.Text)
 		case "toolCall":
 			calls = append(calls, b)
@@ -215,6 +227,7 @@ func (a *app) commitAssistant(s *session, msg piMessage) {
 		}
 		if text != "" && len(runs) > 0 {
 			step.Text = text
+			step.TextAt = max(0, proseAt)
 		}
 		step.Tools = runs
 		if step.Text != "" || step.Thinking != "" || len(step.Tools) > 0 {
@@ -234,6 +247,12 @@ func (a *app) commitAssistant(s *session, msg piMessage) {
 	if usage.Total > 0 || usage.Cost > 0 {
 		s.usage.Update(func(u usageInfo) usageInfo { return u.add(usage) })
 	}
+	// The reply's pace and its cached share are what the usage panel shows;
+	// a provider that reports no usage still has a duration.
+	a.noteReplyPerf(s, usage)
+	// The context window grew with this message: ask pi again so the ring
+	// follows a multi-step turn instead of the turn's start.
+	a.startStats(s)
 	if msg.StopReason == "error" && msg.ErrorMsg != "" {
 		s.status.Set(statusFailed)
 	}

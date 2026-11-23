@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -147,7 +147,7 @@ func (a *app) settingsSyncDialog() core.Node {
 		colors := ui.ColorsOf(cx)
 		field := func(s *core.Signal[string], label, id string, masked bool) core.Node {
 			return core.Input{Label: apptext.T(label), TestID: id, Value: s.Get, OnChange: s.Set, Masked: masked,
-				Disabled: form.busy.Get, Style: draftFieldStyle(colors)}
+				Disabled: form.busy.Get, Style: panelFieldStyle(colors)}
 		}
 		return ui.Dialog{Title: apptext.T("加密同步"), TestID: "settings-sync-dialog", Style: core.Style{Width: a.dialogWidth()},
 			Open: func() bool { return a.settingsSync.Get() != nil }, OnOpenChange: func(open bool, _ base.Reason) {

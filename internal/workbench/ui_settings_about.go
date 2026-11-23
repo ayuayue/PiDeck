@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 	"github.com/nsgo-dev/nsgo/updater"
@@ -30,9 +30,9 @@ func (a *app) settingsAbout() core.Node {
 				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 12}, Children: []core.Node{
 					a.brandMark(44, "about-logo"),
 					core.View{Style: core.Style{Gap: 2}, Children: []core.Node{
-						core.Text{ContentFunc: func() string { _ = a.brandRev.Get(); return resolveBrandName(a.cfg.AppDisplayName) },
+						core.Text{ContentFunc: func() string { _ = a.brandNameRev.Get(); return resolveBrandName(a.cfg.AppDisplayName) },
 							Style: core.Style{FontSize: 15, FontWeight: ui.Semibold}, StyleFunc: ui.Colored(colors.Text)},
-						ui.Text("PiDeck Lite · v"+brandVersion(), 11, ui.Regular, colors.Muted),
+						ui.Text("PiDeck V2 · v"+brandVersion(), 11, ui.Regular, colors.Muted),
 						ui.Text(apptext.T("NSGo 原生窗口 · 只做 pi"), 11, ui.Regular, colors.Muted),
 					}},
 				}},
@@ -49,7 +49,7 @@ func (a *app) settingsAbout() core.Node {
 							OnPress: func() { updater.Check(a.cx) }}),
 				),
 				setGroup("链接",
-					setRow("项目主页", "github.com/ayuayue/PiDeck-Lite", ui.Button{Text: apptext.T("打开"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+					setRow("项目主页", "github.com/ayuayue/PiDeck-V2", ui.Button{Text: apptext.T("打开"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
 						OnPress: func() { a.cx.OpenURL(appRepoURL, nil) }}),
 					setDivider(),
 					setRow("pi 项目", "github.com/badlogic/pi-mono", ui.Button{Text: apptext.T("复制"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {

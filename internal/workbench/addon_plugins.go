@@ -28,7 +28,7 @@ import (
 type plugin struct {
 	SchemaVersion int `yaml:"schemaVersion" json:"schemaVersion"`
 	// Runtime names the host contract; it is independent of the registry's
-	// code-hosting source. Missing identity fields use the legacy Lite v2
+	// code-hosting source. Missing identity fields use the legacy V2 v2
 	// interpretation without rewriting the user's manifest.
 	Runtime     string        `yaml:"runtime" json:"runtime"`
 	ID          string        `yaml:"id" json:"id"`
@@ -48,6 +48,8 @@ type plugin struct {
 	// paths resolve in.
 	Path string `yaml:"-" json:"-"`
 	Dir  string `yaml:"-" json:"-"`
+	// manifestRevision ties a file operation to the manifest the user saw.
+	manifestRevision string
 
 	// Commands and ThemeSpecs are what the app actually uses: the
 	// manifest normalized, legacy entries folded in, bad ones dropped

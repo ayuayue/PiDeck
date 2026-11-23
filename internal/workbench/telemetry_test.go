@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
@@ -61,8 +61,8 @@ func TestTelemetryHeartbeat(t *testing.T) {
 		t.Fatalf("properties = %v", got["properties"])
 	}
 	for key, want := range map[string]any{
-		"app":            "pideck-lite",
-		"app_name":       "PiDeck Lite",
+		"app":            "pideck-v2",
+		"app_name":       "PiDeck V2",
 		"app_version":    "0.2.0",
 		"platform":       "windows",
 		"arch":           "amd64",
@@ -78,7 +78,7 @@ func TestTelemetryHeartbeat(t *testing.T) {
 	if !ok {
 		t.Fatalf("$set = %v", props["$set"])
 	}
-	if set["app"] != "pideck-lite" || set["app_version"] != "0.2.0" {
+	if set["app"] != "pideck-v2" || set["app_version"] != "0.2.0" {
 		t.Fatalf("$set = %v", set)
 	}
 }
@@ -143,11 +143,11 @@ func TestTelemetryPayloadFixedFields(t *testing.T) {
 	payload := telemetryPayload("key", telemetryMeta{Version: "0.2.0", Platform: "linux", Arch: "arm64"},
 		map[string]any{"app": "someone-else", "app_version": "9.9.9"}, "id")
 	props := payload["properties"].(map[string]any)
-	if props["app"] != "pideck-lite" || props["app_version"] != "0.2.0" {
+	if props["app"] != "pideck-v2" || props["app_version"] != "0.2.0" {
 		t.Fatalf("properties = %v", props)
 	}
 	set := props["$set"].(map[string]any)
-	if set["app"] != "pideck-lite" {
+	if set["app"] != "pideck-v2" {
 		t.Fatalf("$set = %v", set)
 	}
 }
@@ -245,7 +245,7 @@ func TestTelemetrySwitch(t *testing.T) {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
 	app.Press("label:设置")
 	app.Press("id:settings-tab-general")

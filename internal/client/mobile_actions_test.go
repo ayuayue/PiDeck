@@ -12,14 +12,14 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-lite/internal/remotewire"
+	"example.com/pideck-v2/internal/remotewire"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
 func TestMobileSessionActions(t *testing.T) {
 	const token = "phone-token"
 	var mu sync.Mutex
-	state := remotewire.Snapshot{Name: "PiDeck Lite", Version: "0.2.0", Host: "desk", Projects: []remotewire.Project{{
+	state := remotewire.Snapshot{Name: "PiDeck V2", Version: "0.2.0", Host: "desk", Projects: []remotewire.Project{{
 		Path: "/tmp/project", Name: "电脑项目", Sessions: []remotewire.Session{
 			{ID: "s1", Title: "电脑上的会话", Status: "idle", Updated: time.Now().UnixMilli(),
 				Tokens: 1234, Context: 1234, ContextWindow: 128000, Cost: 0.02},
@@ -38,7 +38,7 @@ func TestMobileSessionActions(t *testing.T) {
 		reply := func(v any) { _ = json.NewEncoder(w).Encode(v) }
 		switch {
 		case r.URL.Path == "/api/ping":
-			reply(map[string]any{"name": "PiDeck Lite", "host": "desk"})
+			reply(map[string]any{"name": "PiDeck V2", "host": "desk"})
 		case r.URL.Path == "/api/state":
 			reply(state)
 		case r.URL.Path == "/api/sessions" && r.Method == http.MethodPost:
@@ -80,8 +80,8 @@ func TestMobileSessionActions(t *testing.T) {
 	}))
 	defer server.Close()
 
-	t.Setenv("PIDECK_LITE_MOBILE", "1")
-	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_MOBILE", "1")
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	app := nsgotest.Start(t, Root, nsgotest.Size(420, 860))
 	app.WaitFor("id:mobile-server", 10*time.Second)
 	app.Type("id:mobile-server", server.URL)

@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-lite/internal/appinfo"
+	"example.com/pideck-v2/internal/appinfo"
 )
 
 // diagEvent is one log line.
@@ -32,13 +32,69 @@ const diagFileLimit = 1 << 20
 
 // procInfo is one running process the app owns.
 type procInfo struct {
-	Kind    string
-	Name    string
-	Detail  string
-	State   string
-	PID     int
+	Kind   string
+	ID     string
+	Name   string
+	Detail string
+	State  string
+	PID    int
+	// CanStop says why the row has no stop button: a process the app did
+	// not start, or one already gone.
+	CanStop bool
 	Started time.Time
 	Stderr  string
+}
+
+// diagMemory is what the diagnostics page's figures come from.
+type diagMemory struct {
+	HeapAlloc  uint64
+	HeapSys    uint64
+	HeapIdle   uint64
+	Goroutines int
+	Uptime     time.Duration
+}
+
+// diagProcs and diagLogEvents carry the page's lists: a signal's value must
+// be comparable, so the lists travel by pointer.
+type diagProcs []procInfo
+type diagLogEvents []diagEvent
+
+// diagRefresh fills what the diagnostics page shows. It runs off the page's
+// own redraw, so a figure changing never rebuilds the scroll view under the
+// person reading it.
+func (a *app) diagRefresh() {
+	if a.diagMem == nil {
+		return
+	}
+	var mem runtime.MemStats
+	runtime.ReadMemStats(&mem)
+	uptime := time.Duration(0)
+	if !a.startedAt.IsZero() {
+		uptime = a.cx.Now().Sub(a.startedAt)
+	}
+	a.diagMem.Set(diagMemory{HeapAlloc: mem.HeapAlloc, HeapSys: mem.Sys, HeapIdle: mem.HeapIdle,
+		Goroutines: runtime.NumGoroutine(), Uptime: uptime})
+	procs := diagProcs(a.processList())
+	a.diagProcs.Set(&procs)
+	events := diagLogEvents(a.diagSnapshot())
+	a.diagLog.Set(&events)
+}
+
+// stopProcess ends one process the diagnostics page lists: a pi session's
+// engine, which leaves the transcript and its tab and starts again with the
+// next message, or a terminal tab, which closes.
+func (a *app) stopProcess(p procInfo) {
+	switch p.Kind {
+	case "pi":
+		if s := a.byID[p.ID]; s != nil {
+			a.closeAgent(s)
+		}
+	case "shell":
+		if a.term != nil {
+			a.term.remove(p.ID)
+		}
+	}
+	a.diagRefresh()
 }
 
 // initDiag opens the log file and records the start.
@@ -155,8 +211,8 @@ func (a *app) processList() []procInfo {
 		case statusFailed:
 			state = "失败"
 		}
-		out = append(out, procInfo{Kind: "pi", Name: s.title.GetUntracked(),
-			Detail: shortPath(s.WS, 48), State: state, PID: s.engine.pid(),
+		out = append(out, procInfo{Kind: "pi", ID: s.ID, Name: s.title.GetUntracked(),
+			Detail: shortPath(s.WS, 48), State: state, PID: s.engine.pid(), CanStop: true,
 			Started: s.updated.GetUntracked(), Stderr: s.engine.stderrText()})
 	}
 	if a.term != nil {
@@ -172,8 +228,8 @@ func (a *app) processList() []procInfo {
 					state = "失败"
 				}
 			}
-			out = append(out, procInfo{Kind: "shell", Name: tab.Title.GetUntracked(),
-				Detail: shortPath(tab.Cwd, 48), State: state})
+			out = append(out, procInfo{Kind: "shell", ID: tab.ID, Name: tab.Title.GetUntracked(),
+				Detail: shortPath(tab.Cwd, 48), State: state, CanStop: tab.state == nil || tab.state.GetUntracked() != termExited})
 		}
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Kind < out[j].Kind })
@@ -183,7 +239,7 @@ func (a *app) processList() []procInfo {
 // diagnosticText is the report copied for a bug report.
 func (a *app) diagnosticText() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "PiDeck Lite %s\n", appinfo.Version)
+	fmt.Fprintf(&b, "PiDeck V2 %s\n", appinfo.Version)
 	fmt.Fprintf(&b, "%s/%s · Go %s\n", runtime.GOOS, runtime.GOARCH, runtime.Version())
 	if a.st != nil {
 		fmt.Fprintf(&b, "数据目录：%s\n", a.st.dir)
@@ -197,8 +253,9 @@ func (a *app) diagnosticText() string {
 	}
 	var mem runtime.MemStats
 	runtime.ReadMemStats(&mem)
-	fmt.Fprintf(&b, "goroutine：%d · 堆：%.1f MB · 启动于 %s\n",
-		runtime.NumGoroutine(), float64(mem.HeapAlloc)/(1<<20), a.startedAt.Format(time.RFC3339))
+	fmt.Fprintf(&b, "goroutine：%d · 堆：%.1f MB · 已提交：%.1f MB · 空闲：%.1f MB · 启动于 %s\n",
+		runtime.NumGoroutine(), float64(mem.HeapAlloc)/(1<<20), float64(mem.Sys)/(1<<20),
+		float64(mem.HeapIdle)/(1<<20), a.startedAt.Format(time.RFC3339))
 	b.WriteString("\n进程：\n")
 	procs := a.processList()
 	if len(procs) == 0 {

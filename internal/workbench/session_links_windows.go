@@ -20,7 +20,7 @@ func registerSessionLinks(scheme string) error {
 		return err
 	}
 	defer key.Close()
-	if err := key.SetStringValue("", "URL:PiDeck Lite"); err != nil {
+	if err := key.SetStringValue("", "URL:PiDeck V2"); err != nil {
 		return err
 	}
 	if err := key.SetStringValue("URL Protocol", ""); err != nil {

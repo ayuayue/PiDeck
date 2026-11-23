@@ -6,8 +6,8 @@ package workbench
 // chat, and a drawer for the session's numbers and the project's files.
 
 import (
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -18,7 +18,7 @@ import (
 // at its end.
 func (a *app) tabBar() core.Node {
 	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
-		core.Scroll{Horizontal: true, HideIndicator: true, Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
+		core.Scroll{Horizontal: true, HideIndicator: true, TestID: "tab-bar", Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, Padding: core.Symmetric(0, 2)}, Children: []core.Node{
 				core.Each(a.tabs.Get, func(id string) string { return id }, func(cx *core.Scope, id func() string, _ func() int) core.Node {
 					return a.tab(id)
@@ -47,10 +47,11 @@ func (a *app) tabBar() core.Node {
 func (a *app) tab(id func() string) core.Node {
 	colors := ui.ColorsOf(a.cx)
 	sess := func() *session { return a.byID[id()] }
-	active := func() bool { return a.activeID.Get() == id() }
+	active := func() bool { return a.activeID.Get() == id() && !a.paneVisible() }
 	return base.ContextMenu{
 		Trigger: core.View{
 			TestID: "tab",
+			Ref:    a.tabRef(id()),
 			OnPress: func(core.PressEvent) {
 				if s := sess(); s != nil {
 					a.selectSession(s)
@@ -69,20 +70,9 @@ func (a *app) tab(id func() string) core.Node {
 				return st
 			},
 			Children: []core.Node{
-				core.View{StyleFunc: func() core.Style {
-					c := colors.Faint()
-					s := sess()
-					if s != nil {
-						switch s.status.Get() {
-						case statusRunning:
-							c = viewkit.Thinking
-						case statusWaiting:
-							c = viewkit.Warning
-						case statusFailed:
-							c = colors.Danger()
-						}
-					}
-					return core.Style{Width: core.Pt(5), Height: core.Pt(5), CornerRadius: 3, Background: c, FlexShrink: 0}
+				core.View{TestID: "tab-status-" + id(), StyleFunc: func() core.Style {
+					return core.Style{Width: core.Pt(5), Height: core.Pt(5), CornerRadius: 3,
+						Background: statusDot(colors, sess()), FlexShrink: 0}
 				}},
 				core.Text{ContentFunc: func() string { return sess().title.Get() }, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 					Style: core.Style{FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 12.5}, StyleFunc: ui.Colored(colors.Text)},
@@ -109,6 +99,9 @@ func (a *app) tabMenuItems(id func() string) []core.Node {
 		a.menuRow(a.cx, lucide.X, "关闭右侧标签", "", false, func() { a.closeTabsRight(id()) }),
 		a.menuRow(a.cx, lucide.X, "关闭全部标签", "", false, func() { a.closeAllTabs() }),
 		a.menuSeparator(a.cx),
+		a.menuRow(a.cx, lucide.Pencil, "重命名", "", false, func() { a.askRename(a.byID[id()]) }),
+		a.menuRow(a.cx, lucide.CopyPlus, "复制会话", "", false, func() { a.duplicateSession(a.byID[id()]) }),
+		a.menuRow(a.cx, lucide.FileDown, "导出…", "", false, func() { a.openExport(a.byID[id()]) }),
 		a.menuRow(a.cx, lucide.Copy, "复制会话 ID", "", false, func() { a.copyText(id(), "会话 ID") }),
 	}
 }

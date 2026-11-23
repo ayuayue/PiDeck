@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/viewkit"
 )
 
 // TestParseGitStatus reads porcelain v2's records: branch, ahead/behind,

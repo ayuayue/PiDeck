@@ -19,8 +19,8 @@ import (
 	"sync"
 	"time"
 
-	"example.com/pideck-lite/internal/remotewire"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck-v2/internal/viewkit"
 )
 
 // acpCommand is one command an ACP agent offers.
@@ -210,7 +210,7 @@ func startACP(dir, command string, args []string, onUpdate func(acpUpdate), onPe
 	}
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), agentProxy.env()...)
-	cmd.Env = append(cmd.Env, "PIDECK_LITE=1")
+	cmd.Env = append(cmd.Env, "PIDECK_V2=1")
 	in, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err

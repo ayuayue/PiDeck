@@ -43,7 +43,7 @@ func TestGitDeleteBranch(t *testing.T) {
 	run("branch", "feature")
 
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	cfg, err := json.Marshal(config{Version: 2, Workspaces: []workspaceCfg{{Path: dir, Expanded: true}},
 		Theme: "system", SidebarOpen: true, ScanPi: false})
 	if err != nil {
@@ -106,7 +106,7 @@ func TestGitStashList(t *testing.T) {
 	run("stash", "push", "-m", "试贮藏")
 
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	cfg, err := json.Marshal(config{Version: 2, Workspaces: []workspaceCfg{{Path: dir, Expanded: true}},
 		Theme: "system", SidebarOpen: true, ScanPi: false})
 	if err != nil {
@@ -166,7 +166,7 @@ func TestGitCommitMenu(t *testing.T) {
 	hash := run("rev-parse", "HEAD")
 
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	cfg, err := json.Marshal(config{Version: 2, Workspaces: []workspaceCfg{{Path: dir, Expanded: true}},
 		Theme: "system", SidebarOpen: true, ScanPi: false})
 	if err != nil {
@@ -243,7 +243,7 @@ func TestGitTags(t *testing.T) {
 	run("commit", "-m", "first")
 
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	cfg, err := json.Marshal(config{Version: 2, Workspaces: []workspaceCfg{{Path: dir, Expanded: true}},
 		Theme: "system", SidebarOpen: true, ScanPi: false})
 	if err != nil {
@@ -310,7 +310,7 @@ func TestGitRemotes(t *testing.T) {
 	run("commit", "-m", "first")
 
 	home := t.TempDir()
-	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_V2_HOME", home)
 	cfg, err := json.Marshal(config{Version: 2, Workspaces: []workspaceCfg{{Path: dir, Expanded: true}},
 		Theme: "system", SidebarOpen: true, ScanPi: false})
 	if err != nil {
