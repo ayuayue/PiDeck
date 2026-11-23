@@ -37,15 +37,15 @@ func TestTranscriptFoldsFinishedTurns(t *testing.T) {
 	screen.WaitFor("text:第二轮的结论", 5*time.Second)
 
 	// Both finished turns fold their process and keep only the summary.
-	if got := len(screen.Query("text:执行过程 · 2 个工具调用 · 思考")); got != 0 {
+	if got := len(screen.Query("text:执行过程 · 2 个工具调用 · 1 次思考")); got != 0 {
 		t.Fatalf("the folded process is on screen: %d groups mounted", got)
 	}
 	screen.Press("text:2 个工具调用")
-	screen.WaitFor("text:执行过程 · 2 个工具调用 · 思考", 5*time.Second)
+	screen.WaitFor("text:执行过程 · 2 个工具调用 · 1 次思考", 5*time.Second)
 	if screen.Exists("text:readme.md") {
 		t.Fatalf("a closed process group shows its rows: %d", len(screen.Query("text:readme.md")))
 	}
-	screen.Press("text:执行过程 · 2 个工具调用 · 思考")
+	screen.Press("text:执行过程 · 2 个工具调用 · 1 次思考")
 	screen.WaitUntil(5*time.Second, func() bool { return len(screen.Query("label:读取 readme.md")) == 2 })
 	shot(screen, "comparison/session-turn-fold")
 
@@ -57,7 +57,7 @@ func TestTranscriptFoldsFinishedTurns(t *testing.T) {
 	if !screen.Exists("text:2 个工具调用") || !screen.Exists("text:1 个工具调用") {
 		t.Fatal("a completed turn lost its fold row while scrolling")
 	}
-	if screen.Exists("text:执行过程 · 1 个工具调用 · 思考") {
+	if screen.Exists("text:执行过程 · 1 个工具调用 · 1 次思考") {
 		t.Fatal("scrolling up unfolded a closed process group")
 	}
 }

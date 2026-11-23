@@ -14,6 +14,7 @@ import (
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
+	"github.com/nsgo-dev/nsgo/ui/chat"
 )
 
 // A turn's process is a run of blocks — what pi thought and the calls it
@@ -142,6 +143,93 @@ func blockRuns(src stepSource, part int) []toolRun {
 	return tools[at:]
 }
 
+// groupThinking is how many messages in a group reasoned before they called
+// anything: one thought per message that has one, as Electron counts its
+// thinking steps.
+func groupThinking(s *session, t func() turn, node processNode) int {
+	n := 0
+	for _, m := range node.members {
+		if m.part != 0 {
+			continue
+		}
+		src := stepSource{s: s, turn: t, id: func() string { return m.step }}
+		if strings.TrimSpace(src.thinking()) != "" {
+			n++
+		}
+	}
+	return n
+}
+
+// groupActive is what a group is doing now: the row it holds that is still
+// running, or the thought pi is still writing. Everything else in the group
+// is done, so a group with nothing live reports nothing: the header then
+// keeps its counts only.
+func groupActive(s *session, t func() turn, node processNode) (run toolRun, thinking bool, ok bool) {
+	for i := len(node.members) - 1; i >= 0; i-- {
+		m := node.members[i]
+		src := stepSource{s: s, turn: t, id: func() string { return m.step }}
+		runs := blockRuns(src, m.part)
+		for j := len(runs) - 1; j >= 0; j-- {
+			if runs[j].Status == chat.Running {
+				return runs[j], false, true
+			}
+		}
+		// A thought being written is the live message's stream: a committed
+		// one has finished thinking, and its reasoning reads as a done row.
+		if m.part == 0 && strings.TrimSpace(src.thinking()) != "" {
+			return toolRun{}, true, true
+		}
+	}
+	return toolRun{}, false, false
+}
+
+// activeText is what the turn is doing in this group now, in words of its
+// own: the counts say how much, this says whether pi is thinking or which
+// tool it is running.
+func activeTextOf(s *session, t func() turn, node processNode) string {
+	run, thinking, ok := groupActive(s, t, node)
+	switch {
+	case !ok:
+		return ""
+	case thinking:
+		return apptext.T("正在思考")
+	}
+	detail := shorten(run.Detail, 60)
+	phrase := runningPhrase(run.Action)
+	if detail != "" {
+		return phrase + " " + detail
+	}
+	return phrase
+}
+
+// runningPhrase says a tool's action as it happens. The action labels the
+// row uses are nouns (运行 is a runtime elsewhere), so each one has a
+// phrase of its own; an unknown tool — its name is its action — falls back
+// to the generic one.
+func runningPhrase(action string) string {
+	switch action {
+	case "读取":
+		return apptext.T("正在读取文件")
+	case "写入":
+		return apptext.T("正在写入文件")
+	case "编辑":
+		return apptext.T("正在编辑文件")
+	case "运行":
+		return apptext.T("正在运行命令")
+	case "列目录":
+		return apptext.T("正在列出目录")
+	case "查找", "搜索":
+		return apptext.T("正在搜索")
+	case "联网搜索":
+		return apptext.T("正在联网搜索")
+	case "抓取":
+		return apptext.T("正在抓取网页")
+	case "子代理", "工作流":
+		return apptext.T("正在协调子代理")
+	}
+	return apptext.T("正在调用工具")
+}
+
 // groupPresent reports whether a group holds anything to show: thinking or
 // a call. A block of a message that has not said anything yet holds
 // neither, so it is no row at all.
@@ -178,14 +266,7 @@ func (a *app) processGroup(s *session, t func() turn, node processNode, latest f
 	return core.Func(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
 		key := s.ID + "/" + node.id
-		hasThinking := func() bool {
-			for _, m := range members {
-				if m.part == 0 && strings.TrimSpace(src(m).thinking()) != "" {
-					return true
-				}
-			}
-			return false
-		}
+		hasThinking := func() bool { return groupThinking(s, t, node) > 0 }
 		rows := func() []toolRun {
 			var runs []toolRun
 			for _, m := range members {
@@ -207,11 +288,23 @@ func (a *app) processGroup(s *session, t func() turn, node processNode, latest f
 			if n := len(rows()); n > 0 {
 				parts = append(parts, apptext.T("%d 个工具调用", n))
 			}
-			if hasThinking() {
-				parts = append(parts, apptext.T("思考"))
+			if n := groupThinking(s, t, node); n > 0 {
+				parts = append(parts, apptext.T("%d 次思考", n))
 			}
 			return strings.Join(parts, " · ")
 		}
+		// active is what the turn is doing in this group now, shown while the
+		// group is its newest and the turn is still working: a thought being
+		// written or a call that runs, so the header never says the same thing
+		// whatever pi is up to.
+		active := func() bool {
+			if !auto() {
+				return false
+			}
+			_, _, ok := groupActive(s, t, node)
+			return ok
+		}
+		activeLabel := func() string { return activeTextOf(s, t, node) }
 		header := base.Button{
 			Expanded:  open,
 			LabelFunc: title,
@@ -225,9 +318,19 @@ func (a *app) processGroup(s *session, t func() turn, node processNode, latest f
 			Children: []core.Node{
 				ui.IconOf(func() *core.SVG { return lucide.ListTree() }, 13, colors.Faint),
 				core.Text{ContentFunc: title, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-					Style:     core.Style{FontSize: 12.5, FontWeight: ui.Medium, MinWidth: core.Pt(0), FlexShrink: 1},
+					Style:     core.Style{FontSize: 12.5, FontWeight: ui.Medium, MinWidth: core.Pt(0), FlexShrink: 0},
 					StyleFunc: ui.Colored(colors.Muted)},
-				core.Show{When: auto, Then: func(*core.Scope) core.Node { return ui.Spinner{Size: 10} }},
+				// What the turn is doing now reads beside the counts, in its own
+				// tone: the counts say how much, this says what is happening.
+				core.Show{When: active, Then: func(cx *core.Scope) core.Node {
+					return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5,
+						MinWidth: core.Pt(0), FlexShrink: 1}, Children: []core.Node{
+						ui.Spinner{Size: 10},
+						core.Text{ContentFunc: activeLabel, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+							Style:     core.Style{FontSize: 12, MinWidth: core.Pt(0), FlexShrink: 1},
+							StyleFunc: ui.Colored(colors.Faint)},
+					}}
+				}},
 				ui.IconOf(disclosure(open), 11, colors.Faint),
 			},
 		}

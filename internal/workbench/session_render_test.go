@@ -63,7 +63,7 @@ func TestSessionStreamRendersWithToolsAndErrors(t *testing.T) {
 	screen.WaitForGone("label:停止", 5*time.Second)
 	screen.WaitFor("id:chat-reply", 5*time.Second)
 	screen.Press("text:1 个工具调用")
-	screen.Press("text:执行过程 · 1 个工具调用 · 思考")
+	screen.Press("text:执行过程 · 1 个工具调用 · 1 次思考")
 	screen.Press("label:读取 readme.md")
 	screen.WaitFor("text:fixture-tool-output", 5*time.Second)
 	shot(screen, "comparison/session-tool-complete")

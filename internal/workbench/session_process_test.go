@@ -97,14 +97,14 @@ func TestTurnProcessGroupsOneRunOnScreen(t *testing.T) {
 	})
 	screen.WaitFor("text:读完了", 5*time.Second)
 	screen.Press("text:6 个工具调用")
-	screen.WaitFor("text:执行过程 · 6 个工具调用 · 思考", 5*time.Second)
-	if got := len(screen.Query("text:执行过程 · 6 个工具调用 · 思考")); got != 1 {
+	screen.WaitFor("text:执行过程 · 6 个工具调用 · 3 次思考", 5*time.Second)
+	if got := len(screen.Query("text:执行过程 · 6 个工具调用 · 3 次思考")); got != 1 {
 		t.Fatalf("the run heads %d groups, want 1", got)
 	}
-	if got := len(screen.Query("text:执行过程 · 2 个工具调用 · 思考")); got != 0 {
+	if got := len(screen.Query("text:执行过程 · 2 个工具调用")); got != 0 {
 		t.Fatalf("a message head a group of its own: %d", got)
 	}
-	screen.Press("text:执行过程 · 6 个工具调用 · 思考")
+	screen.Press("text:执行过程 · 6 个工具调用 · 3 次思考")
 	screen.WaitUntil(5*time.Second, func() bool { return len(screen.Query("label:读取 readme.md")) == 6 })
 }
 
@@ -127,7 +127,7 @@ func TestTurnProcessSplitsAtProse(t *testing.T) {
 	})
 	screen.WaitFor("text:做完了", 5*time.Second)
 	screen.Press("text:2 个工具调用")
-	screen.WaitFor("text:执行过程 · 1 个工具调用 · 思考", 5*time.Second)
+	screen.WaitFor("text:执行过程 · 1 个工具调用 · 1 次思考", 5*time.Second)
 	screen.WaitFor("text:我看看另一个文件", 5*time.Second)
 	if got := len(screen.Query(`text:"执行过程 · 1 个工具调用"`)); got != 1 {
 		t.Fatalf("the calls after the prose head %d groups, want 1", got)
@@ -152,8 +152,8 @@ func TestRunningTurnKeepsItsGroupOpen(t *testing.T) {
 	// said — opens by itself; the group it moved past stays closed.
 	screen.WaitFor("text:执行过程 · 1 个工具调用", 5*time.Second)
 	screen.WaitFor("label:读取 readme.md", 5*time.Second)
-	if got := len(screen.Query("text:执行过程 · 思考")); got != 1 {
-		t.Fatalf("the group it moved past is not headed: %d", got)
+	if got := len(screen.Query("text:执行过程 · 1 次思考")); got != 1 {
+		t.Fatalf("the group it moved past is not headed with its thinking: %d", got)
 	}
 
 	// Once it ends with an answer, the group it was working in folds too.
@@ -188,8 +188,8 @@ func TestProcessGroupBodyIsBounded(t *testing.T) {
 	})
 	screen.WaitFor("text:都读完了", 5*time.Second)
 	screen.Press("text:40 个工具调用")
-	screen.WaitFor("text:执行过程 · 40 个工具调用 · 思考", 5*time.Second)
-	screen.Press("text:执行过程 · 40 个工具调用 · 思考")
+	screen.WaitFor("text:执行过程 · 40 个工具调用 · 1 次思考", 5*time.Second)
+	screen.Press("text:执行过程 · 40 个工具调用 · 1 次思考")
 	screen.WaitFor("label:读取 file-39.md", 5*time.Second)
 	// The rows live in a scroll view the window bounds, so the calls a group
 	// holds cannot push the answer below them out of sight.
@@ -200,4 +200,52 @@ func TestProcessGroupBodyIsBounded(t *testing.T) {
 	if h := body[0].Frame.Size.Height; h <= 0 || h > 640 {
 		t.Fatalf("the open group is %v tall, want between 0 and 640", h)
 	}
+}
+
+// The header of the newest group says what the turn is doing now, not only
+// how much it did: a call that runs is named, and a thought being written
+// says so instead.
+func TestProcessHeaderSaysWhatRunsNow(t *testing.T) {
+	built, screen, sess := startNativeSurfaceApp(t)
+	now := time.Now()
+	run := turn{ID: "now-1", Prompt: "读文件", Status: chat.Running, Model: "fixture/model", Start: now, Tools: 1,
+		Steps: []turnStep{{ID: "now-1-s0", Start: now,
+			Tools: []toolRun{{CallID: "now-1-a", Name: "read", Action: "读取", Detail: "readme.md", Status: chat.Running}}}}}
+	onNativeUI(t, screen, built, func() {
+		sess.loaded.Set(true)
+		sess.readySig.Set(true)
+		sess.turns.Set([]turn{run})
+		sess.runningSig.Set(true)
+	})
+	screen.WaitFor("text:正在读取文件 readme.md", 5*time.Second)
+
+	// The call finished and pi is thinking again: the same header follows.
+	onNativeUI(t, screen, built, func() {
+		next := run
+		next.Steps = []turnStep{{ID: "now-1-s0", Thinking: "再想想。", Start: now,
+			Tools: []toolRun{{CallID: "now-1-a", Name: "read", Action: "读取", Detail: "readme.md", Status: chat.Completed}}}}
+		sess.turns.Set([]turn{next})
+	})
+	screen.WaitFor("text:正在思考", 5*time.Second)
+	if screen.Exists("text:正在读取文件 readme.md") {
+		t.Fatal("a finished call is still reported as running")
+	}
+
+	// Once it answered and ended, the counts stand alone again.
+	onNativeUI(t, screen, built, func() {
+		done := run
+		done.Status = chat.Completed
+		done.Final = "读完了"
+		done.End = now.Add(time.Second)
+		done.Steps = []turnStep{{ID: "now-1-s0", Thinking: "再想想。", Start: now,
+			Tools: []toolRun{{CallID: "now-1-a", Name: "read", Action: "读取", Detail: "readme.md", Status: chat.Completed}}}}
+		sess.turns.Set([]turn{done})
+		sess.runningSig.Set(false)
+	})
+	screen.WaitForGone("text:正在思考", 5*time.Second)
+	// The finished turn folds its work behind its summary row; opening it
+	// shows the group with its counts and nothing running.
+	screen.WaitFor("id:turn-fold", 5*time.Second)
+	screen.Press("id:turn-fold")
+	screen.WaitFor("text:执行过程 · 1 个工具调用 · 1 次思考", 5*time.Second)
 }
