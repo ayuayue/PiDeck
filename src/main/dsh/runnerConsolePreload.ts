@@ -110,5 +110,25 @@ function installRunnerHiddenConsole(): void {
 	allocHiddenConsole(process.platform, resolveKoffi());
 }
 
+/**
+ * This preload is injected into the Windows ACL runner so restricted children inherit its hidden console.
+ * Once loaded, remove only its own trailing --require flag: user commands inherit this process environment,
+ * and an ordinary node.exe cannot resolve a preload path inside app.asar.
+ */
+function removeRunnerPreloadFromNodeOptions(): void {
+	if (process.platform !== "win32") return;
+	const existing = process.env.NODE_OPTIONS;
+	if (!existing) return;
+	const preloadPath = __filename.replace(/\.ts$/i, ".js");
+	const preloadFlag = `--require="${preloadPath.replace(/\\/g, "\\\\")}"`;
+	let next = existing;
+	while (next === preloadFlag || next.endsWith(` ${preloadFlag}`)) {
+		next = next === preloadFlag ? "" : next.slice(0, -preloadFlag.length - 1);
+	}
+	if (next) process.env.NODE_OPTIONS = next;
+	else Reflect.deleteProperty(process.env, "NODE_OPTIONS");
+}
+
 patchNestedRunnerWindowsHide();
 installRunnerHiddenConsole();
+removeRunnerPreloadFromNodeOptions();

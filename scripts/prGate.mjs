@@ -267,14 +267,26 @@ export function evaluatePull(pull, options = {}) {
 	return { verdict, reasons, facts };
 }
 
-function fetchPull(number) {
+/**
+ * `gh pr diff <n>` 给的是 PR 的净 diff（base…head）。带 `--patch` 会改吐 git format-patch：
+ * 按 commit 分段，含后来被 revert 扫回的文件——2026-11-22 实测 #594：净 diff 里根本没有 `src/`，
+ * 带 --patch 时首筛照到某一笔早先提交的 `src/shared/types/session.ts`，就报 SELF_PROTECTED_PATH 阻塞。
+ * 拿到 format-patch 就必须当场失败：门禁拿一份不是净 diff 的补丁下结论，比不跑更危险。
+ */
+export function assertNetDiff(patch) {
+	if (/^From [0-9a-f]{40} .*$/m.test(patch)) throw new Error("prGate: 拿到 git format-patch（按 commit 分段），不是 PR 净 diff——gh pr diff 不能带 --patch");
+	return patch;
+}
+
+/** exec 可注入：测试要断言「拉 diff 时没带 --patch」，不真跑 gh。 */
+export function fetchPull(number, exec = execFileSync) {
 	const meta = JSON.parse(
-		execFileSync("gh", ["pr", "view", String(number), "--json", "number,title,author,additions,deletions,changedFiles,files"], {
+		exec("gh", ["pr", "view", String(number), "--json", "number,title,author,additions,deletions,changedFiles,files"], {
 			encoding: "utf8",
 			maxBuffer: 64 * 1024 * 1024,
 		}),
 	);
-	const patch = execFileSync("gh", ["pr", "diff", String(number), "--patch"], { encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
+	const patch = assertNetDiff(exec("gh", ["pr", "diff", String(number)], { encoding: "utf8", maxBuffer: 256 * 1024 * 1024 }));
 	return {
 		number: meta.number,
 		title: meta.title,

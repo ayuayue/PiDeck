@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "version": "1.0.0",
-  "bundleSha256": "74879bf40843e1ac8bdaee29c2ba4cb42f4120a4a3b0d3ce6ff711794a90de30",
-  "fileCount": 14,
+  "bundleSha256": "f88ead43f1e6cfd225fe655cea4791deeb586494798084c1ddc0ab42ed9c75ae",
+  "fileCount": 15,
   "files": [
     {
       "name": "mcp-setup/SKILL.md",
@@ -11,68 +11,73 @@
     },
     {
       "name": "pideck/references/image-gen.md",
-      "sha256": "fac43e159d5a71da31c47520d65c0143da6dd1018cc8cf8ba14556d3a6362889",
-      "bytes": 7867
+      "sha256": "3a89e9a20e5f5cfa59f8e11383020d6740c5f2285f8e88f6865257c8ec2fcc70",
+      "bytes": 8972
     },
     {
       "name": "pideck/references/pideck-doctor.md",
-      "sha256": "aa145a6d42d172fc3ea56086531183b43e23456160fcc12506e305878a8b4188",
-      "bytes": 4735
+      "sha256": "e063cfe9a3e68711ef94801fd4f17616f0b049197afe886a7fe6fa8a27f70b8f",
+      "bytes": 5846
     },
     {
       "name": "pideck/references/usage-probe.md",
-      "sha256": "9fcd418d042ee2f5d2252be7b9160175b0863526b73d50397249eaab3e802f59",
-      "bytes": 8860
+      "sha256": "d0d49713964c3635ec7c79e7e413eefa7d1c61bb3325fc605b2c44a9303578cf",
+      "bytes": 9906
     },
     {
       "name": "pideck/references/web-api/actions.md",
-      "sha256": "5e586e622e36e2e30a00254f5a8b134226093448e5207ee62c35fa1f744831a1",
-      "bytes": 6838
+      "sha256": "afbcf89f2e9afd1f345fe08f7fab8c926bd85b9afc8cd5f081b77b3371680c73",
+      "bytes": 7201
     },
     {
       "name": "pideck/references/web-api/boundaries.md",
-      "sha256": "60e0f134e342f44af1845eebab1a3d0e5d44c69d0c76373dd8a24bd91a032212",
-      "bytes": 1742
+      "sha256": "1bac6c3b88fdf09d73a7b6f7f93cf10ed18de09477f6cc26aab309d29d11b977",
+      "bytes": 2582
     },
     {
       "name": "pideck/references/web-api/collaboration.md",
-      "sha256": "f631b048e370eeb047f15bffb9807544e2f53d0a956b93f15e9aed0f2f897a6d",
-      "bytes": 20834
+      "sha256": "012bf452fb1ea2e27ccee6eb4cd3b489830f519874fe4686b8ca222e128d2225",
+      "bytes": 21326
     },
     {
       "name": "pideck/references/web-api/connect.md",
-      "sha256": "d77e5fa4d8d45e323673a29af0a8c550d05904933c56732c1f5ce1c286becb68",
-      "bytes": 8873
+      "sha256": "f0593fa1ed9c7c6f723137d059898fbc6965f4cfe82b48b041bb694c07e67b29",
+      "bytes": 4256
     },
     {
       "name": "pideck/references/web-api/endpoints.md",
-      "sha256": "3bf9c407f8962d5fe69fbd835ca7add9e1b69156ee95f2ebadc5718c6189e007",
-      "bytes": 13083
+      "sha256": "4392f9f49807dbe74bd918a2c24e51cfe813a63146f4808efeaf813f6a952013",
+      "bytes": 12471
     },
     {
       "name": "pideck/references/web-api/maintenance.md",
-      "sha256": "578a8291720fae87220ce03a36fb1f45ff4926c83b4194a9704176b8f9ab6793",
-      "bytes": 7632
+      "sha256": "f455a2284b305e3a32d2b514e200fba4d5b566bdc940d028f10f920ee38b73b0",
+      "bytes": 8120
     },
     {
       "name": "pideck/references/web-api/message.md",
-      "sha256": "f1945c6ae2e7189fdea51758be0290cae4fbcd5b502130d32a941764e224cddd",
-      "bytes": 8440
+      "sha256": "4d21820c15c3a9ea6e2372ca45a4e1e807dac94d5ec9e9e445100d8b4f8053e1",
+      "bytes": 5766
     },
     {
       "name": "pideck/references/web-api/read.md",
-      "sha256": "3540a9dacfddbe540018891dec20fa6584f4af9ee974d0932712b407cf5c9107",
-      "bytes": 3778
+      "sha256": "c3f18acb18e4f61787db34ed957be70d211ed66511e1563c42f8781802aea4f0",
+      "bytes": 4107
     },
     {
       "name": "pideck/references/web-api/restart.md",
-      "sha256": "a7f5421d47e01791f88f4080c7e9bbcecb8aa6db6e3feea21bc4f5986b81b642",
-      "bytes": 6134
+      "sha256": "e229a774e4ea55345d7d573e14646cb9f641e0adf88a8cbc2750649e265ea761",
+      "bytes": 5887
     },
     {
       "name": "pideck/SKILL.md",
-      "sha256": "44650ada3e3b61903cff03f145612197d03ebb68420cb031914932c5e5427e7a",
-      "bytes": 2988
+      "sha256": "c810a45e5cb54f3b3385d5c55e6f9fa9fb94aa9911d9d19b8519e36ce765f6b4",
+      "bytes": 3364
+    },
+    {
+      "name": "pideck/verify-dtt.mjs",
+      "sha256": "c4cab06480951db7fdde4c3b857d493e3e1ef5b4a4a6c2dbafc96cacabe6545d",
+      "bytes": 8565
     }
   ]
 }

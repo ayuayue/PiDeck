@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createRequire, syncBuiltinESMExports } from "node:module";
+import { resolve } from "node:path";
 import * as esmChildProcess from "node:child_process";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
@@ -237,6 +238,11 @@ test("runner preload 同步提前加载的 ESM spawn 和 spawnSync", () => {
 	const originalSpawnSync = childProcess.spawnSync;
 	const calls = [];
 	const sidecar = "C:\\app\\node.exe";
+	const preloadPath = resolve("src/main/dsh/runnerConsolePreload.ts").replace(/\.ts$/i, ".js");
+	const runnerEnv = {
+		PIDECK_DSH_RUNNER_NODE: sidecar,
+		NODE_OPTIONS: `--no-warnings --max-old-space-size=2048 --require="${preloadPath.replace(/\\/g, "\\\\")}"`,
+	};
 	try {
 		childProcess.spawn = (...args) => {
 			calls.push(args);
@@ -248,8 +254,15 @@ test("runner preload 同步提前加载的 ESM spawn 和 spawnSync", () => {
 		};
 		syncBuiltinESMExports();
 		loadTsCommonJs("src/main/dsh/runnerConsolePreload.ts", {
-			globals: { process: { platform: "win32", execPath: sidecar, env: { PIDECK_DSH_RUNNER_NODE: sidecar } } },
+			globals: {
+				process: {
+					platform: "win32",
+					execPath: sidecar,
+					env: runnerEnv,
+				},
+			},
 		});
+		assert.equal(runnerEnv.NODE_OPTIONS, "--no-warnings --max-old-space-size=2048", "保留其它 Node 选项，只从后代进程环境移除 PiDeck preload");
 		assert.equal(esmChildProcess.spawn, childProcess.spawn, "preload 必须同步 ESM spawn");
 		assert.equal(esmChildProcess.spawnSync, childProcess.spawnSync, "preload 必须同步 ESM spawnSync");
 		for (const spawn of [esmChildProcess.spawn, esmChildProcess.spawnSync]) spawn("C:\\app\\electron.exe", ["C:\\runtime\\runner.js"], { windowsHide: false, env: { PATH: "test" } });

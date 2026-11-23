@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { LIMITS, evaluatePull } from "../scripts/prGate.mjs";
+import { LIMITS, assertNetDiff, evaluatePull, fetchPull } from "../scripts/prGate.mjs";
 
 /**
  * 社区 PR 首筛门禁的行为测试（docs/pr-merge-gate.md §1–§2）。
@@ -362,4 +362,25 @@ test("shell:true 新增行需要人工确认", () => {
 		}),
 	);
 	assert.ok(codes(result).includes("R4_SHELL_TRUE"));
+});
+
+// 2026-11-22 实测 #594：`gh pr diff --patch` 吐的是 git format-patch（按 commit 分段），
+// 里面带着后来被 revert 扫回的 src/shared/types/session.ts，首筛照到它直接 SELF_PROTECTED_PATH
+// 阻塞——而该 PR 的净 diff 里根本没有 src/。门禁读错补丁形态，比不跑更危险。
+test("拉 diff 不带 --patch（带了会拿到按 commit 分段的 format-patch）", () => {
+	const calls = [];
+	const fakeExec = (command, args) => {
+		calls.push([command, ...args]);
+		return args.includes("--json") ? JSON.stringify({ number: 7, title: "t", author: { login: "someone" }, additions: 1, deletions: 0, changedFiles: 1, files: [{ path: "docs/x.md", additions: 1, deletions: 0 }] }) : "diff --git a/docs/x.md b/docs/x.md\n--- a/docs/x.md\n+++ b/docs/x.md\n@@\n+一行\n";
+	};
+	const got = fetchPull(7, fakeExec);
+	assert.deepEqual(calls[1], ["gh", "pr", "diff", "7"]);
+	assert.equal(got.patch.startsWith("diff --git"), true);
+});
+
+test("拿到 format-patch 当场失败，而不是照它下结论", () => {
+	const mbox = "From 87c6909fd3b018e8a7132526676f89b2660a90ae Mon Sep 17 00:00:00 2001\nSubject: [PATCH 1/7] x\n";
+	assert.throws(() => assertNetDiff(mbox), /format-patch/);
+	const net = "diff --git a/docs/x.md b/docs/x.md\n+++ b/docs/x.md\n+From 87c6909 起没有空格分段的不是抬头\n";
+	assert.equal(assertNetDiff(net), net);
 });

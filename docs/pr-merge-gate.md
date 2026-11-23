@@ -69,6 +69,8 @@ node scripts/prGate.mjs --pr <编号> --allow-protected   # 维护者本人改�
 
 ## 5. 回归复盘（只增不改，日期倒序）
 
+- **2026-11-22 · `prGate.mjs` 读的是 format-patch，不是净 diff**：`fetchPull` 调 `gh pr diff <n> --patch`，gh 2.87.3 的 `--patch` 吐 git format-patch（按 commit 分段，含后来被 revert 扫回的文件）。#594 净 diff 里没有 `src/`，首筛却因某笔早先提交的 `src/shared/types/session.ts` 报 `SELF_PROTECTED_PATH` 阻塞（30 个 diff 段 vs 真实 20 文件）。**教训**：门禁的输入形态本身就是判据——现在 `fetchPull` 不带 `--patch`，拿到 format-patch 由 `assertNetDiff` 当场失败，`tests/prGate.test.mjs` 覆盖这两件事。
+
 - **2026-11-17 · 窗口内 5 个超尺寸 PR 仍被合并**：#509（+3309/−49，46 文件）、#515（+1836/−109，40 文件）、#526（+2568/−92，9 文件）、#552（+1810/−94，27 文件）、#528（+1931，15 文件）。§2 的「>1500 行禁止自动合并」对它们全部失效——其中 #509/#515 合并后都出了同模块修复（见下两条）。**教训**：阈值没有执行点就等于没有阈值；审查回复里必须写清「本 PR 命中 SIZE_LARGE，需分片」，不能因为有测试就放行。
 - **2026-11-16 · dev 累积 350 个提交后 9 条单测红（`48c73ffd7`）**：dev-guard 刻意不跑全量单测，红只在 main CI / 合并 dev 时暴露。根因全非产品行为、而是「契约变了锚点没跟」：#546 加 `gtd:state-get`/`gtd:state-patch` 未更新统一接口快照（ipcChannels 851→853）、#560 加 `modelCallMetrics` 未更新 ACP 握手声明、#555 给 `ComposerArea` 加 import 未补模块 stub（整组 9 条 TypeError）。**教训**：改 shared 契约（IPC 通道 / 后端能力声明）或给高频 stub 的组件加 import 的 PR，必须跑对应快照测试组；「接口加了实现」不等于「契约同步了」。
 - **2026-11-15 · 直推 dev 的 `e6d7eb3ba` 把 package.json 的 dependencies 段吞进 scripts**：编辑 `test:skills` 时删掉 `},` 与 `"dependencies": {`，JSON 仍合法、`npm ci` 不报错（只是不装），`15229db5e`/`5649d8984`/`906217e77` 三笔 CI 连续红在 `ERR_MODULE_NOT_FOUND: Cannot find package 'electron-updater'`（首个撞上的受害者，不是根因），`caf7b87a8` 修。**教训**：JSON.parse 通过不是结构完整的证据；现在有 `npm run check:package-json`（ci.yml + dev-guard，§1 R7），改包清单后先跑它再分析任何运行时缺失。

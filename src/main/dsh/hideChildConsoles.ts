@@ -259,10 +259,9 @@ export function installRunnerNodeModeEnv(env: NodeJS.ProcessEnv = process.env, p
  * 幂等跳过——host env 带 preload 后，第一级 runner 的 options.env（由 host env
  * 派生）也会带上它，不能在 withRunnerPreload 里再叠一份。
  *
- * 副作用（已知、可接受）：沙箱内命令的 env 也带 NODE_OPTIONS——pwsh/cmd 等非
- * Node 程序忽略它；模型在沙箱里跑的 node 进程会加载 preload（自建隐藏控制台，
- * 行为与 runner 一致，无可见窗口）。preload 文件缺失时 node 子进程会启动失败，
- * 与第一级 runner 的既有注入共享同一前提（preload 随 out/main 分发）。
+ * 第二级 runner 启动并加载 preload 后，会移除自身 require 片段，再启动用户命令；
+ * 否则环境会泄漏给沙箱内 node.exe，而普通 Node 无法解析 app.asar 内的 preload。
+ * 原有 NODE_OPTIONS 中其它用户选项保留。
  *
  * @returns 还原函数（测试用；生产调用方不还原）。
  */

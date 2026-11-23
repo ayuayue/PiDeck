@@ -3,30 +3,37 @@ name: pideck
 description: "PiDeck 桌面端内置能力总入口：生成图片（画图/海报/头像/logo）、排查或扩展供应商用量/余额/额度、诊断 PiDeck 故障（会话起不来、pi 连不上、报错、卡顿）、用 PiDeck 本机 HTTP API 查会话状态、给别的窗口发消息、重启会话。用户提到生图、用量查询、PiDeck 出问题、多窗口/跨会话协作、用脚本或别的 agent 控制 PiDeck 时先读本技能，再按路由表只读对应的那一份参考。Use for PiDeck image generation, usage probe, diagnostics, web API."
 ---
 
-# PiDeck 内置能力（路由）
+# PiDeck 内置能力（类型版路由）
 
-本技能是入口，不是手册。正文按任务拆在 `references/` 下，**一次只读匹配的那一份**；读完再动手，不要把所有参考都读一遍。
+## 0 类型
 
-## 路由表
+`Γ ⊢ 动作 : 结果`。Γ = 匹配的那一份 reference + 本机真实状态（令牌、端口、会话 id）。
+**缺 Γ 任一项就不执行**：读不到文件 → 停下说清楚，不凭记忆补内容；拿不到令牌 → 不猜端口。
 
-| 任务 / 用户说法 | 读这一份 | 里面有什么 |
-|---|---|---|
-| 生成图片：画一张、海报、头像、logo、参考图、改图 | `references/image-gen.md` | 读 PiDeck 生图配置，调 OpenAI 兼容图片 API，把图存到项目目录 |
-| 供应商用量、余额、额度、点数；用量不显示；给某个供应商加用量查询 | `references/usage-probe.md` | 先判内置模板，再用四种弹窗模板，最后才写 usage-probes.json 探针 |
-| PiDeck 出问题：会话起不来、pi 连不上、应用报错、卡顿、闪退、模型列表空 | `references/pideck-doctor.md` | 让用户导出「问题反馈 → 环境诊断」报告，按故障模式定位 |
-| 查 PiDeck 会话状态、时间线、todo、子 agent；给别的窗口发消息、等它干完；重启或停启会话；改运行时与记录 | `references/web-api/connect.md` 起 | 先读连接与身份（§0–§2），再按其中索引读 read / message / collaboration / restart / actions / boundaries；项目、智能体、模型、用量、DSH 面板与插件、检索见 `references/web-api/endpoints.md` |
+## 1 路由（一个任务只读一行）
 
-路径都相对本 `SKILL.md` 所在目录；web-api 的节号索引写在每份文件开头。
+| 任务 | 读这一份 | 该文件的类型 |
+| --- | --- | --- |
+| 生成图片：画图、海报、头像、logo、改图 | `references/image-gen.md` | `配置 → 请求 → 文件路径` |
+| 用量、余额、额度；加用量查询 | `references/usage-probe.md` | `供应商 → 探针 → 数值` |
+| 故障：会话起不来、pi 连不上、报错、卡顿 | `references/pideck-doctor.md` | `症状 → 诊断项 → 判据` |
+| 查会话状态／发消息／等完成／重启／改运行时 | `references/web-api/connect.md` 起 | `端点 → 前置 → 请求类型 → 响应类型 → 错误` |
 
-## 规则
+`references/web-api/` 内部继续分流：`connect.md`（§0–§2 连接与身份）→ `read.md`／`message.md`／`collaboration.md`／`restart.md`／`actions.md`／`boundaries.md`；项目、智能体、模型、用量、DSH 见 `endpoints.md`。
 
-- **先定位再读**：上表命中哪一行，只读那一行的文件。`references/web-api/` 内部也继续分流（`connect.md` 顶部有索引），不要整目录读完。
-- **读不到文件就停下说清楚**：说明用户可能删了或停用了对应文件，不要凭记忆补内容，也不要猜接口形状。
-- **文档是实测记录**：写的是 2026-11 的版本；返回形状不符时以源码为准，web-api 文档里写了去哪查。
-- **用户说停用或不要用某个能力时，按用户说的做**，不要因为技能里有就执行。
-- **改这套文档**：唯一真源是 PiDeck 仓库 `resources/skills/pideck/`，改法与判据见 `references/web-api/maintenance.md` 第 11 节。
+## 2 规则（依赖类型理论：四件缺一不算规则）
 
-## 不适用
+一行一个类型。引入是能跑的命令加上它该给你的结果；消去是换第二个入口算一遍，得同一个答案；反例是一个具体输入，喂进去这句话就为假。
 
-- 改 PiDeck 源码、修 pi 本体：读项目自己的 `AGENTS.md` 与 `docs/`，不要用本技能。
-- 终端里直接跑的 pi（TUI）没有 PiDeck 的窗口与 HTTP 服务，web-api 那套不适用。
+| # | 命题 | 引入（命令 → 期望） | 消去（第二入口） | 反例 |
+| --- | --- | --- | --- | --- |
+| S1 | 一个任务只读路由表命中的那一份 | 上表命中 1 行 → `references/<那一份>` 存在 | 读完能说出「为什么别的都不用读」 | 把 `references/web-api/` 整目录读完 |
+| S2 | 读不到文件就停，不凭记忆补 | `test -f references/web-api/connect.md` → `0` | 换 Dev 通道路径再试一次，仍失败才停 | 凭记忆编一个接口形状 |
+| S3 | 文档是 2026-11 实测记录，形状不符以源码为准 | `node scripts/skills/pideck/check-doc.mjs` → `PASS` | 在 `src/main/web/*Routes.ts` 里 grep 该路由 → 命中 | 按文档硬报「接口变了」，不查源码 |
+| S4 | 用户说停用某能力就停 | 人工：用户原话为准 | 把「停用」复述一次让用户确认 | 因为技能里有就照样执行 |
+| S5 | 改文档的唯一真源是仓库 `resources/skills/pideck/` | `git log -1 -- resources/skills/pideck/` → 有提交 | 本机 magpie 副本与该文件 `cmp` 一致 | 直接改本机副本当唯一真源 |
+
+## 3 不适用
+
+- 改 PiDeck 源码、修 pi 本体：读项目自己的 `AGENTS.md` 与 `docs/`。
+- 终端里的 pi（TUI）没有窗口与 HTTP 服务，web-api 那套不适用。
