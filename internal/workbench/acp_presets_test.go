@@ -55,12 +55,13 @@ func TestACPPresetList(t *testing.T) {
 	body := `{"presets":[
 		{"id":"mine","name":"Mine","command":"mine-acp","args":["--acp"]},
 		{"id":"","name":"bad","command":"x"},
-		{"id":"claude","name":"Dup","command":"x"}
+		{"id":"claude","name":"Mine Claude","command":"my-claude","args":["--acp","--fast"],
+		 "env":{"ANTHROPIC_API_KEY":"secret","1nope":"x"},"bypassPermissions":true}
 	]}`
 	if err := os.WriteFile(filepath.Join(acpDir, "one.json"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	array := `[{"id":"other","name":"Other","command":"other-acp"}]`
+	array := `[{"id":"other","name":"Other","command":"other-acp"},{"id":"mine","name":"Later","command":"later-acp"}]`
 	if err := os.WriteFile(filepath.Join(acpDir, "two.json"), []byte(array), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -76,14 +77,49 @@ func TestACPPresetList(t *testing.T) {
 	if p, ok := byID["mine"]; !ok || p.Command != "mine-acp" || len(p.Args) != 1 {
 		t.Fatalf("custom preset = %+v", p)
 	}
+	// Two files declaring one id: the first read wins.
+	if p := byID["mine"]; p.Name != "Mine" || p.Builtin {
+		t.Fatalf("a later file replaced the first entry: %+v", p)
+	}
 	if _, ok := byID["other"]; !ok {
 		t.Fatal("a bare array file was not read")
 	}
 	if _, ok := byID[""]; ok {
 		t.Fatal("an invalid preset was kept")
 	}
-	if byID["claude"].Name == "Dup" {
-		t.Fatal("a duplicate id overrode the built-in")
+	// A file entry with a built-in's id replaces what it launches and keeps
+	// the docs and install line only the built-in knows.
+	over := byID["claude"]
+	if !over.Builtin || !over.Edited || over.Name != "Mine Claude" || over.Command != "my-claude" || len(over.Args) != 2 {
+		t.Fatalf("override = %+v", over)
+	}
+	if over.Homepage == "" || !over.Npx || !over.BypassPermissions {
+		t.Fatalf("override lost what the built-in knows: %+v", over)
+	}
+	if len(over.Env) != 1 || over.Env["ANTHROPIC_API_KEY"] != "secret" {
+		t.Fatalf("override env = %+v, want the unusable key dropped", over.Env)
+	}
+	// Untouched built-ins stay as shipped.
+	if gemini := byID["gemini"]; gemini.Edited || !gemini.Builtin {
+		t.Fatalf("gemini = %+v", gemini)
+	}
+}
+
+// TestACPPresetEnvLine checks the manager's one-line env editing.
+func TestACPPresetEnvLine(t *testing.T) {
+	text := "B=two; A=1; 1bad=x; C=three=four; EMPTY="
+	env := acpParseEnv(text)
+	if len(env) != 3 || env["A"] != "1" || env["B"] != "two" || env["C"] != "three=four" {
+		t.Fatalf("env = %+v", env)
+	}
+	if got := acpEnvText(env); got != "A=1; B=two; C=three=four" {
+		t.Fatalf("env text = %q", got)
+	}
+	if again := acpParseEnv(acpEnvText(env)); len(again) != len(env) {
+		t.Fatalf("round trip = %+v", again)
+	}
+	if env := acpParseEnv("A=line1\nB=line2"); len(env) != 2 {
+		t.Fatalf("multi-line env = %+v", env)
 	}
 }
 
@@ -121,11 +157,15 @@ func TestACPPresetManager(t *testing.T) {
 	app.WaitFor("id:acp-manage-open", 5*time.Second)
 	app.Press("id:acp-manage-open")
 	app.WaitFor("id:acp-preset-manager", 5*time.Second)
+	// Wait out the first read: the list filling in renumbers the editor's
+	// fields, and typing across that would lose keystrokes.
+	app.WaitFor("id:acp-preset-row-gemini", 5*time.Second)
+	app.Press("id:acp-preset-new")
 	app.Type("id:acp-preset-id", "mine")
 	app.Type("id:acp-preset-name", "我的 Agent")
 	app.Type("id:acp-preset-command", "my-agent")
 	app.Type("id:acp-preset-args", "--acp --fast")
-	app.Press("id:acp-preset-add")
+	app.Press("id:acp-preset-save")
 	app.WaitFor("id:acp-preset-row-mine", 5*time.Second)
 	path := filepath.Join(home, "acp", "presets.json")
 	raw, err := os.ReadFile(path)
@@ -142,6 +182,55 @@ func TestACPPresetManager(t *testing.T) {
 	if json.Unmarshal(raw, &file) != nil || len(file.Presets) != 0 {
 		t.Fatalf("after removing: %s", raw)
 	}
+}
+
+// TestACPPresetOverrideEditsBuiltin changes a built-in's launch parameters
+// and its bypass switch, then puts it back.
+func TestACPPresetOverrideEditsBuiltin(t *testing.T) {
+	if nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	home := t.TempDir()
+	t.Setenv("PIDECK_V2_HOME", home)
+	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
+	app.Press("label:设置")
+	app.Press("id:settings-tab-integrations")
+	app.WaitFor("id:acp-manage-open", 5*time.Second)
+	app.Press("id:acp-manage-open")
+	app.WaitFor("id:acp-preset-row-claude", 5*time.Second)
+	app.Press("id:acp-preset-row-claude")
+	app.Clear("id:acp-preset-args")
+	app.Type("id:acp-preset-args", "-y @agentclientprotocol/claude-agent-acp --verbose")
+	app.Type("id:acp-preset-env", "ANTHROPIC_API_KEY=secret")
+	app.Press("id:acp-preset-tab-access")
+	app.Press("id:acp-preset-bypass")
+	app.Press("id:acp-preset-tab-launch")
+	app.Press("id:acp-preset-save")
+	path := filepath.Join(home, "acp", "presets.json")
+	app.WaitUntil(10*time.Second, func() bool {
+		raw, err := os.ReadFile(path)
+		return err == nil && strings.Contains(string(raw), "--verbose")
+	})
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var file acpPresetFile
+	if json.Unmarshal(raw, &file) != nil || len(file.Presets) != 1 {
+		t.Fatalf("presets.json = %s", raw)
+	}
+	over := file.Presets[0]
+	if over.ID != "claude" || !slices.Equal(over.Args, []string{"-y", "@agentclientprotocol/claude-agent-acp", "--verbose"}) ||
+		!over.BypassPermissions || over.Env["ANTHROPIC_API_KEY"] != "secret" {
+		t.Fatalf("override = %+v", over)
+	}
+	// The list now shows it as the user's own copy, and reverting deletes it.
+	app.WaitFor("id:acp-preset-remove-claude", 10*time.Second)
+	app.Press("id:acp-preset-remove-claude")
+	app.WaitUntil(10*time.Second, func() bool {
+		raw, err := os.ReadFile(path)
+		return err == nil && !strings.Contains(string(raw), "claude")
+	})
 }
 
 // TestAcpPresetList checks the built-in presets are distinct and carry the

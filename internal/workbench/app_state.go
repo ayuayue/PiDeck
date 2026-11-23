@@ -146,18 +146,26 @@ type app struct {
 
 	// The ACP preset picker.
 	acpOpen *core.Signal[bool]
-	// The ACP preset manager.
+	// The ACP preset manager: which preset is open, which tab of its
+	// editor shows, and the editor's fields.
 	acpManageOpen  *core.Signal[bool]
-	acpNewID       *core.Signal[string]
-	acpNewName     *core.Signal[string]
-	acpNewCommand  *core.Signal[string]
-	acpNewArgs     *core.Signal[string]
+	acpPresetSel   *core.Signal[string]
+	acpPresetTab   *core.Signal[string]
+	acpEditID      *core.Signal[string]
+	acpEditName    *core.Signal[string]
+	acpEditCommand *core.Signal[string]
+	acpEditArgs    *core.Signal[string]
+	acpEditEnv     *core.Signal[string]
+	acpEditBypass  *core.Signal[bool]
 	acpManageErr   *core.Signal[string]
 	acpManager     *core.Signal[acpManagerSnapshot]
 	acpInstalling  *core.Signal[string]
 	acpManageBusy  *core.Signal[bool]
 	acpManageProbe int
-	agentOpen      *core.Signal[bool]
+	// acpManagePick picks a preset for the editor once, when the manager
+	// opens; anything the user does first wins.
+	acpManagePick bool
+	agentOpen     *core.Signal[bool]
 	// The agent manager: the list, the edit form and which agent is being
 	// edited. agentBackend picks what a new agent session runs on, and
 	// agentApply binds the picked agent to the active session instead of

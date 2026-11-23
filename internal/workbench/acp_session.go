@@ -89,7 +89,7 @@ func (a *app) startACPEngine(s *session, generation uint64, presetID, savedID, c
 		fail(apptext.T("没有这个 ACP 预设"))
 		return
 	}
-	c, err := startACP(cwd, preset.Command, preset.Args,
+	c, err := startACP(cwd, preset.Command, preset.Args, preset.envList(),
 		func(u acpUpdate) {
 			a.cx.Post(func() {
 				if s.acpGeneration == generation {
@@ -110,10 +110,12 @@ func (a *app) startACPEngine(s *session, generation uint64, presetID, savedID, c
 	}
 	sid := ""
 	modes := acpModeState{}
+	loaded := false
 	if savedID != "" {
 		if st, err := c.loadSession(savedID, cwd); err == nil {
 			sid = savedID
 			modes = st
+			loaded = true
 		}
 	}
 	if sid == "" {
@@ -124,7 +126,13 @@ func (a *app) startACPEngine(s *session, generation uint64, presetID, savedID, c
 			fail(apptext.T("ACP 建会话失败：%s", err.Error()))
 			return
 		}
-		modes = a.restoreACPChoices(c, presetID, sid, modes)
+	}
+	// The CLI only takes a permission mode at runtime, and a refused call
+	// must not block the session.
+	var notice string
+	modes, notice = a.applyACPAccess(c, *preset, sid, modes)
+	if !loaded {
+		modes = a.restoreACPChoices(c, presetID, sid, modes, acpPinnedMode(modes, *preset))
 	}
 	a.cx.Post(func() {
 		if s.acpGeneration != generation || s.backend != "acp" {
@@ -147,6 +155,9 @@ func (a *app) startACPEngine(s *session, generation uint64, presetID, savedID, c
 		s.acpOptionBusy.Set(false)
 		s.readySig.Set(true)
 		s.status.Set(statusIdle)
+		if notice != "" {
+			a.toast(ui.ToastInfo, "旁路权限", apptext.T(notice))
+		}
 		waiters := s.waiters
 		s.waiters = nil
 		for _, fn := range waiters {

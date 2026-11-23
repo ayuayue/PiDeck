@@ -9,12 +9,31 @@ import (
 	"encoding/json"
 	"os"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
 
 // TestFakeACPAgent is the fake agent when the environment names it; the
 // test binary is its own helper process.
+// fakeACPConfigTable is the option table the fake agent reports, with one
+// option replaced.
+func fakeACPConfigTable(changed string, value map[string]any) []map[string]any {
+	table := []map[string]any{
+		{"id": "mode", "name": "Mode", "category": "mode", "type": "select", "currentValue": "auto",
+			"options": []map[string]string{{"value": "auto", "name": "Auto"}, {"value": "fullAccess", "name": "Full access"}}},
+		{"id": "auto_approve", "name": "Auto approve", "type": "boolean", "currentValue": false},
+		{"id": "model", "name": "Model", "category": "model", "type": "select", "currentValue": "sonnet",
+			"options": []map[string]string{{"value": "sonnet", "name": "Sonnet"}, {"value": "opus", "name": "Opus"}}},
+	}
+	for i, option := range table {
+		if changed != "" && option["id"] == changed {
+			table[i] = value
+		}
+	}
+	return table
+}
+
 func TestFakeACPAgent(t *testing.T) {
 	if os.Getenv("PIDECK_FAKE_ACP") != "1" {
 		return
@@ -51,13 +70,52 @@ func TestFakeACPAgent(t *testing.T) {
 					"currentValue": "high", "options": []map[string]string{{"value": "low", "name": "Low"}, {"value": "high", "name": "High"}},
 				}}}})
 		case "session/new":
+			options := fakeACPConfigTable("", nil)
+			if os.Getenv("PIDECK_FAKE_ACP_BAD_OPTION") == "1" {
+				options = append(options, map[string]any{"id": "broken", "name": 42})
+			}
 			_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": msg.ID,
-				"result": map[string]any{"sessionId": "s1", "modes": map[string]any{
+				"result": map[string]any{"sessionId": "s1", "configOptions": options, "modes": map[string]any{
 					"currentModeId": "ask",
 					"availableModes": []map[string]string{
 						{"id": "ask", "name": "Ask", "description": "confirm first"},
 						{"id": "code", "name": "Code"},
 					}}}})
+		case "session/set_config_option":
+			var req struct {
+				ConfigID string          `json:"configId"`
+				Type     string          `json:"type"`
+				Value    json.RawMessage `json:"value"`
+			}
+			if json.Unmarshal(msg.Params, &req) != nil {
+				os.Exit(3)
+			}
+			text := strings.Trim(string(req.Value), `"`)
+			switch text {
+			case "true", "false":
+				// CodeBuddy validates a boolean against the declared type: a
+				// bare value is -32602, exactly what made every session fail.
+				if req.Type != "boolean" {
+					_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": msg.ID,
+						"error": map[string]any{"code": -32602, "message": "Invalid params"}})
+					continue
+				}
+			}
+			var option map[string]any
+			switch req.ConfigID {
+			case "auto_approve":
+				option = map[string]any{"id": "auto_approve", "name": "Auto approve", "type": "boolean",
+					"currentValue": text == "true"}
+			case "mode":
+				option = map[string]any{"id": "mode", "name": "Mode", "category": "mode", "type": "select",
+					"currentValue": text,
+					"options":      []map[string]string{{"value": "auto", "name": "Auto"}, {"value": "fullAccess", "name": "Full access"}}}
+			default:
+				option = map[string]any{"id": req.ConfigID, "name": req.ConfigID, "type": "select",
+					"currentValue": text}
+			}
+			_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": msg.ID,
+				"result": map[string]any{"configOptions": fakeACPConfigTable(req.ConfigID, option)}})
 		case "session/set_mode":
 			_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": msg.ID, "result": map[string]any{}})
 		case "session/prompt":
@@ -104,7 +162,7 @@ func TestFakeACPAgent(t *testing.T) {
 func TestACPDisconnectFinishesPendingPrompt(t *testing.T) {
 	t.Setenv("PIDECK_FAKE_ACP", "1")
 	t.Setenv("PIDECK_FAKE_ACP_DROP", "1")
-	c, err := startACP(t.TempDir(), os.Args[0], []string{"-test.run=^TestFakeACPAgent$"}, nil, nil, nil)
+	c, err := startACP(t.TempDir(), os.Args[0], []string{"-test.run=^TestFakeACPAgent$"}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +185,7 @@ func TestACPDisconnectFinishesPendingPrompt(t *testing.T) {
 func TestACPResumeWithAdvertisedCapability(t *testing.T) {
 	t.Setenv("PIDECK_FAKE_ACP", "1")
 	t.Setenv("PIDECK_FAKE_ACP_RESUME", "1")
-	c, err := startACP(t.TempDir(), os.Args[0], []string{"-test.run=^TestFakeACPAgent$"}, nil, nil, nil)
+	c, err := startACP(t.TempDir(), os.Args[0], []string{"-test.run=^TestFakeACPAgent$"}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +197,7 @@ func TestACPResumeWithAdvertisedCapability(t *testing.T) {
 	if err != nil || state.CurrentModeID != "resumed" {
 		t.Fatalf("resume state = %+v, %v", state, err)
 	}
-	if len(state.Options) != 1 || state.Options[0].CurrentValue != "high" ||
+	if len(state.Options) != 1 || state.Options[0].CurrentValue.text() != "high" ||
 		!slices.EqualFunc(state.Options[0].Choices(), []string{"low", "high"}, func(o acpConfigChoice, v string) bool { return o.Value == v }) {
 		t.Fatalf("resume config options = %+v", state.Options)
 	}
@@ -153,7 +211,7 @@ func TestACPClient(t *testing.T) {
 	t.Setenv("PIDECK_FAKE_ACP", "1")
 	updates := make(chan acpUpdate, 8)
 	perms := make(chan acpPermission, 1)
-	c, err := startACP(t.TempDir(), os.Args[0], []string{"-test.run=TestFakeACPAgent"},
+	c, err := startACP(t.TempDir(), os.Args[0], []string{"-test.run=TestFakeACPAgent"}, nil,
 		func(u acpUpdate) { updates <- u },
 		func(p acpPermission) string { perms <- p; return "allow" }, nil)
 	if err != nil {
@@ -243,7 +301,7 @@ func TestACPExit(t *testing.T) {
 	}
 	t.Setenv("PIDECK_FAKE_ACP", "1")
 	exits := make(chan error, 1)
-	c, err := startACP(t.TempDir(), os.Args[0], []string{"-test.run=TestFakeACPAgent"},
+	c, err := startACP(t.TempDir(), os.Args[0], []string{"-test.run=TestFakeACPAgent"}, nil,
 		func(acpUpdate) {}, nil, func(err error) { exits <- err })
 	if err != nil {
 		t.Fatal(err)

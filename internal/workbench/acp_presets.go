@@ -2,16 +2,21 @@
 
 package workbench
 
-// Custom ACP presets: the three built-ins, plus any JSON file under the
-// data folder's acp directory. A file is {"presets": [...]} or a bare
-// array, so a user can add any ACP CLI without rebuilding the app.
+// Custom ACP presets: the built-ins, plus any JSON file under the data
+// folder's acp directory. A file is {"presets": [...]} or a bare array, so
+// a user can add any ACP CLI without rebuilding the app. An entry with a
+// built-in's id overrides what that preset launches and keeps the docs and
+// install line only the built-in knows.
 
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 
 	"example.com/pideck-v2/internal/apptext"
@@ -31,24 +36,115 @@ type acpPresetStatus struct {
 type acpManagerSnapshot struct {
 	checked bool
 	npm     bool
-	custom  []acpPreset
+	presets []acpPreset
 	status  map[string]acpPresetStatus
+}
+
+// acpEnvKey and acpEnvLimit bound what a preset may put in the agent's
+// environment: a bad key would be dropped by the shell anyway, and a huge
+// value is a mistake, not a setting.
+var acpEnvKey = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+const (
+	acpEnvLimit    = 16
+	acpEnvValueMax = 2000
+)
+
+// sanitizeACPEnv keeps the entries a process can actually use.
+func sanitizeACPEnv(env map[string]string) map[string]string {
+	out := make(map[string]string, len(env))
+	for key, value := range env {
+		if len(out) >= acpEnvLimit || !acpEnvKey.MatchString(key) {
+			continue
+		}
+		value = strings.TrimRight(value, "\r\n")
+		if value == "" || len(value) > acpEnvValueMax || strings.ContainsFunc(value, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
+			continue
+		}
+		out[key] = value
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// acpNormalizePreset trims a preset read from a file and drops what cannot
+// run; the caller skips it when an id, name or command is missing.
+func acpNormalizePreset(p acpPreset) acpPreset {
+	p.ID = strings.TrimSpace(p.ID)
+	p.Name = strings.TrimSpace(p.Name)
+	p.Command = strings.TrimSpace(p.Command)
+	args := make([]string, 0, len(p.Args))
+	for _, arg := range p.Args {
+		if strings.TrimSpace(arg) != "" {
+			args = append(args, arg)
+		}
+	}
+	p.Args = args
+	p.Env = sanitizeACPEnv(p.Env)
+	p.Builtin, p.Edited = false, false
+	return p
+}
+
+// acpEnvText writes a preset's variables on one line, which is what the
+// manager's field has room for: KEY=VALUE pairs joined by ';'.
+func acpEnvText(env map[string]string) string {
+	lines := make([]string, 0, len(env))
+	for _, key := range slices.Sorted(maps.Keys(env)) {
+		lines = append(lines, key+"="+env[key])
+	}
+	return strings.Join(lines, "; ")
+}
+
+// acpParseEnv reads them back: one KEY=VALUE per line, or several on one
+// line separated by ';'. A line without '=' is ignored.
+func acpParseEnv(text string) map[string]string {
+	out := map[string]string{}
+	for _, line := range strings.FieldsFunc(text, func(r rune) bool { return r == '\n' || r == ';' }) {
+		line = strings.TrimSpace(line)
+		key, value, ok := strings.Cut(line, "=")
+		if !ok || strings.TrimSpace(key) == "" {
+			continue
+		}
+		out[strings.TrimSpace(key)] = strings.TrimLeft(value, " ")
+	}
+	return sanitizeACPEnv(out)
+}
+
+// acpBuiltinPreset finds a shipped preset by id.
+func acpBuiltinPreset(id string) *acpPreset {
+	for _, p := range acpPresets() {
+		if p.ID == id {
+			cp := p
+			return &cp
+		}
+	}
+	return nil
 }
 
 func (a *app) refreshACPManager() {
 	a.acpManageProbe++
 	probe := a.acpManageProbe
 	go func() {
-		custom := a.acpCustomPresets()
-		status := make(map[string]acpPresetStatus)
-		for _, p := range append(acpPresets(), custom...) {
+		presets := a.acpPresetList()
+		status := make(map[string]acpPresetStatus, len(presets))
+		for _, p := range presets {
 			label, ready := acpPresetState(p)
 			status[p.ID] = acpPresetStatus{label, ready}
 		}
 		_, npmErr := exec.LookPath("npm")
 		a.cx.Post(func() {
-			if probe == a.acpManageProbe {
-				a.acpManager.Set(acpManagerSnapshot{checked: true, npm: npmErr == nil, custom: custom, status: status})
+			if probe != a.acpManageProbe {
+				return
+			}
+			a.acpManager.Set(acpManagerSnapshot{checked: true, npm: npmErr == nil, presets: presets, status: status})
+			// Opened without a picked preset: show the first one.
+			if a.acpManagePick && a.acpManageOpen.GetUntracked() {
+				a.acpManagePick = false
+				if len(presets) > 0 {
+					a.editACPPreset(presets[0])
+				}
 			}
 		})
 	}()
@@ -62,42 +158,28 @@ func (a *app) acpDir() string {
 	return filepath.Join(a.st.dir, "acp")
 }
 
-// acpPresetList is the built-ins followed by the files' presets.
+// acpPresetList is the built-ins, each replaced in place by a file entry
+// with the same id, then the file's own presets.
 func (a *app) acpPresetList() []acpPreset {
 	out := acpPresets()
-	seen := map[string]bool{}
-	for _, p := range out {
-		seen[p.ID] = true
+	index := make(map[string]int, len(out))
+	for i, p := range out {
+		index[p.ID] = i
 	}
-	dir := a.acpDir()
-	if dir == "" {
-		return out
-	}
-	entries, _ := os.ReadDir(dir)
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".json") {
+	for _, p := range a.acpFilePresets() {
+		if i, ok := index[p.ID]; ok {
+			// The first entry for an id wins. A built-in is replaced by
+			// the file entry, keeping what only the built-in knows: docs,
+			// the install package and whether npx fetches the command.
+			if out[i].Builtin && !out[i].Edited {
+				p.Homepage, p.Install, p.Npx = out[i].Homepage, out[i].Install, out[i].Npx
+				p.Builtin, p.Edited = true, true
+				out[i] = p
+			}
 			continue
 		}
-		raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
-		if err != nil {
-			continue
-		}
-		var file acpPresetFile
-		if json.Unmarshal(raw, &file) != nil || len(file.Presets) == 0 {
-			if json.Unmarshal(raw, &file.Presets) != nil {
-				continue
-			}
-		}
-		for _, p := range file.Presets {
-			p.ID = strings.TrimSpace(p.ID)
-			p.Name = strings.TrimSpace(p.Name)
-			p.Command = strings.TrimSpace(p.Command)
-			if p.ID == "" || p.Name == "" || p.Command == "" || seen[p.ID] {
-				continue
-			}
-			seen[p.ID] = true
-			out = append(out, p)
-		}
+		index[p.ID] = len(out)
+		out = append(out, p)
 	}
 	return out
 }
@@ -140,12 +222,32 @@ func (a *app) acpCustomFile() string {
 	return filepath.Join(dir, "presets.json")
 }
 
-// acpCustomPresets reads the presets the manager can edit.
-func (a *app) acpCustomPresets() []acpPreset {
-	path := a.acpCustomFile()
-	if path == "" {
+// acpFilePresets reads every preset the acp directory declares, whatever
+// file it is in, in file-name order.
+func (a *app) acpFilePresets() []acpPreset {
+	dir := a.acpDir()
+	if dir == "" {
 		return nil
 	}
+	entries, _ := os.ReadDir(dir)
+	var out []acpPreset
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".json") {
+			continue
+		}
+		for _, p := range readACPPresetFile(filepath.Join(dir, e.Name())) {
+			p = acpNormalizePreset(p)
+			if p.ID == "" || p.Name == "" || p.Command == "" {
+				continue
+			}
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// readACPPresetFile reads one file: {"presets": [...]} or a bare array.
+func readACPPresetFile(path string) []acpPreset {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil
@@ -156,11 +258,18 @@ func (a *app) acpCustomPresets() []acpPreset {
 			return nil
 		}
 	}
-	out := make([]acpPreset, 0, len(file.Presets))
-	for _, p := range file.Presets {
-		p.ID = strings.TrimSpace(p.ID)
-		p.Name = strings.TrimSpace(p.Name)
-		p.Command = strings.TrimSpace(p.Command)
+	return file.Presets
+}
+
+// acpCustomPresets reads the presets the manager can edit.
+func (a *app) acpCustomPresets() []acpPreset {
+	path := a.acpCustomFile()
+	if path == "" {
+		return nil
+	}
+	var out []acpPreset
+	for _, p := range readACPPresetFile(path) {
+		p = acpNormalizePreset(p)
 		if p.ID == "" || p.Name == "" || p.Command == "" {
 			continue
 		}
@@ -169,7 +278,8 @@ func (a *app) acpCustomPresets() []acpPreset {
 	return out
 }
 
-// saveACPPresets writes the editable list.
+// saveACPPresets writes the editable list. The file can hold API keys a
+// preset passes in its environment, so it is private.
 func (a *app) saveACPPresets(list []acpPreset) error {
 	path := a.acpCustomFile()
 	if path == "" {
@@ -182,61 +292,94 @@ func (a *app) saveACPPresets(list []acpPreset) error {
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(path, data, 0o644)
+	return writeFileAtomic(path, data, 0o600)
 }
 
-// addACPPreset appends one from the manager's fields.
-func (a *app) addACPPreset() {
+// upsertACPPreset replaces a preset in the editable list, or appends it.
+func upsertACPPreset(list []acpPreset, preset acpPreset) []acpPreset {
+	for i := range list {
+		if list[i].ID == preset.ID {
+			list[i] = preset
+			return list
+		}
+	}
+	return append(list, preset)
+}
+
+// editACPPreset loads one preset into the manager's fields.
+func (a *app) editACPPreset(preset acpPreset) {
+	a.acpManagePick = false
+	a.acpPresetSel.Set(preset.ID)
+	a.acpEditID.Set(preset.ID)
+	a.acpEditName.Set(preset.Name)
+	a.acpEditCommand.Set(preset.Command)
+	a.acpEditArgs.Set(strings.Join(preset.Args, " "))
+	a.acpEditEnv.Set(acpEnvText(preset.Env))
+	a.acpEditBypass.Set(preset.BypassPermissions)
+	a.acpManageErr.Set("")
+}
+
+// newACPPreset empties the fields for a preset the user writes from scratch.
+func (a *app) newACPPreset() {
+	a.acpManagePick = false
+	a.acpPresetSel.Set("")
+	a.acpEditID.Set("")
+	a.acpEditName.Set("")
+	a.acpEditCommand.Set("")
+	a.acpEditArgs.Set("")
+	a.acpEditEnv.Set("")
+	a.acpEditBypass.Set(false)
+	a.acpManageErr.Set("")
+	a.acpPresetTab.Set("launch")
+}
+
+// saveACPPresetEdit writes the fields as one preset: a new id appends, an
+// existing one — a built-in included — replaces it.
+func (a *app) saveACPPresetEdit() {
 	if a.acpManageBusy.GetUntracked() {
 		return
 	}
-	id := strings.TrimSpace(a.acpNewID.GetUntracked())
-	name := strings.TrimSpace(a.acpNewName.GetUntracked())
-	command := strings.TrimSpace(a.acpNewCommand.GetUntracked())
-	args := strings.Fields(a.acpNewArgs.GetUntracked())
+	preset := acpPreset{
+		ID:                strings.TrimSpace(a.acpEditID.GetUntracked()),
+		Name:              strings.TrimSpace(a.acpEditName.GetUntracked()),
+		Command:           strings.TrimSpace(a.acpEditCommand.GetUntracked()),
+		Args:              strings.Fields(a.acpEditArgs.GetUntracked()),
+		Env:               acpParseEnv(a.acpEditEnv.GetUntracked()),
+		BypassPermissions: a.acpEditBypass.GetUntracked(),
+	}
 	switch {
-	case id == "" || name == "" || command == "":
+	case preset.ID == "" || preset.Name == "" || preset.Command == "":
 		a.acpManageErr.Set(apptext.T("id、名称和命令都要填。"))
 		return
-	case !marketID.MatchString(id):
+	case !marketID.MatchString(preset.ID):
 		a.acpManageErr.Set(apptext.T("id 只能包含字母、数字、点、下划线和短横线。"))
 		return
 	}
 	a.acpManageBusy.Set(true)
 	a.acpManageErr.Set("")
 	go func() {
-		var err error
-		for _, p := range a.acpPresetList() {
-			if p.ID == id {
-				err = fmt.Errorf("%s", apptext.T("已经有这个 id 的预设。"))
-				break
-			}
-		}
-		if err == nil {
-			list := append(a.acpCustomPresets(), acpPreset{ID: id, Name: name, Command: command, Args: args})
-			err = a.saveACPPresets(list)
-		}
+		list := upsertACPPreset(a.acpCustomPresets(), preset)
+		err := a.saveACPPresets(list)
 		a.cx.Post(func() {
 			a.acpManageBusy.Set(false)
 			if err != nil {
 				a.acpManageErr.Set(err.Error())
 				return
 			}
-			a.acpNewID.Set("")
-			a.acpNewName.Set("")
-			a.acpNewCommand.Set("")
-			a.acpNewArgs.Set("")
+			a.acpPresetSel.Set(preset.ID)
 			a.refreshACPManager()
-			a.toast(ui.ToastSuccess, "已添加 ACP 预设", name)
+			a.toast(ui.ToastSuccess, "已保存 ACP 预设", preset.Name)
 		})
 	}()
 }
 
-// removeACPPreset deletes one editable preset.
+// removeACPPreset drops the user's entry: a custom preset goes away, a
+// built-in returns to what it ships with.
 func (a *app) removeACPPreset(id string) {
 	if a.acpManageBusy.GetUntracked() {
 		return
 	}
+	builtin := acpBuiltinPreset(id) != nil
 	a.acpManageBusy.Set(true)
 	go func() {
 		var out []acpPreset
@@ -252,8 +395,16 @@ func (a *app) removeACPPreset(id string) {
 				a.toast(ui.ToastError, "删除预设失败", err.Error())
 				return
 			}
+			if builtin {
+				if p := acpBuiltinPreset(id); p != nil {
+					a.editACPPreset(*p)
+				}
+				a.toast(ui.ToastInfo, "已恢复默认", id)
+			} else {
+				a.newACPPreset()
+				a.toast(ui.ToastInfo, "已删除预设", id)
+			}
 			a.refreshACPManager()
-			a.toast(ui.ToastInfo, "已删除预设", id)
 		})
 	}()
 }

@@ -107,6 +107,8 @@ var settingsIndex = []settingEntry{
 	{"integrations", "自定义预设", "acp preset custom"},
 	{"integrations", "ACP 无输出超时", "acp watchdog timeout 卡住 无输出 看门狗"},
 	{"integrations", "管理预设", "acp preset manage add remove"},
+	{"integrations", "预设启动参数", "acp preset command args env environment 环境变量"},
+	{"integrations", "旁路权限", "acp preset bypass permissions approval 权限"},
 	{"integrations", "定时任务", "cron schedule automation task 定时 调度"},
 	{"integrations", "智能体", "agent persona prompt 智能体"},
 	{"integrations", "收藏夹", "favorite saved reply session 收藏"},
