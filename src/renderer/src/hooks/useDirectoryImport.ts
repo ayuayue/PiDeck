@@ -159,8 +159,10 @@ export function useDirectoryImport(input: UseDirectoryImportInput): UseDirectory
 		await scan(project, directory, false);
 	}, [project, directory, scan]);
 
-	// 过滤只影响展示与「全选」范围：隐藏的行不参与导入。
 	const visible = useMemo(() => (onlyMissingCwd ? sessions.filter((session) => !session.projectPathExists) : sessions), [sessions, onlyMissingCwd]);
+	const visiblePaths = useMemo(() => new Set(visible.map((session) => session.sourcePath)), [visible]);
+	// 保留原始勾选，关闭目录筛选时可以恢复。按钮与提交只使用当前可导入的勾选项。
+	const selectedPaths = useMemo(() => (loading ? [] : selected.filter((path) => visiblePaths.has(path))), [loading, selected, visiblePaths]);
 
 	const toggle = useCallback((sourcePath: string) => {
 		setSelected((current) => (current.includes(sourcePath) ? current.filter((item) => item !== sourcePath) : [...current, sourcePath]));
@@ -168,18 +170,18 @@ export function useDirectoryImport(input: UseDirectoryImportInput): UseDirectory
 
 	const toggleAll = useCallback(
 		(sourcePaths?: string[]) => {
-			const targets = sourcePaths ?? visible.map((session) => session.sourcePath);
+			const targets = sourcePaths ?? [...visiblePaths];
 			setSelected((current) => toggleSelectedPaths(current, targets));
 		},
-		[visible],
+		[visiblePaths],
 	);
 
 	const importSelected = useCallback(async () => {
-		if (!project || !directory || selected.length === 0) return null;
+		if (!project || !directory || selectedPaths.length === 0) return null;
 		setImporting(true);
 		setReport(null);
 		try {
-			const next = await desktopApi.directorySessions.import(project.id, directory, selected);
+			const next = await desktopApi.directorySessions.import(project.id, directory, selectedPaths);
 			setReport(next);
 			// 导入改变的是 catalog 归属：重扫 + 重拉项目会话，行状态（已入册）立即同步。
 			await scan(project, directory, false);
@@ -202,7 +204,7 @@ export function useDirectoryImport(input: UseDirectoryImportInput): UseDirectory
 		} finally {
 			setImporting(false);
 		}
-	}, [project, directory, selected, scan, refreshProjectSessions, showToast]);
+	}, [project, directory, selectedPaths, scan, refreshProjectSessions, showToast]);
 
 	const open = useCallback(
 		(next: Project) => {
@@ -223,7 +225,7 @@ export function useDirectoryImport(input: UseDirectoryImportInput): UseDirectory
 	const controller = useMemo<DirectoryImportController>(
 		() => ({
 			sessions: visible,
-			selectedPaths: selected,
+			selectedPaths,
 			loading,
 			importing,
 			report,
@@ -243,7 +245,7 @@ export function useDirectoryImport(input: UseDirectoryImportInput): UseDirectory
 			toggleAll,
 			importSelected,
 		}),
-		[visible, sessions.length, selected, loading, importing, report, directory, scanKind, sources, sourcesLoading, onlyMissingCwd, chooseDirectory, chooseSourceDir, clearDirectory, refresh, loadSources, toggle, toggleAll, importSelected],
+		[visible, sessions.length, selectedPaths, loading, importing, report, directory, scanKind, sources, sourcesLoading, onlyMissingCwd, chooseDirectory, chooseSourceDir, clearDirectory, refresh, loadSources, toggle, toggleAll, importSelected],
 	);
 
 	return { project, setProject, controller, open };
