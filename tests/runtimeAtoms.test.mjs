@@ -412,3 +412,24 @@ test("dropSessionRuntimesAtom 收敛已删会话残留的运行态与运行时 U
 		"侧栏 agent 清单只剩真实存在的会话",
 	);
 });
+
+test("agent 清单不把「已归并的旧会话 ID」当成独立一行（同一会话两行的根因）", () => {
+	// 现场（用户反馈）：关联子会话在父会话下面嵌套显示一个，父会话同级又显示一个。
+	// 判据：运行时表里残留了 catalog 已吸收的旧 ID（mergedSessionIds），它与存活 ID 指向同
+	// 一个会话文件。agent 清单按「runtime 的每个 key 一行」构建，于是同一会话被画成两行。
+	// 主进程已按 catalog 别名归一化；这里守住渲染层不再复现同一形状。
+	const store = createStore();
+	store.set(atoms.replaceProjectSessionsAtom, {
+		projectId: "project-a",
+		sessions: [{ ...session("session-alive", "project-a", "补登录页单测"), mergedSessionIds: ["session-stale"] }],
+	});
+	// 旧 ID 的运行时条目（归并发生在绑定之后，事件流仍以旧 ID 写进来）。
+	store.set(atoms.replaceSessionRuntimesAtom, [runtime("session-stale", "agent-stale", "project-a")]);
+
+	const agents = [...store.get(atoms.agentInventoryAtom)];
+	assert.deepEqual(
+		agents.map((agent) => agent.id),
+		[],
+		"旧 ID 不是现存会话，不能单独占一行 agent",
+	);
+});

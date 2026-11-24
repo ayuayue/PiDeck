@@ -49,6 +49,7 @@ export type { RemoteSessionMessageMutationResolver, SessionAgentGateway, Session
 import { type AppliedSessionPreferences, SessionRuntimePreferences, snapshotPreferences } from "./runtime/sessionRuntimePreferences";
 import { RemoteMessageMutation } from "./runtime/remoteMessageMutation";
 import { RuntimeBinding } from "./runtime/runtimeBinding";
+import { buildRuntimeInfo } from "./runtime/runtimeInfo";
 import { SessionRuntimeCommandError } from "./runtime/sessionRuntimeCommandError";
 
 type DeliveryCacheEntry = {
@@ -376,12 +377,19 @@ export class SessionRuntimeCoordinator {
 		return projectLocator?.kind === "ssh" ? projectLocator.hostId : undefined;
 	}
 
+	/** 运行时快照：同一会话一条（会话 ID 按 catalog 别名归一化，终态条目跳过、不触发解绑）。 */
 	listRuntimes(): SessionRuntimeInfo[] {
 		const result: SessionRuntimeInfo[] = [];
-		for (const [sessionId, agentId] of this.agentIdBySession) {
+		const seen = new Set<string>();
+		for (const [rawSessionId, agentId] of this.agentIdBySession) {
+			const sessionId = this.canonicalSessionId(rawSessionId);
+			if (seen.has(sessionId)) continue;
 			const tab = this.agents.list().find((candidate) => candidate.id === agentId);
 			if (!tab || isTerminalAgent(tab)) continue;
-			result.push(this.runtimeInfo(sessionId, tab));
+			const binding = this.getRuntimeBinding(agentId);
+			if (!binding || binding.sessionId !== sessionId) continue;
+			seen.add(sessionId);
+			result.push(buildRuntimeInfo({ sessionId, agentId, runtimeGeneration: binding.runtimeGeneration }, tab));
 		}
 		return result.sort((left, right) => right.createdAt - left.createdAt);
 	}
@@ -1137,8 +1145,16 @@ export class SessionRuntimeCoordinator {
 		return this.bindings.currentRuntimeGeneration(sessionId);
 	}
 
+	/**
+	 * 运行实例 → 它当前归属的会话 ID；已按 catalog 别名归一化。
+	 * 归并（草稿条目被带会话文件的那条吸收）发生在绑定之后，不归一化就会让旧 ID 与存活 ID
+	 * 各占一行（事件信封 / detach / 运行时快照共用这个出口）。
+	 */
 	getRuntimeBinding(agentId: string): { sessionId: string; runtimeGeneration: number } | undefined {
-		return this.bindings.getRuntimeBinding(agentId);
+		const binding = this.bindings.getRuntimeBinding(agentId);
+		if (!binding) return undefined;
+		const sessionId = this.canonicalSessionId(binding.sessionId);
+		return sessionId === binding.sessionId ? binding : { ...binding, sessionId };
 	}
 
 	async replaceBoundRuntime<T extends { cancelled?: boolean }>(input: {
@@ -1917,23 +1933,7 @@ export class SessionRuntimeCoordinator {
 		if (!target || target.agentId !== tab.id) {
 			throw new SessionRuntimeCommandError("SESSION_RUNTIME_CHANGED", "Session runtime binding changed while building runtime state");
 		}
-		return {
-			...target,
-			projectId: tab.projectId,
-			cwd: tab.cwd,
-			status: tab.status,
-			sessionPath: tab.sessionPath,
-			createdAt: tab.createdAt,
-			compactionCount: tab.compactionCount,
-			noSession: tab.noSession,
-			// 远端 trust 现状随 runtime 快照一起给：渲染层重载/首次渲染就能显示提示，不用等下一条
-			// `agents:state`（那条推送只在该会话发生状态变化时才来）。本机会话不带该字段。
-			...(tab.remoteTrustUnhandled === true ? { remoteTrustUnhandled: true } : {}),
-			// 远端注入面同样随 runtime 快照下发：重载后 UI 的能力门不能退化成“应该能”。
-			...(tab.remoteExtensions === undefined ? {} : { remoteExtensions: tab.remoteExtensions }),
-			// PiDeck 会话身份透传：渲染层侧栏 ACP「agent↔会话」配对依赖它（见 SessionRuntimeInfo.deckSessionId）。
-			deckSessionId: tab.deckSessionId,
-		};
+		return buildRuntimeInfo(target, tab);
 	}
 
 	private requireTarget(target: SessionRuntimeTarget): SessionRuntimeBinding {

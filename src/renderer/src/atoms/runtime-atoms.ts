@@ -1,9 +1,33 @@
 import { atom } from "jotai";
 import { atomFamily, selectAtom } from "jotai/utils";
-import type { AgentRuntimeState, AgentStatus, AgentTab } from "../../../shared/types";
+import type { AgentRuntimeState, AgentStatus, AgentTab, SessionRecord } from "../../../shared/types";
+import { buildSessionIdAliasMap } from "../../../shared/sessionIdAliases";
 import { sessionRecordsAtom, sessionRuntimeByIdAtom, type SessionRuntimeViewState } from "./session-atoms";
 import { sessionIdByRuntimeAgentIdAtomFamily } from "./session-selectors";
 import { sessionDisplayName } from "../utils/sessionDisplayName";
+
+/**
+ * 运行时条目能不能占一行 agent。
+ *
+ * `agentInventorySourceAtom` 按「运行时表的每个 key 一行」构建：key 是会话 ID，只要它还在表里
+ * 就会被画成一行。而运行时表是**事件流累积**的，catalog 归并（草稿条目被带会话文件的那条吸收）
+ * 之后旧 ID 仍可能留在表里，与存活 ID 指向同一个会话文件 —— 同一会话被画成两行（用户反馈：
+ * 关联子会话在父会话下面嵌套一个、父会话同级又一个）。
+ *
+ * 判据（缺一不可）：
+ * - 会话记录还在：正常会话必须能在 catalog 里找到（现存的、可打开的会话）；
+ * - 无会话记录的条目必须自证身份：匿名会话（`noSession`）与刚创建、catalog 重拉还没到的
+ *   草稿（`runtime.noSession`）本来就没有目录记录，不能一刀切掉，否则新建会话会闪一下。
+ * 已被归并的旧 ID 两个条件都不满足（records 里没有它，也不是匿名会话）——它们是同一会话的
+ * 历史身份，不能各占一行。
+ */
+export function runtimeEntryOwnsRow(input: { sessionId: string; runtime: { noSession?: boolean }; records: Readonly<Record<string, SessionRecord>>; aliases: ReadonlyMap<string, string> }): boolean {
+	if (input.records[input.sessionId]) return true;
+	// 旧 ID 已被 catalog 吸收：它的身份属于存活条目，这里不能再给它一行。
+	if (input.aliases.has(input.sessionId)) return false;
+	// 无目录记录但自证是匿名会话 / 尚未登记的草稿：新建会话的短暂窗口，必须保留。
+	return input.runtime.noSession === true;
+}
 
 function areAgentTabsEqual(left: AgentTab[], right: AgentTab[]): boolean {
 	if (left === right) return true;
@@ -69,7 +93,9 @@ const agentInventorySourceAtom = atom((get) => {
 	if (inventoryCache && inventoryCache.runtimes === runtimes && inventoryCache.records === records) {
 		return inventoryCache.tabs;
 	}
+	const aliases = buildSessionIdAliasMap(Object.values(records));
 	const tabs = Object.entries(runtimes)
+		.filter(([sessionId, runtime]) => runtimeEntryOwnsRow({ sessionId, runtime, records, aliases }))
 		.filter(
 			(
 				entry,
