@@ -2,16 +2,11 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
-import { createRequire } from "node:module";
 import { execFileSync } from "node:child_process";
-import { after, before, describe, test } from "node:test";
+import { after, describe, test } from "node:test";
+import { listGitRepos, resolveGitCwd, isPathInsideProject } from "../src/main/git/gitRepoScope.ts";
 
-const require = createRequire(import.meta.url);
-const buildDir = mkdtempSync(join(tmpdir(), "pideck-git-repo-scope-build-"));
 const fixtureRoot = mkdtempSync(join(tmpdir(), "pideck-git-repo-scope-"));
-let listGitRepos;
-let resolveGitCwd;
-let isPathInsideProject;
 
 function git(cwd, ...args) {
 	return execFileSync("git", args, {
@@ -21,13 +16,7 @@ function git(cwd, ...args) {
 	}).trim();
 }
 
-before(() => {
-	execFileSync(process.execPath, [resolve("node_modules/typescript/bin/tsc"), "src/main/git/gitRepoScope.ts", "src/shared/types.ts", "--module", "commonjs", "--target", "es2022", "--moduleResolution", "node", "--esModuleInterop", "--skipLibCheck", "--outDir", buildDir], { cwd: resolve("."), stdio: "pipe" });
-	({ listGitRepos, resolveGitCwd, isPathInsideProject } = require(join(buildDir, "main/git/gitRepoScope.js")));
-});
-
 after(() => {
-	rmSync(buildDir, { recursive: true, force: true });
 	rmSync(fixtureRoot, { recursive: true, force: true });
 });
 
@@ -86,6 +75,43 @@ describe("listGitRepos", () => {
 			["", "packages/api", "packages/web"],
 		);
 		assert.ok(!repos.some((repo) => repo.relativePath.includes("node_modules")));
+	});
+
+	test("prunes ignored repository trees and keeps explicitly included siblings", async () => {
+		const project = join(fixtureRoot, "ignored");
+		for (const name of ["", "third party/lib", "packages/keep", "packages/drop"]) {
+			const dir = join(project, name);
+			mkdirSync(dir, { recursive: true });
+			git(dir, "init", "-q");
+		}
+		writeFileSync(join(project, ".gitignore"), "/third party/\n");
+		writeFileSync(join(project, "packages", ".gitignore"), "*/\n!keep/\n");
+
+		const repos = await listGitRepos(project);
+		assert.deepEqual(
+			repos.map((repo) => repo.relativePath),
+			["", "packages/keep"],
+		);
+	});
+
+	test("uses each nested worktree's rules and keeps tracked submodules", async () => {
+		const project = join(fixtureRoot, "plain-container");
+		const outer = join(project, "outer");
+		for (const dir of [outer, join(outer, "module"), join(outer, "module", "generated"), join(outer, "module", "app")]) {
+			mkdirSync(dir, { recursive: true });
+			git(dir, "init", "-q");
+		}
+		// A tracked gitlink stays visible even if a later ignore rule matches its name.
+		git(join(outer, "module"), "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "init");
+		git(outer, "add", "--", "module");
+		writeFileSync(join(outer, ".gitignore"), "module/\n");
+		writeFileSync(join(outer, "module", ".gitignore"), "generated/\n");
+
+		const repos = await listGitRepos(project);
+		assert.deepEqual(
+			repos.map((repo) => repo.relativePath),
+			["outer", "outer/module", "outer/module/app"],
+		);
 	});
 
 	test("returns empty when the project has no git metadata", async () => {
