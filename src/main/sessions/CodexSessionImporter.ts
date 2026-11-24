@@ -4,6 +4,7 @@ import { mkdir, open, readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { CodexImportReport, CodexImportResult, CodexImportStatus, CodexSessionSummary } from "../../shared/types";
 import { getCodexSessionThreadInfo } from "../../shared/codexSessionMeta";
+import { mountedDriveToWindowsPath, parseWslUncPath } from "../wsl/WslPaths";
 import { defaultSessionImportCopy, type SessionImportCopy } from "./SessionImportCopy";
 import { assertSourceWithinRoot } from "./importPathGuard";
 import { readJsonlObjects, renameWithRetry } from "./sessionSourceHead";
@@ -1127,9 +1128,14 @@ export class CodexSessionImporter {
 	}
 
 	private normalize(path?: string) {
-		return String(path ?? "")
-			.replace(/\\/g, "/")
-			.replace(/\/+$/, "")
-			.toLowerCase();
+		const cwd = String(path ?? "");
+		const wsl = parseWslUncPath(cwd);
+		if (wsl && mountedDriveToWindowsPath(wsl.linuxPath) === null) {
+			return `//wsl.localhost/${wsl.distro.toLowerCase()}${wsl.linuxPath}`;
+		}
+		// cwd 可能来自另一平台。仅 Windows 盘符和共享路径忽略大小写，POSIX 目录名按原样比较。
+		const windowsPath = /^[a-z]:[\\/]/i.test(cwd) || /^[\\/]{2}[^\\/]+[\\/][^\\/]+/.test(cwd);
+		const normalized = windowsPath ? cwd.replace(/\\/g, "/").toLowerCase() : cwd;
+		return normalized.replace(/\/+$/, "");
 	}
 }
