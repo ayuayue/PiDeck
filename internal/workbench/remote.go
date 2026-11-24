@@ -23,7 +23,6 @@ import (
 
 const (
 	defaultRemotePort = 8787
-	pideckVersion     = "0.2.0"
 )
 
 // remoteLANAddress is one address the phone can reach this machine at.
