@@ -1,0 +1,23 @@
+{
+  "types": {
+    "feat": { "title": "🚀 新能力" },
+    "fix": { "title": "🐞 修复" },
+    "perf": { "title": "🏎 性能" },
+    "refactor": { "title": "🔨 重构" },
+    "docs": { "title": "📖 文档" },
+    "build": { "title": "📦 构建" },
+    "ci": { "title": "🤖 流水线" },
+    "test": { "title": "🧪 测试" },
+    "style": { "title": "🎨 格式" },
+    "revert": { "title": "⏪ 回退" },
+    "chore": { "title": "🧹 杂务" }
+  },
+  "titles": {
+    "breakingChanges": "🚨 破坏性改动"
+  },
+  "contributors": false,
+  "emoji": true,
+  "capitalize": false,
+  "group": true,
+  "tag": "v%s"
+}

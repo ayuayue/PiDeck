@@ -81,8 +81,11 @@
 ### 3.4 收尾
 
 - `gofmt -w` 改过的文件；`git diff --check` 通过。
-- 提交信息沿用 `<领域>: <中文一句话>`（如 `导入：…`、`fix: …`），一个提交只装一个可独立验证、
-  可回滚的单元。
+- 提交信息用 Conventional Commits：`<type>(<scope>): <中文一句话>`。`type` 取 `feat` / `fix` / `perf` /
+  `refactor` / `docs` / `test` / `build` / `ci` / `chore` / `style` / `revert`；`scope` 用稳定的英文领域名
+  （`workbench` / `client` / `remote` / `apptext` / `import` / `ci` / `deps`），跨领域时省略；破坏性改动在
+  `type` 后加 `!` 并在正文写 `BREAKING CHANGE:`。一个提交只装一个可独立验证、可回滚的单元。
+- 更新日志由这套前缀生成（`npx changelogithub`，见 `CONTRIBUTING.md`）：写成别的格式就等于从日志里消失。
 - 检查 `git status`：不暂存、不提交、不清理与本任务无关的改动；并行改动原样保留。
 - 用户可见行为、公共契约、配置语义、部署方式变化时，同步 README / `docs/ROADMAP.md`。
 - 删除本任务的临时脚本与探针文件；保留的验证证据在总结里写明路径与用途。

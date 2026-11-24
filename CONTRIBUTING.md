@@ -43,6 +43,36 @@ The app's own tools ride along: `pideck_state` reads the open session, the page 
 
 Two cautions. It drives the app with real data: a real `~/.pi`, real projects, and a real pi process that spends tokens if a step sends a prompt — drive UI-only flows, or point `PIDECK_V2_HOME` at a scratch folder. And saving a Go file reloads the app, which invalidates every `view:` reference the snapshot printed.
 
+## Commits
+
+Use [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/): `<type>(<scope>): <一句话>`.
+The type is what puts a change into the generated changelog; a subject without one is invisible there.
+
+| type | 用于 |
+| --- | --- |
+| `feat` | 用户可见的新能力 |
+| `fix` | 修好的缺陷 |
+| `perf` | 更快或更省 |
+| `refactor` | 不改行为的重写 |
+| `docs` | README、docs 与注释 |
+| `test` | 只动测试 |
+| `build` / `ci` | 构建、依赖、流水线 |
+| `chore` | 其余杂务 |
+| `style` | 只动格式 |
+
+Scope is a stable English area name (`workbench`, `client`, `remote`, `apptext`, `import`, `ci`, `deps`,
+`docs`); drop it when a change spans areas. Mark a breaking change with `!` after the type and explain it in
+a `BREAKING CHANGE:` footer. One commit holds one verifiable, revertable unit.
+
+Generate the changelog from those prefixes:
+
+```sh
+npx changelogithub --output CHANGELOG.md   # needs a logged-in `gh` or GITHUB_TOKEN
+```
+
+`changelogithub.config.json` decides which types reach the output and how the sections are titled. The command
+only writes a file: it creates no tag and no release.
+
 ## Structure rules
 
 Put bootstrap in the module root and application logic in `internal/`. Keep `client` and `workbench` independent. Shared code goes into a small package with a specific purpose. Add an import rule to `internal/architecture/structure_test.go` and the matching table in `ARCHITECTURE.md` for a new package.
