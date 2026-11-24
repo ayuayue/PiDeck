@@ -625,6 +625,9 @@ func newApp(cx *core.Scope) *app {
 	a.startAnnouncements()
 	a.startModelCatalogRefresh()
 	a.startTelemetry()
+	// Nothing in a release build: automation tools exist in nsgo dev
+	// -automation and in tests, where an agent drives the real app.
+	a.registerAutomationTools()
 	// Where the app draws the window's buttons, the platform's are hidden.
 	hideSystemWindowControls(cx)
 	return a

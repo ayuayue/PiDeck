@@ -76,6 +76,7 @@
 - 不需要按平台验证时不要跑 `-target` 矩阵。
 - 声称"修好了""通过了"之前，只跑能直接证明该声明的最窄验证。
 - 同一工作区内的 NSGo build/check/test 必须串行；Windows 构建会在模块根临时写入并删除 `.syso`，并发会互相干扰。不同 CI job 或不同 worktree 可并行。
+- 需要像人一样看/点真实界面时，用 `go tool nsgo dev -automation` + 智能体侧的 `go tool nsgo mcp`（见 `CONTRIBUTING.md`），只用它跑 UI 流程，不拿它做 CI 门禁。
 
 ### 3.4 收尾
 

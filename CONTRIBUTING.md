@@ -25,6 +25,24 @@ Before handing off a change:
 5. Build Web when changing client code and at least one desktop target when changing desktop code.
 6. Run `git diff --check`.
 
+## Driving the real app (optional)
+
+NSGo 0.3.0 ships an automation server: an agent can press, type, scroll, screenshot and read the running app's windows the way a user would. It is a development tool, not part of the product.
+
+```sh
+# terminal A: the app, with automation on
+go tool nsgo dev -automation
+
+# terminal B or your agent: the MCP server that drives it
+pi mcp add nsgo -- go tool nsgo mcp     # claude mcp add nsgo -- go tool nsgo mcp
+```
+
+`go tool nsgo mcp` uses the `dev -automation` session running in this directory, or starts one with the same flags and stops it when the client leaves. Only automation builds carry it, and only tools on this machine holding `.nsgo/automation.yaml` can connect.
+
+The app's own tools ride along: `pideck_state` reads the open session, the page and the counts; `pideck_open_page` opens a workbench page; `pideck_seed_turns` fills a transcript without asking pi. They are registered in `internal/workbench/automation_tools.go` and are a no-op in release builds, so a test can call the same handlers through `automation.Call` instead of pressing its way to a state.
+
+Two cautions. It drives the app with real data: a real `~/.pi`, real projects, and a real pi process that spends tokens if a step sends a prompt — drive UI-only flows, or point `PIDECK_V2_HOME` at a scratch folder. And saving a Go file reloads the app, which invalidates every `view:` reference the snapshot printed.
+
 ## Structure rules
 
 Put bootstrap in the module root and application logic in `internal/`. Keep `client` and `workbench` independent. Shared code goes into a small package with a specific purpose. Add an import rule to `internal/architecture/structure_test.go` and the matching table in `ARCHITECTURE.md` for a new package.
