@@ -23,7 +23,8 @@ import (
 	"example.com/pideck-v2/internal/relaywire"
 	"example.com/pideck-v2/internal/remotewire"
 	"example.com/pideck-v2/internal/viewkit"
-	"github.com/liyue201/goqr"
+	"github.com/makiuchi-d/gozxing"
+	"github.com/makiuchi-d/gozxing/qrcode"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -288,6 +289,9 @@ func (a *mobileApp) scanQRPhoto() {
 	})
 }
 
+// noQRCode is what a picture without a readable code says.
+var noQRCode = errors.New("没有二维码")
+
 // decodeQRLink reads the first QR code in a JPEG or PNG.
 func decodeQRLink(data []byte) (string, error) {
 	if len(data) > maxScanImageBytes {
@@ -304,16 +308,22 @@ func decodeQRLink(data []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	codes, err := goqr.Recognize(img)
+	bitmap, err := gozxing.NewBinaryBitmapFromImage(img)
 	if err != nil {
 		return "", err
 	}
-	for _, code := range codes {
-		if len(code.Payload) > 0 {
-			return string(code.Payload), nil
-		}
+	// TRY_HARDER is a phone photo of a screen at an angle: it costs the
+	// cheap passes nothing and is what finds the code in a poor capture.
+	read, err := qrcode.NewQRCodeReader().Decode(bitmap, map[gozxing.DecodeHintType]interface{}{
+		gozxing.DecodeHintType_TRY_HARDER: true,
+	})
+	if err != nil {
+		return "", noQRCode
 	}
-	return "", errors.New("没有二维码")
+	if read == nil || read.GetText() == "" {
+		return "", noQRCode
+	}
+	return read.GetText(), nil
 }
 
 // connect opens the saved or entered server.
@@ -474,8 +484,11 @@ func (a *mobileApp) startPolling() {
 		if a.active.GetUntracked() != "" {
 			a.refreshTranscript()
 			// The model line fills in once pi is up, without opening the
-			// sheet.
-			if a.optionsOpen.GetUntracked() || a.options.GetUntracked().Model == "" {
+			// sheet. Once the desktop has answered with a ready session there
+			// is nothing left to wait for: every user action that changes a
+			// choice reads the options itself, so a sheet left open is not
+			// rebuilt under the reader twice a second.
+			if a.options.GetUntracked().Model == "" {
 				a.loadOptions(a.active.GetUntracked())
 			}
 		}

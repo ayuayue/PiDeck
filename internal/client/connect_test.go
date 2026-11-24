@@ -363,9 +363,7 @@ func TestMobilePhotoScanFallback(t *testing.T) {
 	}}}
 	server := newTestHTTPServer(t, token, state, remotewire.Transcript{ID: "s1"})
 	defer server.Close()
-	// goqr confuses digits in the loopback IPv4 host; localhost is still
-	// served by httptest and keeps this fallback test about scanning.
-	link := strings.Replace(server.URL, "127.0.0.1", "localhost", 1) + "?token=" + token
+	link := server.URL + "?token=" + token
 	png, err := qrcode.Encode(link, qrcode.Medium, 256)
 	if err != nil {
 		t.Fatal(err)
