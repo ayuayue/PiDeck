@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { open, rm, utimes } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { KimiImportReport, KimiImportResult, KimiImportStatus, KimiSessionSummary } from "../../shared/types";
-import { collectKimiAppendedKeys, convertKimiSession, convertKimiSessionTo } from "./kimiSessionConvert";
+import { convertKimiSession, convertKimiSessionTo, indexKimiMessages, KIMI_IMPORT_VERSION } from "./kimiSessionConvert";
 import { defaultSessionImportCopy, type SessionImportCopy } from "./SessionImportCopy";
 import { ensureProjectSessionDir, getKimiTargetPath, kimiWirePath, normalizePath, readKimiImportMeta, readKimiSessionHead, readKimiSessionIndex, readKimiWireObjects, type KimiIndexEntry, type ParsedKimiSession } from "./kimiSessionSource";
 import { createBufferedLineSink, mapWithConcurrency, renameWithRetry, SESSION_SCAN_CONCURRENCY } from "./sessionSourceHead";
@@ -61,7 +61,7 @@ export class KimiSessionImporter {
 		let handle: Awaited<ReturnType<typeof open>> | undefined;
 		let tempPath: string | undefined;
 		try {
-			// 元数据只读头部（大源文件不能整读），正文逐行流式转换写盘：内存 O(单行)
+			// 元数据只读头部，正文按记录流式转换写盘。
 			const parsed = await readKimiSessionHead(this.kimiRoot, sourcePath);
 			const targetPath = getKimiTargetPath(this.piRoot, projectPath, parsed);
 			const existing = await readKimiImportMeta(targetPath);
@@ -73,15 +73,14 @@ export class KimiSessionImporter {
 			// 先写临时文件再原子改名：中途失败不会留下半截会话文件污染列表
 			handle = await open(tempPath, "w");
 			const buffered = createBufferedLineSink(handle);
-			// 第一遍流式收集 agent.message.appended 键集合（去重策略见 kimiSessionConvert），
-			// 第二遍重新开流转换。读两遍但全程流式，内存 O(单行)。
-			const appendedKeys = await collectKimiAppendedKeys(readKimiWireObjects(sourcePath));
+			// 第一遍索引去重键和 ID，第二遍按 step 组装会话，避免整读大源文件。
+			const messageIndex = await indexKimiMessages(readKimiWireObjects(sourcePath));
 			const converted = await convertKimiSessionTo({
 				projectPath,
 				session: parsed,
 				translate: this.translate,
 				entries: readKimiWireObjects(sourcePath),
-				appendedKeys,
+				messageIndex,
 				sink: buffered.sink,
 			});
 			await buffered.flush();
@@ -125,7 +124,7 @@ export class KimiSessionImporter {
 			session,
 			translate: this.translate,
 		});
-		const status: KimiImportStatus = !importMeta ? "new" : importMeta.sourceMtime === session.sourceMtime && importMeta.sourceSize === session.sourceSize ? "current" : "outdated";
+		const status: KimiImportStatus = !importMeta ? "new" : importMeta.version >= KIMI_IMPORT_VERSION && importMeta.sourceMtime === session.sourceMtime && importMeta.sourceSize === session.sourceSize ? "current" : "outdated";
 
 		return {
 			id: session.meta.sessionId,

@@ -57,6 +57,8 @@ function ZoneDivider() {
 }
 
 export function TurnRowActions(props: TurnRowActionsProps) {
+	// 旧导入文件保存了占位模型名，轮尾与新导入统一显示来源名称。
+	const turnModelLabel = props.turnModel?.provider === "kimi" && props.turnModel.modelId === "kimi-import" ? "kimi code" : props.turnModel?.modelId;
 	const showActions = Boolean(props.mergedText) && !props.editing && !props.pendingKind;
 	if (props.pendingKind) {
 		return (
@@ -122,8 +124,8 @@ export function TurnRowActions(props: TurnRowActionsProps) {
 				   字符上限 28ch：等宽字体里 1ch 恰好是一个字符宽，超过按字符截断成省略号；
 				   max-w-[16rem] 只是窄窗口下的硬顶，不让长 id 把操作栏挤走。
 				   title 给全量 provider/model，鼠标移入可看全。 */
-				<span className="min-w-0 max-w-[16rem] truncate font-mono text-body leading-none text-text-tertiary" title={`${props.turnModel.provider}/${props.turnModel.modelId}`} data-turn-model={props.turnModel.modelId}>
-					<span className="block max-w-[28ch] truncate">{props.turnModel.modelId}</span>
+				<span className="min-w-0 max-w-[16rem] truncate font-mono text-body leading-none text-text-tertiary" title={`${props.turnModel.provider}/${turnModelLabel}`} data-turn-model={props.turnModel.modelId}>
+					<span className="block max-w-[28ch] truncate">{turnModelLabel}</span>
 				</span>
 			)}
 		</div>
