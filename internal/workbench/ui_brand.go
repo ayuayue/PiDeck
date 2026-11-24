@@ -6,7 +6,6 @@ import (
 	"runtime"
 	"time"
 
-	"example.com/pideck-v2/assets"
 	"example.com/pideck-v2/internal/apptext"
 	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/base"
@@ -28,9 +27,16 @@ func logoMark(style string, custom brandImage, size core.Points, testID string) 
 		}
 	}
 	if style == logoStyleClassic {
-		frame.CornerRadius = size * 0.24
-		return core.Image{Source: core.ImageSource{Data: assets.LogoPNG}, ResizeMode: core.Contain,
-			Label: apptext.T("pi 经典 Logo"), TestID: testID, Style: frame}
+		// The same tile and glyph as the TUI preset, in one silver tone: the
+		// two presets must look different, and the packaged icon is now the
+		// colored artwork rather than this mark.
+		frame.Background, frame.CornerRadius = core.RGB(0x111113), size*0.24
+		frame.AlignItems, frame.JustifyContent = core.AlignCenter, core.JustifyCenter
+		glyph := size * 0.5625
+		return core.View{TestID: testID, Style: frame, Children: []core.Node{
+			core.SVGView{SVG: piClassicLogo, Label: apptext.T("pi 经典 Logo"),
+				Style: core.Style{Width: core.Pt(glyph), Height: core.Pt(glyph)}},
+		}}
 	}
 	frame.Background, frame.CornerRadius = core.RGB(0x09090b), size*0.24
 	frame.AlignItems, frame.JustifyContent = core.AlignCenter, core.JustifyCenter

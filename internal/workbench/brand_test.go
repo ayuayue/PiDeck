@@ -146,8 +146,11 @@ func TestBrandPopoverAndSettings(t *testing.T) {
 		t.Fatalf("rail name = %q", got)
 	}
 	screen.Press("id:brand-logo-classic")
-	if !bytes.Equal(screen.Find("id:rail-brand-logo").Image.Source.Data, assets.LogoPNG) {
-		t.Fatal("classic preset did not reach the rail")
+	// The classic preset is the silver vector mark, not the packaged icon:
+	// the icon became the colored artwork, which left both presets drawing
+	// one picture.
+	if mark := screen.Find("id:rail-brand-logo"); mark.Kind != nsgotest.KindView || len(mark.Children) == 0 {
+		t.Fatalf("the classic preset did not reach the rail as a drawn mark (kind %v)", mark.Kind)
 	}
 	screen.Press("id:brand-logo-custom")
 	screen.WaitFor("id:brand-image-choose", 5*time.Second)
