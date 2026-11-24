@@ -4,7 +4,7 @@ import { mkdir, open, readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { CodexImportReport, CodexImportResult, CodexImportStatus, CodexSessionSummary } from "../../shared/types";
 import { getCodexSessionThreadInfo } from "../../shared/codexSessionMeta";
-import { mountedDriveToWindowsPath, parseWslUncPath } from "../wsl/WslPaths";
+import { codexProjectPathKey } from "./codexProjectPath";
 import { defaultSessionImportCopy, type SessionImportCopy } from "./SessionImportCopy";
 import { assertSourceWithinRoot } from "./importPathGuard";
 import { readJsonlObjects, renameWithRetry } from "./sessionSourceHead";
@@ -135,7 +135,7 @@ export class CodexSessionImporter {
 
 	async scan(projectPath: string): Promise<CodexSessionSummary[]> {
 		const files = await this.collectJsonl(this.codexRoot).catch(() => []);
-		const normalizedProject = this.normalize(projectPath);
+		const normalizedProject = codexProjectPathKey(projectPath);
 		// Codex 状态库的会话名映射（用户改名 / 官方标题）：读不到时降级为 jsonl 提取，不阻塞扫描
 		const titleMaps: CodexThreadTitleMaps = await loadCodexThreadTitles(this.codexHome);
 
@@ -148,7 +148,7 @@ export class CodexSessionImporter {
 			const chunk = files.slice(i, i + SCAN_CONCURRENCY);
 			const metas = await Promise.all(chunk.map((file) => this.readCodexMetaOnly(file).catch(() => null)));
 			metas.forEach((meta, index) => {
-				if (meta && this.normalize(meta.meta.cwd) === normalizedProject) {
+				if (meta && codexProjectPathKey(meta.meta.cwd) === normalizedProject) {
 					candidates.push(chunk[index]);
 				}
 			});
@@ -212,8 +212,8 @@ export class CodexSessionImporter {
 			// 全量解析会 OOM 导致应用被系统静默杀死，导入改为流式转换（见 convertToPiSessionStreaming）
 			const info = await this.readCodexMetaOnly(sourcePath);
 			if (!info) throw new Error("Missing Codex session metadata");
-			const sourceCwd = this.normalize(info.meta.cwd);
-			if (sourceCwd !== this.normalize(projectPath)) {
+			const sourceCwd = codexProjectPathKey(info.meta.cwd);
+			if (sourceCwd !== codexProjectPathKey(projectPath)) {
 				throw new Error("Codex session cwd does not match selected project");
 			}
 
@@ -1125,17 +1125,5 @@ export class CodexSessionImporter {
 		if (!a) return b;
 		if (!b) return a;
 		return `${a}\n\n${b}`;
-	}
-
-	private normalize(path?: string) {
-		const cwd = String(path ?? "");
-		const wsl = parseWslUncPath(cwd);
-		if (wsl && mountedDriveToWindowsPath(wsl.linuxPath) === null) {
-			return `//wsl.localhost/${wsl.distro.toLowerCase()}${wsl.linuxPath}`;
-		}
-		// cwd 可能来自另一平台。仅 Windows 盘符和共享路径忽略大小写，POSIX 目录名按原样比较。
-		const windowsPath = /^[a-z]:[\\/]/i.test(cwd) || /^[\\/]{2}[^\\/]+[\\/][^\\/]+/.test(cwd);
-		const normalized = windowsPath ? cwd.replace(/\\/g, "/").toLowerCase() : cwd;
-		return normalized.replace(/\/+$/, "");
 	}
 }
