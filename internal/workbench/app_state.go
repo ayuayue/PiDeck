@@ -420,6 +420,9 @@ type app struct {
 	exportOpen     *core.Signal[bool]
 	exportOriginal *core.Signal[bool]
 	exportID       string
+	// pendingShot is the name of a window shot queued for the export dialog's
+	// close, which runs once the picture is free of the dialog itself.
+	pendingShot string
 	// The trust dialog and what waits for the answer.
 	trustOpen *core.Signal[bool]
 	trustWS   *workspace

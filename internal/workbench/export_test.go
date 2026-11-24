@@ -276,3 +276,29 @@ func TestExportDialogMarkdown(t *testing.T) {
 		t.Fatalf("markdown = %q, %v", raw, err)
 	}
 }
+
+// TestExportDialogWindowPNG saves the window as a PNG. Capture is the one
+// export that needs real pixels, so it runs on a platform target only.
+func TestExportDialogWindowPNG(t *testing.T) {
+	if nsgotest.Target() == "" {
+		t.Skip("capture needs real pixels; run under nsgo test -target")
+	}
+	built, screen, sess := startNativeSurfaceApp(t)
+	onNativeUI(t, screen, built, func() { built.openExport(sess) })
+	screen.WaitFor("id:export-dialog", 10*time.Second)
+	screen.Press("id:export-image")
+	screen.WaitFor("text:已导出图片", 20*time.Second)
+	dir := ""
+	onNativeUI(t, screen, built, func() { dir = built.st.dir })
+	files, err := filepath.Glob(filepath.Join(dir, "exports", "*.png"))
+	if err != nil || len(files) != 1 {
+		t.Fatalf("export files = %v, %v", files, err)
+	}
+	raw, err := os.ReadFile(files[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(raw) < 1024 || !strings.HasPrefix(string(raw), "\x89PNG") {
+		t.Fatalf("png is %d bytes and starts with %q", len(raw), string(raw[:min(8, len(raw))]))
+	}
+}

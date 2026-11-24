@@ -55,6 +55,7 @@ func (a *app) exportDialog() core.Node {
 		return ui.Dialog{
 			Open:         a.exportOpen.Get,
 			OnOpenChange: func(open bool, _ base.Reason) { a.exportOpen.Set(open) },
+			OnClose:      a.exportClosed,
 			Title:        apptext.T("导出会话"),
 			TestID:       "export-dialog",
 			Style:        core.Style{Width: a.dialogWidth(), MaxWidth: core.Pt(480)},
@@ -72,6 +73,7 @@ func (a *app) exportDialog() core.Node {
 				core.View{Style: core.Style{Gap: 2}, Children: []core.Node{
 					row(apptext.T("HTML 页面"), lucide.FileCode, "export-html", exportHTMLFile),
 					row(apptext.T("Markdown 文件"), lucide.FileText, "export-markdown", exportMarkdownFile),
+					row(apptext.T("PNG 截图（当前窗口）"), lucide.Image, "export-image", exportImageFile),
 					row(apptext.T("复制 Markdown"), lucide.Copy, "export-copy", exportClipboard),
 				}},
 			},
