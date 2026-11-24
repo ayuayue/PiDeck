@@ -118,6 +118,7 @@ import {
 	removeSessionStateAtom,
 	requestSidebarRevealProjectAtom,
 	replaceProjectInventoryAtom,
+	dropSessionRuntimesAtom,
 	replaceProjectSessionsAtom,
 	sessionStatusInSidebarAtom,
 	sessionRecordByIdAtomFamily,
@@ -246,6 +247,8 @@ export function App() {
 	const settingsPageActive = useAtomValue(settingsOpenAtom);
 	const setCurrentSessionId = useSetAtom(currentSessionIdAtom);
 	const replaceProjectSessions = useSetAtom(replaceProjectSessionsAtom);
+	// 目录对账：目录里已不存在的会话，运行态一并收敛（详见 useProjectSyncInput.dropSessionRuntimes）。
+	const dropSessionRuntimes = useSetAtom(dropSessionRuntimesAtom);
 	const openAutomationPage = useSetAtom(openAutomationPageAtom);
 	const openAgentMarketPage = useSetAtom(openAgentMarketPageAtom);
 	const openFavoritesPage = useSetAtom(openFavoritesPageAtom);
@@ -507,6 +510,7 @@ export function App() {
 		setProjects,
 		setActiveProjectId,
 		replaceProjectSessions,
+		dropSessionRuntimes,
 		api: {
 			projects: { list: api.projects.list },
 			settings: { get: api.settings.get },

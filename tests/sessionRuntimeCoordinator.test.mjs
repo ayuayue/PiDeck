@@ -1842,6 +1842,38 @@ test("releaseRuntimeForDelete unbinds immediately and waits for the process exit
 	assert.equal(released, true);
 });
 
+test("releaseRuntimeForDelete 推 detach：非侧栏入口删除后渲染层不能留下幽灵行", async () => {
+	// 现场（用户反馈）：删掉父会话后，它开出的关联子会话「自己并列在左侧」，右键删除毫无反应、
+	// 「关闭 Agent」只回「会话已不存在，请刷新会话列表」，而刷新也消不掉。
+	// 根因：删除只解绑主进程自己的绑定，从不推 detach。渲染层快照于是停在「有运行时」，
+	// 而 catalog 里已经没有这条记录：删除项解析不到记录→静默无反应；关闭走
+	// resolveStopTarget→catalog.get 为空→SESSION_NOT_FOUND；目录刷新只重拉记录、不碰运行时表。
+	// 侧栏删除路径自己清了渲染层状态，所以缺口只在 Web API / 自动化 / 扫描清理等入口暴露。
+	const { SessionRuntimeCoordinator } = loadCoordinator();
+	const harness = createHarness({
+		tabs: [{ id: "agent-a", projectId: "project-1", cwd: "C:/project", title: "Session", status: "idle", sessionPath: "C:/sessions/session-1.jsonl", createdAt: 1 }],
+		stopAndWait: async () => true,
+	});
+	const coordinator = new SessionRuntimeCoordinator(harness.catalog, harness.agents, harness.sender);
+	const runtimeGeneration = coordinator.bindExistingAgent("session-1", "agent-a");
+	const detached = collectDetachedBindings(coordinator);
+
+	await coordinator.releaseRuntimeForDelete("session-1");
+
+	assert.deepEqual(detached, [{ sessionId: "session-1", agentId: "agent-a", runtimeGeneration }]);
+});
+
+test("releaseRuntimeForDelete 无绑定时不推 detach（幂等，不惊动别的会话）", async () => {
+	const { SessionRuntimeCoordinator } = loadCoordinator();
+	const harness = createHarness({ tabs: [] });
+	const coordinator = new SessionRuntimeCoordinator(harness.catalog, harness.agents, harness.sender);
+	const detached = collectDetachedBindings(coordinator);
+
+	await coordinator.releaseRuntimeForDelete("session-1");
+
+	assert.deepEqual(detached, []);
+});
+
 test("releaseRuntimeForDelete resolves after a bounded wait when the process exit times out", async () => {
 	const { SessionRuntimeCoordinator } = loadCoordinator();
 	const warnings = [];
@@ -2437,9 +2469,12 @@ test("main 装配把惰性解绑接成 sessions:runtime-detach 推送", () => {
 
 	// 装配层必须注入通知器，且走既有的 detach 信封（渲染层只认这一条协议）
 	assert.match(mainSource, /sessionRuntimeCoordinator\.setDetachedNotifier\(\(binding\)\s*=>\s*emitSessionRuntimeDetach\(binding\)\)/);
-	// 只在终态惰性解绑这一处推：stop/restart/删除的解绑由调用方推送，重复推会打乱代际判定
+	// 只在终态惰性解绑这一处推：stop/restart 的解绑由调用方推送，重复推会打乱代际判定
 	assert.match(coordinatorSource, /this\.unbindTerminalAgent\(agentId\);\s*\/\/[^\n]*\n\s*if \(binding\) this\.notifyRuntimeDetached\(\{ \.\.\.binding, agentId \}\);/);
-	assert.equal(coordinatorSource.match(/notifyRuntimeDetached\(/g).length, 2, "notifyRuntimeDetached 只应有定义 + 终态解绑一处调用");
+	// 删除路径是第二个例外：它自己解绑，而且**没有任何调用方**会补发 detach（Web API /
+	// 自动化 / 扫描清理都直接调它），漏推就留下删不掉的幽灵行（见 releaseRuntimeForDelete 用例）。
+	assert.match(coordinatorSource, /this\.unbindAgentUnchecked\(target\.agentId\);\s*\n\s*this\.notifyRuntimeDetached\(target\);/);
+	assert.equal(coordinatorSource.match(/notifyRuntimeDetached\(/g).length, 3, "notifyRuntimeDetached 应只有定义 + 终态解绑 + 删除释放两处调用");
 });
 
 /**

@@ -27,6 +27,16 @@ type UseProjectSyncInput = {
 	setProjects: (projects: Project[]) => void;
 	setActiveProjectId: (id: string) => void;
 	replaceProjectSessions: (input: { projectId: string; sessions: SessionRecord[] }) => void;
+	/**
+	 * 目录重拉后收尾「已不在目录里的会话」的运行态（通常传 `dropSessionRuntimesAtom`）。
+	 *
+	 * 为什么需要：正常路径由主进程推 detach（删除 / 终端惰性解绑）先收敛，但事件可能在
+	 * 渲染层重载或异常路径上丢失，于是留下一行「运行时还在、目录记录已无」：它的删除项
+	 * 解析不到 catalog 记录（点了静默无反应），关闭 Agent 被回 SESSION_NOT_FOUND 而让用户
+	 * 刷新——而刷新只重拉记录、不碰运行时表，于是永远清不掉（用户反馈的删不掉的幽灵行）。
+	 * 目录刷新就是那个可以无条件重做的对账时点，所以放在这里。
+	 */
+	dropSessionRuntimes?: (sessionIds: readonly string[]) => void;
 	api: {
 		projects: { list: () => Promise<Project[]> };
 		git: { worktreeList: (projectId: string) => Promise<WorktreeEntry[]>; branches: (projectId: string) => Promise<{ current: string | null; branches: string[] }> };
@@ -68,7 +78,7 @@ function createProjectSessionRefreshCompletion(): ProjectSessionRefreshCompletio
 }
 
 export function useProjectSync(input: UseProjectSyncInput) {
-	const { projects, activeProjectId, setProjects, setActiveProjectId, replaceProjectSessions, api, showToast, setSessionCatalogLoadState, t } = input;
+	const { projects, activeProjectId, setProjects, setActiveProjectId, replaceProjectSessions, dropSessionRuntimes, api, showToast, setSessionCatalogLoadState, t } = input;
 	const [worktreesByProject, setWorktreesByProject] = useState<Record<string, WorktreeEntry[]>>({});
 	const [branchByProject, setBranchByProject] = useState<Record<string, string | null>>({});
 	// 文件树节点与内容代次同源：代次只在树内容真的变了时前进，供文件抽屉按内容防抖重拉 Git 着色。
@@ -84,10 +94,25 @@ export function useProjectSync(input: UseProjectSyncInput) {
 	const sessionRefreshRunningRef = useRef<Set<string>>(new Set());
 	const sessionRefreshPendingRef = useRef<Set<string>>(new Set());
 	const sessionRefreshCompletionByProjectRef = useRef<Record<string, ProjectSessionRefreshCompletion | undefined>>({});
+	/** 每个项目上一次写进渲染层的会话 id（目录对账的「上一轮」基准）。 */
+	const lastAppliedSessionIdsByProjectRef = useRef<Record<string, string[]>>({});
 	// #159：文件树刷新按代次丢弃，避免旧项目慢扫描覆盖当前抽屉。
 
-	/** 包一层：任何 loadState 变更（loading/ready/error）都取消该项目看门狗，
-	 *  只有「一直没被揭开」的 loading 才继续享受超时兜底。 */
+	/**
+	 * 目录重拉 + 残留运行时对账。
+	 *
+	 * 两处目录写入（强制刷新与 catalog-refreshed 静默拉取）都走这里：先算「上一轮有、本轮无」
+	 * 的会话，再写入记录，最后收敛它们的运行时。顺序不能反——先写记录会把上一轮 id 表抹掉。
+	 */
+	function applyCatalogSessions(projectId: string, records: SessionRecord[]): void {
+		const previous = lastAppliedSessionIdsByProjectRef.current[projectId] ?? [];
+		lastAppliedSessionIdsByProjectRef.current[projectId] = records.map((record) => record.id);
+		replaceProjectSessions({ projectId, sessions: records });
+		if (!dropSessionRuntimes) return;
+		const next = new Set(lastAppliedSessionIdsByProjectRef.current[projectId]);
+		dropSessionRuntimes(previous.filter((sessionId) => !next.has(sessionId)));
+	}
+
 	const setCatalogLoadStateGuarded = useCallback(
 		(input: { projectId: string; state: SessionLoadState }) => {
 			catalogLoadWatchdog.cancel(input.projectId);
@@ -188,7 +213,7 @@ export function useProjectSync(input: UseProjectSyncInput) {
 			if (sessionRequestByProjectRef.current[projectId] !== request) {
 				result = records;
 			} else {
-				replaceProjectSessions({ projectId, sessions: records });
+				applyCatalogSessions(projectId, records);
 				// 空缓存先回 []：保持 loading，等 catalog-refreshed 才揭开，避免侧栏闪空白。
 				// 磁盘 catalog 已有记录则立刻 ready，后台扫描稍后静默补齐。
 				if (records.length > 0) {
@@ -256,7 +281,7 @@ export function useProjectSync(input: UseProjectSyncInput) {
 				.listCatalog(projectId, { scan: false })
 				.then((records) => {
 					if (sessionRequestByProjectRef.current[projectId] !== request) return;
-					replaceProjectSessions({ projectId, sessions: records });
+					applyCatalogSessions(projectId, records);
 					// 静默拉取完成 = catalog 已就绪：清掉可能残留的 loading 态。
 					// 场景：非 silent 刷新（loading）进行中，catalog-refreshed 推送的静默
 					// 拉取覆盖了 request 序号——原请求的 finally 因 isCurrentRequest=false

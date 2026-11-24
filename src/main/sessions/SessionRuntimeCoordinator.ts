@@ -475,8 +475,9 @@ export class SessionRuntimeCoordinator {
 	}
 
 	/**
-	 * 删除前强制释放运行时：先解绑让侧栏立刻可删，再停进程并等它真的退出。
-	 * 运行中会话也允许删——用户不必先点停止。停进程失败/超时也不挡 catalog 删除。
+	 * 删除前强制释放运行时：先解绑让侧栏立刻可删，再停进程并等它真的退出（停进程失败/超时也不挡
+	 * catalog 删除）。解绑必须推 detach（同终态惰性解绑协议），否则非侧栏入口删掉的会话会留
+	 * 「运行时还在、catalog 已无」的幽灵行，见 docs/host-boundaries.md 例外九。
 	 */
 	async releaseRuntimeForDelete(sessionId: string): Promise<void> {
 		const requestedSessionId = this.canonicalSessionId(sessionId);
@@ -489,16 +490,15 @@ export class SessionRuntimeCoordinator {
 		const mappedGeneration = mappedAgentId ? (this.getRuntimeBinding(mappedAgentId)?.runtimeGeneration ?? 0) : 0;
 		const liveTarget = this.getTarget(requestedSessionId);
 		const target = liveTarget ?? (mappedAgentId ? { sessionId: requestedSessionId, agentId: mappedAgentId, runtimeGeneration: mappedGeneration } : undefined);
-		// 会话删除 = 代数作废：generationBySession 按 sessionId 累积且仅随删除回收，
-		// 否则反复创建/删除会话会让键集无界增长（2026 内存排查：慢泄漏）。
-		// 注意不能放到 unbindAgentUnchecked：restart 流程 unbind 旧 agent 后要
-		// bind 新 agent 并代数 +1，提前删会导致旧 runtime 的迟到结果被误接受。
+		// 会话删除 = 代数作废（generationBySession 仅随删除回收，否则键集无界增长）。
+		// 不能放进 unbindAgentUnchecked：restart 会 unbid 旧 agent 后 bind 新的并代数 +1。
 		this.generationBySession.delete(requestedSessionId);
 		if (!target) {
 			this.deletingSessions.delete(requestedSessionId);
 			return;
 		}
 		this.unbindAgentUnchecked(target.agentId);
+		this.notifyRuntimeDetached(target); // 用解绑前那代的身份：渲染层按「代际不旧于当前」接受
 		// 先解绑（侧栏立刻可删），但停进程必须等到真的退出：pi 还握着会话文件句柄时，
 		// 后续 shell.trashItem 会失败（issue #364）。等待有上限，超时放行。
 		try {
