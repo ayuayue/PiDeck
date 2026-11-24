@@ -59,6 +59,10 @@ type remoteView struct {
 	// VPN address; RelayOn is the switch, which survives a failed dial.
 	Relay   remoteChannel `json:"relay"`
 	RelayOn bool          `json:"relayOn"`
+	// TokenExpire and TokenRotateAt are the rotation switch and how long the
+	// token on screen has left; 0 means it never expires.
+	TokenExpire   bool  `json:"tokenExpire"`
+	TokenRotateAt int64 `json:"tokenRotateAt"`
 }
 
 // remoteHost owns the HTTP server, the token and the network scan.
@@ -74,6 +78,20 @@ type remoteHost struct {
 	err       string
 	detecting bool
 	search    *searchCache
+
+	// tokenExpire is the rotation switch and tokenIssued when the current
+	// token was made, unix milliseconds; prevToken and prevReplaced are the
+	// token it replaced and when, so its grace window counts from the
+	// replacement rather than from the issuance it inherited. tokenStop ends
+	// the rotation timer.
+	tokenExpire  bool
+	tokenIssued  int64
+	prevToken    string
+	prevReplaced int64
+	tokenStop    func() bool
+	// clock is the app's clock, so a test can move the token's lifetime; a
+	// host built without one reads the system's time.
+	clock func() time.Time
 
 	relayOn    bool
 	relayURL   string
@@ -110,7 +128,11 @@ func newRemoteHost(a *app) *remoteHost {
 			Relay:   remoteChannel{Installed: relayURL != "", Address: relayURL},
 		}, nil),
 		port: port, token: a.cfg.RemoteToken,
-		search:  &searchCache{entries: map[string]searchEntry{}},
+		search: &searchCache{entries: map[string]searchEntry{}},
+		// A config written before the switch existed has no rotation, and
+		// the issue time keeps a restart from restarting the clock.
+		tokenExpire: a.cfg.RemoteTokenExpire, tokenIssued: a.cfg.RemoteTokenIssued,
+		clock:   a.cx.Now,
 		relayOn: a.cfg.RemoteRelay, relayURL: relayURL,
 		relayEnv: a.cfg.RemoteRelayEnv, relayKey: a.cfg.RemoteRelayKey,
 		publicURL: normalizePublicURL(a.cfg.RemotePublicURL),
@@ -128,6 +150,7 @@ func (h *remoteHost) init() {
 			h.startRelay()
 		}
 	}
+	h.armTokenRotation()
 }
 
 // ensureToken generates the first token and persists it.
@@ -138,13 +161,24 @@ func (h *remoteHost) ensureToken() string {
 	if token != "" {
 		return token
 	}
-	token = randomToken()
+	return h.issueToken()
+}
+
+// issueToken makes a token, stores it and publishes it: a new token starts
+// its rotation interval here, and the one it replaces keeps working for the
+// grace window so a connected client can read the new one.
+func (h *remoteHost) issueToken() string {
+	token := randomToken()
+	cmd := h.now().UnixMilli()
 	h.mu.Lock()
-	h.token = token
+	h.prevToken, h.prevReplaced = h.token, cmd
+	h.token, h.tokenIssued = token, cmd
 	h.mu.Unlock()
 	h.app.cfg.RemoteToken = token
-	h.app.st.edit(func(c *config) { c.RemoteToken = token })
-	h.state.Update(func(v remoteView) remoteView { v.Token = token; return v })
+	h.app.cfg.RemoteTokenIssued = cmd
+	h.app.st.edit(func(c *config) { c.RemoteToken = token; c.RemoteTokenIssued = cmd })
+	h.publish()
+	h.armTokenRotation()
 	return token
 }
 
@@ -210,15 +244,20 @@ func (h *remoteHost) setEasyTierIP(ip string) {
 	h.refresh()
 }
 
-// rotateToken replaces the token; phones with the old one lose access.
+// rotateToken replaces the token by hand, so phones with the old one lose
+// access at once: a hand rotation is a decision, not a schedule, and there is
+// no grace window it was promised.
 func (h *remoteHost) rotateToken() {
-	token := randomToken()
 	h.mu.Lock()
-	h.token = token
+	h.token, h.tokenIssued = randomToken(), h.now().UnixMilli()
+	h.prevToken, h.prevReplaced = "", 0
+	token, issued := h.token, h.tokenIssued
 	h.mu.Unlock()
 	h.app.cfg.RemoteToken = token
-	h.app.st.edit(func(c *config) { c.RemoteToken = token })
-	h.state.Update(func(v remoteView) remoteView { v.Token = token; return v })
+	h.app.cfg.RemoteTokenIssued = issued
+	h.app.st.edit(func(c *config) { c.RemoteToken = token; c.RemoteTokenIssued = issued })
+	h.publish()
+	h.armTokenRotation()
 }
 
 // currentToken is the token a request must present.
@@ -304,6 +343,7 @@ func (h *remoteHost) stop() {
 // close ends the server without touching the UI, for the app's end.
 func (h *remoteHost) close() {
 	h.stopRelay()
+	h.stopTokenRotation()
 	h.mu.Lock()
 	srv := h.srv
 	h.srv = nil
@@ -319,10 +359,12 @@ func (h *remoteHost) publish() {
 	h.mu.Lock()
 	running, port, token, errText := h.running, h.port, h.token, h.err
 	relayOn, relayURL, relayReady, relayErr := h.relayOn, h.relayURL, h.relayReady, h.relayErr
+	expire, rotateAt := h.tokenExpire, h.rotateAtLocked()
 	h.mu.Unlock()
 	h.state.Update(func(v remoteView) remoteView {
 		v.Running, v.Port, v.Token, v.Error = running, port, token, errText
 		v.RelayOn = relayOn
+		v.TokenExpire, v.TokenRotateAt = expire, rotateAt
 		v.Relay = remoteChannel{Installed: relayURL != "", Ready: relayReady, Address: relayURL, Error: relayErr}
 		return v
 	})

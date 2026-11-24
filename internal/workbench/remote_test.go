@@ -25,21 +25,29 @@ import (
 
 // TestRemoteAuth checks bearer and query tokens, including refusals.
 func TestRemoteAuth(t *testing.T) {
-	req, _ := http.NewRequest(http.MethodGet, "http://x/api/state", nil)
-	req.Header.Set("Authorization", "Bearer secret")
-	if !remoteAuthorized(req, "secret") {
-		t.Fatal("bearer token refused")
+	given := func(method, target, header string) string {
+		req, _ := http.NewRequest(method, target, nil)
+		if header != "" {
+			req.Header.Set("Authorization", "Bearer "+header)
+		}
+		return remoteRequestToken(req)
 	}
-	if remoteAuthorized(req, "other") {
+	if got := given(http.MethodGet, "http://x/api/state", "secret"); !remoteAuthorized(got, "secret") {
+		t.Fatalf("bearer token %q refused", got)
+	}
+	if remoteAuthorized("other", "secret") {
 		t.Fatal("wrong token accepted")
 	}
-	req, _ = http.NewRequest(http.MethodGet, "http://x/api/state?token=secret", nil)
-	if !remoteAuthorized(req, "secret") {
-		t.Fatal("query token refused for a GET")
+	if remoteAuthorized("", "secret") {
+		t.Fatal("an empty token was accepted")
 	}
-	req, _ = http.NewRequest(http.MethodPost, "http://x/api/state?token=secret", nil)
-	if remoteAuthorized(req, "secret") {
-		t.Fatal("query token accepted for a POST")
+	// A GET may carry its token in the query; a write must not, since that
+	// would put it in a log line.
+	if got := given(http.MethodGet, "http://x/api/state?token=secret", ""); got != "secret" {
+		t.Fatalf("query token = %q, want the GET's query token", got)
+	}
+	if got := given(http.MethodPost, "http://x/api/state?token=secret", ""); got != "" {
+		t.Fatalf("query token = %q, want none for a POST", got)
 	}
 }
 
@@ -108,6 +116,8 @@ func TestRemoteSettings(t *testing.T) {
 	app.WaitFor("text:外网访问", 5*time.Second)
 	app.WaitFor("id:remote-relay-url", 5*time.Second)
 	app.WaitFor("id:remote-public-url", 5*time.Second)
+	// The token's lifetime switch sits beside the token it rotates.
+	app.WaitFor("id:remote-token-expire", 5*time.Second)
 	app.Advance(500 * time.Millisecond)
 	shot(app, "62-remote-settings")
 

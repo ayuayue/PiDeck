@@ -376,6 +376,10 @@ func (a *mobileApp) connect() {
 				a.err.Set(remoteErrorText(err))
 				return
 			}
+			// A desktop may have rotated its token while this connect was in
+			// flight, and the reply already carried the new one.
+			token = client.currentToken()
+			client.onToken = a.rememberRotatedToken
 			a.client = client
 			a.server.Set(client.source)
 			a.token.Set(token)
@@ -394,6 +398,23 @@ func (a *mobileApp) connect() {
 			a.startPolling()
 		})
 	}()
+}
+
+// rememberRotatedToken keeps the token a desktop issued while the phone was
+// connected: the saved connection and the recent list would otherwise hold
+// the one the rotation replaced, and reopening the app would be refused.
+func (a *mobileApp) rememberRotatedToken(token string) {
+	a.cx.Post(func() {
+		if token == "" || token == a.token.GetUntracked() {
+			return
+		}
+		a.token.Set(token)
+		saved := rememberConnection(a.recent.GetUntracked(), mobileRecent{
+			Server: a.server.GetUntracked(), Token: token, Name: a.serverName.GetUntracked(), At: time.Now().UnixMilli(),
+		})
+		a.recent.Set(saved.Recent)
+		a.saveLook()
+	})
 }
 
 // pasteAndConnect takes the link from the clipboard, so a phone can

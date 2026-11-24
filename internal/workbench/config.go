@@ -111,6 +111,10 @@ type config struct {
 	RemotePort       int    `json:"remotePort,omitempty"`
 	RemoteToken      string `json:"remoteToken,omitempty"`
 	RemoteEasyTierIP string `json:"remoteEasyTierIP,omitempty"`
+	// RemoteTokenExpire rotates the access token on an interval, so a link
+	// copied off a screen stops working on its own. Off by default: a
+	// phone that is never re-paired keeps working.
+	RemoteTokenExpire bool `json:"remoteTokenExpire,omitempty"`
 	// RemoteRelay is the outbound tunnel that lets a phone reach this
 	// desktop without a VPN. Env and Key identify it on the relay; the
 	// certificate lives beside the config.
@@ -124,6 +128,10 @@ type config struct {
 	// RemotePublicURL is an address the user forwards to this desktop
 	// themselves, such as a Cloudflare Tunnel or a reverse proxy.
 	RemotePublicURL string `json:"remotePublicURL,omitempty"`
+	// RemoteTokenIssued is when the access token was last issued, unix
+	// milliseconds. A rotation interval counts from here, so restarting
+	// the app does not restart the clock.
+	RemoteTokenIssued int64 `json:"remoteTokenIssued,omitempty"`
 	// DisabledPlugins are the plugin ids the user turned off; everything
 	// else under plugins/ runs.
 	DisabledPlugins []string `json:"disabledPlugins,omitempty"`

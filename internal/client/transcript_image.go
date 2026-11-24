@@ -112,12 +112,13 @@ func (c *remoteClient) transcriptImage(parent context.Context, sessionID, ref st
 	if err != nil {
 		return remotewire.Image{}, err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Authorization", "Bearer "+c.currentToken())
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return remotewire.Image{}, err
 	}
 	defer resp.Body.Close()
+	c.rotate(resp)
 	if resp.StatusCode == http.StatusUnauthorized {
 		return remotewire.Image{}, errRemoteAuth
 	}

@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -28,12 +29,18 @@ import (
 var errRemoteAuth = errors.New("访问令牌无效或已过期")
 
 type remoteClient struct {
-	base  string
-	token string
-	http  *http.Client
+	base string
+	// tokenMu guards token: a rotation replaces it from whichever request
+	// happened to notice, while other requests read it.
+	tokenMu sync.RWMutex
+	token   string
+	http    *http.Client
 	// source is what the connect field and the recent list keep: the
 	// address for a direct connection, the pairing link for a relay one.
 	source string
+	// onToken records a token the desktop rotated, so the saved connection
+	// keeps working after the app is reopened.
+	onToken func(token string)
 }
 
 // newRemoteClient normalizes an address and token. A pasted connection
@@ -77,6 +84,28 @@ func (c *remoteClient) close() {
 	c.http.CloseIdleConnections()
 }
 
+// rotate takes the token the desktop issued from a reply to a request made
+// with the one it replaced.
+func (c *remoteClient) rotate(resp *http.Response) {
+	issued := resp.Header.Get(remotewire.TokenHeader)
+	if issued == "" || issued == c.currentToken() {
+		return
+	}
+	c.tokenMu.Lock()
+	c.token = issued
+	c.tokenMu.Unlock()
+	if c.onToken != nil {
+		c.onToken(issued)
+	}
+}
+
+// currentToken is the token to present with the next request.
+func (c *remoteClient) currentToken() string {
+	c.tokenMu.RLock()
+	defer c.tokenMu.RUnlock()
+	return c.token
+}
+
 // do reads a path, once more when the first try never reached the desktop:
 // a phone that changed networks or came back from the background fails the
 // first read, and the next one dials the relay again.
@@ -96,12 +125,13 @@ func (c *remoteClient) get(path string, out any) error {
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Authorization", "Bearer "+c.currentToken())
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return fmt.Errorf("连接失败：%w", err)
 	}
 	defer resp.Body.Close()
+	c.rotate(resp)
 	if resp.StatusCode == http.StatusUnauthorized {
 		return errRemoteAuth
 	}
@@ -176,7 +206,7 @@ func (c *remoteClient) postWithin(path string, in, out any, limit time.Duration)
 			cancel()
 			return nil, nil, err
 		}
-		req.Header.Set("Authorization", "Bearer "+c.token)
+		req.Header.Set("Authorization", "Bearer "+c.currentToken())
 		req.Header.Set("Content-Type", "application/json")
 		// The client's own deadline is the short one every request shares;
 		// a model call or a drawn picture needs the one it asked for.
@@ -199,6 +229,7 @@ func (c *remoteClient) postWithin(path string, in, out any, limit time.Duration)
 	}
 	defer cancel()
 	defer resp.Body.Close()
+	c.rotate(resp)
 	if resp.StatusCode == http.StatusUnauthorized {
 		return errRemoteAuth
 	}

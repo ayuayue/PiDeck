@@ -75,6 +75,7 @@ var appSettingFields = []settingField{
 	{Key: "weChatEnabled", Type: "bool", Default: false},
 	{Key: "remoteEnabled", Type: "bool", Default: false},
 	{Key: "remotePort", Type: "number", Default: 0, Min: intPtr(1), Max: intPtr(65535)},
+	{Key: "remoteTokenExpire", Type: "bool", Default: false},
 	{Key: "proxyApp", Type: "text", Default: ""},
 	{Key: "proxyAgent", Type: "text", Default: ""},
 	{Key: "proxyBypass", Type: "text", Default: ""},

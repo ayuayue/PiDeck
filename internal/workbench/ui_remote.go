@@ -9,6 +9,7 @@ package workbench
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"example.com/pideck-v2/internal/apptext"
 	"example.com/pideck-v2/internal/viewkit"
@@ -195,6 +196,15 @@ func (a *app) settingsRemote() core.Node {
 								a.toast(ui.ToastInfo, "访问令牌已重新生成", "旧手机会在下一次请求时断开。")
 							}},
 						}},
+					}},
+					setDivider(),
+					setRow("访问令牌过期", "开启后电脑每天换一个令牌：仍在连着的手机和网页会自动接上新令牌，断开超过一天的设备需要重新复制连接链接。",
+						ui.Switch{Checked: func() bool { return st.TokenExpire }, Label: apptext.T("访问令牌过期"), TestID: "remote-token-expire",
+							OnChange: func(on bool) { a.remote.setTokenExpire(on) }}),
+					core.Show{When: func() bool { return st.TokenExpire && st.TokenRotateAt > 0 }, Then: func(cx *core.Scope) core.Node {
+						colors := ui.ColorsOf(cx)
+						return core.Text{Content: apptext.T("这个令牌会在 %s 换掉", time.UnixMilli(st.TokenRotateAt).Local().Format("2006-01-02 15:04")),
+							Style: core.Style{Padding: core.Symmetric(2, 2), FontSize: 10.5, LineHeight: 15}, StyleFunc: ui.Colored(colors.Faint)}
 					}},
 					core.Dynamic(func(*core.Scope) core.Node {
 						return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Padding: core.Symmetric(4, 2)}, Children: []core.Node{

@@ -112,6 +112,7 @@ var settingsIndex = []settingEntry{
 	{"integrations", "旁路权限", "acp preset bypass permissions approval 权限"},
 	{"integrations", "定时任务", "cron schedule automation task 定时 调度"},
 	{"integrations", "智能体", "agent persona prompt 智能体"},
+	{"remote", "访问令牌过期", "token expire expiry rotate refresh link 令牌 过期 轮换 刷新 安全"},
 	{"integrations", "收藏夹", "favorite saved reply session 收藏"},
 	{"diagnostics", "导出诊断包", "diagnostics bundle zip"},
 	{"diagnostics", "复制诊断信息", "diagnostics report copy"},

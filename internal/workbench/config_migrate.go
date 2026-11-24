@@ -230,6 +230,12 @@ func normalizeConfig(c *config) bool {
 		c.RemotePort = 0
 		changed = true
 	}
+	// A hand-edited issue time counts from the epoch: the next tick rotates
+	// rather than waiting for a date in the past.
+	if c.RemoteTokenIssued < 0 {
+		c.RemoteTokenIssued = 0
+		changed = true
+	}
 	seenCmd := map[string]bool{}
 	var cmds []string
 	for _, id := range c.RecentCommands {

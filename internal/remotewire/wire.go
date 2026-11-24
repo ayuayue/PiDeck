@@ -185,6 +185,11 @@ type Snapshot struct {
 	Projects []Project `json:"projects"`
 }
 
+// TokenHeader carries the access token a desktop rotated while a client was
+// talking to it: the client takes it from the reply and presents it from then
+// on, so a rotation never breaks a connection that is already working.
+const TokenHeader = "X-PiDeck-Token"
+
 // VoiceRequest carries a recording the phone made to the desktop, which
 // transcribes it: the audio as base64, mono 16-bit PCM WAV, and its format
 // as the file says it.

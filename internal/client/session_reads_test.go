@@ -66,6 +66,17 @@ func newSessionReadServer(t *testing.T) (*remoteClient, <-chan pendingSessionRea
 	return &remoteClient{base: srv.URL, source: srv.URL, token: "fixture", http: srv.Client()}, reads
 }
 
+// newSessionReadClient is a second client on the same fixture server, the
+// way a reconnected phone holds a new one: a copy of a client would copy its
+// locks, so the fields are rebuilt.
+func newSessionReadClient(c *remoteClient) *remoteClient {
+	next := &remoteClient{base: c.base, source: c.source, http: c.http}
+	next.tokenMu.Lock()
+	next.token = c.currentToken()
+	next.tokenMu.Unlock()
+	return next
+}
+
 func nextSessionRead(t *testing.T, reads <-chan pendingSessionRead) pendingSessionRead {
 	t.Helper()
 	select {
@@ -126,8 +137,7 @@ func TestMobileOlderTranscriptIgnoresPreviousVisit(t *testing.T) {
 					a.closeSession()
 				case "switch connection":
 					a.disconnect()
-					next := *client
-					a.client = &next
+					a.client = newSessionReadClient(client)
 					a.connected.Set(true)
 				}
 				openSessionForReadTest(t, a, posts, reads, id)
@@ -246,15 +256,14 @@ func TestMobileTranscriptIgnoresPreviousConnection(t *testing.T) {
 			a.refreshTranscript()
 			old := nextSessionRead(t, reads)
 			a.disconnect()
-			next := *client
-			a.client = &next
+			a.client = newSessionReadClient(client)
 			a.connected.Set(true)
 			a.active.Set("s1")
 			a.activeTitle.Set("current")
 			a.transcriptBusy.Set(true)
 			a.transcriptErr.Set("current notice")
 			replySessionRead(t, posts, old, status, remotewire.Transcript{ID: "s1", Title: "stale"})
-			if a.client != &next || !a.connected.GetUntracked() || a.activeTitle.GetUntracked() != "current" ||
+			if a.client == client || a.client.base != client.base || !a.connected.GetUntracked() || a.activeTitle.GetUntracked() != "current" ||
 				!a.transcriptBusy.GetUntracked() || a.transcriptErr.GetUntracked() != "current notice" {
 				t.Fatalf("stale transcript changed current connection: connected=%v title=%q loading=%v error=%q",
 					a.connected.GetUntracked(), a.activeTitle.GetUntracked(), a.transcriptBusy.GetUntracked(), a.transcriptErr.GetUntracked())
@@ -279,8 +288,7 @@ func TestMobileSessionOptionsIgnorePreviousVisit(t *testing.T) {
 				a.closeSession()
 			} else {
 				a.disconnect()
-				next := *client
-				a.client = &next
+				a.client = newSessionReadClient(client)
 			}
 			openSessionForReadTest(t, a, posts, reads, "s1")
 			replySessionRead(t, posts, old, http.StatusOK, remotewire.Options{Model: "stale-model", Mode: "plan"})

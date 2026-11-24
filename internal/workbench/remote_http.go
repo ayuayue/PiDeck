@@ -72,7 +72,7 @@ func (h *remoteHost) handler() http.Handler {
 			mux.ServeHTTP(w, r)
 			return
 		}
-		if !remoteAuthorized(r, h.currentToken()) {
+		if !h.authorize(w, r) {
 			writeRemoteJSON(w, http.StatusUnauthorized, map[string]string{"error": "访问令牌无效"})
 			return
 		}

@@ -2,10 +2,11 @@
 
 package workbench
 
-// The phone server and its network channels. The desktop app can expose
-// its projects and sessions to the mobile build over HTTP; a token guards
-// every request. The same page reports the addresses the phone can use on
-// the LAN, over Tailscale or over EasyTier.
+// The phone server's token gate. A token guards every API request, and with
+// rotation on it also has a lifetime: the current token, plus the one it
+// replaced for a short grace window. The replacement travels in a response
+// header, so a client that keeps polling this desktop takes the new token
+// from a reply it was waiting for anyway and never notices the rotation.
 
 import (
 	"crypto/rand"
@@ -15,17 +16,30 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"example.com/pideck-v2/internal/remotewire"
 )
 
-// remoteAuthorized checks the bearer token, or a GET's token query, in
-// constant time.
-func remoteAuthorized(r *http.Request, token string) bool {
-	if token == "" {
-		return false
-	}
+// remoteTokenHeader carries the current token to a client that presented the
+// one it replaced. It is a response header rather than a route so a poll
+// every few seconds keeps a connected client current for free.
+const remoteTokenHeader = remotewire.TokenHeader
+
+// remoteRequestToken is the token a request presents: its bearer header, or
+// a GET's token query.
+func remoteRequestToken(r *http.Request) string {
 	given := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if given == "" && r.Method == http.MethodGet {
 		given = r.URL.Query().Get("token")
+	}
+	return given
+}
+
+// remoteAuthorized compares a presented token with the one it must match, in
+// constant time.
+func remoteAuthorized(given, token string) bool {
+	if given == "" || token == "" {
+		return false
 	}
 	return subtle.ConstantTimeCompare([]byte(given), []byte(token)) == 1
 }
