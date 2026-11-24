@@ -7,6 +7,7 @@ package client
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"example.com/pideck-v2/internal/apptext"
@@ -192,6 +193,54 @@ func (a *mobileApp) loadOptions(id string) {
 	}()
 }
 
+// sameOptions says two reads carry the same choices, so a poll that found
+// nothing new leaves the sheet alone. A new value would rebuild every row
+// under the reader's finger: the model list is long enough that a rebuild
+// mid-scroll is what a poll looks like as the page reloading itself.
+func sameOptions(a, b remotewire.Options) bool {
+	return a.Model == b.Model && a.Provider == b.Provider && a.Thinking == b.Thinking &&
+		a.Mode == b.Mode && a.Ready == b.Ready && a.Backend == b.Backend &&
+		a.BackendName == b.BackendName && a.BackendLocked == b.BackendLocked &&
+		sameStrings(a.Levels, b.Levels) && sameStrings(a.Tools, b.Tools) &&
+		sameBackends(a.Backends, b.Backends) && sameModels(a.Models, b.Models)
+}
+
+func sameStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func sameModels(a, b []remotewire.Model) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func sameBackends(a, b []remotewire.Backend) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // optionsSheet picks the model or the thinking level.
 func (a *mobileApp) optionsSheet() core.Node {
 	return ui.Dialog{
@@ -237,35 +286,7 @@ func (a *mobileApp) optionsSheet() core.Node {
 				}})
 			}
 			if len(opts.Models) > 0 {
-				rows := make([]core.Node, 0, len(opts.Models))
-				for _, m := range opts.Models {
-					model := m
-					on := model.ID == opts.Model
-					rows = append(rows, core.View{OnPress: func(core.PressEvent) { a.chooseModel(model) },
-						Role: core.RoleButton, Label: model.Name, TestID: "mobile-model-row",
-						StyleFunc: func() core.Style {
-							return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(40),
-								Padding: core.Symmetric(0, 8), CornerRadius: 7, Transition: viewkit.PressMotion,
-								Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
-						},
-						Children: []core.Node{
-							core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 1}, Children: []core.Node{
-								viewkit.BrandName(colors, brands.Model(model.ID, model.Provider), 14, core.Text{Content: model.Name, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-									Style: core.Style{FontSize: 13.5}, StyleFunc: ui.Colored(colors.Text)}),
-								core.Text{Content: model.Provider, MaxLines: 1, Style: core.Style{FontSize: 10},
-									StyleFunc: ui.Colored(colors.Faint)},
-							}},
-							core.Show{When: func() bool { return on }, Then: func(*core.Scope) core.Node {
-								return ui.Icon(lucide.Check, 14, colors.Text)
-							}},
-						}})
-				}
-				sections = append(sections, core.View{Style: core.Style{Gap: 6}, Children: []core.Node{
-					ui.Text(apptext.T("模型"), 11, ui.Medium, colors.Faint),
-					a.scrollStashFor("optionsSheet:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(320)}, Children: []core.Node{
-						core.View{Style: core.Style{Gap: 1}, Children: rows},
-					}}),
-				}})
+				sections = append(sections, a.modelSection(cx, opts))
 			}
 			if len(sections) == 0 {
 				return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Padding: core.Symmetric(10, 4)},
@@ -277,6 +298,141 @@ func (a *mobileApp) optionsSheet() core.Node {
 			return core.View{Style: core.Style{Gap: 14}, Children: sections}
 		})},
 	}
+}
+
+// modelSection lists the session's models, searchable and grouped by
+// supplier: a desktop can offer a hundred and sixty of them, and a flat
+// list of that length cannot be found by eye. The search field and the
+// list are separate computations so typing filters the rows without
+// rebuilding (and unfocusing) the field.
+func (a *mobileApp) modelSection(cx *core.Scope, opts remotewire.Options) core.Node {
+	colors := ui.ColorsOf(cx)
+	sections := []core.Node{
+		ui.Text(apptext.T("模型"), 11, ui.Medium, colors.Faint),
+		// The field reads the query, so it keeps its focus while the list
+		// below filters.
+		core.View{StyleFunc: func() core.Style {
+			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Height: core.Pt(32), Padding: core.Symmetric(0, 9),
+				CornerRadius: 8, BorderWidth: 1, BorderColor: colors.FieldBorder(), Background: colors.Field()}
+		}, Children: []core.Node{
+			ui.Icon(lucide.Search, 12, colors.Faint),
+			core.Input{
+				Value: a.optionsQuery.Get, OnChange: a.optionsQuery.Set,
+				Placeholder: apptext.T("搜索模型或供应商"), Label: apptext.T("搜索模型"), TestID: "mobile-model-search",
+				Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0), FontSize: 12.5, Color: colors.Text()},
+				StyleFunc: func() core.Style {
+					return core.Style{PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}
+				},
+			},
+		}},
+	}
+	rows := core.Dynamic(func(cx *core.Scope) core.Node {
+		query := strings.ToLower(strings.TrimSpace(a.optionsQuery.Get()))
+		colors := ui.ColorsOf(cx)
+		match := func(m remotewire.Model) bool {
+			if query == "" {
+				return true
+			}
+			return strings.Contains(strings.ToLower(m.Name), query) ||
+				strings.Contains(strings.ToLower(m.ID), query) ||
+				strings.Contains(strings.ToLower(m.Provider), query)
+		}
+		row := func(m remotewire.Model) core.Node {
+			on := m.ID == opts.Model && m.Provider == opts.Provider
+			return core.View{OnPress: func(core.PressEvent) { a.chooseModel(m) },
+				Role: core.RoleButton, Label: m.Name, TestID: "mobile-model-row",
+				StyleFunc: func() core.Style {
+					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(42),
+						Padding: core.Symmetric(0, 8), CornerRadius: 7, Transition: viewkit.PressMotion,
+						Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
+				},
+				Children: []core.Node{
+					core.View{Style: core.Style{Width: core.Pt(14), AlignItems: core.AlignCenter}, Children: []core.Node{
+						core.Show{When: func() bool { return on }, Then: func(*core.Scope) core.Node {
+							return ui.Icon(lucide.Check, 13, colors.Text)
+						}},
+					}},
+					core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 1}, Children: []core.Node{
+						viewkit.BrandName(colors, brands.Model(m.ID, m.Provider), 14, core.Text{Content: modelName(m), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+							Style: core.Style{FontSize: 13.5}, StyleFunc: ui.Colored(colors.Text)}),
+						core.Text{Content: modelPathLabel(m), MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
+							Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
+					}},
+					core.Show{When: func() bool { return m.Reasoning }, Then: func(*core.Scope) core.Node {
+						return ui.Icon(lucide.Brain, 12, colors.Faint)
+					}},
+				}}
+		}
+		// Grouped by supplier, suppliers alphabetically: without the desktop's
+		// own order the phone cannot tell which one the user pinned.
+		groups := map[string][]remotewire.Model{}
+		var order []string
+		for _, m := range opts.Models {
+			if !match(m) {
+				continue
+			}
+			if _, ok := groups[m.Provider]; !ok {
+				order = append(order, m.Provider)
+			}
+			groups[m.Provider] = append(groups[m.Provider], m)
+		}
+		if len(order) == 0 {
+			return core.View{Style: core.Style{Padding: core.Symmetric(14, 8)}, Children: []core.Node{
+				core.Text{Content: apptext.T("没有匹配的模型"), MaxLines: 2,
+					Style: core.Style{FontSize: 12, TextAlign: core.TextAlignCenter}, StyleFunc: ui.Colored(colors.Faint)}}}
+		}
+		sort.SliceStable(order, func(i, j int) bool {
+			// A supplier with no name sorts first: it is the local pi.
+			if (order[i] == "") != (order[j] == "") {
+				return order[i] == ""
+			}
+			return strings.ToLower(order[i]) < strings.ToLower(order[j])
+		})
+		var out []core.Node
+		for _, p := range order {
+			head := []core.Node{ui.Text(supplierLabel(p), 10, ui.Medium, colors.Faint)}
+			if mark := brands.Mark(p, 12, colors.Muted); mark != nil {
+				head = append([]core.Node{mark}, head...)
+			}
+			out = append(out, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6,
+				Padding: core.Edges{Top: 10, Right: 8, Bottom: 4, Left: 8}}, Children: head})
+			for _, m := range groups[p] {
+				out = append(out, row(m))
+			}
+		}
+		return core.View{Style: core.Style{Gap: 1}, Children: out}
+	})
+	return core.View{Style: core.Style{Gap: 6}, Children: append(sections,
+		a.scrollStashFor("optionsSheet:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(320)}, Children: []core.Node{rows}}))}
+}
+
+// supplierLabel names a model's supplier, the wordless group last.
+func supplierLabel(provider string) string {
+	if strings.TrimSpace(provider) == "" {
+		return apptext.T("本机")
+	}
+	return provider
+}
+
+// modelName is a model's name without the routing suffix pi appends.
+func modelName(m remotewire.Model) string {
+	name := m.Name
+	if name == "" {
+		name = m.ID
+	}
+	if i := strings.Index(name, " · "); i > 0 {
+		name = name[:i]
+	}
+	return name
+}
+
+// modelPathLabel is where a model comes from, so two models with one name
+// stay apart.
+func modelPathLabel(m remotewire.Model) string {
+	if m.Provider == "" {
+		return m.ID
+	}
+	return m.Provider + " · " + m.ID
 }
 
 // backendSection lists where the session can run: pi, or an ACP agent the

@@ -33,9 +33,12 @@ type fakeComposerDesktop struct {
 	image    string
 	tool     string
 	failNext bool
-	sessions int
-	server   *httptest.Server
-	token    string
+	// optionReads counts the /options requests, so a test can tell a poll
+	// that rereads the same choices from one that left the sheet alone.
+	optionReads int
+	sessions    int
+	server      *httptest.Server
+	token       string
 }
 
 func newComposerDesktop(t *testing.T, sessions ...remotewire.Session) *fakeComposerDesktop {
@@ -92,6 +95,7 @@ func newComposerDesktop(t *testing.T, sessions ...remotewire.Session) *fakeCompo
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/options"):
 			d.mu.Lock()
+			d.optionReads++
 			mode, backend := d.mode, d.backend
 			d.mu.Unlock()
 			reply(w, remotewire.Options{Model: "m1", Thinking: "low", Levels: []string{"low", "high"},
@@ -219,6 +223,13 @@ func (d *fakeComposerDesktop) open(t *testing.T, app **nsgotest.App) {
 	(*app).Press("id:mobile-connect")
 	// The phone opens on the new-session page: the composer is there.
 	waitApp(*app, "id:mobile-draft", 15*time.Second)
+}
+
+// readsOptions is how many times /options was fetched.
+func (d *fakeComposerDesktop) readsOptions() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.optionReads
 }
 
 func (d *fakeComposerDesktop) sentPrompts() []string {

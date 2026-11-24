@@ -232,9 +232,10 @@ type mobileApp struct {
 	removePath *core.Signal[string]
 
 	// options are the open session's models and thinking levels, shown in
-	// the sheet over optionsOpen.
-	options     *core.Signal[remotewire.Options]
-	optionsOpen *core.Signal[bool]
+	// the sheet over optionsOpen; optionsQuery filters its model list.
+	options      *core.Signal[remotewire.Options]
+	optionsOpen  *core.Signal[bool]
+	optionsQuery *core.Signal[string]
 
 	// toolOpen is the key of the tool block the user unfolded, longOpen the
 	// long user message that is fully shown.
@@ -377,8 +378,9 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		addPath:             core.NewSignal(cx, ""),
 		addOpen:             core.NewSignal(cx, false),
 		removePath:          core.NewSignal(cx, ""),
-		options:             core.NewSignalFunc(cx, remotewire.Options{}, nil),
+		options:             core.NewSignalFunc(cx, remotewire.Options{}, sameOptions),
 		optionsOpen:         core.NewSignal(cx, false),
+		optionsQuery:        core.NewSignal(cx, ""),
 		toolOpen:            core.NewSignal(cx, ""),
 		longOpen:            core.NewSignal(cx, ""),
 		thoughtOpen:         core.NewSignalFunc(cx, []string(nil), nil),
