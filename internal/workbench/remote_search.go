@@ -22,16 +22,26 @@ import (
 	qrcode "github.com/skip2/go-qrcode"
 )
 
-// searchCache keeps each session file's text so a second search is cheap.
+// searchCache keeps each session file's text so a second search is cheap. It
+// counts bytes rather than entries: one file's text is its transcript up to
+// the reader's own limit, and a phone searching a library of long sessions
+// would otherwise leave hundreds of megabytes in the desktop's heap. The file
+// asked for least recently goes first.
 type searchCache struct {
 	mu      sync.Mutex
 	entries map[string]searchEntry
+	bytes   int64
+	tick    int64
 }
+
+// searchCacheBudget is how much transcript text the cache may hold.
+const searchCacheBudget = 32 << 20
 
 type searchEntry struct {
 	mod  time.Time
 	size int64
 	text string
+	used int64
 }
 
 // handleSearch looks for a word in the messages of every session file.
@@ -105,11 +115,8 @@ func (h *remoteHost) searchText(file string) string {
 	if err != nil {
 		return ""
 	}
-	h.search.mu.Lock()
-	entry, ok := h.search.entries[file]
-	h.search.mu.Unlock()
-	if ok && entry.mod.Equal(info.ModTime()) && entry.size == info.Size() {
-		return entry.text
+	if text, ok := h.search.lookup(file, info); ok {
+		return text
 	}
 	f, err := os.Open(file)
 	if err != nil {
@@ -117,13 +124,61 @@ func (h *remoteHost) searchText(file string) string {
 	}
 	defer f.Close()
 	text := strings.ToLower(readSearchTranscript(f, filepath.Ext(file) == ".json"))
-	h.search.mu.Lock()
-	if len(h.search.entries) >= 1000 {
-		clear(h.search.entries)
-	}
-	h.search.entries[file] = searchEntry{mod: info.ModTime(), size: info.Size(), text: text}
-	h.search.mu.Unlock()
+	h.search.store(file, info, text)
 	return text
+}
+
+// lookup returns a file's text while the file is unchanged, and marks it as
+// the one used last.
+func (c *searchCache) lookup(file string, info os.FileInfo) (string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	entry, ok := c.entries[file]
+	if !ok || !entry.mod.Equal(info.ModTime()) || entry.size != info.Size() {
+		return "", false
+	}
+	c.tick++
+	entry.used = c.tick
+	c.entries[file] = entry
+	return entry.text, true
+}
+
+// store keeps a file's text, dropping the least recently used files until the
+// cache fits its budget again. A file whose text alone is over the budget is
+// dropped too: holding it would break the bound the phone's searches need.
+func (c *searchCache) store(file string, info os.FileInfo, text string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if old, ok := c.entries[file]; ok {
+		c.bytes -= int64(len(old.text))
+		delete(c.entries, file)
+	}
+	c.tick++
+	c.entries[file] = searchEntry{mod: info.ModTime(), size: info.Size(), text: text, used: c.tick}
+	c.bytes += int64(len(text))
+	for c.bytes > searchCacheBudget {
+		c.dropOldest()
+	}
+}
+
+// dropOldest forgets the file used least recently.
+func (c *searchCache) dropOldest() {
+	oldest, oldestAt := "", int64(0)
+	for file, entry := range c.entries {
+		if oldest == "" || entry.used < oldestAt {
+			oldest, oldestAt = file, entry.used
+		}
+	}
+	c.bytes -= int64(len(c.entries[oldest].text))
+	delete(c.entries, oldest)
+}
+
+// clear forgets every file, so the settings page's cleanup takes the text and
+// the parsed transcripts together.
+func (c *searchCache) clear() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.entries, c.bytes, c.tick = map[string]searchEntry{}, 0, 0
 }
 
 func readSearchTranscript(r io.Reader, acp bool) string {

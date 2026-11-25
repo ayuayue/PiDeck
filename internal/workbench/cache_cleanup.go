@@ -20,6 +20,10 @@ func (a *app) clearCache(kind string) error {
 		sessionHistory.Lock()
 		sessionHistory.items, sessionHistory.order, sessionHistory.bytes = map[string]historyEntry{}, nil, 0
 		sessionHistory.Unlock()
+		// The phone's search keeps the same transcripts, lowercased.
+		if a.remote != nil {
+			a.remote.search.clear()
+		}
 		return nil
 	case "metadata":
 		a.st.metaWriteMu.Lock()
