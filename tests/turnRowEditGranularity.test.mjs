@@ -72,6 +72,10 @@ test("issue #310 源码契约：TurnRow 编辑初值不得来自 mergedText，�
 	assert.ok(editGate.length > 0, "edit button gate must exist");
 	assert.match(editGate, /editableMessage\?\.message\.id/);
 	assert.doesNotMatch(editGate, /assistantMessages\.at\(-1\)/);
-	// mergedText 保留给复制入口（复制整轮输出是合理功能，不随编辑修复收紧）
-	assert.match(actionsSource, /markdown=\{props\.mergedText\}/);
+	// 复制入口的正文口径是 replyText（最终回答，没有时回退整轮聚合，见 #601），
+	// 与编辑初值仍然隔离：编辑走 editableMessage，复制/收藏走 replyText。
+	assert.match(actionsSource, /markdown=\{props\.replyText\}/);
+	assert.doesNotMatch(actionsSource, /markdown=\{props\.mergedText\}/);
+	// 正文口径（#601）：有最终回答就只给最终回答，缺失（中断轮/纯工具轮）才回退整轮聚合
+	assert.match(turnRowSource, /const replyText = finalText \|\| mergedText;/);
 });

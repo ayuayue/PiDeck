@@ -268,6 +268,17 @@ export const TurnRow = memo(function TurnRow(props: TurnRowProps) {
 	// 最终回答留在容器外常驻、永不折叠。
 	const foldableItems = useMemo(() => displayItems.filter((item) => item.kind !== "final-answer"), [displayItems]);
 	const finalItems = useMemo(() => displayItems.filter((item) => item.kind === "final-answer"), [displayItems]);
+	// 复制/收藏的正文口径只取最终回答（#601）：整轮聚合会把阶段性回复（「我先看一下…」）拼到
+	// 结论前面，用户复制出来的是过程而不是回答。没有最终回答的轮（中断/纯工具轮）回退整轮聚合，
+	// 否则操作栏会因为正文为空而整组消失。
+	const finalText = useMemo(
+		() =>
+			finalItems
+				.map((item) => visibleAssistantText(item.message.text))
+				.filter(Boolean)
+				.join("\n\n"),
+		[finalItems],
+	);
 	// 单轮步骤挂载预算（2026-08 #213）：极端轮次（单轮上百个工具/思考条目）默认只挂尾部
 	// LIMIT 条，顶部给「显示更早 N 条步骤」入口——每点一次把挂载下界向前挪一批（batches +1）。
 	// 下界锚在首次点击时的条目总数上：之后尾部追加新步骤不会把已展开的旧条目挤回去。
@@ -304,14 +315,15 @@ export const TurnRow = memo(function TurnRow(props: TurnRowProps) {
 		for (const item of messages) {
 			if (item.message.images) images.push(...item.message.images);
 		}
-		// 合并后的完整文本仅用于复制等操作栏（复制整轮输出），不得作为编辑初值（issue #310）
+		// 整轮聚合正文：只作为「没有最终回答」时的回退（中断轮/纯工具轮），不再直接拿去复制。
+		// 不得作为编辑初值（issue #310）。
 		const merged = messages
 			.map((item) => visibleAssistantText(item.message.text))
 			.filter(Boolean)
 			.join("\n\n");
 		// 复制按钮要的纯文本**不在这里算**：`stripMarkdown` 是多趟正则、代价正比于整轮正文，
 		// 而流式期间 run.items 每 50ms 变一次——挂在 useMemo 里等于每帧对整轮正文跑一遍正则。
-		// 改成把 mergedText 交给 CopyMenu，点「复制为文本」那一刻才算（见 CopyMenu 的 resolveText）。
+		// 改成把 replyText 交给 CopyMenu，点「复制为文本」那一刻才算（见 CopyMenu 的 resolveText）。
 		// 本轮模型名：取最后一条带 model 的 assistant 消息（同轮内一般同源），显示在底部耗时行。
 		let model: ChatMessage["model"];
 		for (let index = messages.length - 1; index >= 0 && !model; index -= 1) {
@@ -327,9 +339,11 @@ export const TurnRow = memo(function TurnRow(props: TurnRowProps) {
 			turnModel: model,
 		};
 	}, [run.items]);
-	// 复制为文本用的纯文本：`stripMarkdown` 是多趟正则、代价正比于整轮正文，而它只在用户点
+	// 复制/收藏口径：有最终回答就只给最终回答（#601），否则回退整轮聚合。
+	const replyText = finalText || mergedText;
+	// 复制为文本用的纯文本：`stripMarkdown` 是多趟正则、代价正比于正文，而它只在用户点
 	// 「复制为文本」那一刻才需要。走 useLazyValue 推迟到点击时算，流式期间不再每 50ms 跑一遍。
-	const resolvePlainText = useLazyValue(() => (mergedText ? stripMarkdown(mergedText) : ""), [mergedText]);
+	const resolvePlainText = useLazyValue(() => (replyText ? stripMarkdown(replyText) : ""), [replyText]);
 	// 收藏身份与右键菜单同源（会话 + 消息 id）：星标显示实心即表示这条回复已在收藏里，再点即取消。
 	const replyMessageId = editableMessage?.message.id ?? null;
 	const replyFavoriteKey = replyMessageId ? favoriteMessageKey(props.sessionId ?? null, replyMessageId) : null;
@@ -487,7 +501,7 @@ export const TurnRow = memo(function TurnRow(props: TurnRowProps) {
 				<TurnFileChanges run={run} streaming={isRunLive || Boolean(props.isStreaming)} onOpenFile={props.onOpenFile} onDiffFile={props.onDiffFile} />
 
 				<TurnRowActions
-					mergedText={mergedText}
+					replyText={replyText}
 					editing={editing}
 					containsImageGen={containsImageGen}
 					resolvePlainText={resolvePlainText}

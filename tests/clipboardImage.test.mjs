@@ -164,15 +164,22 @@ describe("writeClipboardImage", () => {
 });
 
 test("copy-as-image paths use writeClipboardImage instead of ClipboardItem", () => {
+	// 单轮复制的实现已搬进 utils/exportImageCopy（与多选分享共用导出预处理，见 #601）。
+	const exportCopy = read("src/renderer/src/utils/exportImageCopy.ts");
 	const surface = read("src/renderer/src/components/session/SurfaceComponents.tsx");
 	const timeline = read("src/renderer/src/components/session/SessionMessageTimeline.tsx");
 	const finalAnswer = read("src/renderer/src/components/session/turn/FinalAnswer.tsx");
 
-	assert.match(surface, /writeClipboardImage/);
-	assert.match(surface, /if \(!blob\) throw/);
-	assert.doesNotMatch(surface, /navigator\.clipboard\.write\(\[new ClipboardItem/);
+	assert.match(exportCopy, /writeClipboardImage/);
+	assert.match(exportCopy, /if \(!blob\) throw/);
+	assert.doesNotMatch(exportCopy, /navigator\.clipboard\.write\(\[new ClipboardItem/);
+	// 入口只做转发：不得在组件文件里再长出一份克隆/截图逻辑
+	assert.match(surface, /copyElementAsPng as copyElementAsPngImpl/);
+	assert.doesNotMatch(surface, /toBlob\(/);
 
-	assert.match(timeline, /writeClipboardImage/);
+	// 多选分享同样走共用实现（不得再自带 toBlob / ClipboardItem）
+	assert.match(timeline, /copySelectedMessagesAsPng/);
+	assert.doesNotMatch(timeline, /toBlob\(/);
 	assert.doesNotMatch(timeline, /navigator\.clipboard\.write\(\[\s*new ClipboardItem/);
 
 	assert.match(finalAnswer, /writeClipboardImage/);
@@ -183,13 +190,13 @@ test("copy-as-image clone hides via .multi-select-image-export, not off-viewport
 	// html-to-image 会把 clone 的 computed style 复制进 SVG foreignObject 再渲染。
 	// 若用 left:-100000px / position:fixed 隐藏 clone，内容会整体渲染到 viewBox 外 → 截图空白。
 	// 必须复用 .multi-select-image-export（absolute + left/top 归零 + z-index:-1），与多选分享一致。
-	const surface = read("src/renderer/src/components/session/SurfaceComponents.tsx");
+	const exportCopy = read("src/renderer/src/utils/exportImageCopy.ts");
 
 	// 根因守卫：单条「复制为图片」的 clone 不得再用负偏移或 fixed 定位隐藏
-	assert.doesNotMatch(surface, /style\.left\s*=\s*"-100000px"/);
-	assert.doesNotMatch(surface, /style\.position\s*=\s*"fixed"/);
+	assert.doesNotMatch(exportCopy, /style\.left\s*=\s*"-100000px"/);
+	assert.doesNotMatch(exportCopy, /style\.position\s*=\s*"fixed"/);
 	// 正向：copyElementAsPng 复用多选分享的隐藏类
-	assert.match(surface, /classList\.add\("multi-select-image-export"\)/);
+	assert.match(exportCopy, /classList\.add\("multi-select-image-export"\)/);
 });
 
 test("native clipboard image write lives in main and preload only invokes IPC", () => {

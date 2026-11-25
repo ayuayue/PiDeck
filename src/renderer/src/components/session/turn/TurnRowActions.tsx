@@ -8,8 +8,11 @@ import { CopyMenu } from "../SurfaceComponents";
 import { formatDuration } from "../TimelineFormat";
 
 export type TurnRowActionsProps = {
-	/** 整轮回复正文（Markdown 源码）；为空时整栏只剩耗时/模型。 */
-	mergedText: string;
+	/**
+	 * 复制/收藏用的正文（Markdown 源码）：默认是本轮**最终回答**，没有最终回答时回退整轮聚合。
+	 * 为空时整栏只剩耗时/模型。
+	 */
+	replyText: string;
 	editing: boolean;
 	containsImageGen: boolean;
 	/** 惰性求值的纯文本（`stripMarkdown` 走正则，只在点「复制为文本」时才跑）。 */
@@ -59,7 +62,7 @@ function ZoneDivider() {
 export function TurnRowActions(props: TurnRowActionsProps) {
 	// 旧导入文件保存了占位模型名，轮尾与新导入统一显示来源名称。
 	const turnModelLabel = props.turnModel?.provider === "kimi" && props.turnModel.modelId === "kimi-import" ? "kimi code" : props.turnModel?.modelId;
-	const showActions = Boolean(props.mergedText) && !props.editing && !props.pendingKind;
+	const showActions = Boolean(props.replyText) && !props.editing && !props.pendingKind;
 	if (props.pendingKind) {
 		return (
 			<div className="flex min-h-6 items-center gap-1.5 text-xs text-text-secondary" role="status">
@@ -73,8 +76,8 @@ export function TurnRowActions(props: TurnRowActionsProps) {
 		<div className={`flex min-h-6 items-center gap-1${showActions ? " opacity-55 transition-opacity hover:opacity-100 focus-within:opacity-100" : ""}`}>
 			{showActions && (
 				<>
-					{!props.containsImageGen && <CopyMenu resolveText={props.resolvePlainText} markdown={props.mergedText} targetRef={props.targetRef} />}
-					{/* 收藏整轮回复：与复制同源（Markdown 源码），快照落本机收藏页；入口不依赖编辑权限。
+					{!props.containsImageGen && <CopyMenu resolveText={props.resolvePlainText} markdown={props.replyText} targetRef={props.targetRef} />}
+					{/* 收藏整轮回复：与复制同源（最终回答的 Markdown 源码），快照落本机收藏页；入口不依赖编辑权限。
 						    已收藏显示实心星（与右键菜单同一身份），再点即取消。 */}
 					{props.onFavoriteReply && (
 						<Button
@@ -83,7 +86,7 @@ export function TurnRowActions(props: TurnRowActionsProps) {
 							size="icon-sm"
 							className="turn-row-action-btn size-7 rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
 							aria-pressed={props.replyFavorited}
-							onClick={() => props.onFavoriteReply?.(props.mergedText, props.replyMessageId)}
+							onClick={() => props.onFavoriteReply?.(props.replyText, props.replyMessageId)}
 							title={props.replyFavorited ? t("favorites.unsaveMessage") : t("favorites.saveMessage")}
 							aria-label={props.replyFavorited ? t("favorites.unsaveMessage") : t("favorites.saveMessage")}
 						>

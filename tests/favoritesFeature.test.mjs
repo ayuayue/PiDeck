@@ -107,7 +107,8 @@ test("两条收藏入口：消息右键菜单 + 划选浮层 + 回合动作条�
 	assert.match(selectionToolbar, /data-quote-action="favorite"/);
 	assert.match(selectionToolbar, /useFavorites\(\)/);
 	assert.match(turnRow, /onFavoriteReply\?: \(text: string, messageId: string \| null\) => void/);
-	assert.match(turnRowActions, /props\.onFavoriteReply\?\.\(props\.mergedText, props\.replyMessageId\)/);
+	// 收藏与复制同源：replyText = 最终回答（无最终回答时回退整轮聚合，见 #601）
+	assert.match(turnRowActions, /props\.onFavoriteReply\?\.\(props\.replyText, props\.replyMessageId\)/);
 	assert.match(timeline, /onFavoriteReply=\{handleFavoriteReply\}/);
 	assert.match(timeline, /favoriteContext/);
 });
