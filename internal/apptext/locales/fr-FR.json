@@ -1656,6 +1656,8 @@
   "已中断": "Interrompu",
   "过程": "Processus",
   "%d 个工具调用": "%dappels d’outils",
+  "展开 %d 个子会话": "Développer %d sessions enfants",
+  "折叠 %d 个子会话": "Réduire %d sessions enfants",
   "%d 次思考": "%d étapes de réflexion",
   "正在思考": "Réflexion",
   "正在读取文件": "Lecture",

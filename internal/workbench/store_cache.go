@@ -23,6 +23,10 @@ type sessionMeta struct {
 	Updated time.Time `json:"updated"`
 	Count   int       `json:"count,omitempty"`
 	Target  string    `json:"target,omitempty"`
+	// Parent is the session this one grew out of, as pi wrote it in the
+	// header: the parent's file path, or a session id. A persisted subagent
+	// and a fork both name the session that spawned them.
+	Parent string `json:"parent,omitempty"`
 	// External marks a session in pi's own store, which the app opens in
 	// place rather than owning.
 	External bool `json:"-"`
@@ -30,7 +34,7 @@ type sessionMeta struct {
 
 // metaCacheVersion is the shape of session-meta-cache.json. Bump it when a
 // field means something else, and every file is read again once.
-const metaCacheVersion = 2
+const metaCacheVersion = 3
 
 // metaCacheMax bounds the listings kept, as the scan itself is bounded.
 const metaCacheMax = 8000

@@ -205,22 +205,20 @@ func (a *app) railChats() core.Node {
 			pinned, rest = a.projectSessions(ws)
 		}
 		query := strings.ToLower(strings.TrimSpace(a.filter.Get()))
-		keep := func(list []*session) []*session {
-			if query == "" {
-				return list
+		tree := a.projectTree(pinned, rest, query)
+		var rows []core.Node
+		if query != "" {
+			// A search keeps each match under the sessions above it.
+			if len(tree.visible) > 0 {
+				rows = a.sessionRows(append(append([]*session{}, pinned...), rest...), tree)
 			}
-			var out []*session
-			for _, s := range list {
-				if containsQuery(s.title.Get(), query) {
-					out = append(out, s)
-				}
+		} else {
+			if len(pinned) > 0 {
+				rows = append(rows, a.sessionRows(pinned, tree)...)
 			}
-			return out
-		}
-		pinned, rest = keep(pinned), keep(rest)
-		rows := make([]core.Node, 0, len(pinned)+len(rest))
-		for _, s := range append(pinned, rest...) {
-			rows = append(rows, a.sessionRowFn(func() *session { return s }))
+			if len(rest) > 0 {
+				rows = append(rows, a.sessionRows(rest, tree)...)
+			}
 		}
 		children := []core.Node{a.newChatRow()}
 		if len(rows) > 0 {

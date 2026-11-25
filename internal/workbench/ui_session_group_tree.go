@@ -2,10 +2,15 @@
 
 package workbench
 
+// The rail's session rows: a project's sessions under the groups the user
+// sorted them into, under time headings, and nested by the session each one
+// grew out of.
+
 import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 
 	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/base"
@@ -18,6 +23,36 @@ type railSessionGroup struct {
 	name, path string
 	sessions   []*session
 	children   map[string]*railSessionGroup
+}
+
+// railTree is one project's sessions as the rail draws them: the parent of
+// every session the project lists, what a search may show, and whether rows
+// order by activity or by name.
+type railTree struct {
+	parents map[string]string
+	visible map[string]bool // nil unless the rail is searching
+	recent  bool
+}
+
+// projectTree builds the rail's tree for one project. A search keeps each
+// match with the sessions above it, so a subagent found by name reads under
+// the conversation that spawned it instead of nowhere.
+func (a *app) projectTree(pinned, rest []*session, query string) railTree {
+	all := append(append(make([]*session, 0, len(pinned)+len(rest)), pinned...), rest...)
+	org := a.organization.Get()
+	parents := sessionParents(all, org.Links, a.cfg.ForkParents)
+	// A pinned session reads at the top of its project, so pinning pulls it
+	// and what grew out of it out from under its parent.
+	for _, s := range pinned {
+		delete(parents, s.ID)
+	}
+	tree := railTree{parents: parents, recent: a.sessionSortMode() != "name"}
+	if query != "" {
+		tree.visible = sessionVisible(all, parents, func(s *session) bool {
+			return containsQuery(s.title.Get(), query)
+		})
+	}
+	return tree
 }
 
 func sessionGroupTree(sessions []*session, groups map[string]string) *railSessionGroup {
@@ -46,62 +81,53 @@ func sessionGroupTree(sessions []*session, groups map[string]string) *railSessio
 	return root
 }
 
-func (a *app) groupedSessionRows(ws *workspace, sessions []*session, filtering bool) []core.Node {
+// groupedSessionRows draws a project's sessions under their groups and time
+// headings, nesting the ones that grew out of another.
+func (a *app) groupedSessionRows(ws *workspace, list []*session, tree railTree) []core.Node {
 	org := a.organization.Get()
-	tree := sessionGroupTree(sessions, org.Groups)
+	groups := sessionGroupTree(list, org.Groups)
 	var out []core.Node
-	for _, name := range slices.Sorted(maps.Keys(tree.children)) {
-		out = append(out, a.sessionGroupNode(ws, tree.children[name], org.Links, filtering))
+	for _, name := range slices.Sorted(maps.Keys(groups.children)) {
+		out = append(out, a.sessionGroupNode(ws, groups.children[name], tree))
 	}
-	ungrouped, children := sessionLinkRows(tree.sessions, org.Links)
-	if a.sessionSortMode() == "name" {
-		if len(ungrouped) > 0 {
-			out = append(out, a.groupLabel(apptext.T("名称")), a.linkedSessionRows(ungrouped, children, 0))
+	ungrouped := groups.sessions
+	if tree.recent {
+		f := buildSessionForest(ungrouped, tree.parents)
+		f.sortByRecent(sessionUpdated)
+		// The headings follow a root's newest activity, the same reading
+		// its children were ordered by.
+		for _, group := range sessionBucketsBy(f.roots, a.cx.Now(), func(s *session) time.Time { return f.recent[s.ID] }) {
+			out = append(out, a.groupLabel(group.Label))
+			out = append(out, a.sessionForestRows(f, group.Rows, tree.parents, tree.visible,
+				sessionRowOpts{reserve: len(f.kids) > 0}, a.railActiveChain(tree.parents), 0)...)
 		}
-	} else {
-		for _, group := range sessionBuckets(ungrouped, a.cx.Now()) {
-			out = append(out, a.groupLabel(group.Label), a.linkedSessionRows(group.Rows, children, 0))
-		}
+		return out
+	}
+	if len(ungrouped) > 0 {
+		out = append(out, a.groupLabel(apptext.T("名称")))
+		out = append(out, a.sessionRows(ungrouped, tree)...)
 	}
 	return out
 }
 
-func sessionLinkRows(sessions []*session, links map[string]sessionLink) ([]*session, map[string][]*session) {
-	visible := make(map[string]bool, len(sessions))
-	for _, s := range sessions {
-		visible[s.ID] = true
+// sessionRows draws one set of sessions, nested, with no heading of its own.
+func (a *app) sessionRows(list []*session, tree railTree) []core.Node {
+	f := buildSessionForest(list, tree.parents)
+	if tree.recent {
+		f.sortByRecent(sessionUpdated)
 	}
-	var roots []*session
-	children := make(map[string][]*session)
-	for _, s := range sessions {
-		parent := links[s.ID].Parent
-		if parent != "" && visible[parent] {
-			children[parent] = append(children[parent], s)
-		} else {
-			roots = append(roots, s)
-		}
-	}
-	return roots, children
+	opts := sessionRowOpts{reserve: len(f.kids) > 0}
+	return a.sessionForestRows(f, f.roots, tree.parents, tree.visible, opts, a.railActiveChain(tree.parents), 0)
 }
 
-func (a *app) linkedSessionRows(rows []*session, children map[string][]*session, depth int) core.Node {
-	var views []core.Node
-	for _, s := range rows {
-		views = append(views, a.sessionRowFn(func() *session { return s }))
-		if child := children[s.ID]; len(child) > 0 {
-			views = append(views, a.linkedSessionRows(child, children, depth+1))
-		}
-	}
-	var left core.Points
-	if depth > 0 && depth <= 5 {
-		left = 10
-	}
-	return core.View{Style: core.Style{Gap: 1, Padding: core.Edges{Left: left}}, Children: views}
-}
+// sessionUpdated is a session's own last activity, read the way its row
+// reads it so a heading and the row under it never disagree.
+func sessionUpdated(s *session) time.Time { return s.updated.Get() }
 
-func (a *app) sessionGroupNode(ws *workspace, group *railSessionGroup, links map[string]sessionLink, filtering bool) core.Node {
+func (a *app) sessionGroupNode(ws *workspace, group *railSessionGroup, tree railTree) core.Node {
 	colors := ui.ColorsOf(a.cx)
 	key := ws.Target.key() + "|" + ws.Path + "|" + group.path
+	filtering := tree.visible != nil
 	open := func() bool { return filtering || !a.organizationCollapsed.Get()[key] }
 	trigger := core.View{Role: core.RoleButton, Label: group.path, TestID: "session-group-heading",
 		OnPress: func(core.PressEvent) {
@@ -138,10 +164,9 @@ func (a *app) sessionGroupNode(ws *workspace, group *railSessionGroup, links map
 		core.Show{When: open, Then: func(*core.Scope) core.Node {
 			var nodes []core.Node
 			for _, name := range slices.Sorted(maps.Keys(group.children)) {
-				nodes = append(nodes, a.sessionGroupNode(ws, group.children[name], links, filtering))
+				nodes = append(nodes, a.sessionGroupNode(ws, group.children[name], tree))
 			}
-			roots, children := sessionLinkRows(group.sessions, links)
-			nodes = append(nodes, a.linkedSessionRows(roots, children, 0))
+			nodes = append(nodes, a.sessionRows(group.sessions, tree)...)
 			return core.View{Style: core.Style{Gap: 1, Padding: core.Edges{Left: 10}}, Children: nodes}
 		}},
 	}}

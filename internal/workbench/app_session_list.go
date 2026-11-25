@@ -111,6 +111,12 @@ type sessionGroup struct {
 
 // sessionBuckets groups sessions by when they last changed.
 func sessionBuckets(list []*session, now time.Time) []sessionGroup {
+	return sessionBucketsBy(list, now, func(s *session) time.Time { return s.updated.Get() })
+}
+
+// sessionBucketsBy groups sessions by when, in the order given: each
+// heading takes the run of sessions sharing one label.
+func sessionBucketsBy(list []*session, now time.Time, when func(*session) time.Time) []sessionGroup {
 	type bucket struct {
 		label string
 		rows  []*session
@@ -132,7 +138,7 @@ func sessionBuckets(list []*session, now time.Time) []sessionGroup {
 		// Read as the row's own time label reads it, so a heading can
 		// never say "昨天" over a row that says "刚刚": the readers of
 		// the time are what rebuilds this grouping.
-		l := label(s.updated.Get())
+		l := label(when(s))
 		if len(out) == 0 || out[len(out)-1].label != l {
 			out = append(out, bucket{label: l})
 		}

@@ -27,6 +27,9 @@ type session struct {
 	File        string
 	Target      target
 	External    bool // a session in pi's own store, opened in place
+	// Parent is the session this one grew out of, as its header says: a
+	// persisted subagent and a fork both name their spawning session.
+	Parent string
 
 	title       *core.Signal[string]
 	status      *core.Signal[sessionStatus]

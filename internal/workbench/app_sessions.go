@@ -24,12 +24,16 @@ func (a *app) makeSession(m sessionMeta, t target) *session {
 			if m.Title != "" && m.Title != existing.title.GetUntracked() {
 				existing.title.Set(m.Title)
 			}
+			if m.Parent != "" {
+				existing.Parent = m.Parent
+			}
 		}
 		return existing
 	}
 	s := &session{
 		ID:             m.ID,
 		WS:             m.Cwd,
+		Parent:         m.Parent,
 		File:           m.File,
 		Target:         t,
 		External:       m.External,

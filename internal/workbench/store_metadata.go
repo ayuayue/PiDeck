@@ -55,18 +55,20 @@ func readSessionMeta(path string, prev metaCacheEntry, want func(cwd string) boo
 			return nil
 		}
 		var entry struct {
-			Type      string          `json:"type"`
-			Timestamp string          `json:"timestamp"`
-			Cwd       string          `json:"cwd"`
-			ID        string          `json:"id"`
-			Name      string          `json:"name"`
-			Message   json.RawMessage `json:"message"`
+			Type          string          `json:"type"`
+			Timestamp     string          `json:"timestamp"`
+			Cwd           string          `json:"cwd"`
+			ID            string          `json:"id"`
+			Name          string          `json:"name"`
+			ParentSession string          `json:"parentSession"`
+			Message       json.RawMessage `json:"message"`
 		}
 		if json.Unmarshal(line, &entry) != nil {
 			return nil
 		}
 		if entry.Type == "session" {
 			meta.Cwd, meta.ID = filepath.Clean(entry.Cwd), entry.ID
+			meta.Parent = strings.TrimSpace(entry.ParentSession)
 			if start == 0 && want != nil && meta.ID != "" && !want(meta.Cwd) {
 				// The header is all this folder's files need.
 				partial = true

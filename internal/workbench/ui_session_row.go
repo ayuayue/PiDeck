@@ -14,11 +14,6 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// sessionRowOf is one session in the rail, given its value.
-func (a *app) sessionRowOf(sess *session, pinned bool) core.Node {
-	return a.sessionRowFn(func() *session { return sess })
-}
-
 // started reports whether a session has an agent behind it: one that was
 // opened in this run, so its tab says more than "never started".
 func (s *session) started() bool {
@@ -44,10 +39,27 @@ func statusDot(colors ui.Colors, s *session) core.Color {
 	return colors.Faint()
 }
 
-// sessionRowFn is one session in the rail.
-func (a *app) sessionRowFn(s func() *session) core.Node {
+// sessionRowOpts is how the rail draws one session row when the list nests:
+// how many sessions grew out of this one, whether they show, and whether
+// the list reserves the toggle's room on rows that have none.
+type sessionRowOpts struct {
+	kids    int
+	open    func() bool
+	toggle  func()
+	reserve bool
+}
+
+// sessionRowWith is one session in the rail, with the disclosure of the
+// sessions below it when the list nests.
+func (a *app) sessionRowWith(s func() *session, opts sessionRowOpts) core.Node {
 	colors := ui.ColorsOf(a.cx)
 	selected := func() bool { return a.activeID.Get() == s().ID }
+	lead := func() []core.Node {
+		if !opts.reserve {
+			return nil
+		}
+		return []core.Node{a.sessionToggle(s, opts)}
+	}
 	return base.ContextMenu{
 		Trigger: core.View{
 			OnPress: func(core.PressEvent) { a.selectSession(s()) },
@@ -61,7 +73,7 @@ func (a *app) sessionRowFn(s func() *session) core.Node {
 				}
 				return st
 			},
-			Children: []core.Node{
+			Children: append(lead(), []core.Node{
 				core.View{TestID: "session-status-" + s().ID, StyleFunc: func() core.Style {
 					return core.Style{Width: core.Pt(6), Height: core.Pt(6), CornerRadius: 3,
 						Background: statusDot(colors, s()), FlexShrink: 0}
@@ -107,13 +119,44 @@ func (a *app) sessionRowFn(s func() *session) core.Node {
 				}},
 				core.Text{ContentFunc: func() string { return viewkit.WhenText(s().updated.Get(), a.cx.Now()) }, MaxLines: 1,
 					Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10.5, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Faint)},
-			},
+			}...),
 		},
 		Children:   a.sessionMenuItems(s),
 		PopupStyle: core.Style{MinWidth: core.Pt(200)},
 		PopupStyleFunc: func() core.Style {
 			return a.menuCard(a.cx)
 		},
+	}
+}
+
+// sessionToggle is the rail's disclosure: a chevron that opens the sessions
+// that grew out of this one, and the room every row keeps when the list
+// holds any.
+func (a *app) sessionToggle(s func() *session, opts sessionRowOpts) core.Node {
+	colors := ui.ColorsOf(a.cx)
+	if opts.kids <= 0 {
+		return core.View{Style: core.Style{Width: core.Pt(14), FlexShrink: 0}}
+	}
+	count := opts.kids
+	return core.View{
+		OnPress: func(core.PressEvent) {
+			if opts.toggle != nil {
+				opts.toggle()
+			}
+		},
+		Role: core.RoleButton, LabelFunc: func() string { return railToggleLabel(count, opts.open != nil && opts.open()) },
+		TestID: "session-toggle-" + s().ID,
+		StyleFunc: func() core.Style {
+			return core.Style{Width: core.Pt(14), Height: core.Pt(14), FlexShrink: 0,
+				AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, CornerRadius: 3,
+				Hover: &core.Style{Background: colors.Pressed()}}
+		},
+		Children: []core.Node{ui.IconOf(func() *core.SVG {
+			if opts.open != nil && opts.open() {
+				return lucide.ChevronDown()
+			}
+			return lucide.ChevronRight()
+		}, 11, colors.Faint)},
 	}
 }
 

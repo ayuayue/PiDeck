@@ -191,6 +191,7 @@ func newApp(cx *core.Scope) *app {
 		chatFindOpen:           core.NewSignal(cx, false),
 		chatSearch:             textview.NewSearch(cx),
 		forkCollapsed:          core.NewSignalFunc(cx, map[string]bool{}, nil),
+		railExpanded:           core.NewSignalFunc(cx, map[string]bool{}, nil),
 		archiveRev:             core.NewSignal(cx, 0),
 		archiveOpen:            core.NewSignal(cx, false),
 		impOpen:                core.NewSignal(cx, false),

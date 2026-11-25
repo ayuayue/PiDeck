@@ -586,8 +586,11 @@ type app struct {
 	chatSearch      *textview.Search
 	keepAwake       func()
 	forkCollapsed   *core.Signal[map[string]bool]
-	archiveRev      *core.Signal[int]
-	archiveOpen     *core.Signal[bool]
+	// railExpanded holds the sessions whose children the rail shows: a
+	// persisted subagent reads folded under its parent until asked for.
+	railExpanded *core.Signal[map[string]bool]
+	archiveRev   *core.Signal[int]
+	archiveOpen  *core.Signal[bool]
 	// The import dialog: what a scan of the other agents' stores found,
 	// what the user picked, and how far a run has got.
 	impOpen     *core.Signal[bool]

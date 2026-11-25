@@ -122,17 +122,19 @@ find "$dir" -type f -name '*.jsonl' -exec sh -c '
 		}
 		file = strings.TrimSuffix(file, "\x00")
 		var meta struct {
-			Type string    `json:"type"`
-			ID   string    `json:"id"`
-			Cwd  string    `json:"cwd"`
-			Time time.Time `json:"timestamp"`
+			Type          string    `json:"type"`
+			ID            string    `json:"id"`
+			Cwd           string    `json:"cwd"`
+			ParentSession string    `json:"parentSession"`
+			Time          time.Time `json:"timestamp"`
 		}
 		if !validTargetSessionFile(file) ||
 			json.Unmarshal([]byte(strings.TrimSuffix(header, "\x00")), &meta) != nil || meta.Type != "session" || meta.ID == "" ||
 			path.Clean(meta.Cwd) != path.Clean(cwd) {
 			continue
 		}
-		out = append(out, sessionMeta{ID: meta.ID, File: file, Cwd: cwd, Updated: meta.Time, Target: t.key(), Title: apptext.T("未命名会话")})
+		out = append(out, sessionMeta{ID: meta.ID, File: file, Cwd: cwd, Updated: meta.Time, Target: t.key(),
+			Parent: strings.TrimSpace(meta.ParentSession), Title: apptext.T("未命名会话")})
 	}
 	_ = stdout.Close()
 	if len(out) >= 500 || bounded.N == 0 {

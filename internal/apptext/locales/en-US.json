@@ -150,6 +150,8 @@
   "%d 个会话出错": "%d sessions failed",
   "%d 个会话运行中": "%d sessions running",
   "%d 个工具调用": "%d tool calls",
+  "展开 %d 个子会话": "Expand %d child sessions",
+  "折叠 %d 个子会话": "Collapse %d child sessions",
   "%d 次思考": "%d thinking steps",
   "正在思考": "Thinking",
   "正在读取文件": "Reading",

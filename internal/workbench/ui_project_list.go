@@ -154,45 +154,48 @@ func (a *app) workspaceBlock(w func() *workspace) core.Node {
 				a.scanProject(ws)
 				pinned, rest := a.projectSessions(ws)
 				filter := strings.ToLower(strings.TrimSpace(a.filter.Get()))
-				keep := func(list []*session) []*session {
-					if filter == "" {
-						return list
-					}
-					var out []*session
-					for _, s := range list {
-						if containsQuery(s.title.Get(), filter) {
-							out = append(out, s)
-						}
-					}
-					return out
-				}
+				tree := a.projectTree(pinned, rest, filter)
 				var children []core.Node
-				rows := func(list []*session) []core.Node {
-					out := make([]core.Node, 0, len(list))
-					for _, s := range list {
-						out = append(out, a.sessionRowFn(func() *session { return s }))
+				if filter != "" {
+					// A search reads the whole project at once, each match under
+					// the sessions above it, so nothing a match grew out of is
+					// hidden behind a page or a folded row.
+					if len(tree.visible) > 0 {
+						children = append(children, a.groupedSessionRows(ws, append(append([]*session{}, pinned...), rest...), tree)...)
 					}
-					return out
+				} else {
+					if len(pinned) > 0 {
+						children = append(children, a.groupLabel(apptext.T("置顶")))
+						children = append(children, core.View{Style: core.Style{Gap: 1}, Children: a.sessionRows(pinned, tree)})
+					}
+					// Paging counts what the reader can open, not the rows a
+					// nested run adds: a page holds whole trees, so a subagent
+					// never shows without the conversation that spawned it.
+					f := buildSessionForest(rest, tree.parents)
+					if tree.recent {
+						f.sortByRecent(sessionUpdated)
+					}
+					page := min(len(f.roots), projectVisibleCount(ws))
+					paged := sessionOrder(f, f.roots[:page])
+					if len(paged) > 0 {
+						children = append(children, a.groupedSessionRows(ws, paged, tree)...)
+					}
+					loading := ws.PiLoading.Get()
+					if loading {
+						children = append(children, a.projectLoadingRows()...)
+					}
+					hidden := len(rest) - forestCount(f, f.roots[:page])
+					if !loading && (hidden > 0 || ws.Visible.Get() > 0) {
+						children = append(children, a.projectMoreRow(ws, hidden))
+					}
 				}
-				if p := keep(pinned); len(p) > 0 {
-					children = append(children, a.groupLabel(apptext.T("置顶")), core.View{Style: core.Style{Gap: 1}, Children: rows(p)})
-				}
-				rest = keep(rest)
-				shown := len(rest)
-				if filter == "" {
-					shown = min(shown, projectVisibleCount(ws))
-				}
-				children = append(children, a.groupedSessionRows(ws, rest[:shown], filter != "")...)
-				loading := ws.PiLoading.Get()
-				if loading {
-					children = append(children, a.projectLoadingRows()...)
-				} else if len(children) == 0 {
-					children = append(children, core.Text{Content: apptext.T("还没有会话"), Style: core.Style{FontSize: 12, Padding: core.Edges{Left: 8, Top: 5}},
+				if len(children) == 0 {
+					text := apptext.T("还没有会话")
+					if filter != "" {
+						text = apptext.T("没有匹配的会话")
+					}
+					children = append(children, core.Text{Content: text, Style: core.Style{FontSize: 12, Padding: core.Edges{Left: 8, Top: 5}},
 						StyleFunc: ui.Colored(ui.ColorsOf(cx).Faint)})
-				}
-				hidden := len(rest) - shown
-				if filter == "" && !loading && (hidden > 0 || ws.Visible.Get() > 0) {
-					children = append(children, a.projectMoreRow(ws, hidden))
 				}
 				return core.View{Style: core.Style{Gap: 1, Padding: core.Edges{Left: 11}}, Children: children}
 			})
