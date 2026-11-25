@@ -126,7 +126,10 @@ func (h *helper) web() error {
 
 // compressWebAssets brotli-compresses the site's wasm and drops the original:
 // the server answers <name>.wasm with the .br file, so everything embedded and
-// downloaded is the compressed one.
+// downloaded is the compressed one. The gzip copy a web build leaves beside it
+// goes too: a desktop serving the site re-encodes gzip from the .br it holds
+// (internal/workbench/web_serve.go), so the file would only ever be dead weight
+// in every binary that embeds the page.
 func compressWebAssets(dir string) error {
 	files, err := filepath.Glob(filepath.Join(dir, "*.wasm"))
 	if err != nil {
@@ -152,6 +155,20 @@ func compressWebAssets(dir string) error {
 			return err
 		}
 		fmt.Printf("  %s → %.1f MB（%.1f MB）\n", filepath.Base(path), float64(buf.Len())/1e6, float64(len(data))/1e6)
+	}
+	gz, err := filepath.Glob(filepath.Join(dir, "*.wasm.gz"))
+	if err != nil {
+		return err
+	}
+	for _, path := range gz {
+		info, err := os.Stat(path)
+		if err != nil {
+			return err
+		}
+		if err := os.Remove(path); err != nil {
+			return err
+		}
+		fmt.Printf("  %s 已删（%.1f MB，服务器按需编码 gzip）\n", filepath.Base(path), float64(info.Size())/1e6)
 	}
 	return nil
 }
