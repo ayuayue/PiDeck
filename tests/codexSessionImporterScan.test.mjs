@@ -157,6 +157,40 @@ test("codex scan: only parses sessions of the selected project", async () => {
 	}
 });
 
+for (const [kind, project, matchingCwd, otherCwd] of [
+	["Linux", "/work/App", "/work/App/", "/work/app"],
+	["Linux with a literal backslash", "/work/App\\docs", "/work/App\\docs/", "/work/App/docs"],
+	["Windows drive", "C:\\Work\\App", "c:/work/APP/", "C:\\Work\\Other"],
+	["Windows share", "\\\\Server\\Share\\App", "//server/share/APP/", "\\\\Server\\Other\\App"],
+	["WSL share", "\\\\wsl.localhost\\Ubuntu\\work\\App", "//WSL.LOCALHOST/ubuntu/work/App/", "\\\\wsl.localhost\\Ubuntu\\work\\app"],
+	["WSL mounted drive", "\\\\wsl.localhost\\Ubuntu\\mnt\\c\\App", "//wsl.localhost/ubuntu/mnt/c/app/", "//wsl.localhost/ubuntu/mnt/d/app"],
+]) {
+	test("codex project path matching on " + kind, async (t) => {
+		const home = mkdtempSync(join(tmpdir(), "codex-project-case-"));
+		t.after(() => rmSync(home, { recursive: true, force: true }));
+		const sessions = join(home, ".codex", "sessions");
+		mkdirSync(sessions, { recursive: true });
+		const matching = join(sessions, "matching.jsonl");
+		const other = join(sessions, "other.jsonl");
+		writeFileSync(matching, sessionJsonl("matching", matchingCwd));
+		writeFileSync(other, sessionJsonl("other", otherCwd));
+		const { importer } = loadImporter(home);
+
+		await t.test("scan lists only the matching session", async () => {
+			assert.deepEqual(
+				Array.from(await importer.scan(project), (session) => session.id),
+				["matching"],
+			);
+		});
+		await t.test("import checks each source cwd independently of the scan", async () => {
+			const { results } = await importer.import(project, [other, matching]);
+			assert.equal(results[0].success, false);
+			assert.equal(results[0].error, "Codex session cwd does not match selected project");
+			assert.equal(results[1].success, true, results[1].error);
+		});
+	});
+}
+
 test("codex scan: meta head filter tolerates broken leading lines", async () => {
 	const home = mkdtempSync(join(tmpdir(), "codex-scan-metahead-"));
 	try {
