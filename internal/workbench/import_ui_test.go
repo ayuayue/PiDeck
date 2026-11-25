@@ -93,9 +93,8 @@ func TestImportDialogImportsSelection(t *testing.T) {
 	})
 }
 
-// TestImportDialogFromProjectImportsThere opens the dialog for one project
-// and checks that everything it imports lands in that project, whatever
-// folder the session ran in, and that each source has its own tab.
+// TestImportDialogFromProjectImportsThere checks that a project's dialog
+// lists and imports only that project's sessions across sources.
 func TestImportDialogFromProjectImportsThere(t *testing.T) {
 	home := t.TempDir()
 	proj := t.TempDir()
@@ -108,15 +107,27 @@ func TestImportDialogFromProjectImportsThere(t *testing.T) {
 
 	claudeDir := t.TempDir()
 	t.Setenv("PIDECK_V2_IMPORT_CLAUDE_DIR", claudeDir)
-	head := `{"type":"user","sessionId":"c1","cwd":"` + filepath.ToSlash(elsewhere) + `","uuid":"u1","timestamp":"2026-06-01T10:00:00Z","message":{"role":"user","content":"别的目录里的会话"}}` + "\n"
+	head := `{"type":"user","sessionId":"c1","cwd":"` + filepath.ToSlash(proj) + `","uuid":"u1","timestamp":"2026-06-01T10:00:00Z","message":{"role":"user","content":"本项目的 Claude 会话"}}` + "\n"
 	if err := os.WriteFile(filepath.Join(claudeDir, "c1.jsonl"), []byte(head), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	codexDir := t.TempDir()
 	t.Setenv("PIDECK_V2_IMPORT_CODEX_DIR", codexDir)
-	rollout := `{"timestamp":"2026-06-01T10:00:00Z","type":"session_meta","payload":{"id":"x1","cwd":"` + filepath.ToSlash(elsewhere) + `"}}` + "\n" +
+	rollout := `{"timestamp":"2026-06-01T10:00:00Z","type":"session_meta","payload":{"id":"x1","cwd":"` + filepath.ToSlash(proj) + `"}}` + "\n" +
 		`{"timestamp":"2026-06-01T10:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Codex 的会话"}]}}` + "\n"
 	if err := os.WriteFile(filepath.Join(codexDir, "rollout-x1.jsonl"), []byte(rollout), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	foreign := strings.ReplaceAll(strings.ReplaceAll(head, "c1", "c2"), filepath.ToSlash(proj), filepath.ToSlash(elsewhere))
+	if err := os.WriteFile(filepath.Join(claudeDir, "c2.jsonl"), []byte(foreign), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	unknown := strings.ReplaceAll(strings.ReplaceAll(rollout, "x1", "x3"), filepath.ToSlash(proj), "")
+	if err := os.WriteFile(filepath.Join(codexDir, "rollout-x3.jsonl"), []byte(unknown), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	foreignRollout := strings.ReplaceAll(strings.ReplaceAll(rollout, "x1", "x2"), filepath.ToSlash(proj), filepath.ToSlash(elsewhere))
+	if err := os.WriteFile(filepath.Join(codexDir, "rollout-x2.jsonl"), []byte(foreignRollout), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -146,7 +157,17 @@ func TestImportDialogFromProjectImportsThere(t *testing.T) {
 	}
 	built.openImportDialogFor(ws)
 	app.WaitFor("id:import-dialog", 5*time.Second)
-	app.WaitUntil(10*time.Second, func() bool { return len(app.Query("id:import-row")) == 2 })
+	app.WaitUntil(10*time.Second, func() bool {
+		return !built.impScanning.GetUntracked() && len(app.Query("id:import-row")) == 2
+	})
+	if app.Exists("id:import-target-original") {
+		t.Fatal("the project dialog offers to switch to a global import")
+	}
+	for _, row := range built.impRows.GetUntracked() {
+		if pathKey(row.Cwd) != pathKey(proj) {
+			t.Fatalf("the project scan loaded a session from %q", row.Cwd)
+		}
+	}
 
 	// One tab per source, and each shows only its own sessions.
 	for _, id := range []string{"import-tab-all", "import-tab-claude", "import-tab-codex"} {
@@ -176,7 +197,7 @@ func TestImportDialogFromProjectImportsThere(t *testing.T) {
 		return true
 	})
 
-	// Both landed in the project, not in the folder they ran in.
+	// Every picked session belongs to this project.
 	dir := filepath.Join(home, "sessions", encodeCwd(proj))
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -195,6 +216,37 @@ func TestImportDialogFromProjectImportsThere(t *testing.T) {
 			t.Fatalf("%s was written for %q, want the project", e.Name(), head.Cwd)
 		}
 	}
+	// A rescan keeps the same scope, including imported sessions.
+	app.Press("id:import-rescan")
+	app.WaitUntil(10*time.Second, func() bool {
+		return !built.impScanning.GetUntracked() && len(built.impRows.GetUntracked()) == 2
+	})
+
+	// The global entry still lists every project, then reopening a project
+	// discards those cached rows and any scan still running for that scope.
+	app.Post(func() { built.openImportDialog() })
+	app.WaitUntil(10*time.Second, func() bool {
+		return !built.impScanning.GetUntracked() && len(built.impRows.GetUntracked()) == 5
+	})
+	app.Post(func() {
+		built.scanImports()
+		built.openImportDialogFor(ws)
+		if rows := built.impRows.GetUntracked(); len(rows) != 0 {
+			t.Errorf("reopening a project retained %d global rows", len(rows))
+		}
+	})
+	app.WaitUntil(10*time.Second, func() bool {
+		return !built.impScanning.GetUntracked() && len(built.impRows.GetUntracked()) == 2
+	})
+
+	// No matching sessions means an empty list, not a global fallback.
+	emptyProject := t.TempDir()
+	app.Post(func() { built.openImportDialogFor(&workspace{Path: emptyProject, Target: localTarget}) })
+	app.WaitUntil(10*time.Second, func() bool { return !built.impScanning.GetUntracked() })
+	if rows := built.impRows.GetUntracked(); len(rows) != 0 {
+		t.Fatalf("an empty project loaded %d sessions", len(rows))
+	}
+
 	// The welcome dialog's own path still imports where a session ran.
 	built.impProject.Set("")
 	if got := built.importCwdFor(sessionimport.Candidate{Source: "claude", Cwd: elsewhere}); pathKey(got) != pathKey(elsewhere) {

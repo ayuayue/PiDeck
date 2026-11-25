@@ -143,8 +143,8 @@ func (a *app) importEmpty(rows []sessionimport.Row) core.Node {
 	}}
 }
 
-// importTargetLine says where the picked sessions will land, and offers the
-// way back to "where each one ran".
+// importTargetLine names the scoped project or the global entry's original
+// directories. Project imports keep their scope for the whole dialog.
 func (a *app) importTargetLine() core.Node {
 	colors := ui.ColorsOf(a.cx)
 	return core.Dynamic(func(cx *core.Scope) core.Node {
@@ -160,12 +160,6 @@ func (a *app) importTargetLine() core.Node {
 			ui.IconOf(lucide.FolderInput, 12, colors.Accent),
 			core.Text{Content: fmt.Sprintf(apptext.T("导入到「%s」"), ws.label()), MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
 				Style: core.Style{FontSize: 11, FontWeight: ui.Medium}, StyleFunc: ui.Colored(colors.Text)},
-			core.View{OnPress: func(core.PressEvent) { a.impProject.Set("") }, Role: core.RoleButton,
-				Label: apptext.T("改为按原目录"), TestID: "import-target-original",
-				StyleFunc: func() core.Style {
-					return core.Style{Padding: core.Symmetric(1, 6), CornerRadius: 5, Hover: &core.Style{Background: colors.Hover()}}
-				},
-				Children: []core.Node{ui.Text(apptext.T("改为按原目录"), 10.5, ui.Medium, colors.Muted)}},
 		}}
 	})
 }

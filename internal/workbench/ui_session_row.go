@@ -6,6 +6,8 @@ package workbench
 // chat, and a drawer for the session's numbers and the project's files.
 
 import (
+	"context"
+
 	"example.com/pideck-v2/internal/apptext"
 	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/base"
@@ -87,6 +89,7 @@ func (a *app) sessionRowWith(s func() *session, opts sessionRowOpts) core.Node {
 						}
 						return core.Style{Color: colors.Text(), FontWeight: w}
 					}},
+				a.sessionAgentLabel(s),
 				core.Show{When: func() bool { return a.cfg.ForkParents[s().ID] != "" }, Then: func(*core.Scope) core.Node {
 					return ui.Icon(lucide.GitBranch, 10.5, colors.Faint)
 				}},
@@ -127,6 +130,36 @@ func (a *app) sessionRowWith(s func() *session, opts sessionRowOpts) core.Node {
 			return a.menuCard(a.cx)
 		},
 	}
+}
+
+// sessionAgentLabel names an ACP session even before its agent starts.
+// Custom preset names are read off the UI thread; a removed preset keeps
+// its ID so the session can still be identified.
+func (a *app) sessionAgentLabel(s func() *session) core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		s().uiSeq.Get()
+		if backendOf(s()) != "acp" {
+			return nil
+		}
+		id := s().acpPreset
+		name := core.NewResource(cx, nil, func(context.Context, struct{}, core.ResourceInfo) (string, error) {
+			if preset := a.acpPresetByID(id); preset != nil {
+				return preset.Name, nil
+			}
+			return firstNonEmpty(id, "ACP"), nil
+		})
+		label := func() string {
+			if value, ok := name.Get(); ok {
+				return value
+			}
+			return firstNonEmpty(id, "ACP")
+		}
+		colors := ui.ColorsOf(cx)
+		return hintOf(label, core.Text{ContentFunc: label, TestID: "session-agent", MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+			Style: core.Style{FontSize: 10, MaxWidth: core.Pt(100), FlexShrink: 0,
+				Padding: core.Symmetric(1, 5), CornerRadius: 4},
+			StyleFunc: func() core.Style { return core.Style{Color: colors.Muted(), Background: colors.Inset()} }})
+	})
 }
 
 // sessionToggle is the rail's disclosure: a chevron that opens the sessions

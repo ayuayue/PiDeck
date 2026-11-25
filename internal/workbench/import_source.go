@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -52,18 +53,23 @@ func (s *store) importIndex() map[string]string {
 	return index
 }
 
-// scanImports lists every source's sessions, in parallel, and reports them
-// as they come. A source that cannot be read is left out rather than
-// failing the whole list.
+// scanImports lists every source's sessions for the dialog's project, or
+// every project for the global entry. A source that cannot be read is left
+// out rather than failing the whole list.
 func (a *app) scanImports() {
 	if a.st == nil {
 		return
 	}
 	a.impScanning.Set(true)
+	a.impRows.Set(nil)
 	a.impGen++
 	gen := a.impGen
-	index := a.st.importIndex()
+	project := strings.TrimSpace(a.impProject.GetUntracked())
+	if project != "" {
+		project = pathKey(project)
+	}
 	go func() {
+		index := a.st.importIndex()
 		var mu sync.Mutex
 		var rows []sessionimport.Row
 		var wg sync.WaitGroup
@@ -76,6 +82,11 @@ func (a *app) scanImports() {
 				sem <- struct{}{}
 				defer func() { <-sem }()
 				found, _ := sessionimport.Scan(*source, index)
+				if project != "" {
+					found = slices.DeleteFunc(found, func(row sessionimport.Row) bool {
+						return strings.TrimSpace(row.Cwd) == "" || pathKey(row.Cwd) != project
+					})
+				}
 				mu.Lock()
 				rows = append(rows, found...)
 				mu.Unlock()

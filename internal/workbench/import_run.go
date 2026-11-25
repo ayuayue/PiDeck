@@ -23,8 +23,8 @@ func (a *app) openImportDialog() {
 	a.showImportDialog()
 }
 
-// openImportDialogFor shows the dialog for one project: everything imported
-// from it goes into that project, whatever folder it ran in.
+// openImportDialogFor shows only sessions recorded for this project and
+// imports them into that project's store.
 func (a *app) openImportDialogFor(ws *workspace) {
 	if ws == nil || ws.Target.remote() {
 		a.openImportDialog()
@@ -39,9 +39,7 @@ func (a *app) showImportDialog() {
 	a.impOpen.Set(true)
 	a.setImportSel(nil)
 	a.impQuery.Set("")
-	if !a.impScanning.GetUntracked() {
-		a.scanImports()
-	}
+	a.scanImports()
 }
 
 // importVisibleRows is the list the dialog shows: one source or all, and
