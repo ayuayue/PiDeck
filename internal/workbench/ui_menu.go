@@ -154,6 +154,12 @@ func (a *app) modelMenu(s *session, open *core.Signal[bool]) core.Node {
 			open.Update(func(v bool) bool { return !v })
 			if open.GetUntracked() {
 				s.modelQuery.Set("")
+				// A blank session starts no process until it is used: the
+				// model list is pi's, so asking for it starts pi and fetches
+				// the list while the menu is open.
+				if a.lazySession(s) {
+					a.ensureEngine(s, nil)
+				}
 			}
 		},
 			Role: core.RoleButton, Label: apptext.T("选择模型"), TestID: "model-picker",

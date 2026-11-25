@@ -8,6 +8,7 @@ package workbench
 import (
 	"time"
 
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/ui"
 	"github.com/nsgo-dev/nsgo/ui/chat"
 )
@@ -51,7 +52,30 @@ func (a *app) ensureEngine(s *session, then func()) {
 	withMemory := a.cfg.MemoryTools && !s.Target.remote() && a.localToolsExtension != ""
 	withTrajectory := a.cfg.RecordTrajectory && !s.Target.remote() && !s.External && a.localToolsExtension != ""
 	withBrowser := !s.Target.remote() && a.localToolsExtension != "" && a.browser.owner.GetUntracked() == s.ID
+	if w := s.warmPi; w != nil {
+		// A prewarmed process carries no per-session tool server; when this
+		// session needs one, boot a process that has it.
+		if !withMemory && !withTrajectory && !withBrowser && !w.C.isClosed() {
+			s.warmPi = nil
+			go a.startEngineWarm(s, w.C)
+			return
+		}
+		s.warmPi = nil
+		go w.C.stop()
+	}
 	go a.startEngine(s, withMemory, withTrajectory, withBrowser)
+}
+
+// startEngineWarm takes over a prewarmed process: pi is already booted, so
+// the session goes straight to reading its state.
+func (a *app) startEngineWarm(s *session, c *piClient) {
+	c.setHooks(hooks{
+		onEvent: func(ev piEvent) { a.onPiEvent(s, ev) },
+		onUI:    func(req uiRequest) { a.onPiUI(s, req) },
+		onExit:  func(err error) { a.onPiExit(s, err) },
+	})
+	a.diagf("info", "会话接管 pi 预热进程 %s", shortPath(s.WS, 48))
+	a.engineState(s, c)
 }
 
 // restartAgent stops a session's pi and starts it again: the way to pick
@@ -83,6 +107,9 @@ func (a *app) closeAgent(s *session) {
 		return
 	}
 	if s.engine == nil {
+		if s.warmPi != nil {
+			a.releaseWarmPi(s)
+		}
 		return
 	}
 	s.engine.stop()
@@ -133,6 +160,12 @@ func (a *app) startEngine(s *session, withMemory, withTrajectory, withBrowser bo
 		a.cx.Post(func() { a.failSession(s, err.Error()) })
 		return
 	}
+	a.engineState(s, c)
+}
+
+// engineState reads a started pi's state, transcript and options. It runs
+// off the UI thread, for a process just spawned and for a warm one.
+func (a *app) engineState(s *session, c *piClient) {
 	var state struct {
 		Model         *modelInfo `json:"model"`
 		ThinkingLevel string     `json:"thinkingLevel"`
@@ -183,6 +216,11 @@ func (a *app) engineReady(s *session, c *piClient, model *modelInfo, thinking, f
 	s.engine = c
 	s.starting = false
 	s.File = file
+	if file != "" {
+		// A session file proves this install runs pi here, which is what
+		// makes a spare worth booting for the next new session.
+		a.warmOK = true
+	}
 	if s.resumeDeletion() {
 		return
 	}
@@ -329,7 +367,11 @@ func (a *app) failSession(s *session, why string) {
 		}
 		return ts
 	})
-	a.toast(ui.ToastError, "pi 启动失败", why)
+	title := "pi 启动失败"
+	if s.backend == "acp" {
+		title = apptext.T("ACP 启动失败")
+	}
+	a.toast(ui.ToastError, title, why)
 }
 
 // onPiExit handles a process that ended; nil means it was asked to stop.

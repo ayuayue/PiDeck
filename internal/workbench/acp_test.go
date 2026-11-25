@@ -7,6 +7,7 @@ package workbench
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"os"
 	"slices"
 	"strings"
@@ -51,6 +52,15 @@ func TestFakeACPAgent(t *testing.T) {
 		}
 		switch msg.Method {
 		case "initialize":
+			// An agent that dies before answering, and one that takes its
+			// time the way a cold npx package does.
+			if os.Getenv("PIDECK_FAKE_ACP_CRASH_HANDSHAKE") == "1" {
+				fmt.Fprintln(os.Stderr, "boom: cannot start")
+				os.Exit(9)
+			}
+			if os.Getenv("PIDECK_FAKE_ACP_SLOW_HANDSHAKE") == "1" {
+				time.Sleep(2 * time.Second)
+			}
 			result := map[string]any{"protocolVersion": 1}
 			if os.Getenv("PIDECK_FAKE_ACP_RESUME") == "1" {
 				result["agentCapabilities"] = map[string]any{"sessionCapabilities": map[string]any{"resume": map[string]any{}}}
@@ -311,5 +321,98 @@ func TestACPExit(t *testing.T) {
 	case <-exits:
 	case <-time.After(5 * time.Second):
 		t.Fatal("no exit")
+	}
+}
+
+// TestACPHandshakeWaitsForASlowAgent checks the handshake budget covers a
+// cold npx package instead of failing at 30 seconds: an agent that takes
+// two seconds to answer is not an error.
+func TestACPHandshakeWaitsForASlowAgent(t *testing.T) {
+	if os.Getenv("PIDECK_FAKE_ACP") == "1" {
+		t.Skip("the helper process")
+	}
+	t.Setenv("PIDECK_FAKE_ACP", "1")
+	t.Setenv("PIDECK_FAKE_ACP_SLOW_HANDSHAKE", "1")
+	old := acpHandshakeTimeout
+	acpHandshakeTimeout = 10 * time.Second
+	defer func() { acpHandshakeTimeout = old }()
+	c, err := startACP(t.TempDir(), os.Args[0], []string{"-test.run=^TestFakeACPAgent$"}, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(c.stop)
+	if version, err := c.initialize("PiDeck V2", "test"); err != nil || version != 1 {
+		t.Fatalf("initialize = %d, %v; want 1 after the agent answered late", version, err)
+	}
+}
+
+// TestACPHandshakeTimeoutNamesTheWait checks a silent agent ends the wait
+// with the call, the budget and what it printed, instead of a bare
+// "handshake failed".
+func TestACPHandshakeTimeoutNamesTheWait(t *testing.T) {
+	if os.Getenv("PIDECK_FAKE_ACP") == "1" {
+		t.Skip("the helper process")
+	}
+	t.Setenv("PIDECK_FAKE_ACP", "1")
+	t.Setenv("PIDECK_FAKE_ACP_SLOW_HANDSHAKE", "1")
+	old := acpHandshakeTimeout
+	acpHandshakeTimeout = 250 * time.Millisecond
+	defer func() { acpHandshakeTimeout = old }()
+	c, err := startACP(t.TempDir(), os.Args[0], []string{"-test.run=^TestFakeACPAgent$"}, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(c.stop)
+	started := time.Now()
+	_, err = c.initialize("PiDeck V2", "test")
+	if err == nil {
+		t.Fatal("a silent agent passed the handshake")
+	}
+	if elapsed := time.Since(started); elapsed > 5*time.Second {
+		t.Fatalf("the wait took %s, want the configured budget", elapsed)
+	}
+	for _, want := range []string{"initialize", "没有响应", "250 毫秒"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q lacks %q", err.Error(), want)
+		}
+	}
+}
+
+// TestACPHandshakeFailsFastWhenAgentExits checks a CLI that dies answers
+// at once, and that its stderr reaches the failure text: a broken login or
+// a missing package is what the reader needs, not a timeout.
+func TestACPHandshakeFailsFastWhenAgentExits(t *testing.T) {
+	if os.Getenv("PIDECK_FAKE_ACP") == "1" {
+		t.Skip("the helper process")
+	}
+	t.Setenv("PIDECK_FAKE_ACP", "1")
+	t.Setenv("PIDECK_FAKE_ACP_CRASH_HANDSHAKE", "1")
+	old := acpHandshakeTimeout
+	acpHandshakeTimeout = 30 * time.Second
+	defer func() { acpHandshakeTimeout = old }()
+	c, err := startACP(t.TempDir(), os.Args[0], []string{"-test.run=^TestFakeACPAgent$"}, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(c.stop)
+	started := time.Now()
+	_, err = c.initialize("PiDeck V2", "test")
+	if err == nil {
+		t.Fatal("a dead agent passed the handshake")
+	}
+	if elapsed := time.Since(started); elapsed > 5*time.Second {
+		t.Fatalf("the failure took %s, want an exit instead of the full budget", elapsed)
+	}
+	detail := ""
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		if detail = c.stderrText(); strings.Contains(detail, "boom") {
+			break
+		}
+	}
+	if !strings.Contains(detail, "boom") {
+		t.Fatalf("agent stderr = %q, want what it printed", detail)
+	}
+	if got := acpStartDetail(err, c); !strings.Contains(got, "boom") {
+		t.Fatalf("failure text %q lacks what the agent printed", got)
 	}
 }

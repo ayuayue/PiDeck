@@ -198,6 +198,9 @@ func acpModeLabel(modes []acpMode, id string) string {
 // acpOpenDialog shows the preset picker.
 func (a *app) acpOpenDialog() {
 	a.acpOpen.Set(true)
+	// The project's default agent starts its handshake now, so picking it
+	// from the list opens a session instead of booting a CLI.
+	a.ensureWarmACPFor(a.activeWorkspace())
 }
 
 // acpDialog lists the presets.

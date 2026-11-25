@@ -284,7 +284,10 @@ func startNativeSurfaceApp(t *testing.T) (*app, *nsgotest.App, *session) {
 	}
 	var built *app
 	var sess *session
-	// Dispose the window before waiting for the final draft write.
+	// Dispose the window before waiting for the final draft write, and take
+	// the agents it started down before the temp folders go away.
+	t.Cleanup(closeAllPi)
+	t.Cleanup(closeAllACP)
 	t.Cleanup(sessionDraftWrites.Wait)
 	screen := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		built = newApp(cx)

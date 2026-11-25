@@ -64,6 +64,8 @@ func (a *app) removeSession(s *session, done func(error)) {
 	}
 	engine, acp := s.engine, s.acp
 	s.engine, s.acp = nil, nil
+	warm := s.warmPi
+	s.warmPi = nil
 	s.acpGeneration++
 	s.readySig.Set(false)
 	s.status.Set(statusIdle)
@@ -78,6 +80,9 @@ func (a *app) removeSession(s *session, done func(error)) {
 		}
 		if acp != nil {
 			acp.stop()
+		}
+		if warm != nil {
+			warm.C.stop()
 		}
 		var err error
 		if target.remote() && !archive && file != "" {

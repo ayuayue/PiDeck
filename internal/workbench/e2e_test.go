@@ -150,6 +150,14 @@ func waitApp(app *nsgotest.App, selector string, d time.Duration) {
 	app.WaitFor(selector, time.Second)
 }
 
+// appReady waits until the opened session can be used. A blank pi session
+// starts no process of its own: writing in the composer, opening the model
+// menu or sending the first message engages it, so those tests wait for
+// what they actually use.
+func appReady(app *nsgotest.App) {
+	waitApp(app, "id:composer", 30*time.Second)
+}
+
 // waitQuiet reports whether a selector matched within d, without failing
 // the test: a press that lands on a moving row can be tried again.
 func waitQuiet(app *nsgotest.App, selector string, d time.Duration) bool {
@@ -200,7 +208,7 @@ func TestChatTurn(t *testing.T) {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
 	app := startApp(t, workspaceWith(t), 1320, 860)
-	waitApp(app, "id:pi-ready", 90*time.Second)
+	appReady(app)
 	app.Type("id:composer", "只输出这个标记，不要别的：PONG-7431")
 	app.Press("role:button 发送")
 	waitApp(app, `text:"PONG-7431"`, 180*time.Second)
@@ -215,7 +223,7 @@ func TestToolTurn(t *testing.T) {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
 	app := startApp(t, workspaceWith(t), 1320, 860)
-	waitApp(app, "id:pi-ready", 90*time.Second)
+	appReady(app)
 	app.Type("id:composer", "用 read 工具读一下 note.txt，然后用一句话说文件里有什么")
 	app.Press("role:button 发送")
 	// The finished turn folds its work behind a summary row; open it, then
@@ -244,7 +252,7 @@ func TestStopAborts(t *testing.T) {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
 	app := startApp(t, workspaceWith(t), 1320, 860)
-	waitApp(app, "id:pi-ready", 90*time.Second)
+	appReady(app)
 	app.Type("id:composer", "写一篇一千字的散文，主题是雨。不要用工具，直接写。")
 	app.Press("role:button 发送")
 	app.WaitFor("role:button 停止", 30*time.Second)
@@ -257,7 +265,7 @@ func TestStopAborts(t *testing.T) {
 // its text: a rebuild of the composer must not reset it.
 func TestDraftSurvives(t *testing.T) {
 	app := startApp(t, workspaceWith(t), 1320, 860)
-	waitApp(app, "id:pi-ready", 90*time.Second)
+	appReady(app)
 	app.Type("id:composer", "第一行")
 	app.Advance(1500 * time.Millisecond)
 	app.Type("id:composer", "\n第二行")
@@ -278,7 +286,7 @@ func TestRestore(t *testing.T) {
 	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	t.Cleanup(closeAllPi)
 	app := openApp(t, dir, 1320, 860)
-	waitApp(app, "id:pi-ready", 90*time.Second)
+	appReady(app)
 	app.Type("id:composer", "只输出这个标记，不要别的：RESTORE-9182")
 	app.Press("role:button 发送")
 	waitApp(app, `text:"RESTORE-9182"`, 180*time.Second)
@@ -294,7 +302,7 @@ func TestRestore(t *testing.T) {
 // TestLook captures the app in dark mode and while an answer streams.
 func TestLook(t *testing.T) {
 	app := startApp(t, workspaceWith(t), 1320, 860)
-	waitApp(app, "id:pi-ready", 90*time.Second)
+	appReady(app)
 	app.Press("label:会话面板")
 	app.Advance(300 * time.Millisecond)
 	shot(app, "20-drawer")
@@ -334,7 +342,7 @@ func TestImport(t *testing.T) {
 	app.WaitUntil(30*time.Second, func() bool { return len(app.Query("text:旧的提问")) > 0 })
 	// Let the imported session's pi start, so closing it at the end of the
 	// test is what frees the temp folder.
-	waitApp(app, "id:pi-ready", 40*time.Second)
+	appReady(app)
 	shot(app, "30-import")
 }
 
@@ -344,7 +352,7 @@ func TestModelSearch(t *testing.T) {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
 	app := startApp(t, workspaceWith(t), 1320, 860)
-	waitApp(app, "id:pi-ready", 90*time.Second)
+	appReady(app)
 	app.Press("id:model-picker")
 	app.WaitFor("id:model-search", 5*time.Second)
 	app.WaitUntil(30*time.Second, func() bool { return len(app.Query("role:option")) > 0 })
@@ -377,7 +385,7 @@ func TestModelRefresh(t *testing.T) {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
 	app := startApp(t, workspaceWith(t), 1320, 860)
-	waitApp(app, "id:pi-ready", 90*time.Second)
+	appReady(app)
 	app.Press("id:model-picker")
 	app.WaitFor("id:model-refresh", 5*time.Second)
 	app.Press("id:model-refresh")
@@ -390,6 +398,10 @@ func TestThinkingMenu(t *testing.T) {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
 	app := startApp(t, workspaceWith(t), 1320, 860)
+	appReady(app)
+	// Writing the first words is what starts pi, and its thinking levels
+	// come with it; the picker appears once they are in.
+	app.Type("id:composer", "检查这段代码")
 	waitApp(app, "id:effort-picker", 90*time.Second)
 	app.Press("id:effort-picker")
 	app.WaitFor("text:低", 20*time.Second)
@@ -426,7 +438,7 @@ func TestDeleteSessionFromMenu(t *testing.T) {
 	app.AccessibilityAction("id:import-file", "activate")
 	pickSessionFile(t, app, dir, "gone.jsonl")
 	waitApp(app, "text:待删除的会话", 30*time.Second)
-	waitApp(app, "id:pi-ready", 40*time.Second)
+	appReady(app)
 
 	app.RightClick("id:session-row")
 	app.WaitFor("text:删除会话", 5*time.Second)
@@ -446,7 +458,7 @@ func TestProjectMenu(t *testing.T) {
 	}
 	dir := workspaceWith(t)
 	app := startApp(t, dir, 1320, 860)
-	waitApp(app, "id:pi-ready", 90*time.Second)
+	appReady(app)
 	label := "text:" + filepath.Base(dir)
 	waitApp(app, label, 30*time.Second)
 	// The row can rebuild while the press lands; try until its menu is up.
@@ -471,7 +483,7 @@ func TestSessionMenuPinAndRename(t *testing.T) {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
 	app := startApp(t, workspaceWith(t), 1320, 860)
-	waitApp(app, "id:pi-ready", 90*time.Second)
+	appReady(app)
 	for i := 0; i < 4; i++ {
 		app.RightClick("id:session-row")
 		if waitQuiet(app, "text:置顶会话", 2*time.Second) {

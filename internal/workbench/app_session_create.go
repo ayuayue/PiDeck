@@ -81,6 +81,14 @@ func (a *app) blankSession(id string, ws *workspace, title string) *session {
 		acpModeOpen:    core.NewSignal(a.cx, false),
 	}
 	s.conversation = newChatScroll(a.cx)
+	// A blank session starts no process: its chips read the remembered
+	// defaults until the first message starts pi and reports the real ones.
+	if chosen := a.defaultModel; chosen.ID != "" {
+		s.model.Set(modelInfo{ID: chosen.ID, Provider: chosen.Provider})
+	}
+	if a.defaultThinking != "" {
+		s.thinking.Set(a.defaultThinking)
+	}
 	a.byID[s.ID] = s
 	a.all = append(a.all, s)
 	a.observeSessionDraft(s)
@@ -112,9 +120,21 @@ func (a *app) newProjectSession(ws *workspace) *session {
 	if ws.Chat {
 		title = apptext.T("对话")
 	}
-	s := a.blankSession(newSessionID(), ws, title)
+	// A prewarmed pi already booted in this project: its session id comes
+	// with it, so the tab that adopts it starts instantly.
+	id := newSessionID()
+	var warm *warmPi
+	if w := a.takeWarmPi(ws); w != nil {
+		id, warm = w.ID, w
+	}
+	s := a.blankSession(id, ws, title)
+	s.warmPi = warm
+	if warm != nil {
+		a.expireHeldWarmPi(s, warm, piWarmTTL)
+	}
 	ws.Sessions.Update(func(ss []*session) []*session { return append([]*session{s}, ss...) })
 	a.selectSession(s)
+	a.ensureWarmPi(ws)
 	origin := "project"
 	if ws.Chat {
 		origin = "chat"

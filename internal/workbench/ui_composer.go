@@ -151,6 +151,9 @@ func (a *app) composerBackendPicker(s *session) core.Node {
 			return apptext.T("后端 · %s（点一下换）", label())
 		}, composerChip{Icon: icon, Label: label, Caret: true, TestID: "backend-picker", OnPress: func() {
 			s.backendOpen.Update(func(v bool) bool { return !v })
+			// Opening the list is the signal that a backend change is being
+			// considered: handshake the project's default agent meanwhile.
+			a.ensureWarmACPFor(a.workspaceFor(s.Target, s.WS))
 		}}.node())
 	})
 	return a.popoverCard(s.backendOpen, core.PlaceTop, core.AlignStart, 268, trigger, func(cx *core.Scope) core.Node {

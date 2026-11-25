@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"example.com/pideck-v2/internal/appinfo"
+	"example.com/pideck-v2/internal/apptext"
 )
 
 // diagEvent is one log line.
@@ -93,6 +94,10 @@ func (a *app) stopProcess(p procInfo) {
 		if a.term != nil {
 			a.term.remove(p.ID)
 		}
+	case "warm":
+		a.retireWarmPi(p.ID)
+	case "warm-acp":
+		a.retireWarmACP(p.ID)
 	}
 	a.diagRefresh()
 }
@@ -196,7 +201,24 @@ func (a *app) diagDir() string {
 // processList is the pi sessions and terminals the app is running.
 func (a *app) processList() []procInfo {
 	var out []procInfo
+	if w := a.warmPiInfo(); w != nil {
+		out = append(out, procInfo{Kind: "warm", ID: w.ID, Name: apptext.T("pi 预热进程"),
+			Detail: shortPath(w.Dir, 48), State: "预热", PID: w.C.pid(), CanStop: true,
+			Started: w.Started, Stderr: w.C.stderrText()})
+	}
+	if w := a.warmACPInfo(); w != nil {
+		out = append(out, procInfo{Kind: "warm-acp", ID: w.Preset.ID,
+			Name:   apptext.T("ACP 预热进程") + " · " + w.Preset.Name,
+			Detail: shortPath(w.Cwd, 48), State: "预热", PID: w.C.pid(), CanStop: true,
+			Started: w.Started, Stderr: w.C.stderrText()})
+	}
 	for _, s := range a.all {
+		if s.warmPi != nil {
+			out = append(out, procInfo{Kind: "warm", ID: s.ID, Name: apptext.T("pi 预热进程"),
+				Detail: shortPath(s.WS, 48), State: "预热", PID: s.warmPi.C.pid(), CanStop: true,
+				Started: s.updated.GetUntracked(), Stderr: s.warmPi.C.stderrText()})
+			continue
+		}
 		if s.engine == nil {
 			continue
 		}

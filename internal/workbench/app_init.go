@@ -507,6 +507,9 @@ func newApp(cx *core.Scope) *app {
 	a.loadAnnouncements()
 
 	metas := st.scanSessions(a.cfg.Titles)
+	// Sessions on disk mean this install runs pi here, so a spare boot is
+	// worth paying; a first run or a test starts nothing.
+	a.warmOK = len(metas) > 0
 	byKey := map[string][]sessionMeta{}
 	for _, m := range metas {
 		key := parseTarget(m.Target).key() + "|" + pathKey(m.Cwd)

@@ -208,7 +208,15 @@ func (a *app) composer(s *session, ref *core.Ref) core.Node {
 		}
 		suggest, listed := core.NewSuggest(cx, core.SuggestOptions{}), core.NewSignal(cx, false)
 		var shown []composerSuggestion
-		editor := base.Input{Ref: ref, Value: s.draft.Get, OnChange: s.draft.Set, Multiline: true, SubmitBehavior: core.SubmitBehaviorSubmit,
+		editor := base.Input{Ref: ref, Value: s.draft.Get, OnChange: func(text string) {
+			s.draft.Set(text)
+			// Writing the first words is what engages a blank session: pi boots
+			// while the prompt is still being typed, and its own controls (the
+			// thinking levels, the model list) appear before the send.
+			if strings.TrimSpace(text) != "" && a.lazySession(s) {
+				a.ensureEngine(s, nil)
+			}
+		}, Multiline: true, SubmitBehavior: core.SubmitBehaviorSubmit,
 			Label: apptext.T("消息"), PlaceholderFunc: a.composerPlaceholder(s), TestID: "composer", Suggest: suggest,
 			OnSubmit: func(string) { send() },
 			OnPaste: func(e core.PasteEvent) {

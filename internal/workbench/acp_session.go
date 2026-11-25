@@ -8,6 +8,7 @@ package workbench
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"example.com/pideck-v2/internal/alerts"
@@ -77,6 +78,7 @@ func (a *app) ensureACPSession(s *session) {
 
 // startACPEngine shakes hands and opens a session.
 func (a *app) startACPEngine(s *session, generation uint64, presetID, savedID, cwd string) {
+	started := time.Now()
 	fail := func(detail string) {
 		a.cx.Post(func() {
 			if s.acpGeneration == generation {
@@ -89,25 +91,52 @@ func (a *app) startACPEngine(s *session, generation uint64, presetID, savedID, c
 		fail(apptext.T("没有这个 ACP 预设"))
 		return
 	}
-	c, err := startACP(cwd, preset.Command, preset.Args, preset.envList(),
-		func(u acpUpdate) {
+	a.diagf("info", "ACP 启动 %s：%s %s", preset.Name, preset.Command, strings.Join(preset.Args, " "))
+	handle := acpHooks{
+		update: func(u acpUpdate) {
 			a.cx.Post(func() {
 				if s.acpGeneration == generation {
 					a.applyACPUpdate(s, u)
 				}
 			})
 		},
-		func(p acpPermission) string { return a.askACPPermission(s, generation, p) },
-		func(err error) { a.cx.Post(func() { a.onACPExit(s, generation, err) }) })
-	if err != nil {
-		fail(apptext.T("启动 ACP 失败：%s", err.Error()))
-		return
+		permission: func(p acpPermission) string { return a.askACPPermission(s, generation, p) },
+		exit:       func(err error) { a.cx.Post(func() { a.onACPExit(s, generation, err) }) },
 	}
-	if _, err := c.initialize("PiDeck V2", appinfo.Version); err != nil {
-		c.stop()
-		fail(apptext.T("ACP 握手失败：%s", err.Error()))
-		return
+	// A handshaken spare skips the launch and the handshake; the session
+	// only needs its session/new. A saved one may have died meanwhile.
+	var c *acpClient
+	if !s.Target.remote() {
+		c = a.takeACPWarm(*preset, cwd)
 	}
+	if c != nil {
+		c.setHooks(handle)
+	} else {
+		var err error
+		c, err = startACP(cwd, preset.Command, preset.Args, preset.envList(),
+			handle.update, handle.permission, handle.exit)
+		if err != nil {
+			a.diagf("error", "ACP 启动失败 %s：%v", preset.Name, err)
+			fail(apptext.T("启动 ACP 失败：%s", err.Error()))
+			return
+		}
+		// A first npx run downloads the package before it answers, which
+		// looks like nothing happening: say what the tab waits for.
+		a.cx.AfterFunc(8*time.Second, func() {
+			if s.acpGeneration != generation || !s.starting {
+				return
+			}
+			s.notice.Set(apptext.T("正在启动 %s…", preset.Name))
+		})
+		if _, err := c.initialize("PiDeck V2", appinfo.Version); err != nil {
+			c.stop()
+			detail := acpStartDetail(err, c)
+			a.diagf("error", "ACP 握手失败 %s（%s）：%s", preset.Name, time.Since(started).Round(time.Millisecond), detail)
+			fail(apptext.T("ACP 握手失败：%s", detail))
+			return
+		}
+	}
+	handshake := time.Since(started)
 	sid := ""
 	modes := acpModeState{}
 	loaded := false
@@ -122,11 +151,23 @@ func (a *app) startACPEngine(s *session, generation uint64, presetID, savedID, c
 		var err error
 		sid, modes, err = c.newSession(cwd)
 		if err != nil {
+			a.diagf("error", "ACP 建会话失败 %s：%v", preset.Name, err)
 			c.stop()
-			fail(apptext.T("ACP 建会话失败：%s", err.Error()))
+			fail(apptext.T("ACP 建会话失败：%s", acpStartDetail(err, c)))
 			return
 		}
 	}
+	a.diagf("info", "ACP 就绪 %s：握手 %s，建会话 %s", preset.Name,
+		handshake.Round(time.Millisecond), time.Since(started).Round(time.Millisecond))
+	// The project's default preset stays warm for the next ACP session.
+	a.cx.Post(func() {
+		if s.Target.remote() {
+			return
+		}
+		if ws := a.workspaceFor(s.Target, s.WS); ws != nil && ws.ACPPreset == preset.ID {
+			a.ensureWarmACP(*preset, cwd)
+		}
+	})
 	// The CLI only takes a permission mode at runtime, and a refused call
 	// must not block the session.
 	var notice string
@@ -155,6 +196,7 @@ func (a *app) startACPEngine(s *session, generation uint64, presetID, savedID, c
 		s.acpOptionBusy.Set(false)
 		s.readySig.Set(true)
 		s.status.Set(statusIdle)
+		s.notice.Set("")
 		if notice != "" {
 			a.toast(ui.ToastInfo, "旁路权限", apptext.T(notice))
 		}
@@ -164,6 +206,16 @@ func (a *app) startACPEngine(s *session, generation uint64, presetID, savedID, c
 			fn()
 		}
 	})
+}
+
+// acpStartDetail adds what the agent printed, so a failed start can be
+// told from slow npm or a broken login without the log file.
+func acpStartDetail(err error, c *acpClient) string {
+	detail := err.Error()
+	if stderr := c.stderrText(); stderr != "" && !strings.Contains(detail, stderr) {
+		detail += " · " + stderr
+	}
+	return detail
 }
 
 // onACPExit tidies a session whose agent process ended.

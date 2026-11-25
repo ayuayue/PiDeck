@@ -519,7 +519,7 @@ func (c *piClient) stop() {
 	select {
 	case <-done:
 	case <-time.After(3 * time.Second):
-		_ = c.cmd.Process.Kill()
+		killTree(c.cmd)
 		// Wait for the process to be gone, so its files are free again.
 		select {
 		case <-done:
@@ -534,6 +534,16 @@ func (c *piClient) pid() int {
 		return 0
 	}
 	return c.cmd.Process.Pid
+}
+
+// isClosed reports a process that ended or was asked to stop.
+func (c *piClient) isClosed() bool {
+	if c == nil {
+		return true
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.closed
 }
 
 // stderrText is the newest stderr, one line.
@@ -610,6 +620,10 @@ func closeAllPi() {
 
 // detach drops the app's callbacks, for a child being stopped at exit.
 func (c *piClient) detach() { c.hooks.Store(hooks{}) }
+
+// setHooks binds the app's callbacks: at launch, or when a prewarmed
+// process is handed to the session that adopts it.
+func (c *piClient) setHooks(h hooks) { c.hooks.Store(h) }
 
 // callbacks are the app's hooks, nil once detached.
 func (c *piClient) callbacks() hooks {

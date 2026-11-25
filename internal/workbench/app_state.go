@@ -684,4 +684,15 @@ type app struct {
 	// releasing guards one collection at a time, so a second press does not
 	// queue another full GC behind the first.
 	releasing bool
+
+	// Warm agent processes: one booted spare per project, adopted by the
+	// next new session instead of starting a CLI from scratch. warmMu guards
+	// the slots the spawn goroutines write.
+	warmMu          sync.Mutex
+	warm            *warmPi
+	warmSpawning    string
+	warmOK          bool
+	acpWarmMu       sync.Mutex
+	acpWarm         *warmACP
+	acpWarmSpawning string
 }

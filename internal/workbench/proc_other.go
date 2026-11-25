@@ -17,3 +17,11 @@ func batchCommand(path string, args []string) *exec.Cmd { return exec.Command(pa
 func batchCommandContext(ctx context.Context, path string, args []string) *exec.Cmd {
 	return exec.CommandContext(ctx, path, args...)
 }
+
+// killTree ends a child and everything it started.
+func killTree(cmd *exec.Cmd) {
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
+	_ = cmd.Process.Kill()
+}

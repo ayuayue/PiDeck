@@ -55,6 +55,12 @@ func (a *app) refreshSessionModels(s *session, announce bool) {
 	}
 	c := s.engine
 	if c == nil {
+		if s.starting {
+			// A blank session boots pi on its first keystroke or menu: refresh
+			// once it is up instead of refusing.
+			a.ensureEngine(s, func() { a.refreshSessionModels(s, announce) })
+			return
+		}
 		if announce {
 			a.toast(ui.ToastInfo, "会话还没就绪", "等 Agent 启动后再刷新。")
 		}

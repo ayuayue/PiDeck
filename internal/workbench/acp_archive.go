@@ -129,6 +129,9 @@ func (a *app) loadACPArchives() {
 		if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".json") {
 			continue
 		}
+		// An archived ACP session proves this install runs agents here, so
+		// a spare handshake is worth paying even without pi sessions.
+		a.warmOK = true
 		a.loadACPArchiveFile(filepath.Join(dir, e.Name()))
 	}
 }

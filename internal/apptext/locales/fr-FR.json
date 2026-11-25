@@ -2759,5 +2759,12 @@
   "已快进到远端最新": "Avance rapide jusqu'au dépôt distant",
   "已合并远端改动": "Modifications distantes fusionnées",
   "远端已经是最新的": "Le dépôt distant est déjà à jour",
-  "已推送到 %s": "Poussé vers %s"
+  "已推送到 %s": "Poussé vers %s",
+  "ACP 启动失败": "Échec du démarrage d'ACP",
+  "正在启动 %s…": "Démarrage de %s…",
+  "pi 预热进程": "Processus pi préchauffé",
+  "ACP 预热进程": "Processus ACP préchauffé",
+  "预热": "préchauffé",
+  "结束预热进程": "Arrêter le processus préchauffé",
+  "%s 的预热进程会被结束，下次需要时重新启动。": "Le processus préchauffé de %s est arrêté ; il redémarrera à la prochaine utilisation."
 }

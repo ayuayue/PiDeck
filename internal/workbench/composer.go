@@ -628,6 +628,13 @@ func (a *app) setBackend(s *session, backend, presetID string) {
 			s.starting = false
 			c.stop()
 		}
+		a.releaseWarmPi(s)
+		if ws := a.workspaceFor(s.Target, s.WS); ws != nil && ws.ACPPreset != preset.ID {
+			// The project's next ACP session starts this agent, so its
+			// handshake can run ahead of it.
+			ws.ACPPreset = preset.ID
+			a.saveProjects()
+		}
 		s.waiters = nil
 		s.backend = "acp"
 		s.acpPreset = preset.ID

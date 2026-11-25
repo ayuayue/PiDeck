@@ -101,7 +101,7 @@ func TestSessionScreens(t *testing.T) {
 	app.Press("id:welcome-primary")
 	app.WaitFor("text:打开一个会话，或者新建一个。", 10*time.Second)
 	app.Press("id:welcome-primary")
-	waitApp(app, "id:pi-ready", 60*time.Second)
+	appReady(app)
 	app.Advance(300 * time.Millisecond)
 	shot(app, "06-session")
 	app.Press("label:会话面板")

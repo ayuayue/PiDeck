@@ -124,6 +124,9 @@ type session struct {
 	tops map[string]float64
 
 	engine *piClient
+	// warmPi is a prewarmed process this session adopted but has not used
+	// yet: its first message takes it over instead of booting pi.
+	warmPi *warmPi
 	// personaID binds the session to a built-in or custom agent.
 	personaID string
 	// ACP sessions run an external agent CLI instead of pi.

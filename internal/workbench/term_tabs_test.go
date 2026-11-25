@@ -16,7 +16,7 @@ func TestTerminalTabMenu(t *testing.T) {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
 	app := startApp(t, workspaceWith(t), 1320, 860)
-	waitApp(app, "id:pi-ready", 90*time.Second)
+	appReady(app)
 	app.Key("ctrl+shift+t")
 	app.WaitFor("id:terminal-tab", 10*time.Second)
 	app.Press("id:rail-palette")
@@ -54,7 +54,7 @@ func TestTerminalRename(t *testing.T) {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
 	app := startApp(t, workspaceWith(t), 1320, 860)
-	waitApp(app, "id:pi-ready", 90*time.Second)
+	appReady(app)
 	app.Key("ctrl+shift+t")
 	app.WaitFor("id:terminal-tab", 10*time.Second)
 	for i := 0; i < 4; i++ {

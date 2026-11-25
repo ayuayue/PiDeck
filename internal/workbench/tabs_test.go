@@ -25,7 +25,7 @@ func TestTabMenu(t *testing.T) {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
 	app := startApp(t, workspaceWith(t), 1320, 860)
-	waitApp(app, "id:pi-ready", 90*time.Second)
+	appReady(app)
 	app.Key("mod+n")
 	app.Key("mod+n")
 	app.WaitUntil(10*time.Second, func() bool { return len(app.Query("id:tab")) == 3 })
@@ -56,7 +56,7 @@ func TestReopenTab(t *testing.T) {
 	}
 	t.Setenv("PIDECK_V2_HOME", editorWorkspace(t))
 	app := startApp(t, workspaceWith(t), 1320, 860)
-	waitApp(app, "id:pi-ready", 90*time.Second)
+	appReady(app)
 	app.Key("mod+n")
 	app.Key("mod+n")
 	app.WaitUntil(10*time.Second, func() bool { return len(app.Query("id:tab")) == 3 })

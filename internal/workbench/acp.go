@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"example.com/pideck-v2/internal/remotewire"
@@ -96,9 +97,28 @@ type acpClient struct {
 	done            chan struct{}
 	exited          chan struct{}
 
-	onUpdate     func(acpUpdate)
-	onPermission func(acpPermission) string
-	onExit       func(error)
+	// hooks are the app's callbacks. They are stored atomically because a
+	// prewarmed process starts with none and is handed to a session later.
+	hooks atomic.Value // acpHooks
+}
+
+// acpHooks are the app's callbacks for one agent process.
+type acpHooks struct {
+	update     func(acpUpdate)
+	permission func(acpPermission) string
+	exit       func(error)
+}
+
+// setHooks binds the app's callbacks: at launch, or when a warm process is
+// adopted by a session.
+func (c *acpClient) setHooks(h acpHooks) { c.hooks.Store(h) }
+
+// callbacks are the app's hooks, empty for a process nobody drives yet.
+func (c *acpClient) callbacks() acpHooks {
+	if h, ok := c.hooks.Load().(acpHooks); ok {
+		return h
+	}
+	return acpHooks{}
 }
 
 type acpResponse struct {
@@ -242,6 +262,13 @@ func acpPresets() []acpPreset {
 	return list
 }
 
+// acpHandshakeTimeout is how long an agent may take to answer initialize.
+// An npx preset downloads its package on the first run, and a cold npm
+// cache, a slow registry or a big CLI takes minutes, not seconds: the
+// process exiting is what fails fast, so this is the ceiling for a slow
+// but healthy start, not a hang detector.
+var acpHandshakeTimeout = 120 * time.Second
+
 // startACP spawns an agent in dir and connects to it.
 func startACP(dir, command string, args, env []string, onUpdate func(acpUpdate), onPermission func(acpPermission) string, onExit func(error)) (*acpClient, error) {
 	if strings.TrimSpace(command) == "" {
@@ -269,13 +296,13 @@ func startACP(dir, command string, args, env []string, onUpdate func(acpUpdate),
 		return nil, err
 	}
 	c := &acpClient{cmd: cmd, in: in, stderr: stderr, pending: map[int]chan acpResponse{},
-		done: make(chan struct{}), exited: make(chan struct{}),
-		onUpdate: onUpdate, onPermission: onPermission, onExit: onExit}
+		done: make(chan struct{}), exited: make(chan struct{})}
+	c.setHooks(acpHooks{update: onUpdate, permission: onPermission, exit: onExit})
 	trackACP(c)
 	go func() {
 		c.read(out)
 		// Reap the process when stdout closes, even if it exited by itself.
-		_ = cmd.Process.Kill()
+		killTree(cmd)
 		_ = cmd.Wait()
 		close(c.exited)
 		untrackACP(c)
@@ -321,22 +348,23 @@ func (c *acpClient) read(r io.Reader) {
 	c.closed = true
 	c.mu.Unlock()
 	close(c.done)
-	if c.onExit != nil {
+	if exit := c.callbacks().exit; exit != nil {
 		if closed {
-			c.onExit(nil)
+			exit(nil)
 			return
 		}
 		why := c.stderrText()
 		if why == "" {
 			why = "ACP 进程退出了"
 		}
-		c.onExit(fmt.Errorf("%s", why))
+		exit(fmt.Errorf("%s", why))
 	}
 }
 
 // dispatchUpdate turns a session/update into an acpUpdate.
 func (c *acpClient) dispatchUpdate(raw json.RawMessage) {
-	if c.onUpdate == nil {
+	onUpdate := c.callbacks().update
+	if onUpdate == nil {
 		return
 	}
 	var params struct {
@@ -382,7 +410,7 @@ func (c *acpClient) dispatchUpdate(raw json.RawMessage) {
 		}
 		u.Commands = append(u.Commands, cmd)
 	}
-	c.onUpdate(u)
+	onUpdate(u)
 }
 
 // dispatchPermission asks the app for an answer and replies.
@@ -407,8 +435,8 @@ func (c *acpClient) dispatchPermission(id int, raw json.RawMessage) {
 		req.Options = append(req.Options, acpPermissionOption{ID: o.OptionID, Name: o.Name, Kind: o.Kind})
 	}
 	choice := ""
-	if c.onPermission != nil {
-		choice = c.onPermission(req)
+	if ask := c.callbacks().permission; ask != nil {
+		choice = ask(req)
 	}
 	var result any
 	if choice == "" {
@@ -498,7 +526,7 @@ func (c *acpClient) call(method string, params any, out any, timeout time.Durati
 			return fmt.Errorf("ACP 连接已关闭")
 		}
 	case <-timer.C:
-		return fmt.Errorf("ACP %s 超时", method)
+		return fmt.Errorf("ACP %s 在 %s 内没有响应", method, shortDuration(timeout))
 	}
 }
 
@@ -575,7 +603,7 @@ func (c *acpClient) initialize(name, version string) (int, error) {
 			"session": map[string]any{"configOptions": map[string]any{"boolean": map[string]any{}}},
 		},
 		"clientInfo": map[string]string{"name": name, "version": version},
-	}, &out, 30*time.Second)
+	}, &out, acpHandshakeTimeout)
 	if err == nil {
 		c.loadSupported = out.Capabilities.Load
 		c.resumeSupported = out.Capabilities.Sessions.Resume != nil
@@ -636,12 +664,32 @@ func (c *acpClient) cancel(sessionID string) {
 	_ = c.notify("session/cancel", map[string]string{"sessionId": sessionID})
 }
 
+// pid is the process id, 0 before it starts.
+func (c *acpClient) pid() int {
+	if c == nil || c.cmd == nil || c.cmd.Process == nil {
+		return 0
+	}
+	return c.cmd.Process.Pid
+}
+
 // stderrText is the newest stderr, one line.
 func (c *acpClient) stderrText() string {
 	if c == nil || c.stderr == nil {
 		return ""
 	}
 	return viewkit.FirstLine(c.stderr.String(), 160)
+}
+
+// shortDuration is a wait in the form a notice reads: seconds under a
+// minute, then minutes, so a 120-second ceiling does not read as "120s".
+func shortDuration(d time.Duration) string {
+	switch {
+	case d >= time.Minute:
+		return fmt.Sprintf("%d 分钟", int(d.Round(time.Minute)/time.Minute))
+	case d >= time.Second:
+		return fmt.Sprintf("%d 秒", int(d.Round(time.Second)/time.Second))
+	}
+	return fmt.Sprintf("%d 毫秒", int(d.Round(time.Millisecond)/time.Millisecond))
 }
 
 // stop closes the connection and the process.
@@ -656,7 +704,7 @@ func (c *acpClient) stop() {
 	select {
 	case <-c.exited:
 	case <-time.After(3 * time.Second):
-		_ = c.cmd.Process.Kill()
+		killTree(c.cmd)
 		select {
 		case <-c.exited:
 		case <-time.After(2 * time.Second):

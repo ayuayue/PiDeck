@@ -367,6 +367,8 @@ func (a *app) saveACPPresetEdit() {
 				return
 			}
 			a.acpPresetSel.Set(preset.ID)
+			// An edited command or environment makes the waiting process stale.
+			a.retireWarmACP("")
 			a.refreshACPManager()
 			a.toast(ui.ToastSuccess, "已保存 ACP 预设", preset.Name)
 		})
@@ -404,6 +406,7 @@ func (a *app) removeACPPreset(id string) {
 				a.newACPPreset()
 				a.toast(ui.ToastInfo, "已删除预设", id)
 			}
+			a.retireWarmACP("")
 			a.refreshACPManager()
 		})
 	}()

@@ -118,8 +118,11 @@ func (a *app) diagProcessGroup() core.Node {
 // the button that ends it.
 func (a *app) diagProcRow(p procInfo, colors ui.Colors) core.Node {
 	kind, variant := "pi", ui.BadgeAccent
-	if p.Kind == "shell" {
+	switch p.Kind {
+	case "shell":
 		kind, variant = "shell", ui.BadgeNeutral
+	case "warm", "warm-acp":
+		kind, variant = apptext.T("预热"), ui.BadgeNeutral
 	}
 	detail := p.Detail
 	if p.PID > 0 {
@@ -165,6 +168,12 @@ func diagStateBadge(state string) core.Node {
 
 // askStopProcess confirms ending a process before it is ended.
 func (a *app) askStopProcess(p procInfo) {
+	if p.Kind == "warm" || p.Kind == "warm-acp" {
+		a.askConfirm(apptext.T("结束预热进程"), fmt.Sprintf(apptext.T(
+			"%s 的预热进程会被结束，下次需要时重新启动。"), p.Name), apptext.T("停止"),
+			func() { a.stopProcess(p) })
+		return
+	}
 	if p.Kind == "pi" {
 		a.askConfirm(apptext.T("停止会话进程"), fmt.Sprintf(apptext.T(
 			"%s 的 pi 进程会被结束，正在执行的回合会中断；会话与转录保留，下次发消息会重新启动。"), p.Name), apptext.T("停止"),

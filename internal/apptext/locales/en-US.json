@@ -2759,5 +2759,12 @@
   "已快进到远端最新": "Fast-forwarded to the remote",
   "已合并远端改动": "Merged the remote changes",
   "远端已经是最新的": "The remote already has this",
-  "已推送到 %s": "Pushed to %s"
+  "已推送到 %s": "Pushed to %s",
+  "ACP 启动失败": "ACP failed to start",
+  "正在启动 %s…": "Starting %s…",
+  "pi 预热进程": "pi warm process",
+  "ACP 预热进程": "ACP warm process",
+  "预热": "warm",
+  "结束预热进程": "Stop warm process",
+  "%s 的预热进程会被结束，下次需要时重新启动。": "%s's warm process is stopped; it starts again when it is next needed."
 }

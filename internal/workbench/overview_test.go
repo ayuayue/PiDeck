@@ -21,7 +21,7 @@ func TestOverviewCopyID(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("PIDECK_V2_HOME", home)
 	app := startApp(t, workspaceWith(t), 1320, 860)
-	waitApp(app, "id:pi-ready", 90*time.Second)
+	appReady(app)
 	raw, err := os.ReadFile(filepath.Join(home, "config.json"))
 	if err != nil {
 		t.Fatal(err)
