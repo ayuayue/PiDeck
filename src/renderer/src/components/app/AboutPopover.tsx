@@ -5,8 +5,8 @@ import { desktopApi } from "../../desktopApi";
 import { formatI18nDateTime, t } from "../../i18n";
 import { MorphPopover, MorphPopoverContent, MorphPopoverTrigger } from "../motion/popover-morph";
 import { AnimatedBadge } from "../motion/animated-badge";
-import { PiLogoCanvas } from "./PiLogoCanvas";
-import { PiTuiLogoCanvas, useAppDisplayName, useBrandGlyph } from "./PiTuiLogo";
+import { LogoMark } from "./LogoMark";
+import { useAppDisplayName } from "./PiTuiLogo";
 import { Button } from "../ui-shadcn/button";
 import { ChangelogDialog } from "./settings/ChangelogDialog";
 import { SupportPiDeckDialog } from "./SupportPiDeckDialog";
@@ -61,7 +61,6 @@ export function AboutPopover(props: AboutPopoverProps) {
 	// releasesUrl 形如 https://github.com/ayuayue/PiDeck/releases，去掉 /releases 即仓库主页
 	const githubUrl = props.appInfo.releasesUrl.replace(/\/releases\/?$/, "") || WEBSITE_URL;
 	const info = props.appInfo;
-	const { style: logoStyle, customLogo } = useBrandGlyph();
 	// 品牌名与品牌区同源：改过显示名称后「关于」面板标题同步，不再固定 PiDeck。
 	const displayName = useAppDisplayName();
 
@@ -71,11 +70,11 @@ export function AboutPopover(props: AboutPopoverProps) {
 			<MorphPopoverContent side="bottom" align="start" sideOffset={10} radius={16} className="w-72 overflow-hidden">
 				<div className="flex flex-col gap-3 p-4">
 					<div className="flex items-center gap-3">
-						{customLogo ? <img src={customLogo} alt="" className="size-10 shrink-0 object-contain" /> : logoStyle === "pi-tui" ? <PiTuiLogoCanvas size={40} playOnClick /> : <PiLogoCanvas size={40} playOnClick />}
+						<LogoMark size={56} playOnClick />
 						<div className="min-w-0 flex-1">
 							<div className="font-[PiDeckDepartureMono] text-lg font-normal leading-tight tracking-wide text-foreground">{displayName}</div>
 							{/* 版本号用等宽小字：此前是带 ⓘ 图标的胶囊徽标，图标语义与「查看版本信息」
-                  重复，胶囊边框在 40px logo 旁显得笨重；改为纯文本与弹框内版本行同源观感 */}
+								重复，胶囊边框在品牌图旁显得笨重；改为纯文本与弹框内版本行同源观感 */}
 							<div className="font-mono text-micro leading-tight tabular-nums text-muted-foreground">v{info.version}</div>
 						</div>
 						{info.devBranch && (

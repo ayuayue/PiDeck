@@ -62,6 +62,8 @@
 
 ## 原生模块与打包
 
+- **打包默认图标为白底 pi-tui，三色主体占底板宽高的 65%**：修改 `build/icon-pi-tui.svg` 后运行 `npm run make-icon`，同步生成 `icon.ico` / `icon.icns` / `icons/*.png` 与运行时 PNG。Windows ICO、`icon-pi-tui-windows.png` 和 `icon-classic-windows.png` 不加外层留白；macOS/Linux 的 PNG 与 ICNS 保留每边 6.25% 边距。`appWindowLogo.ts` 按平台选图，避免运行后任务栏又缩小。安装器和 exe 图标在构建时固定；「Logo 风格 / 自定义 Logo」只改变运行时图标与应用内品牌位。验证：`node --test tests/iconPiTui.test.mjs tests/appWindowLogo.test.mjs tests/macIcon.test.mjs`。
+- **应用内品牌位与系统图标同规格**：经典标为白底深灰主体，三色标保留品牌原色；主体均占底板宽高的 65%。启动页的内联 SVG/CSS 与 `LogoMark` 对齐，关于、新建/空态和设置预览共用白底图标。桌面与 Web 标题栏使用 `LogoMark variant="inline"`：18px 透明底主体，不加底板、阴影或描边，经典标随明暗主题切换黑白以保持对比。经典动画在白底容器内固定用深灰色，避免暗色主题下反白失去对比；用户自定义图片不叠底板、不改变主体占比。覆盖见 `tests/brandLogoSurfaces.test.mjs`、`tests/appearanceLogoPreview.test.mjs`、`tests/piTuiLogo.test.mjs`。
 - node-pty 等原生模块必须 `asarUnpack` 并 postinstall 修权限（`scripts/fix-pty-permissions.js`）；afterPack 删 node_modules 冗余文件必须有对应测试（`tests/afterPackCleanup.test.mjs`）。
 - 资源路径用 `process.resourcesPath` / `app.getAppPath()` 推导，禁止裸 `__dirname` 假设 asar 可读；preload 路径走 `preloadPath.ts`。
 - **原生模块禁止顶层静态 import**：JS 包装可能在模块求值时同步加载对应平台二进制（koffi 即如此），跨 arch 打包时可选依赖（`@koromix/koffi-*`）不会自动跟随，缺二进制环境启动即崩（issue #313）。必须经专属模块函数内 `createRequire` 惰性加载 + try/catch 降级；守卫 `tests/cua/cuaKoffiFallback.test.mjs`，同约束见 `nodePtyRuntime.ts`。

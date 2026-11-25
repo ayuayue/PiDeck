@@ -134,7 +134,7 @@ test("window control hover uses solid hover surface", () => {
 test("brand lockup is larger inside the 40px titlebar", () => {
 	// 品牌区：官方 pi canvas logo + 应用显示名称字标（未设置时就是 PiDeck）；
 	// 功能分支时分支名只保留在 title/aria-label，不上视觉
-	assert.match(brand, /PiLogoCanvas size=\{18\}/);
+	assert.match(brand, /BrandLogoMark size=\{18\} variant="inline"/);
 	assert.match(brand, /brand-wordmark/);
 	assert.match(brand, /const displayName = useAppDisplayName\(\)/);
 	assert.match(brand, /\$\{displayName\} · \$\{branch\}/);

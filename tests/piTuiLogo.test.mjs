@@ -84,10 +84,11 @@ test("boot splash reads the same localStorage key and embeds the same pi-tui bit
 	assert.match(html, /<rect x="3" y="3" width="1" height="1" fill="#EAB65D"\/>/);
 	// classic / pi-tui 显隐互斥（html.logo-pi-tui class 切换）
 	assert.match(html, /html\.logo-pi-tui \.boot-logo \.boot-logo-classic\s*\{\s*display:\s*none/);
-	// 官方位图为 1:1 正方形（半块字符每格上下两个正方形像素），不得再按 4:3 压成 48×36
-	const bootRule = html.match(/\.boot-logo \.boot-logo-pi-tui\s*\{[^}]*\}/u);
-	assert.ok(bootRule, "boot splash 应有 pi-tui logo 尺寸规则");
-	assert.match(bootRule[0], /height:\s*48px/, "开屏 pi-tui 高度须与宽度一致（48px，1:1）");
+	// 两种内置标统一用底板宽高的 65%，保持 1:1，避免开屏与应用内比例不同。
+	const bootRule = html.match(/\.boot-logo svg\s*\{[^}]*\}/u);
+	assert.ok(bootRule, "boot splash 应有共享 logo 尺寸规则");
+	assert.match(bootRule[0], /width:\s*65%/);
+	assert.match(bootRule[0], /height:\s*65%/);
 	// 自定义品牌：显示名称与自定义 logo 图都从 localStorage 缓存读（键与 bootBrandCache.ts 同步，内联脚本无法 import）
 	assert.match(html, new RegExp(`localStorage\\.getItem\\(\\s*["']${BOOT_APP_NAME_STORAGE_KEY.replace(":", "\\:")}["']\\s*\\)`), "开屏必须读显示名称缓存键");
 	assert.match(html, new RegExp(`localStorage\\.getItem\\(\\s*["']${BOOT_CUSTOM_LOGO_STORAGE_KEY.replace(":", "\\:")}["']\\s*\\)`), "开屏必须读自定义 logo 缓存键");
@@ -115,34 +116,6 @@ test("PiTuiLogo component renders the 4x4 bitmap as a square (SVG and Canvas)", 
 	assert.doesNotMatch(source, /\(size \* 3\) \/ 4|\(cssSize \* 3\) \/ 4/, "不得再按 4:3 计算高度");
 	const paintSection = source.slice(source.indexOf("function paintCells"));
 	assert.match(paintSection, /const cssW = cssSize;\s*const cssH = cssSize;/, "canvas CSS 尺寸必须为 1:1");
-});
-
-test("LogoMark sidebar and about logo branch on logoStyle (source scan, whitespace tolerant)", () => {
-	const repoRoot = fileURLToPath(new URL("..", import.meta.url));
-	const appParts = readFileSync(`${repoRoot}src/renderer/src/components/app/AppParts.tsx`, "utf8");
-	const about = readFileSync(`${repoRoot}src/renderer/src/components/app/AboutPopover.tsx`, "utf8");
-	const logoMark = readFileSync(`${repoRoot}src/renderer/src/components/app/LogoMark.tsx`, "utf8");
-	const piTuiLogo = readFileSync(`${repoRoot}src/renderer/src/components/app/PiTuiLogo.tsx`, "utf8");
-	// 空白容忍（AGENTS.md 格式化契约）：定位代码块用 \s* 而非字面空白
-	assert.match(appParts, /logoStyle === "pi-tui"\s*\?\s*<PiTuiLogoCanvas size=\{18\} playOnClick \/>\s*:\s*<PiLogoCanvas size=\{18\} playOnClick \/>/);
-	assert.match(about, /logoStyle === "pi-tui"\s*\?\s*<PiTuiLogoCanvas size=\{40\} playOnClick \/>\s*:\s*<PiLogoCanvas size=\{40\} playOnClick \/>/);
-	assert.match(logoMark, /logoStyle === "pi-tui"\s*\?\s*\(\s*\/\*[\s\S]*?PiTuiLogoMark size=\{glyph\} \/>/);
-	// custom（自备图片）：品牌位改渲染用户图；useBrandGlyph 只在「风格=custom 且已上传图」时返回非空 customLogo，
-	// 并把 style 解析成内置两档（custom 缺图 → pi-tui），因此三个落点共用「有图就用图」的同一判定。
-	for (const [name, source] of [
-		["AppParts", appParts],
-		["AboutPopover", about],
-		["LogoMark", logoMark],
-	]) {
-		assert.match(source, /const \{\s*style: logoStyle, customLogo \} = useBrandGlyph\(\)/, `${name} 必须经 useBrandGlyph 订阅自定义 logo 图`);
-		assert.match(source, /(?:if \(customLogo\) return|customLogo \?)\s*\(?\s*<img src=\{customLogo\}/, `${name} 自定义风格必须渲染用户图片`);
-	}
-	// LogoMark：自定义图不套黑底方块（自带外形的应用图标再垫黑底会双层嵌套，也与「上传什么就显示什么」不符），必须早返回裸 img
-	assert.match(logoMark, /if \(customLogo\) return <img src=\{customLogo\}/, "LogoMark 自定义风格必须早返回裸图（不套黑底容器）");
-	// 自定义回落：custom（有图无图）都必须按 pi-tui 解析（应用默认品牌位，与主进程图标回落一致），不能落回 classic
-	assert.match(piTuiLogo, /style: style === "classic" \? "classic" : "pi-tui"/, "useBrandGlyph 必须把非 classic 一律按 pi-tui 处理");
-	// 侧栏品牌位不再写死 PiDeck 字面量，改读应用显示名称
-	assert.match(appParts, /const displayName = useAppDisplayName\(\)/);
 });
 
 // SettingsStore 依赖 electron / 日志 / git 路径解析器，stub 顶掉（与 settingsStoreHiddenModules.test.mjs 同款）

@@ -3,7 +3,13 @@ import { getAppLogger } from "./logging/sharedLogger";
 import { resolveLogoStyle, type LogoStyle } from "../shared/types/settings";
 // electron-vite ?asset：构建时复制到输出目录并返回运行时路径（与 index.ts 的 iconPath 同模式）
 import classicIconPath from "../../build/icon.png?asset";
+import classicWindowsIconPath from "../../build/icon-classic-windows.png?asset";
 import piTuiIconPath from "../../build/icon-pi-tui.png?asset";
+import piTuiWindowsIconPath from "../../build/icon-pi-tui-windows.png?asset";
+
+// Dock 需要外层留白，Windows 则使用与 exe 同占比的图标；自定义图片始终保持用户提供的比例。
+const classicPlatformIconPath = process.platform === "win32" ? classicWindowsIconPath : classicIconPath;
+const piTuiPlatformIconPath = process.platform === "win32" ? piTuiWindowsIconPath : piTuiIconPath;
 
 /** 托盘图标渲染尺寸：源图是 256/512，直接塞给 Tray 在 Windows 上糊、在 Linux 上撑爆面板行高。 */
 const TRAY_ICON_SIZE = 16;
@@ -22,7 +28,7 @@ export function resolveLogoImage(style: LogoStyle | string | null | undefined, c
 		// 回落档与渲染层 LogoMark 保持一致（都走默认标），否则同一设置下窗口图标与界面会各显一个标
 		if (!image) resolved = "pi-tui";
 	}
-	if (!image) image = nativeImage.createFromPath(resolved === "pi-tui" ? piTuiIconPath : classicIconPath);
+	if (!image) image = nativeImage.createFromPath(resolved === "pi-tui" ? piTuiPlatformIconPath : classicPlatformIconPath);
 	if (image.isEmpty()) {
 		// 图标资源缺失只影响本风格图标不生效，降级日志不抛
 		void getAppLogger()?.warn("app-logo", "Logo style icon image is empty, keeping current icon", { resolved });
