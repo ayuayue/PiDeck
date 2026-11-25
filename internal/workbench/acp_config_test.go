@@ -93,7 +93,7 @@ func startFakeACP(t *testing.T) (*acpClient, string, acpModeState) {
 		t.Fatal(err)
 	}
 	t.Cleanup(c.stop)
-	if _, err := c.initialize("PiDeck V2", "test"); err != nil {
+	if _, err := c.initialize(); err != nil {
 		t.Fatal(err)
 	}
 	sid, state, err := c.newSession(t.TempDir())

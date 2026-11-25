@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"example.com/pideck-v2/internal/alerts"
-	"example.com/pideck-v2/internal/appinfo"
 	"example.com/pideck-v2/internal/apptext"
 	"example.com/pideck-v2/internal/remotewire"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -128,7 +127,7 @@ func (a *app) startACPEngine(s *session, generation uint64, presetID, savedID, c
 			}
 			s.notice.Set(apptext.T("正在启动 %s…", preset.Name))
 		})
-		if _, err := c.initialize("PiDeck V2", appinfo.Version); err != nil {
+		if _, err := c.initialize(); err != nil {
 			c.stop()
 			detail := acpStartDetail(err, c)
 			a.diagf("error", "ACP 握手失败 %s（%s）：%s", preset.Name, time.Since(started).Round(time.Millisecond), detail)

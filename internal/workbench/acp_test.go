@@ -177,7 +177,7 @@ func TestACPDisconnectFinishesPendingPrompt(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.stop()
-	if _, err := c.initialize("PiDeck V2", "test"); err != nil {
+	if _, err := c.initialize(); err != nil {
 		t.Fatal(err)
 	}
 	result := make(chan error, 1)
@@ -200,7 +200,7 @@ func TestACPResumeWithAdvertisedCapability(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.stop()
-	if _, err := c.initialize("PiDeck V2", "test"); err != nil {
+	if _, err := c.initialize(); err != nil {
 		t.Fatal(err)
 	}
 	state, err := c.loadSession("s1", t.TempDir())
@@ -228,7 +228,7 @@ func TestACPClient(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.stop()
-	version, err := c.initialize("PiDeck V2", "test")
+	version, err := c.initialize()
 	if err != nil || version != 1 {
 		t.Fatalf("initialize = %d, %v", version, err)
 	}
@@ -341,7 +341,7 @@ func TestACPHandshakeWaitsForASlowAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(c.stop)
-	if version, err := c.initialize("PiDeck V2", "test"); err != nil || version != 1 {
+	if version, err := c.initialize(); err != nil || version != 1 {
 		t.Fatalf("initialize = %d, %v; want 1 after the agent answered late", version, err)
 	}
 }
@@ -364,7 +364,7 @@ func TestACPHandshakeTimeoutNamesTheWait(t *testing.T) {
 	}
 	t.Cleanup(c.stop)
 	started := time.Now()
-	_, err = c.initialize("PiDeck V2", "test")
+	_, err = c.initialize()
 	if err == nil {
 		t.Fatal("a silent agent passed the handshake")
 	}
@@ -396,7 +396,7 @@ func TestACPHandshakeFailsFastWhenAgentExits(t *testing.T) {
 	}
 	t.Cleanup(c.stop)
 	started := time.Now()
-	_, err = c.initialize("PiDeck V2", "test")
+	_, err = c.initialize()
 	if err == nil {
 		t.Fatal("a dead agent passed the handshake")
 	}

@@ -581,8 +581,21 @@ func (c *acpClient) isClosed() bool {
 	return c.closed
 }
 
+// acpInitializeParams omits optional clientInfo so agents can use their own
+// upstream identity. Some agents reuse clientInfo as a model-service originator.
+func acpInitializeParams() map[string]any {
+	return map[string]any{
+		"protocolVersion": 1,
+		// Switches are part of the option contract: CodeBuddy sends them
+		// (and validates a set with the type field), so they are declared.
+		"clientCapabilities": map[string]any{
+			"session": map[string]any{"configOptions": map[string]any{"boolean": map[string]any{}}},
+		},
+	}
+}
+
 // initialize shakes hands with the agent.
-func (c *acpClient) initialize(name, version string) (int, error) {
+func (c *acpClient) initialize() (int, error) {
 	var out struct {
 		ProtocolVersion int `json:"protocolVersion"`
 		Capabilities    struct {
@@ -595,15 +608,7 @@ func (c *acpClient) initialize(name, version string) (int, error) {
 			} `json:"promptCapabilities"`
 		} `json:"agentCapabilities"`
 	}
-	err := c.call("initialize", map[string]any{
-		"protocolVersion": 1,
-		// Switches are part of the option contract: CodeBuddy sends them
-		// (and validates a set with the type field), so they are declared.
-		"clientCapabilities": map[string]any{
-			"session": map[string]any{"configOptions": map[string]any{"boolean": map[string]any{}}},
-		},
-		"clientInfo": map[string]string{"name": name, "version": version},
-	}, &out, acpHandshakeTimeout)
+	err := c.call("initialize", acpInitializeParams(), &out, acpHandshakeTimeout)
 	if err == nil {
 		c.loadSupported = out.Capabilities.Load
 		c.resumeSupported = out.Capabilities.Sessions.Resume != nil

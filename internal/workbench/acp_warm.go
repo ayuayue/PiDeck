@@ -11,8 +11,6 @@ package workbench
 import (
 	"strings"
 	"time"
-
-	"example.com/pideck-v2/internal/appinfo"
 )
 
 // acpWarmTTL is how long a handshaken agent waits for a session. Agents
@@ -66,7 +64,7 @@ func (a *app) ensureWarmACP(p acpPreset, cwd string) {
 			a.diagf("warn", "ACP 预热失败 %s：%v", p.Name, err)
 			return
 		}
-		if _, err := c.initialize("PiDeck V2", appinfo.Version); err != nil {
+		if _, err := c.initialize(); err != nil {
 			c.stop()
 			a.finishWarmACPSpawn(key, nil)
 			a.diagf("warn", "ACP 预热握手失败 %s：%v", p.Name, err)
