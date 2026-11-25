@@ -63,6 +63,7 @@ func (a *app) removeSession(s *session, done func(error)) {
 		a.finishTurn(s, turns[len(turns)-1].ID, chat.Cancelled, "")
 	}
 	engine, acp := s.engine, s.acp
+	s.piGeneration.Add(1)
 	s.engine, s.acp = nil, nil
 	warm := s.warmPi
 	s.warmPi = nil
@@ -71,10 +72,15 @@ func (a *app) removeSession(s *session, done func(error)) {
 	s.status.Set(statusIdle)
 	st, file, id, target := a.st, s.File, s.ID, s.Target
 	archive := s.backend == "acp"
+	archiveSaved := s.acpArchiveTail
+	agentStopped := s.agentStopped
 	if archive {
 		file = filepath.Join(a.acpArchiveDir(), archiveName(id))
 	}
 	go func() {
+		if agentStopped != nil {
+			<-agentStopped
+		}
 		if engine != nil {
 			engine.stop()
 		}
@@ -83,6 +89,9 @@ func (a *app) removeSession(s *session, done func(error)) {
 		}
 		if warm != nil {
 			warm.C.stop()
+		}
+		if archiveSaved != nil {
+			<-archiveSaved
 		}
 		var err error
 		if target.remote() && !archive && file != "" {

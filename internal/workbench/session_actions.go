@@ -124,7 +124,7 @@ func (a *app) openSessionEager(s *session) {
 		a.files.watch(s.WS)
 	}
 	a.loadHistoryFromFile(s)
-	if a.lazySession(s) {
+	if s.agentClosed || a.lazySession(s) {
 		return
 	}
 	a.ensureEngine(s, nil)

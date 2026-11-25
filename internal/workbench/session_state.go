@@ -8,6 +8,7 @@ package workbench
 import (
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"example.com/pideck-v2/internal/remotewire"
@@ -126,31 +127,40 @@ type session struct {
 	// thread touches it.
 	tops map[string]float64
 
-	engine *piClient
+	engine            *piClient
+	piGeneration      atomic.Uint64
+	piStarting        <-chan *piClient
+	agentClosed       bool // explicit close survives tab selection; a prompt may start it again
+	agentStopping     bool // observable through status while processes release their files
+	agentStopped      <-chan struct{}
+	historyGeneration uint64
+	historyLoading    bool
 	// warmPi is a prewarmed process this session adopted but has not used
 	// yet: its first message takes it over instead of booting pi.
 	warmPi *warmPi
 	// personaID binds the session to a built-in or custom agent.
 	personaID string
 	// ACP sessions run an external agent CLI instead of pi.
-	backend       string
-	acpPreset     string
-	acp           *acpClient
-	acpSID        string
-	acpGeneration uint64
-	acpTurnID     string
-	acpProgress   time.Time
-	acpStopReason acpStopReason
-	acpText       strings.Builder
-	acpThink      strings.Builder
-	acpFlushDue   bool
-	acpReply      func(string)
-	acpCommands   *core.Signal[[]acpCommand]
-	acpMode       *core.Signal[string]
-	acpModes      *core.Signal[[]acpMode]
-	acpOptions    *core.Signal[[]acpConfigOption]
-	acpOptionBusy *core.Signal[bool]
-	acpModeOpen   *core.Signal[bool]
+	backend        string
+	acpPreset      string
+	acp            *acpClient
+	acpStarting    <-chan *acpClient
+	acpArchiveTail <-chan struct{}
+	acpSID         string
+	acpGeneration  uint64
+	acpTurnID      string
+	acpProgress    time.Time
+	acpStopReason  acpStopReason
+	acpText        strings.Builder
+	acpThink       strings.Builder
+	acpFlushDue    bool
+	acpReply       func(string)
+	acpCommands    *core.Signal[[]acpCommand]
+	acpMode        *core.Signal[string]
+	acpModes       *core.Signal[[]acpMode]
+	acpOptions     *core.Signal[[]acpConfigOption]
+	acpOptionBusy  *core.Signal[bool]
+	acpModeOpen    *core.Signal[bool]
 	// acpPerm remembers allow-always and reject-always by tool title.
 	acpPerm   map[string]string
 	acpPermMu sync.Mutex

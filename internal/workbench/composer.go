@@ -620,13 +620,21 @@ func (a *app) setBackend(s *session, backend, presetID string) {
 			a.toast(ui.ToastError, "没有这个 ACP 预设", presetID)
 			return
 		}
-		if s.engine != nil {
+		if s.engine != nil || s.piStarting != nil {
 			// pi's process is not this session's backend any more: stop it
-			// without the exit handler starting another.
-			c := s.engine
-			s.engine = nil
+			// off the UI thread and discard its remaining startup callbacks.
+			s.piGeneration.Add(1)
+			c, pending := s.engine, s.piStarting
+			s.engine, s.piStarting = nil, nil
 			s.starting = false
-			c.stop()
+			go func() {
+				if c == nil && pending != nil {
+					c = <-pending
+				}
+				if c != nil {
+					c.stop()
+				}
+			}()
 		}
 		a.releaseWarmPi(s)
 		if ws := a.workspaceFor(s.Target, s.WS); ws != nil && ws.ACPPreset != preset.ID {
@@ -650,9 +658,8 @@ func (a *app) setBackend(s *session, backend, presetID string) {
 		a.ensureACPSession(s)
 		a.toast(ui.ToastInfo, "已切到 ACP · "+preset.Name, "agent 的模型、模式和命令会显示在输入框里。")
 	default:
-		if s.acp != nil {
-			s.acp.stop()
-			s.acp = nil
+		if s.acp != nil || s.acpStarting != nil {
+			a.detachACP(s)
 		}
 		s.backend = ""
 		s.acpPreset = ""

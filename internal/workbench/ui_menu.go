@@ -493,7 +493,8 @@ func (a *app) sessionMenuItems(sess func() *session) []core.Node {
 	colors := ui.ColorsOf(a.cx)
 	// The item's own colors come from the app's scope: menus are built once.
 	_ = colors
-	return []core.Node{
+	return append(a.sessionRunMenuItems(sess), []core.Node{
+		a.menuSeparator(a.cx),
 		a.menuRow(a.cx, lucide.Star, pinLabel(a, sess), "", false, func() { a.togglePin(sess()) }),
 		a.menuRow(a.cx, lucide.Star, sessionFavoriteLabel(a, sess), "", false, func() { a.toggleSessionFavorite(sess()) }),
 		a.menuRow(a.cx, lucide.Pencil, "重命名", "", false, func() { a.askRename(sess()) }),
@@ -507,7 +508,7 @@ func (a *app) sessionMenuItems(sess func() *session) []core.Node {
 		a.menuRow(a.cx, lucide.Copy, "复制工作目录", "", false, func() { a.copyText(sess().WS, "路径") }),
 		a.menuRow(a.cx, lucide.Archive, archiveLabel(a, sess), "", false, func() { a.toggleArchive(sess()) }),
 		a.menuRow(a.cx, lucide.Trash, "删除会话", "", true, func() { a.deleteSession(sess()) }),
-	}
+	}...)
 }
 
 // archiveLabel names the archive action for the state a session is in.

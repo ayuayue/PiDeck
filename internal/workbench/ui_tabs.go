@@ -47,6 +47,7 @@ func (a *app) tabBar() core.Node {
 		}},
 		core.View{TestID: "tab-bar-drag", Desktop: core.DesktopViewProps{WindowDrag: core.WindowDragOn},
 			Style: core.Style{FlexGrow: 1, FlexShrink: 1, Height: core.Pct(100), MinWidth: core.Pt(0)}},
+		a.sessionToolbar(),
 	}}
 }
 
@@ -100,7 +101,8 @@ func (a *app) tab(cx *core.Scope, id func() string) core.Node {
 
 // tabMenuItems is a tab's right-click menu.
 func (a *app) tabMenuItems(id func() string) []core.Node {
-	return []core.Node{
+	return append(a.sessionRunMenuItems(func() *session { return a.byID[id()] }), []core.Node{
+		a.menuSeparator(a.cx),
 		a.menuRow(a.cx, lucide.X, "关闭标签页", "", false, func() { a.closeTab(id()) }),
 		a.menuRow(a.cx, lucide.X, "关闭其他标签", "", false, func() { a.closeOtherTabs(id()) }),
 		a.menuRow(a.cx, lucide.X, "关闭右侧标签", "", false, func() { a.closeTabsRight(id()) }),
@@ -110,5 +112,5 @@ func (a *app) tabMenuItems(id func() string) []core.Node {
 		a.menuRow(a.cx, lucide.CopyPlus, "复制会话", "", false, func() { a.duplicateSession(a.byID[id()]) }),
 		a.menuRow(a.cx, lucide.FileDown, "导出…", "", false, func() { a.openExport(a.byID[id()]) }),
 		a.menuRow(a.cx, lucide.Copy, "复制会话 ID", "", false, func() { a.copyText(id(), "会话 ID") }),
-	}
+	}...)
 }

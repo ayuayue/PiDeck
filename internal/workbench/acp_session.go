@@ -63,20 +63,23 @@ func (a *app) clearACPPreset(ws *workspace) {
 
 // ensureACPSession starts the agent when it is not running.
 func (a *app) ensureACPSession(s *session) {
-	if s == nil || s.backend != "acp" || s.deleting {
+	if s == nil || s.backend != "acp" || s.deleting || s.agentStopping {
 		return
 	}
 	if s.acp != nil || s.starting {
 		return
 	}
 	s.starting = true
+	s.agentClosed = false
+	started := make(chan *acpClient, 1)
+	s.acpStarting = started
 	s.acpGeneration++
 	s.status.Set(statusStarting)
-	go a.startACPEngine(s, s.acpGeneration, s.acpPreset, s.acpSID, s.WS)
+	go a.startACPEngine(s, s.acpGeneration, s.acpPreset, s.acpSID, s.WS, started)
 }
 
 // startACPEngine shakes hands and opens a session.
-func (a *app) startACPEngine(s *session, generation uint64, presetID, savedID, cwd string) {
+func (a *app) startACPEngine(s *session, generation uint64, presetID, savedID, cwd string, launched chan<- *acpClient) {
 	started := time.Now()
 	fail := func(detail string) {
 		a.cx.Post(func() {
@@ -87,6 +90,7 @@ func (a *app) startACPEngine(s *session, generation uint64, presetID, savedID, c
 	}
 	preset := a.acpPresetByID(presetID)
 	if preset == nil {
+		launched <- nil
 		fail(apptext.T("没有这个 ACP 预设"))
 		return
 	}
@@ -110,10 +114,12 @@ func (a *app) startACPEngine(s *session, generation uint64, presetID, savedID, c
 	}
 	if c != nil {
 		c.setHooks(handle)
+		launched <- c
 	} else {
 		var err error
 		c, err = startACP(cwd, preset.Command, preset.Args, preset.envList(),
 			handle.update, handle.permission, handle.exit)
+		launched <- c
 		if err != nil {
 			a.diagf("error", "ACP 启动失败 %s：%v", preset.Name, err)
 			fail(apptext.T("启动 ACP 失败：%s", err.Error()))
@@ -160,6 +166,9 @@ func (a *app) startACPEngine(s *session, generation uint64, presetID, savedID, c
 		handshake.Round(time.Millisecond), time.Since(started).Round(time.Millisecond))
 	// The project's default preset stays warm for the next ACP session.
 	a.cx.Post(func() {
+		if s.acpGeneration != generation {
+			return
+		}
 		if s.Target.remote() {
 			return
 		}
@@ -184,6 +193,7 @@ func (a *app) startACPEngine(s *session, generation uint64, presetID, savedID, c
 			return
 		}
 		s.acp = c
+		s.acpStarting = nil
 		s.acpSID = sid
 		s.starting = false
 		if s.resumeDeletion() {
@@ -196,6 +206,9 @@ func (a *app) startACPEngine(s *session, generation uint64, presetID, savedID, c
 		s.readySig.Set(true)
 		s.status.Set(statusIdle)
 		s.notice.Set("")
+		if savedID != "" && !loaded {
+			a.toast(ui.ToastInfo, "ACP 会话未恢复", "Agent 未能恢复原会话，已创建新会话；本地记录仍可浏览，但不会自动成为 Agent 的上下文。")
+		}
 		if notice != "" {
 			a.toast(ui.ToastInfo, "旁路权限", apptext.T(notice))
 		}
@@ -248,9 +261,7 @@ func (a *app) reconnectACP(s *session) {
 	if s == nil || s.backend != "acp" {
 		return
 	}
-	a.detachACP(s)
-	a.ensureACPSession(s)
-	a.toast(ui.ToastInfo, "正在重新连接 ACP", "")
+	a.askRestartAgent(s)
 }
 
 // acpPrompt sends one turn and waits for its stop reason.
@@ -308,6 +319,13 @@ func (a *app) acpFinish(s *session, turnID, stop string, err error) {
 				ts[i].Status = chat.Cancelled
 			default:
 				ts[i].Status = chat.Completed
+			}
+			for j := range ts[i].Steps {
+				for k := range ts[i].Steps[j].Tools {
+					if ts[i].Steps[j].Tools[k].Status == chat.Running || ts[i].Steps[j].Tools[k].Status == chat.Waiting {
+						ts[i].Steps[j].Tools[k].Status = ts[i].Status
+					}
+				}
 			}
 			ts[i].End = a.cx.Now()
 			break

@@ -12,7 +12,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // acpArchiveTurns and acpArchiveBytes bound one archive.
@@ -20,6 +23,8 @@ const (
 	acpArchiveTurns = 2000
 	acpArchiveBytes = 8 << 20
 )
+
+var acpArchiveWrites sync.WaitGroup
 
 // acpArchive is one ACP session on disk.
 type acpArchive struct {
@@ -50,9 +55,6 @@ func (a *app) saveACPArchive(s *session) {
 	if dir == "" {
 		return
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return
-	}
 	s.acpPermMu.Lock()
 	perms := make(map[string]string, len(s.acpPerm))
 	for k, v := range s.acpPerm {
@@ -61,12 +63,27 @@ func (a *app) saveACPArchive(s *session) {
 	s.acpPermMu.Unlock()
 	arch := acpArchive{ID: s.ID, Preset: s.acpPreset, ACPSessionID: s.acpSID,
 		Title: s.title.GetUntracked(), Cwd: s.WS, Updated: s.updated.GetUntracked(),
-		Turns: append([]turn(nil), s.turns.GetUntracked()...), Permissions: perms}
-	data, err := marshalACPArchive(arch)
-	if err != nil {
-		return
-	}
-	_ = writeFileAtomic(filepath.Join(dir, archiveName(s.ID)), data, 0o644)
+		Turns: cloneTranscriptTurns(s.turns.GetUntracked()), Permissions: perms}
+	previous, done := s.acpArchiveTail, make(chan struct{})
+	s.acpArchiveTail = done
+	acpArchiveWrites.Add(1)
+	go func() {
+		defer acpArchiveWrites.Done()
+		defer close(done)
+		if previous != nil {
+			<-previous
+		}
+		data, err := marshalACPArchive(arch)
+		if err == nil {
+			err = os.MkdirAll(dir, 0o755)
+		}
+		if err == nil {
+			err = writeFileAtomic(filepath.Join(dir, archiveName(arch.ID)), data, 0o644)
+		}
+		if err != nil {
+			a.cx.Post(func() { a.toast(ui.ToastError, "保存 ACP 记录失败", err.Error()) })
+		}
+	}()
 }
 
 // marshalACPArchive bounds the transcript and encodes it.

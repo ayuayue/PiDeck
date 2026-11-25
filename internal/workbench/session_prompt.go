@@ -42,7 +42,7 @@ func (a *app) planRequest(text string) string {
 
 // submitTurn starts a turn, asking for a plan when plan is true.
 func (a *app) submitTurn(s *session, text string, images []remotewire.Image, plan bool) {
-	if s.deleting || a.byID[s.ID] != s {
+	if s.deleting || s.agentStopping || s.historyLoading || a.byID[s.ID] != s {
 		return
 	}
 	if ws := a.workspaceFor(s.Target, s.WS); ws != nil && !a.projectTrusted(ws) {
@@ -148,6 +148,9 @@ func (a *app) prompt(s *session, turnID, text string, images []remotewire.Image)
 	go func() {
 		err := c.call(cmd, &resp, 60*time.Second)
 		a.cx.Post(func() {
+			if s.engine != c {
+				return
+			}
 			switch {
 			case err != nil:
 				a.failTurn(s, turnID, err.Error())

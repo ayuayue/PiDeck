@@ -97,12 +97,20 @@ func (a *app) cancelACPStartingTurn(s *session) {
 	a.acpFinish(s, s.acpTurnID, "cancelled", nil)
 }
 
-func (a *app) detachACP(s *session) {
+func (a *app) detachACP(s *session) <-chan struct{} {
 	s.acpGeneration++
-	if c := s.acp; c != nil {
-		s.acp = nil
-		go c.stop()
-	}
+	c, pending := s.acp, s.acpStarting
+	s.acp, s.acpStarting = nil, nil
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if c == nil && pending != nil {
+			c = <-pending
+		}
+		if c != nil {
+			c.stop()
+		}
+	}()
 	s.sending.Set(nil)
 	if s.acpTurnID != "" {
 		s.acpStopReason = acpStopManual
@@ -115,4 +123,7 @@ func (a *app) detachACP(s *session) {
 	s.readySig.Set(false)
 	s.acpOptionBusy.Set(false)
 	s.status.Set(statusIdle)
+	s.notice.Set("")
+	a.cancelAsks(s)
+	return done
 }

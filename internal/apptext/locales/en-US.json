@@ -2847,5 +2847,14 @@
   "上下文 %.0f%%": "Context %.0f%%",
   "费用 %s": "Cost %s",
   "输入框底部指标": "Composer footer metrics",
-  "输入框下方那一行显示哪些数字；关掉也不会影响统计，只是不显示。": "Which numbers the line under the composer shows; turning one off only hides it, nothing stops being counted."
+  "输入框下方那一行显示哪些数字；关掉也不会影响统计，只是不显示。": "Which numbers the line under the composer shows; turning one off only hides it, nothing stops being counted.",
+  "启动 Agent": "Start Agent",
+  "重新读取会话": "Reload conversation",
+  "重新读取会话失败": "Failed to reload conversation",
+  "正在关闭 Agent…": "Closing Agent…",
+  "正在重启 Agent…": "Restarting Agent…",
+  "ACP 会话未恢复": "ACP session was not restored",
+  "Agent 未能恢复原会话，已创建新会话；本地记录仍可浏览，但不会自动成为 Agent 的上下文。": "The Agent could not restore the original session, so a new session was created. Local history remains available, but is not automatically included in the Agent context.",
+  "保存 ACP 记录失败": "Failed to save ACP history",
+  "更多会话操作": "More session actions"
 }

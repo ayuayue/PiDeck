@@ -12,8 +12,15 @@ import (
 
 // onPiEvent folds one stdout record; deltas coalesce, everything else posts.
 func (a *app) onPiEvent(s *session, ev piEvent) {
+	a.onPiEventGeneration(s, s.piGeneration.Load(), ev)
+}
+
+func (a *app) onPiEventGeneration(s *session, generation uint64, ev piEvent) {
+	if s.piGeneration.Load() != generation {
+		return
+	}
 	if ev.Type == "message_update" {
-		a.onDelta(s, ev)
+		a.onDeltaGeneration(s, generation, ev)
 		return
 	}
 	if ev.Type == "message_end" {
@@ -25,7 +32,7 @@ func (a *app) onPiEvent(s *session, ev piEvent) {
 		}
 	}
 	a.cx.Post(func() {
-		if !s.deleting && a.byID[s.ID] == s {
+		if s.piGeneration.Load() == generation && !s.deleting && a.byID[s.ID] == s {
 			a.applyEvent(s, ev)
 		}
 	})
@@ -34,6 +41,10 @@ func (a *app) onPiEvent(s *session, ev piEvent) {
 // onDelta buffers streaming text so the UI redraws at most ~25 times a
 // second, however fast the provider talks.
 func (a *app) onDelta(s *session, ev piEvent) {
+	a.onDeltaGeneration(s, s.piGeneration.Load(), ev)
+}
+
+func (a *app) onDeltaGeneration(s *session, generation uint64, ev piEvent) {
 	e := ev.AssistantMessageEvent
 	if e == nil {
 		return
@@ -44,6 +55,10 @@ func (a *app) onDelta(s *session, ev piEvent) {
 			return
 		}
 		s.mu.Lock()
+		if s.piGeneration.Load() != generation {
+			s.mu.Unlock()
+			return
+		}
 		if e.Type == "text_delta" {
 			s.liveText.WriteString(e.Delta)
 		} else {
@@ -53,10 +68,18 @@ func (a *app) onDelta(s *session, ev piEvent) {
 		s.flushDue = true
 		s.mu.Unlock()
 		if due {
-			a.cx.Post(func() { a.scheduleFlush(s) })
+			a.cx.Post(func() {
+				if s.piGeneration.Load() == generation {
+					a.scheduleFlush(s)
+				}
+			})
 		}
 	case "text_end", "thinking_end":
 		s.mu.Lock()
+		if s.piGeneration.Load() != generation {
+			s.mu.Unlock()
+			return
+		}
 		s.liveText.Reset()
 		s.liveThink.Reset()
 		if e.Type == "text_end" {
@@ -67,12 +90,21 @@ func (a *app) onDelta(s *session, ev piEvent) {
 			s.shownThink.WriteString(e.Content)
 		}
 		s.mu.Unlock()
-		a.cx.Post(func() { a.flushStream(s) })
+		a.cx.Post(func() {
+			if s.piGeneration.Load() == generation {
+				a.flushStream(s)
+			}
+		})
 	}
 }
 
 func (a *app) scheduleFlush(s *session) {
-	a.cx.AfterFunc(40*time.Millisecond, func() { a.flushStream(s) })
+	generation := s.piGeneration.Load()
+	a.cx.AfterFunc(40*time.Millisecond, func() {
+		if s.piGeneration.Load() == generation {
+			a.flushStream(s)
+		}
+	})
 }
 
 // showReset clears what the stream showed; the caller holds s.mu.

@@ -191,26 +191,18 @@ func builtinCommands() []appCommand {
 		{ID: "stop", Label: "停止当前运行", Group: "会话", Icon: lucide.Square,
 			When: func(a *app) bool { return a.active() != nil },
 			Run:  func(a *app) { a.stop(a.active()) }},
+		{ID: "start-agent", Label: "启动 Agent", Group: "会话", Icon: lucide.Play,
+			When: func(a *app) bool { s := a.active(); return s.canControlAgent() && !s.hasAgent() },
+			Run:  func(a *app) { a.askRestartAgent(a.active()) }},
 		{ID: "restart-agent", Label: "重启 Agent", Group: "会话", Icon: lucide.RefreshCw,
-			When: func(a *app) bool { return a.active() != nil },
-			Run: func(a *app) {
-				s := a.active()
-				if s.busyNow() {
-					a.askConfirm("重启 Agent", "这一轮还在运行，重启会中断它。", "重启", func() { a.restartAgent(s) })
-					return
-				}
-				a.restartAgent(s)
-			}},
+			When: func(a *app) bool { return a.active().canControlAgent() },
+			Run:  func(a *app) { a.askRestartAgent(a.active()) }},
 		{ID: "close-agent", Label: "关闭 Agent", Group: "会话", Icon: lucide.Power,
-			When: func(a *app) bool { return a.active() != nil },
-			Run: func(a *app) {
-				s := a.active()
-				if s.busyNow() {
-					a.askConfirm("关闭 Agent", "这一轮还在运行，关闭会中断它；记录和标签会保留。", "关闭", func() { a.closeAgent(s) })
-					return
-				}
-				a.closeAgent(s)
-			}},
+			When: func(a *app) bool { s := a.active(); return s.canControlAgent() && s.hasAgent() },
+			Run:  func(a *app) { a.askCloseAgent(a.active()) }},
+		{ID: "reload-session", Label: "重新读取会话", Group: "会话", Icon: lucide.ListRestart,
+			When: func(a *app) bool { return a.active().canReloadSession() },
+			Run:  func(a *app) { a.reloadSession(a.active()) }},
 		{ID: "copy-last", Label: "复制最后回复", Group: "会话", Icon: lucide.Copy,
 			When: func(a *app) bool { return a.active() != nil },
 			Run:  func(a *app) { a.copyLastReply() }},
@@ -236,7 +228,7 @@ func builtinCommands() []appCommand {
 			When: func(a *app) bool { return a.active() != nil },
 			Run:  func(a *app) { a.revealSession(a.active()) }},
 		{ID: "reconnect-acp", Label: "重新连接 ACP", Group: "会话", Icon: lucide.RefreshCw,
-			When: func(a *app) bool { s := a.active(); return s != nil && s.backend == "acp" },
+			When: func(a *app) bool { s := a.active(); return s != nil && s.backend == "acp" && s.canControlAgent() },
 			Run:  func(a *app) { a.reconnectACP(a.active()) }},
 		{ID: "clear-acp-perms", Label: "清除 ACP 权限记忆", Group: "会话", Icon: lucide.ShieldOff,
 			When: func(a *app) bool { s := a.active(); return s != nil && s.backend == "acp" },

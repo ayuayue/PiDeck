@@ -59,7 +59,8 @@ func (s *session) retryPendingNow() bool { return s.retrying != nil && s.retryin
 // composerBlocked reports whether a session cannot take a message yet: its
 // dropped files are still loading, or a retry is still writing its fork.
 func (a *app) composerBlocked(s *session) bool {
-	return s.filesLoading() || s.retryPending()
+	s.status.Get()
+	return s.agentStopping || s.historyLoading || s.filesLoading() || s.retryPending()
 }
 
 // active returns the session in front, or nil.

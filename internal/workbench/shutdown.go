@@ -6,6 +6,7 @@ package workbench
 func Shutdown() {
 	closeAllPi()
 	closeAllACP()
+	acpArchiveWrites.Wait()
 	closeAllTerminals()
 	flushConfigAtExit()
 	configWrites.Wait()

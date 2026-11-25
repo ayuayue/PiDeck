@@ -19,6 +19,17 @@ import (
 
 // onPiUI handles an extension's request for attention.
 func (a *app) onPiUI(s *session, req uiRequest) {
+	a.onPiUIGeneration(s, s.piGeneration.Load(), req)
+}
+
+func (a *app) onPiUIGeneration(s *session, generation uint64, req uiRequest) {
+	post := func(fn func()) {
+		a.cx.Post(func() {
+			if s.piGeneration.Load() == generation {
+				fn()
+			}
+		})
+	}
 	switch req.Method {
 	case "notify":
 		kind := ui.ToastInfo
@@ -27,9 +38,9 @@ func (a *app) onPiUI(s *session, req uiRequest) {
 		} else if req.NotifyType == "error" {
 			kind = ui.ToastError
 		}
-		a.cx.Post(func() { a.toast(kind, "pi 扩展", viewkit.FirstLine(req.Message, 120)) })
+		post(func() { a.toast(kind, "pi 扩展", viewkit.FirstLine(req.Message, 120)) })
 	case "setStatus":
-		a.cx.Post(func() {
+		post(func() {
 			if req.StatusText == nil || *req.StatusText == "" {
 				delete(s.extStatus, req.StatusKey)
 			} else {
@@ -38,9 +49,9 @@ func (a *app) onPiUI(s *session, req uiRequest) {
 			a.refreshExtStatus(s)
 		})
 	case "set_editor_text":
-		a.cx.Post(func() { s.draft.Set(req.Text) })
+		post(func() { s.draft.Set(req.Text) })
 	case "setWidget":
-		a.cx.Post(func() {
+		post(func() {
 			if s.extWidgets == nil {
 				s.extWidgets = map[string][]string{}
 			}
@@ -54,7 +65,7 @@ func (a *app) onPiUI(s *session, req uiRequest) {
 	case "setTitle":
 		// The window has its own title.
 	case "select", "confirm", "input", "editor":
-		a.cx.Post(func() {
+		post(func() {
 			ask := askFromPi(req)
 			a.enqueueAsk(s, ask)
 			a.watchAsk(s, ask)
@@ -62,7 +73,11 @@ func (a *app) onPiUI(s *session, req uiRequest) {
 	default:
 		// A dialog method the window does not know: answer it so pi's
 		// extension never blocks on a response that will not come.
-		a.cx.Post(func() { s.engine.uiResponse(req.ID, map[string]any{"cancelled": true}) })
+		post(func() {
+			if s.engine != nil {
+				s.engine.uiResponse(req.ID, map[string]any{"cancelled": true})
+			}
+		})
 	}
 }
 

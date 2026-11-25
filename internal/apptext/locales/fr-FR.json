@@ -2847,5 +2847,14 @@
   "上下文 %.0f%%": "Contexte %.0f%%",
   "费用 %s": "Coût %s",
   "输入框底部指标": "Indicateurs sous le champ de saisie",
-  "输入框下方那一行显示哪些数字；关掉也不会影响统计，只是不显示。": "Quels nombres affiche la ligne sous le champ de saisie ; désactiver n’arrête pas le comptage."
+  "输入框下方那一行显示哪些数字；关掉也不会影响统计，只是不显示。": "Quels nombres affiche la ligne sous le champ de saisie ; désactiver n’arrête pas le comptage.",
+  "启动 Agent": "Démarrer Agent",
+  "重新读取会话": "Relire la conversation",
+  "重新读取会话失败": "Échec de la relecture de la conversation",
+  "正在关闭 Agent…": "Fermeture de Agent…",
+  "正在重启 Agent…": "Redémarrage de Agent…",
+  "ACP 会话未恢复": "Session ACP non restaurée",
+  "Agent 未能恢复原会话，已创建新会话；本地记录仍可浏览，但不会自动成为 Agent 的上下文。": "Agent n’a pas pu restaurer la session initiale. Une nouvelle session a été créée. L’historique local reste consultable, mais n’est pas automatiquement inclus dans le contexte de Agent.",
+  "保存 ACP 记录失败": "Échec de l’enregistrement de l’historique ACP",
+  "更多会话操作": "Autres actions de session"
 }
