@@ -118,10 +118,11 @@ function sendScrollHarness({ height = 2800, viewportHeight = 600, latestTop = he
 			return ref.current.value;
 		},
 	};
+	const noopAtomSetter = () => {};
 	const load = createTsSandbox({
 		stubs: {
 			react,
-			jotai: { atom: (value) => value, useAtomValue: (key) => (typeof key === "function" ? key() : store.get(key)), useStore: () => store, useSetAtom: () => () => {} },
+			jotai: { atom: (value) => value, useAtomValue: (key) => (typeof key === "function" ? key() : store.get(key)), useStore: () => store, useSetAtom: () => noopAtomSetter },
 			"jotai/utils": { selectAtom: (key, select) => () => select(store.get(key)) },
 			"../atoms": atoms,
 			"../desktopApi": { desktopApi: { sessions: { readRecordMessagePage: () => new Promise(() => {}), startDshHost: async () => false } } },
@@ -383,6 +384,33 @@ test("a failed live-edge restore exposes go-bottom instead of silently losing fo
 		assert.equal(h.viewport.scrollTop, 0, "the injected restore failure must remain observable");
 		assert.equal(h.controller.autoScroll, false);
 		assert.equal(h.controller.showScrollToBottom, true);
+	} finally {
+		h.unmount();
+	}
+});
+
+test("returning to the bottom by hand clears a restored history pin and hides the button", () => {
+	const h = sendScrollHarness({ startLoading: true, startWithOptimistic: true, startWithAnchor: true, latestTop: 1000 });
+	try {
+		h.releaseLoad();
+		h.finish();
+		assert.equal(h.controller.readPinnedMessageId(), "optimistic-uuid");
+		assert.equal(h.controller.showScrollToBottom, true);
+
+		h.controller.setAutoScrollFromScroller(true);
+		h.render();
+		assert.equal(h.controller.autoScroll, false, "an ordinary follow report must not override the restored anchor");
+		h.controller.setUserScrollIntent("down", "input");
+		h.render();
+		assert.equal(h.controller.showScrollToBottom, true, "scrolling down in history must keep the button visible");
+
+		h.viewport.scrollTop = h.viewport.scrollHeight - h.viewport.clientHeight;
+		h.controller.setUserScrollIntent("relock", "input");
+		h.controller.setAutoScrollFromScroller(true);
+		h.render();
+		assert.equal(h.controller.showScrollToBottom, false);
+		assert.equal(h.controller.autoScroll, true);
+		assert.equal(h.controller.readPinnedMessageId(), null);
 	} finally {
 		h.unmount();
 	}

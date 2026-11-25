@@ -398,7 +398,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 	 * 一旦它上报 following=true，autoScroll 变 true 的 effect 会清空 pendingExpandTurnsRef
 	 * 并 cancel 扩窗帧——挂起中的跳转永远等不到目标轮挂载，表现就是「点了没反应」，
 	 * 而停止输出后再点就正常（这时没有新的 resize 上报）。跳转期间不接受引擎的跟底上报，
-	 * 用户真的自己滚回底部时走 setUserScrollIntent/handleTimelineScroll，不受这条影响。
+	 * 用户主动回底由引擎经 setUserScrollIntent 上报，不受这条影响。
 	 */
 	const pendingJumpRef = useRef(pendingJump);
 	// 渲染期同步（不做成 effect）：跳转与贴底上报常发生在同一帧，effect 太晚。
@@ -853,8 +853,8 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 	// 历史扩窗只消费 stick 引擎确认的用户意图。普通 scroll 事件仍由
 	// handleTimelineScroll 保存锚点，但不再拥有跟随/浏览状态的切换权限：内容收缩、
 	// ResizeObserver、动画和程序化定位因此不能借 scrollTop 变化触发历史呈现。
-	const setUserScrollIntent = useCallback(
-		(intent: "up" | "down", source?: "scroll" | "input") => {
+	const setUserScrollIntent = useCallback<SessionTimelineController["setUserScrollIntent"]>(
+		(intent, source) => {
 			if (userScrollIntentFrameRef.current !== undefined) {
 				window.cancelAnimationFrame(userScrollIntentFrameRef.current);
 				userScrollIntentFrameRef.current = undefined;
@@ -869,9 +869,9 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 				// 跳转收敛循环（settleJumpTarget）也一并收手：用户用滚轮/触摸真动手了，
 				// 再按实测漂移补一次就是跟他抢滚动位置。
 				jumpSettleInterruptedRef.current = true;
+				// 读者主动回底时，浏览钉不能再拦住跟随状态更新。
+				if (intent === "relock" && controllerEnabled && ownerKeyRef.current === ownerKey && !autoScrollRef.current) setAutoScrollFromScroller(true, true);
 			}
-			// down 只取消同帧尚未消费的 up；实际重锁由 stick 引擎决定，并经
-			// setAutoScrollFromScroller 进入 invalidateHistoryBrowsing。
 			if (intent !== "up") return;
 
 			const requestOwnerKey = ownerKey;
@@ -918,7 +918,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 				}
 			});
 		},
-		[captureBrowsePin, controllerEnabled, escapeAutoScroll, expandWindowBatched, hasEarlierPages, isLoadingMessagePage, loadMoreMessages, ownerKey],
+		[captureBrowsePin, controllerEnabled, escapeAutoScroll, expandWindowBatched, hasEarlierPages, isLoadingMessagePage, loadMoreMessages, ownerKey, setAutoScrollFromScroller],
 	);
 
 	useLayoutEffect(() => {

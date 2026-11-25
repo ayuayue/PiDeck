@@ -10,7 +10,7 @@
 import { useReducedMotion } from "motion/react";
 import { type ComponentPropsWithRef, type Ref, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
-import { isFollowEscapeEdge, isFollowSnapshotFresh, useStickToBottom, type ScrollToBottom, type ScrollByWheel, type StopScroll } from "@/lib/stick-to-bottom";
+import { isFollowEscapeEdge, isFollowSnapshotFresh, useStickToBottom, type ScrollToBottom, type ScrollByWheel, type ScrollIntentSource, type ScrollUserIntent, type StopScroll } from "@/lib/stick-to-bottom";
 import { MessageScrollerGeometryContext, useMessageScrollerGeometry } from "./message-scroller-context";
 
 /** 供时间线 controller 调用的引擎滚动 API（回底弹簧 / 原子恢复位置）。 */
@@ -35,7 +35,7 @@ export interface MessageScrollerProps extends ComponentPropsWithRef<"div"> {
 	onFollowChange?: (following: boolean) => void;
 	/** 引擎上报的真实用户滚动意图（wheel/触摸/键盘/滚动条）。
 	 *  布局 resize/动画/程序化定位不会上报。 */
-	onUserScrollIntent?: (intent: "up" | "down", source: "scroll" | "input") => void;
+	onUserScrollIntent?: (intent: ScrollUserIntent, source: ScrollIntentSource) => void;
 	/** Accessible label for the scrollable transcript. */
 	label?: string;
 	/** Marks the transcript as waiting for more streamed content. */
