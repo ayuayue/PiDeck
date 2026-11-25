@@ -35,6 +35,25 @@ func Tokens(n int) string {
 	return fmt.Sprint(n)
 }
 
+// Duration renders how long a call took, as a process row shows it:
+// milliseconds under a second, tenths of a second under a minute, then
+// minutes and hours. The longest form is six figures cold ("59m59s"), which
+// is the width of that row's time column, so the durations line up down a
+// block.
+func Duration(d time.Duration) string {
+	switch {
+	case d <= 0:
+		return ""
+	case d < time.Second:
+		return fmt.Sprintf("%dms", d.Milliseconds())
+	case d < time.Minute:
+		return fmt.Sprintf("%.1fs", d.Seconds())
+	case d < time.Hour:
+		return fmt.Sprintf("%dm%02ds", int(d.Minutes()), int(d.Seconds())%60)
+	}
+	return fmt.Sprintf("%dh%02dm", int(d.Hours()), int(d.Minutes())%60)
+}
+
 // whenText is a short age for a list.
 func WhenText(t time.Time, now time.Time) string {
 	if t.IsZero() {

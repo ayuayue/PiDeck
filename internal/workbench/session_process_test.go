@@ -4,6 +4,7 @@ package workbench
 
 import (
 	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -334,3 +335,85 @@ func TestProcessHeaderSaysWhatRunsNow(t *testing.T) {
 	screen.Press("id:turn-fold")
 	screen.WaitFor("text:执行过程 · 1 个工具调用 · 1 次思考", 5*time.Second)
 }
+
+// A call that runs says how long it has been running, and the figure keeps
+// counting while the row is in sight: the row reads the app's clock each
+// time it paints instead of the moment it was built.
+func TestRunningToolCountsItsTime(t *testing.T) {
+	built, screen, sess := startNativeSurfaceApp(t)
+	var started time.Time
+	onNativeUI(t, screen, built, func() {
+		now := built.cx.Now()
+		started = now.Add(-65 * time.Second)
+		sess.loaded.Set(true)
+		sess.readySig.Set(true)
+		sess.turns.Set([]turn{{ID: "clock-1", Prompt: "跑测试", Status: chat.Running, Model: "fixture/model",
+			Start: now, Tools: 1, Steps: []turnStep{{ID: "clock-1-s0", Start: now,
+				Tools: []toolRun{{CallID: "clock-1-a", Name: "bash", Action: "运行", Detail: "go test ./internal/workbench",
+					Status: chat.Running, Start: started}}}}}})
+		sess.runningSig.Set(true)
+		built.clock.Set(started.Add(65 * time.Second))
+	})
+	screen.WaitFor(`text:"1m05s"`, 5*time.Second)
+
+	// A second later the row says so, without being rebuilt.
+	onNativeUI(t, screen, built, func() { built.clock.Set(started.Add(66 * time.Second)) })
+	screen.WaitForGone(`text:"1m05s"`, 5*time.Second)
+	screen.WaitFor(`text:"1m06s"`, 5*time.Second)
+
+	// Once it ends, the row keeps the time pi reported rather than counting.
+	onNativeUI(t, screen, built, func() {
+		sess.turns.Update(func(ts []turn) []turn {
+			ts[0].Steps[0].Tools[0].Status = chat.Completed
+			ts[0].Steps[0].Tools[0].DurationMs = 4200
+			return ts
+		})
+	})
+	screen.WaitFor(`text:"4.2s"`, 5*time.Second)
+}
+
+// A thought and the calls beside it draw on one grid: their words start on
+// the same vertical line, their times end in the same column, and their rows
+// keep one pitch, so a run of work reads as a block instead of rows that step
+// in and out.
+func TestProcessRowsShareOneColumn(t *testing.T) {
+	built, screen, sess := startNativeSurfaceApp(t)
+	now := time.Now()
+	onNativeUI(t, screen, built, func() {
+		sess.loaded.Set(true)
+		sess.readySig.Set(true)
+		sess.turns.Set([]turn{{ID: "grid-1", Prompt: "读文件", Status: chat.Completed, Model: "fixture/model",
+			Start: now.Add(-time.Minute), End: now, Tools: 2, Final: "读完了",
+			Steps: []turnStep{{ID: "grid-1-s0", Thinking: "先看看文件。", Start: now, Tools: []toolRun{
+				{CallID: "grid-1-a", Name: "read", Action: "读取", Detail: "readme.md", Status: chat.Completed, DurationMs: 8},
+				{CallID: "grid-1-b", Name: "bash", Action: "运行", Detail: "go vet ./internal/viewkit", Status: chat.Completed, DurationMs: 4200}}}}}})
+	})
+	screen.WaitFor("text:读完了", 5*time.Second)
+	screen.Press("text:2 个工具调用")
+	screen.Press("text:执行过程 · 2 个工具调用 · 1 次思考")
+	screen.WaitFor(`text:"思考"`, 5*time.Second)
+
+	thought := screen.Find(`text:"思考"`).Bounds()
+	read := screen.Find(`text:"读取"`).Bounds()
+	run := screen.Find(`text:"运行"`).Bounds()
+	for _, got := range []core.Points{read.Origin.X, run.Origin.X} {
+		if d := float64(got - thought.Origin.X); d > 0.5 || d < -0.5 {
+			t.Fatalf("a thought starts at %.1f and a call's verb at %.1f; want one line", thought.Origin.X, got)
+		}
+	}
+	// The times end in one column, left of the words they belong to.
+	quick, slow := screen.Find(`text:"8ms"`).Bounds(), screen.Find(`text:"4.2s"`).Bounds()
+	if d := float64(right(quick) - right(slow)); d > 0.5 || d < -0.5 {
+		t.Fatalf("the times end at %.1f and %.1f; want one column", right(quick), right(slow))
+	}
+	if right(slow) >= read.Origin.X {
+		t.Fatalf("the time ends at %.1f, at or past the verb at %.1f", right(slow), read.Origin.X)
+	}
+	// The rows keep one pitch down the block.
+	if first, second := read.Origin.Y-thought.Origin.Y, run.Origin.Y-read.Origin.Y; math.Abs(float64(first-second)) > 0.5 {
+		t.Fatalf("the rows step %.1f then %.1f apart; want one pitch", first, second)
+	}
+}
+
+// right is where a bounds ends: the edge right-aligned figures share.
+func right(b core.Bounds) core.Points { return b.Origin.X + b.Size.Width }

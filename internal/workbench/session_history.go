@@ -206,19 +206,27 @@ func applyContextEdits(msgs []piMessage, edits map[string]contextEdit) []piMessa
 	return out
 }
 
+// historyLineMessage is one of pi's message entries, with the time the file
+// wrote on the entry itself: the message inside carries none.
 func historyLineMessage(line []byte) (piMessage, bool) {
 	var msg piMessage
 	if len(line) == 0 {
 		return msg, false
 	}
 	var entry struct {
-		Type    string          `json:"type"`
-		ID      string          `json:"id"`
-		Message json.RawMessage `json:"message"`
+		Type      string          `json:"type"`
+		ID        string          `json:"id"`
+		Timestamp string          `json:"timestamp"`
+		Message   json.RawMessage `json:"message"`
 	}
 	if json.Unmarshal(line, &entry) != nil || entry.Type != "message" || len(entry.Message) == 0 || json.Unmarshal(entry.Message, &msg) != nil {
 		return msg, false
 	}
 	msg.EntryID = entry.ID
+	if msg.Timestamp == 0 {
+		if at, err := time.Parse(time.RFC3339Nano, entry.Timestamp); err == nil {
+			msg.Timestamp = at.UnixMilli()
+		}
+	}
 	return msg, true
 }

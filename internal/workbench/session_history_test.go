@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -127,5 +128,32 @@ func TestSessionPaintsFromFile(t *testing.T) {
 	}
 	if s.histFile != 0 {
 		t.Fatalf("histFile after pi's copy = %d, want 0", s.histFile)
+	}
+}
+
+// TestSessionFileKeepsHowLongACallTook fills the time a call's row shows
+// from the two messages that bracket it: a session file says when the call
+// was made and when its result came back, not how long the run itself was.
+func TestSessionFileKeepsHowLongACallTook(t *testing.T) {
+	body := strings.Join([]string{
+		`{"type":"session","version":3,"id":"timed","timestamp":"2026-06-01T10:00:00Z","cwd":"C:/work"}`,
+		`{"type":"message","id":"u1","timestamp":"2026-06-01T10:00:01Z","message":{"role":"user","content":"跑测试"}}`,
+		`{"type":"message","id":"a1","timestamp":"2026-06-01T10:00:02Z","message":{"role":"assistant","content":[{"type":"toolCall","id":"t1","name":"bash","arguments":{"command":"go test ./..."}}]}}`,
+		`{"type":"message","id":"r1","timestamp":"2026-06-01T10:00:06Z","message":{"role":"toolResult","toolCallId":"t1","toolName":"bash","content":[{"type":"text","text":"ok"}]}}`,
+	}, "\n") + "\n"
+	path := filepath.Join(t.TempDir(), "timed.jsonl")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	msgs, err := sessionFileMessages(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turns := turnsFromMessages(msgs)
+	if len(turns) != 1 || len(turns[0].Steps) != 1 || len(turns[0].Steps[0].Tools) != 1 {
+		t.Fatalf("turns = %+v, want one call", turns)
+	}
+	if got := turns[0].Steps[0].Tools[0].DurationMs; got != 4000 {
+		t.Fatalf("the call's time = %d ms, want the 4000 ms between its call and its result", got)
 	}
 }

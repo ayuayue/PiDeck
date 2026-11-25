@@ -8,6 +8,7 @@ package client
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"example.com/pideck-v2/internal/apptext"
 	"example.com/pideck-v2/internal/remotewire"
@@ -94,17 +95,19 @@ func (a *mobileApp) toolLineRow(cx *core.Scope, m remotewire.Message, key transc
 	failed := tool.Status == "error"
 	detailSize := core.Points(10.5)
 	header := viewkit.ToolRow(cx, viewkit.ToolLine{
-		Glyph:      toolGlyph(tool.Name),
-		Verb:       toolVerb(tool, m.Text),
-		Detail:     tool.Detail,
-		Added:      tool.Added,
-		Removed:    tool.Removed,
-		Nested:     tool.Nested,
-		DurationMs: tool.DurationMs,
-		Running:    running,
-		Failed:     failed,
-		Open:       open,
-		HasBody:    hasBody,
+		Glyph:   toolGlyph(tool.Name),
+		Verb:    toolVerb(tool, m.Text),
+		Detail:  tool.Detail,
+		Added:   tool.Added,
+		Removed: tool.Removed,
+		Nested:  tool.Nested,
+		// The wire says how long a call took once it ended, not when it
+		// started: a running one shows a spinner instead of a clock.
+		Time:    func() string { return viewkit.Duration(time.Duration(tool.DurationMs) * time.Millisecond) },
+		Running: running,
+		Failed:  failed,
+		Open:    open,
+		HasBody: hasBody,
 	}, viewkit.ToolSizes{Verb: 12, Detail: detailSize, Glyph: 13, Gap: 6, MinHeight: 26, PadV: 1, PadH: 2})
 	children := []core.Node{header}
 	if open && hasBody {

@@ -6,6 +6,7 @@ package workbench
 
 import (
 	"strings"
+	"time"
 
 	"example.com/pideck-v2/internal/apptext"
 	"example.com/pideck-v2/internal/viewkit"
@@ -37,20 +38,20 @@ func (a *app) toolRow(s *session, run func() toolRun) core.Node {
 			r := run()
 			return toolBodyText(r) != "" || len(r.Images) > 0
 		}
-		rowSize, detailSize := a.readingRowFont(), a.readingDetailFont()
+		sizes := a.processSizes()
 		header := viewkit.ToolRow(cx, viewkit.ToolLine{
-			Glyph:      func() *core.SVG { return toolIcon(run()) },
-			Verb:       apptext.T(run().Action),
-			Detail:     shorten(run().Detail, 140),
-			Added:      run().Added,
-			Removed:    run().Removed,
-			Nested:     len(run().Nested),
-			DurationMs: run().DurationMs,
-			Running:    running(),
-			Failed:     run().IsError,
-			Open:       open(),
-			HasBody:    hasBody(),
-		}, viewkit.ToolSizes{Verb: rowSize, Detail: detailSize, Glyph: 14, Gap: 8, MinHeight: 28, PadV: 2, PadH: 6})
+			Glyph:   func() *core.SVG { return toolIcon(run()) },
+			Verb:    apptext.T(run().Action),
+			Detail:  shorten(run().Detail, 140),
+			Added:   run().Added,
+			Removed: run().Removed,
+			Nested:  len(run().Nested),
+			Time:    func() string { return toolTime(run(), a.clock.Get()) },
+			Running: running(),
+			Failed:  run().IsError,
+			Open:    open(),
+			HasBody: hasBody(),
+		}, sizes)
 		body := core.Show{When: func() bool { return open() && hasBody() }, Then: func(cx *core.Scope) core.Node {
 			children := []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
 				return core.Group(a.toolBodyNodes(cx, run()))
@@ -58,7 +59,7 @@ func (a *app) toolRow(s *session, run func() toolRun) core.Node {
 			return core.View{Style: core.Style{MinWidth: core.Pt(0), MaxHeight: core.Pt(320), Borders: core.Edges{Top: 1},
 				BorderColors: core.EdgeColors{Top: colors.Now().Line}}, Children: []core.Node{
 				core.Scroll{Style: core.Style{MinWidth: core.Pt(0)}, Children: []core.Node{
-					core.View{Style: core.Style{Padding: core.Symmetric(8, 10), Gap: 4}, Children: append(children,
+					core.View{Style: core.Style{Padding: core.Edges{Top: 8, Bottom: 8, Left: viewkit.ContentLeft(sizes), Right: 10}, Gap: 4}, Children: append(children,
 						core.Show{When: func() bool { return len(run().Images) > 0 }, Then: func(cx *core.Scope) core.Node {
 							images := run().Images
 							tiles := make([]core.Node, 0, len(images))
@@ -97,6 +98,19 @@ func (a *app) toolRow(s *session, run func() toolRun) core.Node {
 			},
 		}
 	})
+}
+
+// toolTime is how long a call has taken, as its row says it: a finished
+// call's total, or what a running one has spent since it started — read from
+// the app's clock, so the figure counts up while the row is in sight.
+func toolTime(run toolRun, now time.Time) string {
+	if run.Status == chat.Running {
+		if run.Start.IsZero() {
+			return ""
+		}
+		return viewkit.Duration(now.Sub(run.Start))
+	}
+	return viewkit.Duration(time.Duration(run.DurationMs) * time.Millisecond)
 }
 
 // toolIcon is the glyph of what a tool does.

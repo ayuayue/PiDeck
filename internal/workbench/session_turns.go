@@ -33,6 +33,10 @@ func turnsFromMessages(msgs []piMessage) []turn {
 		}
 		return now
 	}
+	// calledAt is when the message that made each call was written, so the
+	// result that answers it can say how long the call took: a session file
+	// keeps the two messages' times, not the run itself.
+	calledAt := map[string]time.Time{}
 	for _, m := range msgs {
 		ts := at(m)
 		switch m.Role {
@@ -76,6 +80,7 @@ func turnsFromMessages(msgs []piMessage) []turn {
 			for _, c := range calls {
 				action, detail := toolSummary(c.Name, c.Arguments)
 				step.Tools = append(step.Tools, toolRun{CallID: c.ID, Name: c.Name, Action: action, Detail: detail, Status: chat.Completed})
+				calledAt[c.ID] = ts
 				cur.Tools++
 			}
 			if len(calls) == 0 && prose.Len() > 0 {
@@ -95,6 +100,11 @@ func turnsFromMessages(msgs []piMessage) []turn {
 			}
 		case "toolResult":
 			run := toolRunFromResult(m)
+			if called, ok := calledAt[run.CallID]; ok && m.Timestamp > 0 {
+				if d := time.UnixMilli(m.Timestamp).Sub(called); d > 0 {
+					run.DurationMs = d.Milliseconds()
+				}
+			}
 			if cur != nil {
 				updated := false
 				for i := range cur.Steps {

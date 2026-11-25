@@ -408,6 +408,15 @@ func (a *app) processGroup(s *session, t func() turn, node processNode, latest f
 	})
 }
 
+// processSizes is the grid every row of a turn's process draws on: what pi
+// thought and each call it made share the time column, the glyph size, the
+// gaps and the row's height, so the icons and the figures line up down the
+// block instead of stepping in and out.
+func (a *app) processSizes() viewkit.ToolSizes {
+	return viewkit.ToolSizes{Verb: a.readingRowFont(), Detail: a.readingDetailFont(), Glyph: 14,
+		Gap: 8, MinHeight: 28, PadV: 2, PadH: 6}
+}
+
 // memberRows is one message's block inside a group: what it reasoned in
 // the block that did the thinking, then the calls it made there.
 func (a *app) memberRows(s *session, t func() turn, m func() processItem) core.Node {
@@ -448,35 +457,41 @@ func (a *app) thinkRow(s *session, src stepSource) core.Node {
 			}
 			return shortLine(text, 140)
 		}
-		rowSize, detailSize := a.readingRowFont(), a.readingDetailFont()
+		sizes := a.processSizes()
 		children := []core.Node{
-			ui.Icon(lucide.Brain, 13, func() core.Color { return thinkingTone(cx) }),
+			// A thought has no clock of its own, but it keeps the column the
+			// calls around it fill, so the rows stay on one vertical line.
+			viewkit.TimeCell(cx, sizes.Detail, false, nil),
+			ui.Icon(lucide.Brain, sizes.Glyph, func() core.Color { return thinkingTone(cx) }),
 			core.Text{ContentFunc: label, MaxLines: 1,
-				Style: core.Style{FontSize: rowSize, FontWeight: ui.Medium, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Muted)},
+				Style: core.Style{FontSize: sizes.Verb, FontWeight: ui.Medium, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Muted)},
 			core.Show{When: open, Then: func(*core.Scope) core.Node { return core.View{Style: core.Style{FlexGrow: 1}} },
 				Else: func(*core.Scope) core.Node {
 					return core.Text{ContentFunc: preview, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-						Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: detailSize,
+						Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: sizes.Detail,
 							LineHeight: a.readingDetailLine()},
 						StyleFunc: ui.Colored(colors.Faint)}
 				}},
 			core.Show{When: src.live, Then: func(*core.Scope) core.Node { return ui.Spinner{Size: 10} }},
-			ui.IconOf(disclosure(open), 11, colors.Faint),
+			ui.IconOf(disclosure(open), sizes.Glyph-2, colors.Faint),
 		}
 		body := []core.Node{
 			core.View{OnPress: func(core.PressEvent) { s.toggleOpen(key) }, Role: core.RoleButton, LabelFunc: label,
 				StyleFunc: func() core.Style {
-					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinHeight: core.Pt(26),
-						Padding: core.Symmetric(0, 4), CornerRadius: 5, Hover: &core.Style{Background: colors.Hover()}}
+					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: sizes.Gap,
+						MinHeight: core.Pt(sizes.MinHeight), Padding: core.Symmetric(sizes.PadV, sizes.PadH),
+						CornerRadius: 5, Hover: &core.Style{Background: colors.Hover()}}
 				},
 				Children: children},
 			core.Show{When: open, Then: func(cx *core.Scope) core.Node {
 				// Long reasoning opens to a window of its own: the group is the
-				// summary, and one thought must not push the answer away.
+				// summary, and one thought must not push the answer away. It
+				// starts in the row's own column, under the glyph that heads it.
 				return core.Scroll{Style: core.Style{MinWidth: core.Pt(0), MaxHeight: core.Pt(320)},
-					Children: []core.Node{core.View{Style: core.Style{MinWidth: core.Pt(0), Padding: core.Edges{Left: 19, Top: 2, Bottom: 4}},
+					Children: []core.Node{core.View{Style: core.Style{MinWidth: core.Pt(0),
+						Padding: core.Edges{Left: viewkit.ContentLeft(sizes), Top: 2, Bottom: 4}},
 						Children: []core.Node{viewkit.MarkdownLive(a.chatSearch, func() string { return src.thinking() }, src.live,
-							rowSize, a.readingRowLine(), core.Style{Color: colors.Muted(), FontWeight: core.FontWeight(350)}, a.codeWrap.Get)}}}}
+							sizes.Verb, a.readingRowLine(), core.Style{Color: colors.Muted(), FontWeight: core.FontWeight(350)}, a.codeWrap.Get)}}}}
 			}},
 		}
 		return core.View{Style: core.Style{MinWidth: core.Pt(0), Gap: 1}, Children: body}
