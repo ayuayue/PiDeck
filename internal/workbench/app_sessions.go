@@ -83,6 +83,7 @@ func (a *app) makeSession(m sessionMeta, t target) *session {
 		openTools:      map[string]bool{},
 		openProc:       map[string]bool{},
 		openFold:       map[string]bool{},
+		procScroll:     map[string]*processFollow{},
 		uiSeq:          core.NewSignal(a.cx, 0),
 		acpCommands:    core.NewSignalFunc(a.cx, []acpCommand(nil), nil),
 		acpMode:        core.NewSignal(a.cx, ""),
@@ -143,6 +144,20 @@ func (s *session) toggleProc(key string, auto bool) {
 	if s.uiSeq != nil {
 		s.uiSeq.Update(func(n int) int { return n + 1 })
 	}
+}
+
+// procFollow is how the open process group called key reads: its scroll
+// view, made on first use, and where the reader stands in it.
+func (s *session) procFollow(key string) *processFollow {
+	if f, ok := s.procScroll[key]; ok {
+		return f
+	}
+	if s.procScroll == nil {
+		s.procScroll = map[string]*processFollow{}
+	}
+	f := &processFollow{following: true}
+	s.procScroll[key] = f
+	return f
 }
 
 // foldOpen reports whether a turn's process is unfolded: the user's choice

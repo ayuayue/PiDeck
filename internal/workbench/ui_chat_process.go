@@ -255,6 +255,46 @@ func thinkingTone(cx *core.Scope) core.Color {
 	return ui.ColorsOf(cx).Muted()
 }
 
+// processFollow keeps one open group's body on its newest row: the rows a
+// turn is still writing land at the end of a window they overflow, and a
+// reader who scrolled back up to an earlier one keeps their place.
+type processFollow struct {
+	ref       core.Ref
+	following bool
+	lastY     core.Points
+}
+
+// reset starts a body that just mounted on its newest row: the scroll view
+// is new, so where the last one stood says nothing about this one.
+func (f *processFollow) reset() {
+	f.following = true
+	f.lastY = 0
+}
+
+// scrolled follows the reader: moving up leaves the newest row, and
+// reaching it follows again. A scroll the app asked for is not the reader
+// moving.
+func (f *processFollow) scrolled(e core.ScrollEvent) {
+	if e.Stale {
+		return
+	}
+	end := e.Offset.Y+e.Size.Height >= e.ContentSize.Height-2
+	switch {
+	case end:
+		f.following = true
+	case e.Offset.Y < f.lastY-1:
+		f.following = false
+	}
+	f.lastY = e.Offset.Y
+}
+
+// grown keeps a following body at its end as the rows arrive.
+func (f *processFollow) grown() {
+	if f.following {
+		f.ref.ScrollToEnd(false)
+	}
+}
+
 // processGroup is one run of process rows: what pi thought and the calls
 // it made between two things it said. latest says whether it is the turn's
 // newest group, the one the turn is working in.
@@ -337,17 +377,29 @@ func (a *app) processGroup(s *session, t func() turn, node processNode, latest f
 		body := core.Show{When: open, Then: func(cx *core.Scope) core.Node {
 			// A long run reads in a window of its own: the group heads what it
 			// holds, and its rows scroll instead of pushing the answer away.
-			return core.Scroll{TestID: "process-body", Style: core.Style{MinWidth: core.Pt(0), Margin: core.Edges{Left: 6},
-				Padding: core.Edges{Bottom: 2, Left: 12}, Borders: core.Edges{Left: 1}, Gap: 4},
+			follow := s.procFollow(key)
+			follow.reset()
+			return core.Scroll{Ref: &follow.ref, TestID: "process-body", OnScroll: follow.scrolled,
+				Style: core.Style{MinWidth: core.Pt(0), Margin: core.Edges{Left: 6},
+					Padding: core.Edges{Bottom: 2, Left: 12}, Borders: core.Edges{Left: 1}},
 				StyleFunc: func() core.Style {
 					return core.Style{MaxHeight: core.Pt(processBodyMax(cx)), BorderColors: core.EdgeColors{Left: colors.Now().Line}}
 				},
 				Children: []core.Node{
-					core.Each(func() []processItem { return members },
-						func(m processItem) string { return m.id },
-						func(cx *core.Scope, m func() processItem, _ func() int) core.Node {
-							return a.memberRows(s, t, m)
-						}),
+					// The rows sit in a view of their own so a growing body keeps
+					// its newest row in sight: while the turn still works in this
+					// group, the window follows the end of its rows.
+					core.View{OnLayout: func(core.Bounds) {
+						if auto() {
+							follow.grown()
+						}
+					}, Style: core.Style{MinWidth: core.Pt(0), FlexShrink: 0, Gap: 4}, Children: []core.Node{
+						core.Each(func() []processItem { return members },
+							func(m processItem) string { return m.id },
+							func(cx *core.Scope, m func() processItem, _ func() int) core.Node {
+								return a.memberRows(s, t, m)
+							}),
+					}},
 				}}
 		}}
 		return core.Show{When: present, Then: func(cx *core.Scope) core.Node {

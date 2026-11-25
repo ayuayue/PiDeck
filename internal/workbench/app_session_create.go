@@ -71,6 +71,7 @@ func (a *app) blankSession(id string, ws *workspace, title string) *session {
 		openTools:      map[string]bool{},
 		openProc:       map[string]bool{},
 		openFold:       map[string]bool{},
+		procScroll:     map[string]*processFollow{},
 		uiSeq:          core.NewSignal(a.cx, 0),
 		acpCommands:    core.NewSignalFunc(a.cx, []acpCommand(nil), nil),
 		acpMode:        core.NewSignal(a.cx, ""),

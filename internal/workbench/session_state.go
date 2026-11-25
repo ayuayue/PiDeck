@@ -170,7 +170,10 @@ type session struct {
 	openTools map[string]bool
 	openProc  map[string]bool
 	openFold  map[string]bool
-	uiSeq     *core.Signal[int]
+	// procScroll is how each open process group's body reads: the scroll
+	// view itself and whether it follows its newest row.
+	procScroll map[string]*processFollow
+	uiSeq      *core.Signal[int]
 	// replyStart is when the current assistant message began, and replyTTFT
 	// when its first token showed: the reply pace is counted from both.
 	replyStart time.Time

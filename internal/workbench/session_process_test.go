@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui/chat"
 )
 
@@ -199,6 +200,90 @@ func TestProcessGroupBodyIsBounded(t *testing.T) {
 	}
 	if h := body[0].Frame.Size.Height; h <= 0 || h > 640 {
 		t.Fatalf("the open group is %v tall, want between 0 and 640", h)
+	}
+}
+
+// A group long enough to scroll follows its rows while the turn works in
+// it: the newest call stays in sight instead of the body sitting at its
+// top, and a row added later comes into view too.
+func TestLiveGroupBodyFollowsItsNewestRow(t *testing.T) {
+	built, screen, sess := startNativeSurfaceApp(t)
+	now := time.Now()
+	liveTurn := func(count int) turn {
+		runs := make([]toolRun, 0, count)
+		for i := range count {
+			runs = append(runs, toolRun{CallID: fmt.Sprintf("follow-%d", i), Name: "read", Action: "读取",
+				Detail: fmt.Sprintf("file-%d.md", i), Status: chat.Completed})
+		}
+		return turn{ID: "follow-1", Prompt: "读很多文件", Status: chat.Running, Model: "fixture/model", Start: now, Tools: count,
+			Steps: []turnStep{{ID: "follow-1-s0", Thinking: "一次读完。", Tools: runs, Start: now}}}
+	}
+	// atEnd says the body shows the end of rows taller than its window.
+	atEnd := func() bool {
+		body := screen.Query("id:process-body")
+		if len(body) != 1 {
+			return false
+		}
+		v := body[0]
+		return v.Content.Height > v.Frame.Size.Height &&
+			v.Offset.Y+v.Frame.Size.Height >= v.Content.Height-2
+	}
+	where := func() string {
+		body := screen.Query("id:process-body")
+		if len(body) != 1 {
+			return fmt.Sprintf("open bodies = %d, want 1", len(body))
+		}
+		v := body[0]
+		return fmt.Sprintf("offset %v, window %v, content %v", v.Offset.Y, v.Frame.Size.Height, v.Content.Height)
+	}
+	onNativeUI(t, screen, built, func() {
+		sess.loaded.Set(true)
+		sess.readySig.Set(true)
+		sess.turns.Set([]turn{liveTurn(40)})
+		sess.runningSig.Set(true)
+	})
+	screen.WaitFor("label:读取 file-39.md", 5*time.Second)
+	screen.WaitUntil(5*time.Second, atEnd)
+	if !atEnd() {
+		t.Fatalf("the running group does not show its newest row: %s", where())
+	}
+
+	// The turn keeps calling: the rows it adds come into view as well.
+	onNativeUI(t, screen, built, func() { sess.turns.Set([]turn{liveTurn(60)}) })
+	screen.WaitFor("label:读取 file-59.md", 5*time.Second)
+	screen.WaitUntil(5*time.Second, atEnd)
+	if !atEnd() {
+		t.Fatalf("the rows a running turn added did not come into view: %s", where())
+	}
+
+	// A reader who scrolled back up keeps their place: the rows that arrive
+	// after do not pull the window down to the end.
+	screen.Scroll("id:process-body", core.Points(-400))
+	screen.WaitUntil(5*time.Second, func() bool {
+		body := screen.Query("id:process-body")
+		return len(body) == 1 && body[0].Offset.Y > 0 && !atEnd()
+	})
+	held := screen.Query("id:process-body")
+	if len(held) != 1 {
+		t.Fatalf("open bodies = %d, want 1", len(held))
+	}
+	readAt := held[0].Offset.Y
+	onNativeUI(t, screen, built, func() { sess.turns.Set([]turn{liveTurn(80)}) })
+	screen.WaitFor("label:读取 file-79.md", 5*time.Second)
+	if body := screen.Query("id:process-body"); len(body) != 1 {
+		t.Fatalf("open bodies = %d, want 1", len(body))
+	} else if d := body[0].Offset.Y - readAt; d > 1 || d < -1 {
+		t.Fatalf("a row added while the reader is above the end moved the body from %v: %s", readAt, where())
+	}
+
+	// Back at the end, it follows again.
+	screen.Scroll("id:process-body", core.Points(4000))
+	screen.WaitUntil(5*time.Second, atEnd)
+	onNativeUI(t, screen, built, func() { sess.turns.Set([]turn{liveTurn(100)}) })
+	screen.WaitFor("label:读取 file-99.md", 5*time.Second)
+	screen.WaitUntil(5*time.Second, atEnd)
+	if !atEnd() {
+		t.Fatalf("the body stopped following after the reader returned to the end: %s", where())
 	}
 }
 
