@@ -37,6 +37,12 @@ go tool nsgo dev -automation
 pi mcp add nsgo -- go tool nsgo mcp     # claude mcp add nsgo -- go tool nsgo mcp
 ```
 
+This repository ships both ends of the agent tooling, so a trusted checkout needs no setup:
+`.pi/mcp.json` registers the `nsgo` MCP server (pi loads it once the project is trusted), and
+`.pi/skills/nsgo/SKILL.md` points at the NSGo app skill inside the module `go.mod` pins, so the API
+facts follow the version we build against instead of a copy that drifts. Other harnesses still
+register the server themselves: `claude mcp add nsgo -- go tool nsgo mcp`.
+
 `go tool nsgo mcp` uses the `dev -automation` session running in this directory, or starts one with the same flags and stops it when the client leaves. Only automation builds carry it, and only tools on this machine holding `.nsgo/automation.yaml` can connect.
 
 The app's own tools ride along: `pideck_state` reads the open session, the page and the counts; `pideck_open_page` opens a workbench page; `pideck_seed_turns` fills a transcript without asking pi. They are registered in `internal/workbench/automation_tools.go` and are a no-op in release builds, so a test can call the same handlers through `automation.Call` instead of pressing its way to a state.

@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "nsgo": {
+      "command": "go",
+      "args": [
+        "tool",
+        "nsgo",
+        "mcp"
+      ],
+      "description": "驱动本仓库桌面应用的真实界面（配合 go tool nsgo dev -automation）：windows/snapshot 读窗口与视图树，press/type/key/scroll/drag/hover 操作，menu/alert 处理菜单弹窗，screenshot 截图，logs 读输出，status/reload 查构建与重启"
+    }
+  }
+}
