@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
 // TestTabWidthPctNormalized checks a stored percentage outside the range
@@ -47,6 +48,42 @@ func TestTabWidthPctPersists(t *testing.T) {
 	}
 	if got := again.config().TabWidthPct; got != 16 {
 		t.Fatalf("stored percent %d, want 16", got)
+	}
+}
+
+func TestTabWidthPctRestoredAtStartup(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		stored int
+		want   int
+	}{
+		{"default", 0, tabWidthPctDefault},
+		{"minimum", tabWidthPctMin, tabWidthPctMin},
+		{"maximum", tabWidthPctMax, tabWidthPctMax},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv("PIDECK_V2_HOME", dir)
+			st, err := newStore(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			st.edit(func(c *config) { c.TabWidthPct = tc.stored })
+
+			var stored, displayed int
+			nsgotest.Start(t, func(cx *core.Scope) core.Node {
+				a := newApp(cx)
+				stored = a.cfg.TabWidthPct
+				displayed = a.tabWidthPct()
+				return a.view()
+			}, nsgotest.Size(1200, 800))
+			if stored != tc.stored {
+				t.Fatalf("loaded tab width = %d, want %d", stored, tc.stored)
+			}
+			if displayed != tc.want {
+				t.Fatalf("startup tab width = %d, want %d (config kept %d)", displayed, tc.want, stored)
+			}
+		})
 	}
 }
 

@@ -458,6 +458,7 @@ func newApp(cx *core.Scope) *app {
 	a.bgOpacity.Set(a.backgroundOpacity())
 	a.loadAuth()
 	a.chatWidthPctSig.Set(a.cfg.ChatWidthPct)
+	a.tabWidthPctSig.Set(a.cfg.TabWidthPct)
 	a.alertVolumeSig.Set(a.configuredAlertVolumePct())
 	a.git.view.Set(a.gitChangesView())
 	a.editorWrap.Set(a.cfg.EditorWrap)
