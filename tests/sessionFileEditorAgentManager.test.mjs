@@ -207,9 +207,10 @@ function loadAgentManager() {
 				if (specifier === "../wsl/WslPaths") {
 					return { toWindowsHostPath: (path) => path, toWslLinuxPath: (path) => path };
 				}
-				// AgentManager 依赖 ./derivedSubagents（纯函数，仅类型 import）；.ts 经 node 类型剥离可 require。
+				// AgentManager 依赖 ./derivedSubagents；它已有运行时依赖（orchestratorRunResult，#598），
+				// 不再能靠 node 原生类型剥离 require（无扩展名的相对导入解析不到）——走仓库加载器。
 				if (specifier === "./derivedSubagents") {
-					return nodeRequire("../src/main/pi/derivedSubagents.ts");
+					return loadTsCommonJs("src/main/pi/derivedSubagents.ts");
 				}
 				// sessionFileEditor 测试不覆盖 rewind 业务；保留模块形状以便加载 AgentManager。
 				if (specifier === "../rewind/index.ts") {

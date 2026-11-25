@@ -32,16 +32,36 @@
  */
 
 import type { PiSubagentEntry, PiSubagentStatus } from "../../shared/types";
+import { isOrchestratorResultEntry, parseOrchestratorRunResult } from "./orchestratorRunResult";
 
 const ACP_DELEGATE_TOOL = "acp_delegate";
 const ACP_CANCEL_TOOL = "acp_delegate_cancel";
 const SUBAGENT_TOOL = "subagent";
 const SUBAGENT_TOOL_NAMES = new Set([ACP_DELEGATE_TOOL, ACP_CANCEL_TOOL, SUBAGENT_TOOL]);
 
+/**
+ * 裸 `delegate` / 其它编排插件的委托工具（#598）：不属于上面三个白名单，但名字里
+ * 带 delegate 且参数看得出委托形态（agent / tasks[] / runId）。
+ *
+ * 为什么不用白名单：编排插件的工具名不统一（`delegate`、`orchestrator_delegate`、
+ * `team_delegate`……），每来一个就改一次代码没有尽头；而「名字带 delegate + 参数带
+ * 委托字段」这个判据能覆盖它们全族。已知三件仍走各自专用分支（它们的终态信号
+ * 不同：acp 靠 user 通知，subagent 工具靠 toolResult 回执）。
+ */
+function isGenericDelegateTool(toolName: string, args: Record<string, unknown>): boolean {
+	if (SUBAGENT_TOOL_NAMES.has(toolName)) return false;
+	if (!/delegate/i.test(toolName)) return false;
+	return (typeof args.agent === "string" && args.agent.length > 0) || Array.isArray(args.tasks) || typeof args.runId === "string";
+}
+
 type SubagentDerivationInput = {
-	type: "message";
+	type: "message" | "custom_message";
 	timestamp?: unknown;
-	message: Record<string, unknown>;
+	message?: Record<string, unknown>;
+	/** custom_message 的顶层字段（编排结果条目本身就是载荷，没有 message 层）。 */
+	customType?: unknown;
+	content?: unknown;
+	data?: unknown;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -63,15 +83,20 @@ export function extractEntryText(content: unknown): string {
 	return out;
 }
 
-/** 增量扫描只保留能参与两种推导的消息，避免按会话文件大小保留聊天正文。 */
+/** 增量扫描只保留能参与推导的条目，避免按会话文件大小保留聊天正文。 */
 export function isSubagentDerivationInput(raw: unknown): raw is SubagentDerivationInput {
-	if (!isRecord(raw) || raw.type !== "message" || !isRecord(raw.message)) return false;
+	if (!isRecord(raw)) return false;
+	// 编排插件的 run 结果（custom_message）：只用于按 runId 归并状态与摘要，
+	// 正文里的 results[].messages 从不进内存（解析层见 orchestratorRunResult）。
+	if (raw.type === "custom_message") return isOrchestratorResultEntry(raw);
+	if (raw.type !== "message" || !isRecord(raw.message)) return false;
 	const message = raw.message;
 	if (message.role === "assistant") {
-		return Array.isArray(message.content) && message.content.some((item) => isRecord(item) && item.type === "toolCall" && typeof item.name === "string" && SUBAGENT_TOOL_NAMES.has(item.name));
+		return Array.isArray(message.content) && message.content.some((item) => isRecord(item) && item.type === "toolCall" && typeof item.name === "string" && (SUBAGENT_TOOL_NAMES.has(item.name) || /delegate/i.test(item.name)));
 	}
 	if (message.role === "toolResult") {
-		return (message.toolName === ACP_DELEGATE_TOOL || message.toolName === SUBAGENT_TOOL) && typeof message.toolCallId === "string";
+		const toolName = typeof message.toolName === "string" ? message.toolName : "";
+		return (toolName === ACP_DELEGATE_TOOL || toolName === SUBAGENT_TOOL || /delegate/i.test(toolName)) && typeof message.toolCallId === "string";
 	}
 	if (message.role === "user") {
 		const text = extractEntryText(message.content);
@@ -125,7 +150,9 @@ export function deriveAcpDelegateEntries(rawEntries: readonly unknown[]): PiSuba
 
 	for (const raw of rawEntries) {
 		if (!isSubagentDerivationInput(raw)) continue;
+		// custom_message（编排结果）没有 message 层：两条专用推导链只用 message 类输入
 		const message = raw.message;
+		if (!message) continue;
 		const timestampMs = typeof raw.timestamp === "string" ? Date.parse(raw.timestamp) : NaN;
 		const role = typeof message.role === "string" ? message.role : "";
 
@@ -209,7 +236,9 @@ export function deriveSubagentToolEntries(rawEntries: readonly unknown[]): PiSub
 
 	for (const raw of rawEntries) {
 		if (!isSubagentDerivationInput(raw)) continue;
+		// custom_message（编排结果）没有 message 层：两条专用推导链只用 message 类输入
 		const message = raw.message;
+		if (!message) continue;
 		const timestampMs = typeof raw.timestamp === "string" ? Date.parse(raw.timestamp) : NaN;
 		const role = typeof message.role === "string" ? message.role : "";
 
@@ -266,11 +295,125 @@ export function deriveSubagentToolEntries(rawEntries: readonly unknown[]): PiSub
 }
 
 /**
- * 合并两条工具推导链：acp_delegate 条目 id（acp_delegate_*）与 subagent 工具调用 id
- * （call_xxx）天然不相交，直接拼接后统一按 startedAt 降序。
+ * 从会话文件推导「裸 delegate / 其它编排插件的委托工具」子代理条目（#598）。
+ *
+ * 与上面两条链的区别：终态**不是**写在 toolResult 里，而是由插件另外落一条
+ * `custom_message`（orchestrator-run-result），带 `runId` / `action` / `tasks[]`。
+ * 所以这里做两件事：
+ * 1. 派发时建条目（id = toolCallId），参数里的 runId 登到反查表；
+ * 2. 结果条目到达时按 runId 归并状态与**摘要**（不碰 results[].messages，见
+ *    orchestratorRunResult 的体积约束）。
+ *
+ * 插件未把 runId 写进派发参数时，若当时恰只有一个未完成条目，就归并到它（多路并行
+ * 不猜：无法判定时宁可保留 running，交给历史对账降级）。
+ */
+export function deriveDelegateEntries(rawEntries: readonly unknown[]): PiSubagentEntry[] {
+	const byId = new Map<string, PiSubagentEntry>();
+	const byToolCallId = new Map<string, PiSubagentEntry>();
+	// runId → 条目 id：结果条目只带 runId
+	const entryIdByRunId = new Map<string, string>();
+
+	for (const raw of rawEntries) {
+		if (!isSubagentDerivationInput(raw)) continue;
+		const timestampMs = typeof raw.timestamp === "string" ? Date.parse(raw.timestamp) : NaN;
+
+		if (raw.type === "custom_message") {
+			const update = parseOrchestratorRunResult(raw);
+			if (!update) continue;
+			const entryId = entryIdByRunId.get(update.runId);
+			let entry = entryId ? byId.get(entryId) : undefined;
+			if (!entry) {
+				const pending = [...byId.values()].filter((candidate) => candidate.via === "delegate-tool" && !TERMINAL_STATUSES.has(candidate.status));
+				if (pending.length === 1) entry = pending[0];
+			}
+			if (!entry) continue;
+			// 同 runId 可能有多条结果（阶段更新）：后者覆盖前者
+			entry.status = update.status;
+			entry.result = update.summary;
+			if (update.completedAtMs != null) entry.completedAt = update.completedAtMs;
+			else if (TERMINAL_STATUSES.has(update.status) && Number.isFinite(timestampMs)) entry.completedAt = timestampMs;
+			if (update.tasks.length > 0) entry.toolUses = update.tasks.length;
+			// 任务自带的子会话文件 → 渲染层「打开子会话」直接可用
+			const sessionFile = update.tasks.find((task) => task.sessionFile)?.sessionFile;
+			if (sessionFile) entry.childSessionPath = sessionFile;
+			continue;
+		}
+
+		const message = raw.message;
+		if (!message) continue;
+		const role = typeof message.role === "string" ? message.role : "";
+
+		if (role === "assistant" && Array.isArray(message.content)) {
+			for (const item of message.content) {
+				if (!isRecord(item) || item.type !== "toolCall" || typeof item.name !== "string") continue;
+				const args = isRecord(item.arguments) ? item.arguments : {};
+				if (!isGenericDelegateTool(item.name, args)) continue;
+				const toolCallId = typeof item.id === "string" ? item.id : "";
+				if (!toolCallId || byToolCallId.has(toolCallId)) continue;
+				const tasks = Array.isArray(args.tasks) ? args.tasks.filter(isRecord) : [];
+				const firstTask = tasks[0];
+				const type = typeof args.agent === "string" && args.agent ? args.agent : typeof firstTask?.agent === "string" && firstTask.agent ? firstTask.agent : item.name;
+				const description =
+					typeof args.task === "string" && args.task
+						? args.task
+						: tasks
+								.map((task) => (typeof task.task === "string" && task.task) || (typeof task.agent === "string" ? task.agent : ""))
+								.filter(Boolean)
+								.join(", ");
+				const entry: PiSubagentEntry = {
+					id: toolCallId,
+					type,
+					description,
+					// 一次派发多个任务时条目代表整批：状态由 run 级结果归并
+					status: "running",
+					startedAt: Number.isFinite(timestampMs) ? timestampMs : undefined,
+					...(tasks.length > 0 ? { toolUses: tasks.length } : {}),
+					source: "toolcall",
+					via: "delegate-tool",
+				};
+				byToolCallId.set(toolCallId, entry);
+				byId.set(toolCallId, entry);
+				if (typeof args.runId === "string" && args.runId) entryIdByRunId.set(args.runId, toolCallId);
+			}
+			continue;
+		}
+
+		if (role === "toolResult" && typeof message.toolCallId === "string") {
+			const toolName = typeof message.toolName === "string" ? message.toolName : "";
+			if (!/delegate/i.test(toolName) || SUBAGENT_TOOL_NAMES.has(toolName)) continue;
+			const entry = byToolCallId.get(message.toolCallId);
+			if (!entry) continue;
+			const text = extractEntryText(message.content);
+			// 派发参数没带 runId 时，回执正文里可能带（与 acp 同一套 extractAcpRunId）
+			const runId = extractAcpRunId(text);
+			if (runId && !entryIdByRunId.has(runId)) entryIdByRunId.set(runId, entry.id);
+			if (TERMINAL_STATUSES.has(entry.status)) continue;
+			if (message.isError === true) {
+				entry.status = "error";
+				if (text) entry.error = text.slice(0, 2000);
+				if (Number.isFinite(timestampMs)) entry.completedAt = timestampMs;
+				continue;
+			}
+			// 短回执（带 runId / delegated / started 字样）只是派发确认，终态在编排结果里；
+			// 其余按前台派发看待，直接把结果当终态（并按 record 预览口径截断）。
+			const isAck = text.length < 500 && (/\bdelegat|\bstarted\b|\brunning\b|\bdispatched\b/i.test(text) || Boolean(runId));
+			if (isAck) continue;
+			entry.status = "completed";
+			if (text) entry.result = text.slice(0, 2000);
+			if (Number.isFinite(timestampMs)) entry.completedAt = timestampMs;
+		}
+	}
+
+	return [...byId.values()].sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
+}
+
+/**
+ * 合并三条工具推导链：acp_delegate 条目 id（acp_delegate_*）、subagent 工具调用 id
+ * （call_xxx）、裸 delegate 派发 id（同为 call_xxx，但两族工具名不同，不会重复）
+ * 天然不相交，直接拼接后统一按 startedAt 降序。
  */
 export function deriveToolSubagentEntries(rawEntries: readonly unknown[]): PiSubagentEntry[] {
-	return mergeSubagentSources([], [...deriveAcpDelegateEntries(rawEntries), ...deriveSubagentToolEntries(rawEntries)]);
+	return mergeSubagentSources([], [...deriveAcpDelegateEntries(rawEntries), ...deriveSubagentToolEntries(rawEntries), ...deriveDelegateEntries(rawEntries)]);
 }
 
 /**
