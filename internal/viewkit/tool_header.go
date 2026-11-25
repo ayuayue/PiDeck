@@ -53,10 +53,7 @@ func ToolRow(cx *core.Scope, line ToolLine, sizes ToolSizes) core.Node {
 			Style:     core.Style{FontFamily: MonoFont(), FontSize: sizes.Detail, FlexShrink: 0},
 			StyleFunc: ui.Colored(func() core.Color { return ink })})
 	}
-	// How long the call took heads the row, in a column of its own: the
-	// figures line up down a block of calls, and what ran keeps the room
-	// they would otherwise take at its end.
-	header := []core.Node{TimeCell(cx, sizes.Detail, line.Running, line.Time)}
+	var header []core.Node
 	if line.Glyph != nil {
 		header = append(header, ui.IconOf(line.Glyph, sizes.Glyph, func() core.Color {
 			switch {
@@ -72,6 +69,10 @@ func ToolRow(cx *core.Scope, line ToolLine, sizes ToolSizes) core.Node {
 		core.Text{Content: line.Verb, MaxLines: 1,
 			Style:     core.Style{FontSize: sizes.Verb, FontWeight: ui.Medium, FlexShrink: 0},
 			StyleFunc: ui.Colored(colors.Muted)},
+		// How long it took follows what ran and heads what it ran on: the
+		// figures hold a column of their own, so the details below them start
+		// on one line and a running call counts up in place.
+		TimeCell(cx, sizes.Detail, line.Running, line.Time),
 		core.Text{Content: line.Detail, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
 			Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: MonoFont(), FontSize: sizes.Detail},
 			StyleFunc: ui.Colored(colors.Faint)})
@@ -103,11 +104,12 @@ func ToolRow(cx *core.Scope, line ToolLine, sizes ToolSizes) core.Node {
 		Children: header}
 }
 
-// TimeCell is one row's leading time column: how long it took, right-aligned
-// so the figures line up, a spinner for a running row that has no clock yet,
-// and nothing for a row with no time at all. The column keeps its width in
-// every case, so the glyphs and the words of the rows around it stay on one
-// vertical line.
+// TimeCell is one row's time column: how long it took, between the word for
+// what ran and the thing it ran on. The figures start right after their verb
+// and the cell keeps one width whatever they say, so the details that follow
+// start on one line down the block, with a clear gap between them and the
+// time. A running row with no clock yet shows a spinner there, and a row with
+// no time at all keeps the column empty.
 func TimeCell(cx *core.Scope, size core.Points, running bool, text func() string) core.Node {
 	colors := ui.ColorsOf(cx)
 	var slot core.Node = core.View{}
@@ -119,21 +121,21 @@ func TimeCell(cx *core.Scope, size core.Points, running bool, text func() string
 	case running:
 		slot = ui.Spinner{Size: max(size-2, 8)}
 	}
-	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, JustifyContent: core.JustifyEnd,
+	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter,
 		Width: core.Pt(TimeWidth(size)), FlexShrink: 0, Margin: core.Edges{Right: timeGap(size)}},
 		Children: []core.Node{slot}}
 }
 
-// ContentLeft is where a row's own words begin: past the time column, the
-// glyph and their gaps. A body under a row starts here too, so opening it
-// drops its output into the row's column instead of beside it.
+// ContentLeft is where a row's own words begin: past its glyph and the gap
+// after it. A body under a row starts here too, so opening it drops its
+// output into the row's column instead of beside it.
 func ContentLeft(sizes ToolSizes) core.Points {
-	return sizes.PadH + TimeWidth(sizes.Detail) + timeGap(sizes.Detail) + sizes.Gap + sizes.Glyph + sizes.Gap
+	return sizes.PadH + sizes.Glyph + sizes.Gap
 }
 
 // TimeWidth is the room a time column takes: six monospaced figures, the
-// longest a call's time gets ("59m59s", "23h59m"), so every row's duration
-// ends on the same vertical line.
+// longest a call's time gets ("59m59s", "23h59m"), so the details after it
+// start on the same line whether a call took milliseconds or an hour.
 func TimeWidth(size core.Points) core.Points {
 	return core.Points(math.Ceil(float64(size) * monoAdvance * 6))
 }

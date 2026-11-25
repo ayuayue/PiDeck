@@ -401,13 +401,22 @@ func TestProcessRowsShareOneColumn(t *testing.T) {
 			t.Fatalf("a thought starts at %.1f and a call's verb at %.1f; want one line", thought.Origin.X, got)
 		}
 	}
-	// The times end in one column, left of the words they belong to.
+	// The times follow their verbs and hold one column, so the details after
+	// them start on one line down the block.
 	quick, slow := screen.Find(`text:"8ms"`).Bounds(), screen.Find(`text:"4.2s"`).Bounds()
-	if d := float64(right(quick) - right(slow)); d > 0.5 || d < -0.5 {
-		t.Fatalf("the times end at %.1f and %.1f; want one column", right(quick), right(slow))
+	if quick.Origin.X <= right(read) {
+		t.Fatalf("the time starts at %.1f, at or before its verb, which ends at %.1f", quick.Origin.X, right(read))
 	}
-	if right(slow) >= read.Origin.X {
-		t.Fatalf("the time ends at %.1f, at or past the verb at %.1f", right(slow), read.Origin.X)
+	if d := float64(quick.Origin.X - slow.Origin.X); d > 0.5 || d < -0.5 {
+		t.Fatalf("the times start at %.1f and %.1f; want one column", quick.Origin.X, slow.Origin.X)
+	}
+	file := screen.Find(`text:"readme.md"`).Bounds()
+	cmd := screen.Find(`text:"go vet ./internal/viewkit"`).Bounds()
+	if d := float64(file.Origin.X - cmd.Origin.X); d > 0.5 || d < -0.5 {
+		t.Fatalf("the details start at %.1f and %.1f; want one column", file.Origin.X, cmd.Origin.X)
+	}
+	if right(slow) >= file.Origin.X {
+		t.Fatalf("the time ends at %.1f, at or past the detail at %.1f", right(slow), file.Origin.X)
 	}
 	// The rows keep one pitch down the block.
 	if first, second := read.Origin.Y-thought.Origin.Y, run.Origin.Y-read.Origin.Y; math.Abs(float64(first-second)) > 0.5 {

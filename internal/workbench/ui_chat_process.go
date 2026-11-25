@@ -459,9 +459,6 @@ func (a *app) thinkRow(s *session, src stepSource) core.Node {
 		}
 		sizes := a.processSizes()
 		children := []core.Node{
-			// A thought has no clock of its own, but it keeps the column the
-			// calls around it fill, so the rows stay on one vertical line.
-			viewkit.TimeCell(cx, sizes.Detail, false, nil),
 			ui.Icon(lucide.Brain, sizes.Glyph, func() core.Color { return thinkingTone(cx) }),
 			core.Text{ContentFunc: label, MaxLines: 1,
 				Style: core.Style{FontSize: sizes.Verb, FontWeight: ui.Medium, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Muted)},
