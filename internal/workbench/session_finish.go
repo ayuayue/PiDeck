@@ -6,6 +6,9 @@ package workbench
 // views read; pi's events are folded in here, on the UI thread.
 
 import (
+	"fmt"
+	"strings"
+
 	"example.com/pideck-v2/internal/alerts"
 	"github.com/nsgo-dev/nsgo/ui/chat"
 )
@@ -107,27 +110,37 @@ func (a *app) setTurnError(s *session, errText string) {
 	})
 }
 
-// addNote adds or updates a system note in the transcript.
+// addNote updates the pending operation of this kind. Once it ends, its
+// card keeps its identity and a later operation gets a new history entry.
+// Insert an in-flight note before the active reply so streaming continues
+// to target the last turn rather than writing into a system card.
 func (a *app) addNote(s *session, kind, title, body string, status chat.Status) {
-	id := "note-" + kind
+	prefix := "note-" + kind
 	s.turns.Update(func(ts []turn) []turn {
-		for i := range ts {
-			if ts[i].ID == id {
+		for i := len(ts) - 1; i >= 0; i-- {
+			if ts[i].System && (ts[i].ID == prefix || strings.HasPrefix(ts[i].ID, prefix+"-")) && ts[i].running() {
 				ts[i].Status = status
-				ts[i].System = true
 				ts[i].Noticed = title
-				ts[i].Steps = []turnStep{{ID: id + "-step", Note: title, Text: body}}
-				if status != chat.Waiting {
+				ts[i].Steps = []turnStep{{ID: ts[i].ID + "-step", Note: title, Text: body}}
+				if status != chat.Waiting && status != chat.Running {
 					ts[i].End = a.cx.Now()
 				}
 				return ts
 			}
 		}
+		id := fmt.Sprintf("%s-%d-%d", prefix, a.cx.Now().UnixNano(), len(ts))
 		t := turn{ID: id, Status: status, Start: a.cx.Now(), Noticed: title, System: true,
 			Steps: []turnStep{{ID: id + "-step", Note: title, Text: body}}}
-		if status != chat.Waiting {
+		if status != chat.Waiting && status != chat.Running {
 			t.End = a.cx.Now()
 		}
-		return append(ts, t)
+		at := len(ts)
+		if at > 0 && !ts[at-1].System && ts[at-1].running() {
+			at--
+		}
+		next := make([]turn, 0, len(ts)+1)
+		next = append(next, ts[:at]...)
+		next = append(next, t)
+		return append(next, ts[at:]...)
 	})
 }

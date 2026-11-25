@@ -5,10 +5,15 @@ package workbench
 // The chat: turns with their tools, the composer, and the empty state.
 
 import (
+	"strings"
+	"unicode/utf8"
+
+	"example.com/pideck-v2/internal/apptext"
 	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
+	"github.com/nsgo-dev/nsgo/ui/chat"
 )
 
 // stepSource reads one assistant message: what it committed, or what pi is
@@ -107,8 +112,7 @@ func (a *app) processRow(s *session, t func() turn, node func() processNode) cor
 		case processProse:
 			return a.chatMarkdownLive(func() string { return src.text() }, src.live, core.Style{})
 		case processNote:
-			st := src.committed()
-			return a.noteBlock(st.Note, st.Text)
+			return a.noteBlock(s, func() turnStep { return src.committed() }, func() chat.Status { return src.turn().Status })
 		}
 		return a.processGroup(s, t, n, latest)
 	})
@@ -128,22 +132,71 @@ func (a *app) chatMarkdownLive(text func() string, live func() bool, tone core.S
 }
 
 // noteBlock is a system note, such as a compaction summary.
-func (a *app) noteBlock(title, body string) core.Node {
+func (a *app) noteBlock(s *session, step func() turnStep, status func() chat.Status) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
+		state := status()
+		st := step()
+		key := s.ID + "/note/" + st.ID
+		s.uiSeq.Get()
+		open := s.foldOpen(key, false)
+		preview, foldable := notePreview(st.Text)
+		if open {
+			preview = st.Text
+		}
+		icon := lucide.Minimize2
+		ink := colors.Faint
+		switch state {
+		case chat.Running, chat.Waiting:
+			icon, ink = lucide.LoaderCircle, colors.Info
+		case chat.Completed:
+			icon, ink = lucide.CircleCheck, colors.Up
+		case chat.Failed:
+			icon, ink = lucide.CircleAlert, colors.Danger
+		case chat.Cancelled:
+			icon, ink = lucide.CircleX, colors.Faint
+		}
 		children := []core.Node{
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7}, Children: []core.Node{
-				ui.Icon(lucide.Minimize2, 13, colors.Faint),
-				core.Text{Content: title, Style: core.Style{FontSize: a.readingRowFont(), FontWeight: ui.Medium},
+				ui.Icon(icon, 13, ink),
+				core.Text{Content: st.Note, Style: core.Style{FontSize: a.readingRowFont(), FontWeight: ui.Medium},
 					StyleFunc: ui.Colored(colors.Muted)},
+				ui.Text(statusLabel(state), 10, ui.Medium, ink),
 			}},
+			viewkit.MarkdownLive(a.chatSearch, func() string { return preview }, func() bool { return false },
+				a.readingRowFont(), a.readingRowLine(), core.Style{Color: colors.Muted()}, a.codeWrap.Get),
 		}
-		if body != "" {
-			children = append(children, viewkit.MarkdownSized(body, func() bool { return false }, false, a.readingRowFont(), a.readingRowLine(), core.Style{Color: colors.Muted()}))
+		if foldable {
+			label, chevron := apptext.T("展开全文（%d 字）", utf8.RuneCountInString(st.Text)), lucide.ChevronDown
+			if open {
+				label, chevron = apptext.T("收起"), lucide.ChevronUp
+			}
+			children = append(children, core.View{Style: core.Style{Direction: core.Row}, Children: []core.Node{
+				ui.Button{TestID: "note-toggle-" + st.ID, Text: label, Icon: chevron, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+					OnPress: func() { s.toggleFold(key, false) }},
+			}})
 		}
-		return core.View{StyleFunc: func() core.Style {
+		return core.View{TestID: "note-card", StyleFunc: func() core.Style {
 			return core.Style{Gap: 8, Padding: core.Symmetric(8, 12), CornerRadius: ui.RadiusControl,
 				BorderWidth: 1, BorderColor: colors.Border(), Background: colors.Inset()}
 		}, Children: children}
 	})
+}
+
+// notePreview bounds both a single long paragraph and a many-line summary.
+func notePreview(text string) (string, bool) {
+	chars, lines := 0, 1
+	for i, r := range text {
+		if chars == 600 || (r == '\n' && lines == 6) {
+			if strings.TrimSpace(text[i:]) == "" {
+				return text, false
+			}
+			return strings.TrimRight(text[:i], " \t\r\n") + "…", true
+		}
+		chars++
+		if r == '\n' {
+			lines++
+		}
+	}
+	return text, false
 }
