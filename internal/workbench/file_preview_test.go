@@ -68,22 +68,6 @@ func TestResolvePreviewImages(t *testing.T) {
 	}
 }
 
-// TestSizeText checks the sizes the file information shows.
-func TestSizeText(t *testing.T) {
-	cases := map[int64]string{
-		0:       "0 B",
-		999:     "999 B",
-		2048:    "2 KB",
-		3 << 20: "3.0 MB",
-		5 << 30: "5.0 GB",
-	}
-	for size, want := range cases {
-		if got := sizeText(size); got != want {
-			t.Errorf("sizeText(%d) = %q, want %q", size, got, want)
-		}
-	}
-}
-
 // TestPreviewReadXLSX checks a workbook's first sheet becomes a table, and
 // that a file which is not one says so.
 func TestPreviewReadXLSX(t *testing.T) {

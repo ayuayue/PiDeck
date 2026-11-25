@@ -6,7 +6,6 @@ package workbench
 // a table, a picture, the platform's player or page, or what the file is.
 
 import (
-	"fmt"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -163,7 +162,7 @@ func (a *app) fileInfoPreview(cx *core.Scope, p *filePreview) core.Node {
 		core.Text{Content: hint, MaxLines: 3, Style: core.Style{FontSize: 12.5, LineHeight: 19}, StyleFunc: ui.Colored(colors.Muted)},
 		core.View{Style: core.Style{Gap: 8}, Children: []core.Node{
 			row(apptext.T("格式"), format),
-			row(apptext.T("大小"), sizeText(p.size)),
+			row(apptext.T("大小"), viewkit.FileSize(p.size)),
 			row(apptext.T("修改时间"), p.modified.Format("2006-01-02 15:04")),
 		}},
 	}}
@@ -201,20 +200,6 @@ func (a *app) tablePreview(cx *core.Scope, p *filePreview) core.Node {
 			return ui.Text(apptext.T("仅预览前 %d 行、%d 列。", csvPreviewRows, csvPreviewCols), 11, ui.Regular, colors.Muted)
 		}},
 	}}
-}
-
-// sizeText says a file's size as a file manager does.
-func sizeText(size int64) string {
-	switch {
-	case size >= 1<<30:
-		return fmt.Sprintf("%.1f GB", float64(size)/(1<<30))
-	case size >= 1<<20:
-		return fmt.Sprintf("%.1f MB", float64(size)/(1<<20))
-	case size >= 1<<10:
-		return fmt.Sprintf("%.0f KB", float64(size)/(1<<10))
-	default:
-		return fmt.Sprintf("%d B", size)
-	}
 }
 
 // markdownImage and htmlImage name a picture a document refers to.

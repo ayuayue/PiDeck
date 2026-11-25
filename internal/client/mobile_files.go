@@ -150,17 +150,6 @@ func (a *mobileApp) openFile(path string) {
 	}()
 }
 
-// fileSizeText is a file's size as a row shows it.
-func fileSizeText(n int64) string {
-	switch {
-	case n >= 1<<20:
-		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
-	case n >= 1<<10:
-		return fmt.Sprintf("%.0f KB", float64(n)/(1<<10))
-	}
-	return fmt.Sprintf("%d B", n)
-}
-
 // filesTitle names the file list: mention mode says what a tap does.
 func (a *mobileApp) filesTitle() string {
 	if a.filesMention.Get() {
@@ -211,7 +200,7 @@ func (a *mobileApp) filesSheet() core.Node {
 								Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)}
 						}},
 					}},
-					ui.Text(fileSizeText(f.Size), 9.5, ui.Regular, colors.Faint),
+					ui.Text(viewkit.FileSize(f.Size), 9.5, ui.Regular, colors.Faint),
 				}})
 		}
 		var body []core.Node

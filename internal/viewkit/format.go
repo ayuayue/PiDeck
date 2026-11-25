@@ -56,6 +56,20 @@ func Duration(d time.Duration) string {
 	return fmt.Sprintf("%dh%02dm", int(d.Hours()), int(d.Minutes())%60)
 }
 
+// FileSize says a file's size as a file manager does: one figure with its
+// unit, so a list column stays narrow and readable whatever the file.
+func FileSize(n int64) string {
+	switch {
+	case n >= 1<<30:
+		return fmt.Sprintf("%.1f GB", float64(n)/(1<<30))
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.0f KB", float64(n)/(1<<10))
+	}
+	return fmt.Sprintf("%d B", n)
+}
+
 // whenText is a short age for a list.
 func WhenText(t time.Time, now time.Time) string {
 	if t.IsZero() {

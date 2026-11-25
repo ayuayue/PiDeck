@@ -6,7 +6,6 @@ package client
 // PIDECK_V2_MOBILE=1 for a preview on a desktop).
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 
@@ -90,7 +89,7 @@ func sessionStatsLabel(tokenCount, context, window int, cost float64) string {
 		parts = append(parts, viewkit.Tokens(tokenCount)+" tokens")
 	}
 	if cost > 0 {
-		parts = append(parts, fmt.Sprintf("$%.2f", cost))
+		parts = append(parts, viewkit.Credits(cost))
 	}
 	return strings.Join(parts, " · ")
 }
