@@ -25,9 +25,9 @@ func TestLogoStylesAreDistinct(t *testing.T) {
 	}
 }
 
-// TestLogoClassicIsSilver checks the classic preset is the monochrome mark,
-// not the colored one in a different tile.
-func TestLogoClassicIsSilver(t *testing.T) {
+// TestLogoClassicIsDark checks the classic preset uses the dark mark required
+// for contrast on the shared white tile.
+func TestLogoClassicIsDark(t *testing.T) {
 	classic := svgOf(t, logoMark(logoStyleClassic, brandImage{}, 30, ""))
 	if classic == nil {
 		t.Fatal("the classic preset draws no vector mark")
@@ -36,7 +36,34 @@ func TestLogoClassicIsSilver(t *testing.T) {
 		t.Fatal("the classic preset is the TUI colors")
 	}
 	if classic != piClassicLogo {
-		t.Fatal("the classic preset is not the silver mark")
+		t.Fatal("the classic preset is not the dark mark")
+	}
+}
+
+func TestLogoMarksUseWhiteTileAnd65PercentGlyph(t *testing.T) {
+	const size core.Points = 40
+	for _, style := range []string{logoStyleTUI, logoStyleClassic} {
+		view, ok := logoMark(style, brandImage{}, size, "").(core.View)
+		if !ok {
+			t.Fatalf("style %q did not render a tile", style)
+		}
+		if view.Style.Background != core.RGB(0xffffff) {
+			t.Errorf("style %q background = %v, want white", style, view.Style.Background)
+		}
+		if view.Style.CornerRadius != size*228/1024 {
+			t.Errorf("style %q corner radius = %v, want %v", style, view.Style.CornerRadius, size*228/1024)
+		}
+		if len(view.Children) != 1 {
+			t.Fatalf("style %q has %d children, want one mark", style, len(view.Children))
+		}
+		mark, ok := view.Children[0].(core.SVGView)
+		if !ok {
+			t.Fatalf("style %q child = %T, want SVGView", style, view.Children[0])
+		}
+		wantGlyph := core.Pt(size * 0.65)
+		if mark.Style.Width != wantGlyph || mark.Style.Height != wantGlyph {
+			t.Errorf("style %q glyph = %v x %v, want %v square", style, mark.Style.Width, mark.Style.Height, wantGlyph)
+		}
 	}
 }
 

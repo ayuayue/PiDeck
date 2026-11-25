@@ -121,7 +121,8 @@ func (a *mobileApp) railBrand(cx *core.Scope) core.Node {
 						StyleFunc: ui.Colored(colors.Text)},
 					core.View{StyleFunc: func() core.Style {
 						return core.Style{Padding: core.Symmetric(1, 5), CornerRadius: 4, BorderWidth: 1, BorderColor: colors.Border()}
-					}, Children: []core.Node{core.Text{Content: "v2", Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9},
+					}, Children: []core.Node{core.Text{Content: "v" + appinfo.Version, TestID: "mobile-brand-version",
+						Style:     core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9},
 						StyleFunc: ui.Colored(colors.Faint)}}},
 				}},
 				core.Text{ContentFunc: func() string {

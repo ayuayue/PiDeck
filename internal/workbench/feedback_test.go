@@ -11,15 +11,16 @@ import (
 	"testing"
 	"time"
 
+	"example.com/pideck-v2/internal/appinfo"
 	"example.com/pideck-v2/internal/apptext"
 )
 
 // TestFeedbackSummary keeps the head of the report without the blanks.
 func TestFeedbackSummary(t *testing.T) {
-	report := "PiDeck V2 0.2.0\n\nwindows/amd64\n\n数据目录：C:/tmp\npi：C:/bin/pi 1.5.2\n" +
+	report := "PiDeck V2 " + appinfo.Version + "\n\nwindows/amd64\n\n数据目录：C:/tmp\npi：C:/bin/pi 1.5.2\n" +
 		"goroutine：3\n\n进程：\n  没有\n\n最近日志：\n  10:00:00 [info] 启动\n"
 	got := feedbackSummary(report)
-	want := "PiDeck V2 0.2.0\nwindows/amd64\n数据目录：C:/tmp\npi：C:/bin/pi 1.5.2\ngoroutine：3\n进程：\n  没有\n最近日志："
+	want := "PiDeck V2 " + appinfo.Version + "\nwindows/amd64\n数据目录：C:/tmp\npi：C:/bin/pi 1.5.2\ngoroutine：3\n进程：\n  没有\n最近日志："
 	if got != want {
 		t.Fatalf("summary =\n%q\nwant\n%q", got, want)
 	}
@@ -33,7 +34,7 @@ func TestFeedbackIssueURL(t *testing.T) {
 	for _, lang := range []string{apptext.LangZhCN, apptext.LangEnUS} {
 		defer apptext.SetLanguage(apptext.LangZhCN)
 		apptext.SetLanguage(lang)
-		report := "PiDeck V2 0.2.0\nwindows/amd64\n"
+		report := "PiDeck V2 " + appinfo.Version + "\nwindows/amd64\n"
 		link := feedbackIssueURL("导出没反应\n第二次就好了", report, "报告已复制")
 
 		if !strings.HasPrefix(link, feedbackIssueBase+"?") {

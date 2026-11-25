@@ -31,6 +31,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"example.com/pideck-v2/internal/appinfo"
 )
 
 // appID 和 activity 是 adb 启动应用要用的；id 也从 nsgo.yaml 读，这里只是兜底。
@@ -181,7 +183,7 @@ func findRoot() (string, error) {
 
 // readManifest 从 nsgo.yaml 顶层读名字、id 和版本，读不到就用兜底值。
 func readManifest(root string) (name, id, version string) {
-	name, id, version = "PiDeck V2", fallbackID, "?"
+	name, id, version = "PiDeck V2", fallbackID, appinfo.Version
 	raw, err := os.ReadFile(filepath.Join(root, "nsgo.yaml"))
 	if err != nil {
 		return name, id, version

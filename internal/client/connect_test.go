@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"example.com/pideck-v2/internal/appinfo"
 	"example.com/pideck-v2/internal/remotewire"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
@@ -27,7 +28,7 @@ import (
 // TestMobileConnect drives the phone screen against a fake desktop.
 func TestMobileConnect(t *testing.T) {
 	const token = "phone-token"
-	state := remotewire.Snapshot{Name: "PiDeck V2", Version: "0.2.0", Host: "desk", Projects: []remotewire.Project{{
+	state := remotewire.Snapshot{Name: "PiDeck V2", Version: appinfo.Version, Host: "desk", Projects: []remotewire.Project{{
 		Path: "/tmp/project", Name: "电脑项目", Sessions: []remotewire.Session{
 			{ID: "s1", Title: "电脑上的会话", Status: "idle", Updated: time.Now().UnixMilli()},
 		},
@@ -55,6 +56,9 @@ func TestMobileConnect(t *testing.T) {
 	// The projects and their sessions live in the drawer.
 	openPhoneRail(app)
 	app.WaitFor("id:mobile-session", 10*time.Second)
+	if got, want := app.Find("id:mobile-brand-version").Text, "v"+appinfo.Version; got != want {
+		t.Fatalf("mobile brand version = %q, want %q", got, want)
+	}
 	shot(app, "60-mobile-rail")
 	// A press can land while the list is still settling; try again.
 	for i := 0; i < 3; i++ {

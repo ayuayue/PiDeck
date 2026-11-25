@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/remotewire"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -35,6 +36,17 @@ func (a *mobileApp) installNotificationHandler() {
 	})
 }
 
+func notificationSessionTitle(state remotewire.Snapshot, id string) string {
+	for _, project := range state.Projects {
+		for _, session := range project.Sessions {
+			if session.ID == id && strings.TrimSpace(session.Title) != "" {
+				return session.Title
+			}
+		}
+	}
+	return apptext.T("会话")
+}
+
 func (a *mobileApp) notifySession(id string, waiting bool) {
 	if !a.notifyOn.GetUntracked() || id == "" {
 		return
@@ -43,7 +55,8 @@ func (a *mobileApp) notifySession(id string, waiting bool) {
 	if waiting {
 		body = apptext.T("会话正在等待你的确认。")
 	}
-	_ = a.cx.ShowNotification(core.Notification{ID: a.notificationPrefix() + id, Title: "PiDeck V2", Body: body, Silent: a.soundOn.GetUntracked()}, nil)
+	title := notificationSessionTitle(a.state.GetUntracked(), id)
+	_ = a.cx.ShowNotification(core.Notification{ID: a.notificationPrefix() + id, Title: title, Body: body, Silent: a.soundOn.GetUntracked()}, nil)
 }
 
 func (a *mobileApp) notificationSettings(colors ui.Colors) core.Node {

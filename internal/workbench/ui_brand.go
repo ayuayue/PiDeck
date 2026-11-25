@@ -26,23 +26,17 @@ func logoMark(style string, custom brandImage, size core.Points, testID string) 
 				Label: apptext.T("自定义 Logo"), TestID: testID, Style: frame}
 		}
 	}
-	if style == logoStyleClassic {
-		// The same tile and glyph as the TUI preset, in one silver tone: the
-		// two presets must look different, and the packaged icon is now the
-		// colored artwork rather than this mark.
-		frame.Background, frame.CornerRadius = core.RGB(0x111113), size*0.24
-		frame.AlignItems, frame.JustifyContent = core.AlignCenter, core.JustifyCenter
-		glyph := size * 0.5625
-		return core.View{TestID: testID, Style: frame, Children: []core.Node{
-			core.SVGView{SVG: piClassicLogo, Label: apptext.T("pi 经典 Logo"),
-				Style: core.Style{Width: core.Pt(glyph), Height: core.Pt(glyph)}},
-		}}
-	}
-	frame.Background, frame.CornerRadius = core.RGB(0x09090b), size*0.24
+
+	frame.Background, frame.CornerRadius = core.RGB(0xffffff), size*228/1024
+	frame.BorderWidth, frame.BorderColor = 1, core.RGB(0xe5e5e5)
 	frame.AlignItems, frame.JustifyContent = core.AlignCenter, core.JustifyCenter
-	glyph := size * 0.5625
+	glyph := size * 0.65
+	mark, label := piTUILogo, apptext.T("pi TUI 彩色 Logo")
+	if style == logoStyleClassic {
+		mark, label = piClassicLogo, apptext.T("pi 经典 Logo")
+	}
 	return core.View{TestID: testID, Style: frame, Children: []core.Node{
-		core.SVGView{SVG: piTUILogo, Label: apptext.T("pi TUI 彩色 Logo"),
+		core.SVGView{SVG: mark, Label: label,
 			Style: core.Style{Width: core.Pt(glyph), Height: core.Pt(glyph)}},
 	}}
 }
@@ -92,7 +86,8 @@ func (a *app) brand() core.Node {
 								LetterSpacing: 0.4, MinWidth: core.Pt(0), FlexShrink: 1}, StyleFunc: ui.Colored(colors.Text)},
 						core.View{Style: core.Style{Padding: core.Symmetric(1, 5), CornerRadius: 4, FlexShrink: 0,
 							BorderWidth: 1, BorderColor: colors.Border()}, Children: []core.Node{
-							ui.Text("v2", 10, ui.Regular, colors.Faint),
+							core.Text{Content: "v" + brandVersion(), TestID: "rail-brand-version",
+								Style: core.Style{FontSize: 10, FontWeight: ui.Regular}, StyleFunc: ui.Colored(colors.Faint)},
 						}},
 					}},
 					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, MinWidth: core.Pt(0)}, Children: []core.Node{
@@ -236,7 +231,7 @@ func (a *app) brandingGroup(colors ui.Colors) core.Node {
 	return setGroup("品牌",
 		core.View{Style: core.Style{Gap: 6, Padding: core.Symmetric(6, 2)}, Children: []core.Node{
 			ui.Text(apptext.T("Logo 风格"), 12.5, ui.Regular, colors.Text),
-			ui.Text(apptext.T("内置 pi 官方的 TUI 三色与经典银灰标，也可选择自己的图片。"), 11, ui.Regular, colors.Muted),
+			ui.Text(apptext.T("内置 pi 官方的 TUI 三色与经典标，均为白色圆角底板，也可选择自己的图片。"), 11, ui.Regular, colors.Muted),
 			core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 7}, Children: options},
 		}},
 		setDivider(),

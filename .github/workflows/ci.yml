@@ -45,7 +45,7 @@ jobs:
             macOS) target=macos_arm64 ;;
             *) target=linux_x64 ;;
           esac
-          go tool nsgo build -target "$target" -installers=false -version 0.0.1-ci
+          go tool nsgo build -target "$target" -installers=false
 
       - name: Check
         run: go tool nsgo check
@@ -125,7 +125,7 @@ jobs:
       # catches an Android build breaking before a tag does. It stays out of
       # the release until a stable signing key is configured.
       - name: Build APK
-        run: go tool nsgo build -target android_arm64 -version 0.0.1-ci
+        run: go tool nsgo build -target android_arm64
 
       - uses: actions/upload-artifact@v7
         with:
@@ -149,7 +149,7 @@ jobs:
       # Apple account, and the device package signs only when nsgo.yaml
       # names a profile.
       - name: Build for the simulator
-        run: go tool nsgo build -target ios_simulator -version 0.0.1-ci
+        run: go tool nsgo build -target ios_simulator
 
       - uses: actions/upload-artifact@v7
         with:
@@ -217,7 +217,7 @@ jobs:
       # darwin targets are compile-only. release.yml builds them on macOS.
       - name: Build
         if: matrix.goos != 'darwin'
-        run: go tool nsgo build -target "${{ matrix.target }}" -installers=false -version 0.0.1-ci
+        run: go tool nsgo build -target "${{ matrix.target }}" -installers=false
 
       - name: Compile (darwin packaging needs Apple tools)
         if: matrix.goos == 'darwin'

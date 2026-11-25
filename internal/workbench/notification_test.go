@@ -42,11 +42,20 @@ func TestNotificationOpensSession(t *testing.T) {
 
 	ws := built.workspaces.GetUntracked()[0]
 	s := built.makeSession(sessionMeta{ID: "notify-a", Cwd: ws.Path, Title: "通知会话", Updated: time.Now()}, ws.Target)
+	s.turns.Set([]turn{{Final: "回答好了"}})
+	built.cfg.NotifyOnDone = true
+	built.cfg.NotifyOnlyHidden = false
 	built.setupNotifications()
-	built.notifyDesktop(sessionNotificationPrefix+s.ID, "PiDeck V2", "回答好了", nil)
+	built.notifyTurnDone(s)
 	screen.Advance(100 * time.Millisecond)
 	if len(screen.Notifications) != 1 || screen.Notifications[0].ID != "session:notify-a" {
 		t.Fatalf("notifications = %v, want session:notify-a", screen.Notifications)
+	}
+	if got := screen.Notifications[0].Title; got != "通知会话" {
+		t.Fatalf("notification title = %q, want the session title without the app name", got)
+	}
+	if got := screen.Notifications[0].Body; got != "回答好了" {
+		t.Fatalf("notification body = %q, want the final answer", got)
 	}
 
 	screen.PressNotification("session:notify-a")

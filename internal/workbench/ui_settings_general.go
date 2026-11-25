@@ -175,7 +175,7 @@ func (a *app) settingsGeneral() core.Node {
 					setDivider(),
 					setRow("测试通知", "发一条系统通知，确认这台机器收得到。",
 						ui.Button{Text: apptext.T("发一条"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
-							a.notifyDesktop("pideck:test", "PiDeck V2", "通知已开启，一轮完成时会这样提醒。", func(shown bool) {
+							a.notifyDesktop("pideck:test", apptext.T("测试通知"), "通知已开启，一轮完成时会这样提醒。", func(shown bool) {
 								if !shown {
 									a.toast(ui.ToastInfo, "系统没有接收通知", "请检查系统的通知权限，或安装后再试。")
 								}

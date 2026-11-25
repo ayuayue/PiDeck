@@ -96,7 +96,7 @@ func (a *app) attachMainWindow() {
 		w.Hide()
 		if !a.trayHinted {
 			a.trayHinted = true
-			a.notifyDesktop("pideck:tray-hint", "PiDeck V2 仍在运行", "点托盘图标可以重新打开窗口。", nil)
+			a.notifyDesktop("pideck:tray-hint", apptext.T("仍在运行"), "点托盘图标可以重新打开窗口。", nil)
 		}
 	})
 }
@@ -211,7 +211,11 @@ func (a *app) notifyTurnDone(s *session) {
 	if body == "" {
 		body = "这一轮已完成。"
 	}
-	a.notifyDesktop(sessionNotificationPrefix+s.ID, "PiDeck V2 · "+s.title.GetUntracked(), body, nil)
+	title := strings.TrimSpace(s.title.GetUntracked())
+	if title == "" {
+		title = apptext.T("会话")
+	}
+	a.notifyDesktop(sessionNotificationPrefix+s.ID, title, body, nil)
 }
 
 // notifyDesktop posts a system notification. The ID is what a press reports

@@ -6,8 +6,28 @@ package assets
 import (
 	"bytes"
 	"image/png"
+	"os"
 	"testing"
 )
+
+func TestPlatformIconArtwork(t *testing.T) {
+	for _, name := range []string{"Icon.png", "Icon-windows.png"} {
+		raw, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		icon, err := png.Decode(bytes.NewReader(raw))
+		if err != nil {
+			t.Fatalf("decode %s: %v", name, err)
+		}
+		if bounds := icon.Bounds(); bounds.Dx() != 1024 || bounds.Dy() != 1024 {
+			t.Errorf("%s = %dx%d, want 1024x1024", name, bounds.Dx(), bounds.Dy())
+		}
+		if _, _, _, alpha := icon.At(0, 0).RGBA(); alpha != 0 {
+			t.Errorf("%s outside corner is not transparent", name)
+		}
+	}
+}
 
 func TestArtwork(t *testing.T) {
 	logo, err := png.Decode(bytes.NewReader(LogoPNG))
@@ -17,8 +37,12 @@ func TestArtwork(t *testing.T) {
 	if b := logo.Bounds(); b.Dx() != 512 || b.Dy() != 512 {
 		t.Fatalf("logo = %dx%d, want 512x512", b.Dx(), b.Dy())
 	}
-	if _, _, _, a := logo.At(256, 256).RGBA(); a == 0 {
-		t.Fatal("the logo's middle should be drawn")
+	if _, _, _, a := logo.At(0, 0).RGBA(); a != 0 {
+		t.Fatal("the logo's outside corner should be transparent")
+	}
+	red, green, blue, alpha := logo.At(256, 64).RGBA()
+	if alpha == 0 || red != alpha || green != alpha || blue != alpha {
+		t.Fatal("the logo's tile should have a white background")
 	}
 
 	glyph, err := png.Decode(bytes.NewReader(TrayGlyphPNG))

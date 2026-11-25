@@ -127,9 +127,14 @@ func TestBrandPopoverAndSettings(t *testing.T) {
 		return built.view()
 	}, nsgotest.Size(1200, 800))
 	t.Cleanup(built.closeDiag)
+	if got, want := screen.Find("id:rail-brand-version").Text, "v"+brandVersion(); got != want {
+		t.Fatalf("rail version = %q, want %q", got, want)
+	}
 	screen.Press("id:rail-brand")
 	screen.WaitFor("id:brand-info", 5*time.Second)
-	screen.Find("id:brand-app-version")
+	if got, want := screen.Find("id:brand-app-version").Text, "PiDeck V2 · v"+brandVersion(); got != want {
+		t.Fatalf("app version = %q, want %q", got, want)
+	}
 	screen.Find("id:brand-pi-version")
 	screen.Key("escape")
 	screen.WaitForGone("id:brand-info", 5*time.Second)
@@ -146,9 +151,7 @@ func TestBrandPopoverAndSettings(t *testing.T) {
 		t.Fatalf("rail name = %q", got)
 	}
 	screen.Press("id:brand-logo-classic")
-	// The classic preset is the silver vector mark, not the packaged icon:
-	// the icon became the colored artwork, which left both presets drawing
-	// one picture.
+	// The classic preset is the dark vector mark, distinct from the colored artwork.
 	if mark := screen.Find("id:rail-brand-logo"); mark.Kind != nsgotest.KindView || len(mark.Children) == 0 {
 		t.Fatalf("the classic preset did not reach the rail as a drawn mark (kind %v)", mark.Kind)
 	}
@@ -263,7 +266,7 @@ func TestBrandScreens(t *testing.T) {
 	const longName = "My Personal Pi Workspace"
 	screen.Type("id:brand-display-name", longName)
 	screen.WaitUntil(5*time.Second, func() bool { return screen.Find("id:rail-brand-name").Text == longName })
-	built.setRailWidth(240)
+	screen.Post(func() { built.setRailWidth(240) })
 	screen.Settle()
 	screen.Press("id:rail-brand")
 	screen.WaitFor("id:brand-info", 5*time.Second)
@@ -274,7 +277,7 @@ func TestBrandScreens(t *testing.T) {
 	shot(screen, "brand/03-long-name")
 	screen.Key("escape")
 	screen.WaitForGone("id:brand-info", 5*time.Second)
-	built.setTheme("dark")
+	screen.Post(func() { built.setTheme("dark") })
 	screen.Settle()
 	screen.Press("id:rail-brand")
 	screen.WaitFor("id:brand-info", 5*time.Second)

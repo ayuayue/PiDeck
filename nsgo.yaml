@@ -15,6 +15,7 @@ updates:
 
 icon:
   png: assets/Icon.png
+  windows: assets/Icon-windows.png
 
 # macOS and iOS use assets/AppIcon.icon, or assets/AppIcon.icns on macOS; the
 # other targets, and Apple ones without those, use assets/Icon.png. An Apple

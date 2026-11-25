@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"example.com/pideck-v2/internal/appinfo"
 	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -28,7 +29,7 @@ func telemetryTestOptions(t *testing.T, post func(url string, body []byte) error
 		Host:       "https://ph.example/",
 		Now:        time.Date(2026, 3, 4, 23, 30, 0, 0, time.Local),
 		Settings:   config{TelemetryEnabled: &on},
-		Meta:       telemetryMeta{Version: "0.2.0", Platform: "windows", Arch: "amd64"},
+		Meta:       telemetryMeta{Version: appinfo.Version, Platform: "windows", Arch: "amd64"},
 		Snapshot:   collectTelemetrySnapshot(telemetrySnapshotInput{Language: apptext.LangEnUS, Theme: "system", SessionsTotal: 4, ProjectsTotal: 2}),
 		Post:       post,
 	}
@@ -63,7 +64,7 @@ func TestTelemetryHeartbeat(t *testing.T) {
 	for key, want := range map[string]any{
 		"app":            "pideck-v2",
 		"app_name":       "PiDeck V2",
-		"app_version":    "0.2.0",
+		"app_version":    appinfo.Version,
 		"platform":       "windows",
 		"arch":           "amd64",
 		"install_id":     "known-install",
@@ -78,7 +79,7 @@ func TestTelemetryHeartbeat(t *testing.T) {
 	if !ok {
 		t.Fatalf("$set = %v", props["$set"])
 	}
-	if set["app"] != "pideck-v2" || set["app_version"] != "0.2.0" {
+	if set["app"] != "pideck-v2" || set["app_version"] != appinfo.Version {
 		t.Fatalf("$set = %v", set)
 	}
 }
@@ -140,10 +141,10 @@ func TestTelemetryInstallID(t *testing.T) {
 }
 
 func TestTelemetryPayloadFixedFields(t *testing.T) {
-	payload := telemetryPayload("key", telemetryMeta{Version: "0.2.0", Platform: "linux", Arch: "arm64"},
+	payload := telemetryPayload("key", telemetryMeta{Version: appinfo.Version, Platform: "linux", Arch: "arm64"},
 		map[string]any{"app": "someone-else", "app_version": "9.9.9"}, "id")
 	props := payload["properties"].(map[string]any)
-	if props["app"] != "pideck-v2" || props["app_version"] != "0.2.0" {
+	if props["app"] != "pideck-v2" || props["app_version"] != appinfo.Version {
 		t.Fatalf("properties = %v", props)
 	}
 	set := props["$set"].(map[string]any)

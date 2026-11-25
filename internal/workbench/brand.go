@@ -46,14 +46,12 @@ var piTUILogo = core.MustParseSVG([]byte(`<svg viewBox="0 0 4 4">
 <path fill="#EAB65D" d="M3 2H4V4H3Z"/>
 </svg>`))
 
-// piClassicLogo is the same geometry in one silver tone: the monochrome mark
-// pi shows where color would fight the terminal, and the alternative the
-// settings offer beside the TUI colors. It stays a vector so both presets
-// scale without depending on a packaged image.
+// piClassicLogo is the same geometry in a dark ink that stays legible on the
+// white tile shared by the built-in logo presets.
 var piClassicLogo = core.MustParseSVG([]byte(`<svg viewBox="0 0 4 4">
-<path fill="#D8D8D8" d="M0 0H3V2H2V1H0Z"/>
-<path fill="#F5F5F5" d="M0 1H1V2H2V3H1V4H0Z"/>
-<path fill="#B0B0B0" d="M3 2H4V4H3Z"/>
+<path fill="#18181b" d="M0 0H3V2H2V1H0Z"/>
+<path fill="#18181b" d="M0 1H1V2H2V3H1V4H0Z"/>
+<path fill="#18181b" d="M3 2H4V4H3Z"/>
 </svg>`))
 
 // brandImage is decoded once when settings load or an image is chosen.

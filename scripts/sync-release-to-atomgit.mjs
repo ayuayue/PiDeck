@@ -15,10 +15,10 @@
  * 4. 所有请求都有超时：对象存储连接挂起不能让 CI job 卡死。
  *
  * 用法：
- *   node scripts/sync-release-to-atomgit.mjs --tags v0.2.0
- *   ATOMGIT_TOKEN=xxx node scripts/sync-release-to-atomgit.mjs --tags v0.1.0,v0.2.0
- *   ATOMGIT_TOKEN=xxx node scripts/sync-release-to-atomgit.mjs --tags v0.2.0 --force-resync
- *   ATOMGIT_TOKEN=xxx node scripts/sync-release-to-atomgit.mjs --tags v0.2.0 --dry-run
+ *   node scripts/sync-release-to-atomgit.mjs --tags v2.0.0
+ *   ATOMGIT_TOKEN=xxx node scripts/sync-release-to-atomgit.mjs --tags "v2.0.0,${OTHER_TAG}"
+ *   ATOMGIT_TOKEN=xxx node scripts/sync-release-to-atomgit.mjs --tags v2.0.0 --force-resync
+ *   ATOMGIT_TOKEN=xxx node scripts/sync-release-to-atomgit.mjs --tags v2.0.0 --dry-run
  */
 
 import fs from "node:fs";
@@ -49,7 +49,7 @@ const forceResync = args.includes("--force-resync");
 const dryRun = args.includes("--dry-run");
 
 if (!tags.length) {
-	console.error("缺少 --tags（可逗号分隔多个应用版本标签，如 v0.2.0）");
+	console.error("缺少 --tags（可逗号分隔多个应用版本标签，如 v2.0.0）");
 	process.exit(2);
 }
 if (!token) {

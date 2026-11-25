@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"example.com/pideck-v2/internal/appinfo"
 	"example.com/pideck-v2/internal/remotewire"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -19,7 +20,7 @@ import (
 func TestMobileSessionActions(t *testing.T) {
 	const token = "phone-token"
 	var mu sync.Mutex
-	state := remotewire.Snapshot{Name: "PiDeck V2", Version: "0.2.0", Host: "desk", Projects: []remotewire.Project{{
+	state := remotewire.Snapshot{Name: "PiDeck V2", Version: appinfo.Version, Host: "desk", Projects: []remotewire.Project{{
 		Path: "/tmp/project", Name: "电脑项目", Sessions: []remotewire.Session{
 			{ID: "s1", Title: "电脑上的会话", Status: "idle", Updated: time.Now().UnixMilli(),
 				Tokens: 1234, Context: 1234, ContextWindow: 128000, Cost: 0.02},
