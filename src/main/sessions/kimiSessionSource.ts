@@ -36,6 +36,7 @@ export type ParsedKimiSession = {
 };
 
 export type KimiImportMeta = {
+	version: number;
 	sourceMtime: number;
 	sourceSize: number;
 };

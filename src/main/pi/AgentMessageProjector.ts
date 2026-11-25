@@ -166,7 +166,10 @@ export class AgentMessageProjector {
 						// stopReason（provider 归一化）：历史 JSONL 已持久化，
 						// 渲染层据此精确区分中间/最终回复（与 live 路径同源）。
 						// 归一：被打断的纯文本回复在 pi 里记成 toolUse 但没有 toolCall 块，见 normalizePiStopReason。
-						const stopReason = normalizePiStopReason(typeof typed.stopReason === "string" && typed.stopReason ? typed.stopReason : undefined, hasPiToolCallBlock(typed.content));
+						// v2 Kimi 导入把阶段正文和随后的工具调用写在同一条 toolUse 中。
+						// 历史投影用 stop 标出正文边界，让后面的工具归到下一段执行过程。
+						const kimiTextBoundary = typed.api === "kimi-import" && typed.stopReason === "toolUse" && text.trim() && hasPiToolCallBlock(typed.content);
+						const stopReason = kimiTextBoundary ? "stop" : normalizePiStopReason(typeof typed.stopReason === "string" && typed.stopReason ? typed.stopReason : undefined, hasPiToolCallBlock(typed.content));
 						// 本条消息用的模型：pi 会话文件每条 assistant 消息自带 provider/model。
 						// 同一会话里用户会频繁换模型，时间线按条展示需要这个字段。
 						const modelProvider = typeof typed.provider === "string" ? typed.provider : "";
