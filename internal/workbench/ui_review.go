@@ -323,31 +323,10 @@ func reviewNotice(colors ui.Colors, icon func() *core.SVG, title, note, action s
 
 // reviewIcon is the row's kind and state in one glyph.
 func reviewIcon(item reviewItem) func() *core.SVG {
-	switch item.State {
-	case "MERGED":
-		return lucide.GitMerge
-	case "CLOSED":
-		if item.Kind == reviewPR {
-			return lucide.GitPullRequestClosed
-		}
-		return lucide.CircleSlash
-	}
-	if item.Kind == reviewPR {
-		return lucide.GitPullRequestArrow
-	}
-	return lucide.CircleDot
+	return viewkit.ReviewGlyph(item.State, item.Kind == reviewPR)
 }
 
 // reviewStateColor colors the row's glyph.
 func reviewStateColor(colors ui.Colors, item reviewItem) core.Color {
-	switch item.State {
-	case "MERGED":
-		return colors.Accent()
-	case "CLOSED":
-		return colors.Faint()
-	}
-	if item.Checks == checksFail {
-		return colors.Danger()
-	}
-	return colors.Up()
+	return viewkit.ReviewGlyphColor(colors, item.State, item.Checks == checksFail)
 }

@@ -10,6 +10,8 @@ package workbench
 import (
 	"encoding/json"
 	"time"
+
+	"example.com/pideck-v2/internal/viewkit"
 )
 
 // The two things the pane lists.
@@ -25,11 +27,12 @@ const (
 	filterAll    = "all"
 )
 
-// The checks' one-word summary a row shows.
+// The checks' one-word summary a row shows; the phone reads the same words
+// off the wire, so viewkit owns them.
 const (
-	checksPass    = "pass"
-	checksFail    = "fail"
-	checksPending = "pending"
+	checksPass    = viewkit.CheckPass
+	checksFail    = viewkit.CheckFail
+	checksPending = viewkit.CheckPending
 )
 
 // reviewItem is one row: a pull request or an issue.

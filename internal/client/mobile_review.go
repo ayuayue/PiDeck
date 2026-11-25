@@ -623,46 +623,26 @@ func (a *mobileApp) reviewFilterChip(colors ui.Colors, value, label string) core
 
 // reviewCheckMark is a check summary as one glyph.
 func (a *mobileApp) reviewCheckMark(colors ui.Colors, state string) core.Node {
+	var tint core.Color
 	switch state {
-	case "pass":
-		return ui.Icon(lucide.CircleCheck, 12, colors.Up)
-	case "fail":
-		return ui.Icon(lucide.CircleX, 12, colors.Danger)
-	case "pending":
-		return ui.Icon(lucide.Clock, 12, colors.Warn)
+	case viewkit.CheckPass:
+		tint = colors.Up()
+	case viewkit.CheckFail:
+		tint = colors.Danger()
+	default:
+		tint = colors.Warn()
 	}
-	return nil
+	return ui.Icon(viewkit.ReviewCheckGlyph(state), 12, func() core.Color { return tint })
 }
 
 // reviewIcon is an item's kind and state in one glyph.
 func (a *mobileApp) reviewIcon(item remotewire.ReviewItem) func() *core.SVG {
-	switch item.State {
-	case "MERGED":
-		return lucide.GitMerge
-	case "CLOSED":
-		if item.Kind == "pr" {
-			return lucide.GitPullRequestClosed
-		}
-		return lucide.CircleSlash
-	}
-	if item.Kind == "pr" {
-		return lucide.GitPullRequestArrow
-	}
-	return lucide.CircleDot
+	return viewkit.ReviewGlyph(item.State, item.Kind == "pr")
 }
 
 // reviewColor colors an item's glyph.
 func (a *mobileApp) reviewColor(colors ui.Colors, item remotewire.ReviewItem) core.Color {
-	switch item.State {
-	case "MERGED":
-		return colors.Accent()
-	case "CLOSED":
-		return colors.Faint()
-	}
-	if item.Checks == "fail" {
-		return colors.Danger()
-	}
-	return colors.Up()
+	return viewkit.ReviewGlyphColor(colors, item.State, item.Checks == viewkit.CheckFail)
 }
 
 // reviewStateLabel is an item's state in words.

@@ -379,13 +379,7 @@ func reviewReviewBadge(state string) core.Node {
 
 // reviewCheckIcon is one check's glyph.
 func reviewCheckIcon(state string) func() *core.SVG {
-	switch state {
-	case checksPass:
-		return lucide.CircleCheck
-	case checksFail:
-		return lucide.CircleX
-	}
-	return lucide.Clock
+	return viewkit.ReviewCheckGlyph(state)
 }
 
 // reviewChecksSummary counts the checks by state.
