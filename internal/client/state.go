@@ -275,6 +275,9 @@ type mobileApp struct {
 	// arrives after a switch is dropped instead of filling the page.
 	transcriptSeq int
 	refreshing    *core.Signal[bool]
+	// busyMark is what the header's spinner follows: a read slow enough to
+	// be worth explaining, not every poll the page makes on its own.
+	busyMark *core.Signal[bool]
 }
 
 // newMobileApp builds the phone's state and reconnects to the last server.
@@ -293,17 +296,17 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		connected:           core.NewSignal(cx, false),
 		serverName:          core.NewSignal(cx, "PiDeck V2"),
 		desktopVersion:      core.NewSignal(cx, ""),
-		state:               core.NewSignalFunc(cx, remotewire.Snapshot{}, nil),
+		state:               core.NewSignalFunc(cx, remotewire.Snapshot{}, sameSnapshot),
 		active:              core.NewSignal(cx, ""),
 		activeTitle:         core.NewSignal(cx, ""),
-		messages:            core.NewSignalFunc(cx, []remotewire.Message(nil), nil),
+		messages:            core.NewSignalFunc(cx, []remotewire.Message(nil), sameMessages),
 		transcriptErr:       core.NewSignal(cx, ""),
 		sendErr:             core.NewSignal(cx, ""),
 		transcriptBusy:      core.NewSignal(cx, false),
 		transcriptTruncated: core.NewSignal(cx, false),
 		messagesBefore:      core.NewSignal(cx, 0),
 		olderBusy:           core.NewSignal(cx, false),
-		ask:                 core.NewSignalFunc(cx, (*remotewire.Ask)(nil), nil),
+		ask:                 core.NewSignalFunc(cx, (*remotewire.Ask)(nil), sameAsk),
 		askText:             core.NewSignal(cx, ""),
 		askSending:          core.NewSignal(cx, false),
 		askPicks:            core.NewSignalFunc(cx, []remotewire.AskAnswer(nil), nil),
@@ -358,6 +361,7 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		fileErr:             core.NewSignal(cx, ""),
 		fileFind:            core.NewSignal(cx, ""),
 		refreshing:          core.NewSignal(cx, false),
+		busyMark:            core.NewSignal(cx, false),
 		query:               core.NewSignal(cx, ""),
 		searchOpen:          core.NewSignal(cx, false),
 		findOpen:            core.NewSignal(cx, false),
@@ -442,6 +446,7 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 	a.notifyOn.Set(saved.Notify)
 	a.installNotificationHandler()
 	a.sounds = alerts.New(cx)
+	a.watchBusy(cx)
 	// A page is served by a desktop, so its origin is the server and a link's
 	// ?token= the token; a saved connection wins only over the origin.
 	entry := webStart()

@@ -272,7 +272,14 @@ func (a *mobileApp) refreshTranscript() {
 	a.transcriptSeq++
 	seq := a.transcriptSeq
 	visit := a.sessionSeq
-	a.transcriptBusy.Set(true)
+	// The waiting skeleton belongs to a first read of the visit. A poll
+	// that only refreshes the page behind the reader must not redraw it:
+	// flipping this every second or two is what made the header flicker and
+	// swallowed a tap that landed mid-rebuild.
+	first := len(a.messages.GetUntracked()) == 0
+	if first {
+		a.transcriptBusy.Set(true)
+	}
 	go func() {
 		t, err := client.transcript(id, 0)
 		a.cx.Post(func() {
@@ -378,22 +385,9 @@ func keepBefore(current, next int) int {
 	return next
 }
 
-// setTranscriptMessages publishes a read's messages only when they differ,
-// so the twice-a-second poll does not rebuild the whole page under the
-// reader.
+// setTranscriptMessages keeps the page's lines. The signal compares by
+// content, so a poll that brought back the same page draws nothing: the
+// twice-a-second read must not rebuild the page under the reader.
 func (a *mobileApp) setTranscriptMessages(next []remotewire.Message) {
-	old := a.messages.GetUntracked()
-	if len(old) == len(next) {
-		same := true
-		for i := range next {
-			if old[i] != next[i] {
-				same = false
-				break
-			}
-		}
-		if same {
-			return
-		}
-	}
 	a.messages.Set(next)
 }

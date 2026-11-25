@@ -136,7 +136,7 @@ func (a *mobileApp) railBrand(cx *core.Scope) core.Node {
 			// The list refreshes itself every couple of seconds; the button
 			// shows only while it is reading, or when the last read failed.
 			core.Dynamic(func(cx *core.Scope) core.Node {
-				if a.refreshing.Get() {
+				if a.busyMark.Get() {
 					return core.View{Style: core.Style{Width: core.Pt(30), Height: core.Pt(30), AlignItems: core.AlignCenter,
 						JustifyContent: core.JustifyCenter}, Children: []core.Node{ui.Spinner{Size: 11, Label: apptext.T("刷新")}}}
 				}
@@ -325,7 +325,7 @@ func (a *mobileApp) pageHeader(cx *core.Scope, title, subtitle string, actions .
 		}},
 	}})
 	children = append(children, core.Dynamic(func(*core.Scope) core.Node {
-		if a.transcriptBusy.Get() || a.refreshing.Get() {
+		if a.busyMark.Get() {
 			return ui.Spinner{Size: 12, Label: apptext.T("刷新")}
 		}
 		return nil
