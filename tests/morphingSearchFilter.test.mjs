@@ -109,7 +109,8 @@ test("命中只决定留下，保持调用方原有顺序（不按分数重排�
 test("侧栏装配：会话项与项目项都带拼音键（源码契约）", () => {
 	// 组件层无法在 node 里跑，这里钉住「装配点仍然喂了 pinyin」——
 	// 漏掉这一行会让拼音通道静默失效（面板能开、只是搜不到），必须靠契约测试兜住。
-	const source = readFileSync("src/renderer/src/components/sidebar/SidebarContent.tsx", "utf8");
+	// 条目构造已从 SidebarContent 抽到 sidebarSearchItems（#610，行数硬上限），契约跟到新家。
+	const source = readFileSync("src/renderer/src/components/sidebar/sidebarSearchItems.ts", "utf8");
 	// import 名单允许伴随导入（ensurePinyinTable 按需装载字典），只钉住 pinyinKeys 仍从该模块装配。
 	assert.match(source, /import\s*\{[^}]*\bpinyinKeys\b[^}]*\}\s*from\s*"\.\.\/\.\.\/utils\/pinyinSearch";/);
 	assert.match(source, /pinyin:\s*pinyinKeys\(projectTitle\)/);

@@ -8,6 +8,8 @@ import test from "node:test";
  */
 
 const sidebar = readFileSync("src/renderer/src/components/sidebar/SidebarContent.tsx", "utf8");
+// 检索项构造已抽到 sidebarSearchItems（#610）：条目 id/打开行为要跟到新模块。
+const searchItemsSource = readFileSync("src/renderer/src/components/sidebar/sidebarSearchItems.ts", "utf8");
 
 test("sidebar search uses beUI MorphingSearch command palette", () => {
 	assert.match(sidebar, /from "\.\.\/motion\/morphing-search"/);
@@ -15,9 +17,11 @@ test("sidebar search uses beUI MorphingSearch command palette", () => {
 	assert.match(sidebar, /placeholder=\{t\("app\.searchSessions"\)\}/);
 	assert.match(sidebar, /onQueryChange=\{\(query\) => controller\.setSearch\(query\)\}/);
 	// 检索项由 catalog 扁平化构建：项目 + 会话，选中即打开/选中目标
-	assert.match(sidebar, /id: `project:\$\{project\.id\}`/);
-	assert.match(sidebar, /id: `session:\$\{session\.id\}`/);
-	assert.match(sidebar, /actions\.sessions\.open\(project\.id, session\.id\)/);
+	assert.match(searchItemsSource, /id: `project:\$\{project\.id\}`/);
+	assert.match(searchItemsSource, /id: `session:\$\{session\.id\}`/);
+	// 点击会话项交给注入的回调（SidebarContent 里接 actions.sessions.open + pendingMessageJump）
+	assert.match(searchItemsSource, /onSelect: \(\) => input\.onOpenSession\(project\.id, session\.id, fields\.jumpMessageId\)/);
+	assert.match(sidebar, /void actions\.sessions\.open\(projectId, sessionId\)/);
 	// 无匹配文案本地化
 	assert.match(sidebar, /emptyMessage=\{t\("app\.searchNoResults"\)\}/);
 });

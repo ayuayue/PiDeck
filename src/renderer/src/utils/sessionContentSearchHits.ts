@@ -52,3 +52,32 @@ export function buildSessionContentSearchHits(result: SessionSearchResult | null
 	}
 	return hits;
 }
+
+/**
+ * 命令面板（Ctrl+F）里一个会话项的正文维度（#610）。
+ *
+ * 面板原本只能按标题/预览命中，点开就只是「打开了会话」——用户搜的是正文里的词，
+ * 落点却在会话顶部。这里把正文命中折成三项：
+ * - `description`：换成命中片段（比预览更能解释「为什么它会出现在结果里」）；
+ * - `keywords`：片段也要参与匹配，否则标题不含这个词的命中会话根本进不了面板；
+ * - `jumpMessageId`：打开会话后必须定位到这条消息，有它才算真「命中」。
+ *
+ * 纯函数（无 DOM/atom 依赖）：面板过滤与点击行为都由它决定，回归见
+ * tests/sessionContentSearchHitMapping.test.mjs。
+ */
+export type SessionSearchItemFields = {
+	description?: string;
+	keywords: string[];
+	jumpMessageId?: string;
+};
+
+export function sessionSearchItemFields(preview: string | undefined, hit: SessionContentSearchHitView | undefined): SessionSearchItemFields {
+	if (!hit) return { description: preview, keywords: [] };
+	const snippet = hit.snippet.trim();
+	return {
+		description: snippet || preview,
+		// 片段单独进 keywords：标题不含查询词时，筛选项仍然留得下这个会话
+		keywords: snippet ? [snippet] : [],
+		jumpMessageId: hit.firstMessageId,
+	};
+}
