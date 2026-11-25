@@ -21,6 +21,7 @@ type settingEntry struct {
 
 // settingsIndex lists the settings by section and search words.
 var settingsIndex = []settingEntry{
+	{"general", "快捷短语与回复规则", "quick messages phrases reply actions shortcuts regex 快捷回复 正则 匹配 短语"},
 	{"general", "语言", "language locale english chinese traditional korean japanese russian french 简体 繁体 韩文 日文 俄语 法语 한국어 日本語 Русский Français"},
 	{"general", "内容宽度", "chat width content reading column narrow wide percentage percent 宽度 百分比"},
 	{"general", "Tab 栏宽度", "tab width bar label title percentage percent 标签 宽度 百分比"},

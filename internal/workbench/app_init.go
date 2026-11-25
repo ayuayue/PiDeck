@@ -393,6 +393,7 @@ func newApp(cx *core.Scope) *app {
 		piKeepText:             core.NewSignal(cx, ""),
 	}
 	a.toaster = ui.NewToaster(cx)
+	a.quickReplies = newReplyShortcutState(cx)
 	a.files = newFileTree(cx)
 	a.editor = newEditorHost(cx)
 	a.editor.onResult = func(title string, err error) {
@@ -609,6 +610,7 @@ func newApp(cx *core.Scope) *app {
 
 	a.ensureAddonDirs()
 	a.ensurePromptLibrary()
+	a.refreshReplyShortcuts(nil)
 	a.on(eventTurnDone, a.onPlanTurn)
 	a.on(eventTurnDone, a.onGoalTurn)
 	a.on(eventTurnDone, a.onQueuedTurn)

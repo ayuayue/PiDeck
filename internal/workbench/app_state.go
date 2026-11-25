@@ -82,6 +82,7 @@ type app struct {
 	notifications  *notificationHistory
 	translation    *core.Signal[*translationDraft]
 	promptTemplate *core.Signal[*promptTemplateForm]
+	quickReplies   *replyShortcutState
 	settingsSync   *core.Signal[*settingsSyncForm]
 	favKind        *core.Signal[string]
 	favQuery       *core.Signal[string]

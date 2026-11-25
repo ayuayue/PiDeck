@@ -108,6 +108,8 @@ func (a *app) settingsGeneral() core.Node {
 							Style:     core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10.5, MinWidth: core.Pt(44), TextAlign: core.TextAlignRight},
 							StyleFunc: ui.Colored(colors.Muted)},
 					}}),
+				setRow("快捷短语与回复规则", "管理常用短语，以及最新回复结束后按条件显示的发送按钮。",
+					ui.Button{Text: apptext.T("编辑"), Size: ui.SizeSmall, Variant: ui.ButtonSecondary, TestID: "settings-reply-shortcuts", OnPress: a.openReplyShortcutSettings}),
 				setGroup("新会话默认模型", core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6, Padding: core.Symmetric(4, 2)},
 					Children: modelChips}),
 				setGroup("新会话默认思考等级", core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6, Padding: core.Symmetric(4, 2)},

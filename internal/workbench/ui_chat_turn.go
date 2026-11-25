@@ -62,6 +62,7 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 					return a.replyContent(s, t, a.chatMarkdownLive(func() string { return t().Final }, func() bool { return false }, core.Style{}))
 				}},
 				a.turnFooter(s, t, now),
+				a.turnReplyShortcuts(s, t),
 				core.Show{When: func() bool { tt := t(); return !tt.running() && (tt.Final != "" || tt.Err != "") },
 					Then: func(cx *core.Scope) core.Node {
 						return core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4},

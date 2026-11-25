@@ -320,6 +320,10 @@ func builtinCommands() []appCommand {
 
 		{ID: "prompts", Label: "提示词库", Group: "应用", Shortcut: "mod+shift+p", Icon: lucide.Library,
 			Run: func(a *app) { a.openPromptLibrary() }},
+		{ID: "quick-messages", Label: "快捷短语", Group: "会话", Shortcut: "mod+shift+m", Icon: lucide.MessageSquareText,
+			When: func(a *app) bool { return a.active() != nil }, Run: func(a *app) { a.openQuickMessages(a.active()) }},
+		{ID: "reply-shortcuts", Label: "快捷短语与回复规则", Group: "应用", Icon: lucide.MessagesSquare,
+			Run: func(a *app) { a.openReplyShortcutSettings() }},
 		{ID: "save-prompt", Label: "保存当前草稿为提示词", Group: "会话", Icon: lucide.BookmarkPlus,
 			When: func(a *app) bool { return a.active() != nil },
 			Run:  func(a *app) { a.saveDraftPrompt() }},

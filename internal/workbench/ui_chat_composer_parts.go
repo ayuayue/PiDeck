@@ -29,6 +29,7 @@ func (a *app) composerAccessory(s *session) chat.View {
 			s.agentMode.Get()
 			var parts []core.Node
 			parts = append(parts, a.composerAddMenu(s))
+			parts = append(parts, hintOf(func() string { return apptext.T("快捷短语") }, composerChip{Icon: lucide.MessageSquareText, Name: apptext.T("快捷短语"), TestID: "composer-quick-messages", OnPress: func() { a.openQuickMessages(s) }}.node()))
 			if chip := a.composerModeChip(s); chip != nil {
 				parts = append(parts, chip)
 			}
