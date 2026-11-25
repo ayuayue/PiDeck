@@ -38,6 +38,9 @@ type gitRepo struct {
 	collapsed    *core.Signal[map[string]bool]
 	filesShown   *core.Signal[int]
 	historyShown *core.Signal[int]
+	// recentOpen is the commit box's recent-message menu: the status poll
+	// rebuilds the box, and an open menu must not close under the pointer.
+	recentOpen *core.Signal[bool]
 
 	// onResult lets the app toast an action's outcome: what it did, and the
 	// line the action reports under it.
@@ -67,6 +70,7 @@ func newGitRepo(cx *core.Scope) *gitRepo {
 		collapsed:    core.NewSignalFunc(cx, map[string]bool(nil), nil),
 		filesShown:   core.NewSignal(cx, gitFilesShown),
 		historyShown: core.NewSignal(cx, gitHistoryShown),
+		recentOpen:   core.NewSignal(cx, false),
 	}
 	g.history = commitgraph.NewHistory(cx, func() []commitgraph.Commit {
 		st := g.state.Get()
@@ -86,12 +90,12 @@ const (
 )
 
 // The rows each section shows before the rest waits behind a button: a
-// long list would push the commit box and the history off the panel.
+// long list would push the history off the panel.
 const (
-	gitFilesShown   = 6
+	gitFilesShown   = 10
 	gitFilesAll     = 1 << 20
-	gitHistoryShown = 4
-	gitHistoryPage  = 10
+	gitHistoryShown = 8
+	gitHistoryPage  = 20
 )
 
 // repo is the repository commands run in.
@@ -128,6 +132,7 @@ func (r *gitRepo) attach(ws *workspace) bool {
 	r.collapsed.Set(nil)
 	r.filesShown.Set(gitFilesShown)
 	r.historyShown.Set(gitHistoryShown)
+	r.recentOpen.Set(false)
 	if path == "" {
 		r.state.Set(gitState{Checked: true})
 		return true

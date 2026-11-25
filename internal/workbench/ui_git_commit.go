@@ -14,12 +14,15 @@ import (
 
 	"example.com/pideck-v2/internal/apptext"
 	"example.com/pideck-v2/internal/viewkit"
+	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// gitCommitBox is the message and the commit actions.
+// gitCommitBox is the message and the commit actions. It reads as one
+// field, not a card: the drawer's sections are flat, and a card inside the
+// field it holds is a box in a box.
 func (a *app) gitCommitBox(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	msgEmpty := func() bool { return strings.TrimSpace(a.git.msg.Get()) == "" }
@@ -27,27 +30,29 @@ func (a *app) gitCommitBox(cx *core.Scope) core.Node {
 	staged := func() int { return a.git.state.Get().stagedCount() }
 	changed := func() int { return len(a.git.state.Get().Files) }
 	amend := a.git.amend.Get
-	return core.View{Style: core.Style{Gap: 7, Padding: core.All(10), CornerRadius: 10, Background: colors.Surface(),
-		BorderWidth: 1, BorderColor: colors.Border()}, Children: []core.Node{
-		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
-			ui.Icon(lucide.GitCommitHorizontal, 13, colors.Muted),
-			ui.Text(apptext.T("提交"), 12, ui.Semibold, colors.Text),
+	return core.View{Style: core.Style{Gap: 8}, Children: []core.Node{
+		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinHeight: core.Pt(22)}, Children: []core.Node{
+			gitSectionTitle(colors, apptext.T("提交")),
+			// Nothing staged means nothing to commit: the count would
+			// only say zero.
+			core.Show{When: func() bool { return staged() > 0 }, Then: func(*core.Scope) core.Node {
+				return core.Text{ContentFunc: func() string { return fmt.Sprintf(apptext.T("已暂存 %d"), staged()) }, MaxLines: 1,
+					Style: core.Style{FontSize: 10.5}, StyleFunc: ui.Colored(colors.Faint)}
+			}},
 			core.View{Style: core.Style{FlexGrow: 1}},
-			core.Text{ContentFunc: func() string { return fmt.Sprintf(apptext.T("已暂存 %d"), staged()) }, MaxLines: 1,
-				Style: core.Style{FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
-			hint("生成提交摘要", a.pressIcon(lucide.Sparkles, apptext.T("生成提交摘要"), 21, 11,
+			hint("生成提交摘要", a.pressIcon(lucide.Sparkles, apptext.T("生成提交摘要"), 22, 12,
 				func() bool { return busy() || a.aiBusy.Get() != "" }, a.generateCommitMessage, "git-summary")),
 		}},
 		core.Input{
 			Value: a.git.msg.Get, OnChange: a.git.msg.Set, Multiline: true,
 			Placeholder: apptext.T("提交说明（第一行是标题）"), Label: apptext.T("提交说明"), TestID: "git-commit-message",
-			Style: core.Style{MinHeight: core.Pt(46), MaxHeight: core.Pt(120), Padding: core.Symmetric(7, 8), FontSize: 12, Color: colors.Text()},
+			Style: core.Style{MinHeight: core.Pt(52), MaxHeight: core.Pt(132), Padding: core.Symmetric(8, 9), FontSize: 12.5, Color: colors.Text()},
 			StyleFunc: func() core.Style {
-				return core.Style{Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6,
+				return core.Style{Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 8,
 					PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}
 			},
 		},
-		core.Dynamic(func(*core.Scope) core.Node { return recentMessages(a, a.git.state.Get()) }),
+		core.Dynamic(func(*core.Scope) core.Node { return a.recentMessageMenu(a.cx) }),
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 			ui.Checkbox{Checked: amend, OnChange: a.git.amend.Set, Text: apptext.T("修订上次提交"), Label: apptext.T("修订上次提交"),
 				Hint: apptext.T("把这次改动并入上一次提交，不新增提交"), Style: core.Style{FlexGrow: 1}},
@@ -62,9 +67,84 @@ func (a *app) gitCommitBox(cx *core.Scope) core.Node {
 		}},
 		core.Show{When: amend, Then: func(*core.Scope) core.Node {
 			return core.Text{Content: apptext.T("这次的暂存改动会并入上一次提交，不再新增提交。"),
-				Style: core.Style{FontSize: 9.5, LineHeight: 14}, StyleFunc: ui.Colored(colors.Faint)}
+				Style: core.Style{FontSize: 10.5, LineHeight: 15}, StyleFunc: ui.Colored(colors.Faint)}
 		}},
 	}}
+}
+
+// recentMessageMenu is the newest commit's message, with the ones before it
+// a press away: one quiet line instead of a row of chips, which shrink the
+// box and say the same thing three times.
+func (a *app) recentMessageMenu(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	subjects := gitRecentSubjects(a.git.state.Get().Commits, gitRecentMessages)
+	if len(subjects) == 0 {
+		return nil
+	}
+	items := make([]core.Node, 0, len(subjects))
+	for _, subject := range subjects {
+		subject := subject
+		items = append(items, base.MenuItem{
+			Label: subject, TestID: "git-msg-recent-item", OnSelect: func() { a.git.msg.Set(subject) },
+			Children: []core.Node{core.Text{Content: subject, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+				Style:     core.Style{FontSize: 12, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
+				StyleFunc: ui.Colored(colors.Text)}},
+			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Height: core.Pt(28),
+				Padding: core.Symmetric(0, 8), CornerRadius: 6},
+			StyleFunc: func() core.Style {
+				return core.Style{Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()},
+					Focus: &core.Style{Background: colors.Hover()}, Transition: viewkit.PressMotion}
+			},
+		})
+	}
+	return base.Menu{
+		Open: a.git.recentOpen.Get, OnOpenChange: func(open bool, _ base.Reason) { a.git.recentOpen.Set(open) },
+		Label: apptext.T("用最近的提交说明"), TestID: "git-msg-recent",
+		Placement: core.PlaceBottom, Align: core.AlignStart, Offset: 4, Margin: 8,
+		Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, Height: core.Pt(24),
+			MaxWidth: core.Pct(100), Padding: core.Symmetric(0, 5), CornerRadius: 6, FlexShrink: 1},
+		StyleFunc: func() core.Style {
+			return core.Style{Transition: viewkit.PressMotion, Hover: &core.Style{Background: colors.Hover()},
+				Active: &core.Style{Background: colors.Pressed()}, FocusVisible: ui.FocusRing(a.cx, 2)}
+		},
+		Trigger: core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, MinWidth: core.Pt(0)},
+			Children: []core.Node{
+				ui.Icon(lucide.Clock, 11, colors.Faint),
+				core.Text{Content: subjects[0], MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+					Style:     core.Style{FontSize: 11, FlexShrink: 1, MinWidth: core.Pt(0)},
+					StyleFunc: ui.Colored(colors.Muted)},
+				ui.Icon(lucide.ChevronDown, 10, colors.Faint),
+			}},
+		PopupStyle: a.menuPopup(cx), PopupStyleFunc: func() core.Style {
+			style := a.menuCard(a.cx)
+			style.MaxWidth = core.Pt(304)
+			return style
+		},
+		Children: items,
+	}
+}
+
+// gitRecentMessages is how many earlier subjects the menu offers.
+const gitRecentMessages = 8
+
+// gitRecentSubjects is the newest commit subjects, de-duplicated and cut to
+// limit: a repeated subject is one choice, not two rows saying the same
+// thing.
+func gitRecentSubjects(commits []gitCommit, limit int) []string {
+	out := make([]string, 0, limit)
+	seen := map[string]bool{}
+	for _, c := range commits {
+		subject := strings.TrimSpace(c.Subject)
+		if subject == "" || seen[subject] {
+			continue
+		}
+		seen[subject] = true
+		out = append(out, subject)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
 }
 
 // generateCommitMessage asks the commit tool's model for a message from
@@ -112,36 +192,4 @@ func (a *app) generateCommitMessage() {
 			a.toast(ui.ToastSuccess, apptext.T("提交摘要已生成"), viewkit.FirstLine(text, 90))
 		})
 	}()
-}
-
-// recentMessages offers the last commit subjects while the box is empty.
-func recentMessages(a *app, st gitState) core.Node {
-	colors := ui.ColorsOf(a.cx)
-	var chips []core.Node
-	seen := map[string]bool{}
-	for _, c := range st.Commits {
-		subject := strings.TrimSpace(c.Subject)
-		if subject == "" || seen[subject] {
-			continue
-		}
-		seen[subject] = true
-		text := subject
-		chips = append(chips, core.View{
-			OnPress: func(core.PressEvent) { a.git.msg.Set(text) },
-			Role:    core.RoleButton, Label: apptext.T("用上次的说明：") + subject, TestID: "git-msg-recent",
-			StyleFunc: func() core.Style {
-				return core.Style{MaxWidth: core.Pt(150), Height: core.Pt(20), Padding: core.Symmetric(0, 7), CornerRadius: 10,
-					BorderWidth: 1, BorderColor: colors.Border(), Hover: &core.Style{Background: colors.Hover()}}
-			},
-			Children: []core.Node{core.Text{Content: subject, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-				Style: core.Style{FontSize: 9.5}, StyleFunc: ui.Colored(colors.Muted)}},
-		})
-		if len(chips) >= 3 {
-			break
-		}
-	}
-	if len(chips) == 0 {
-		return core.View{}
-	}
-	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, Wrap: core.Wrap}, Children: chips}
 }

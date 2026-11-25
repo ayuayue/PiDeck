@@ -131,10 +131,10 @@ func (a *app) gitUpstreamLine(cx *core.Scope) core.Node {
 		row := []core.Node{
 			icon,
 			core.Text{Content: st.Upstream, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-				Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9.5, FlexShrink: 1, MinWidth: core.Pt(0)}, StyleFunc: ui.Colored(colors.Faint)},
+				Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10.5, FlexShrink: 1, MinWidth: core.Pt(0)}, StyleFunc: ui.Colored(colors.Faint)},
 		}
 		if st.Ahead == 0 && st.Behind == 0 {
-			row = append(row, ui.Text(apptext.T("已同步"), 9.5, ui.Regular, colors.Faint))
+			row = append(row, ui.Text(apptext.T("已同步"), 10.5, ui.Regular, colors.Faint))
 		}
 		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, MinWidth: core.Pt(0)}, Children: row}
 	})

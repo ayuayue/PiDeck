@@ -77,14 +77,14 @@ func TestGitHistoryScrolls(t *testing.T) {
 	root := func(cx *core.Scope) core.Node { built = newApp(cx); return built.view() }
 	screen := nsgotest.Start(t, root, nsgotest.Size(1280, 860))
 	screen.Press("id:git-toggle")
-	// The newest five commits are listed; the rest wait behind the
+	// The newest page of commits is listed; the rest wait behind the
 	// section's button, so the panel keeps its shape.
 	screen.WaitUntil(30*time.Second, func() bool { return len(screen.Query("id:git-commit-row")) == gitHistoryShown })
 	if rows := screen.Query("id:git-commit-row"); rows[0].Props.Label != "commit 30" {
 		t.Fatalf("newest commit = %q, want commit 30", rows[0].Props.Label)
 	}
 	screen.Press("id:git-log-more")
-	screen.WaitUntil(10*time.Second, func() bool { return len(screen.Query("id:git-commit-row")) > 5 })
+	screen.WaitUntil(10*time.Second, func() bool { return len(screen.Query("id:git-commit-row")) > gitHistoryShown })
 	// The drawer scrolls, and a status poll leaves the reader where they
 	// are: a poll must not rebuild the scroll view.
 	screen.Scroll("id:git-scroll", 400)

@@ -1535,7 +1535,7 @@
   "生成提交摘要": "Generate commit summary",
   "生成提交摘要失败": "Commit summary failed",
   "生成的图片": "Generated image",
-  "用上次的说明：": "Use last message: ",
+  "用最近的提交说明": "Use a recent commit message",
   "用对方版本": "Keep theirs",
   "用我的版本": "Keep mine",
   "用户主题": "User theme",

@@ -34,23 +34,23 @@ func (a *app) gitChangesBar(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	busy := func() bool { return a.git.busy.Get() != "" }
 	total := func() int { return len(a.git.state.Get().Files) }
-	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, MinHeight: core.Pt(22)}, Children: []core.Node{
+	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, MinHeight: core.Pt(24)}, Children: []core.Node{
 		gitSectionTitle(colors, apptext.T("更改")),
 		gitCount(colors, func() string { return fmt.Sprint(total()) }),
 		core.View{Style: core.Style{FlexGrow: 1}},
 		core.Dynamic(func(cx *core.Scope) core.Node {
 			if a.git.view.Get() == gitViewTree {
-				return hint("按列表显示", a.pressIcon(lucide.List, apptext.T("按列表显示"), 21, 12, nil,
+				return hint("按列表显示", a.pressIcon(lucide.List, apptext.T("按列表显示"), 22, 12.5, nil,
 					func() { a.setGitChangesView(gitViewFlat) }, "git-view-toggle"))
 			}
-			return hint("按目录树显示", a.pressIcon(lucide.FolderTree, apptext.T("按目录树显示"), 21, 12, nil,
+			return hint("按目录树显示", a.pressIcon(lucide.FolderTree, apptext.T("按目录树显示"), 22, 12.5, nil,
 				func() { a.setGitChangesView(gitViewTree) }, "git-view-toggle"))
 		}),
-		hint("暂存全部", a.pressIcon(lucide.Plus, apptext.T("暂存全部"), 21, 12,
+		hint("暂存全部", a.pressIcon(lucide.Plus, apptext.T("暂存全部"), 22, 12.5,
 			func() bool { return busy() || a.git.state.Get().changedCount() == 0 }, a.gitStageAll, "git-stage-all")),
-		hint("取消暂存全部", a.pressIcon(lucide.Minus, apptext.T("取消暂存全部"), 21, 12,
+		hint("取消暂存全部", a.pressIcon(lucide.Minus, apptext.T("取消暂存全部"), 22, 12.5,
 			func() bool { return busy() || a.git.state.Get().stagedCount() == 0 }, a.gitUnstageAll, "git-unstage-all")),
-		hint("丢弃全部改动", a.pressIcon(lucide.Undo2, apptext.T("丢弃全部改动"), 21, 12,
+		hint("丢弃全部改动", a.pressIcon(lucide.Undo2, apptext.T("丢弃全部改动"), 22, 12.5,
 			func() bool { return busy() || total() == 0 }, a.gitDiscardAll, "git-discard-all")),
 	}}
 }
@@ -77,28 +77,23 @@ func (a *app) gitChangesBody(cx *core.Scope) core.Node {
 		rows = append(rows, a.gitConflictsRow(cx, len(conflicts)))
 	}
 	hidden := 0
-	// group draws one group's heading and at most cap file rows; the
-	// folders above them come along, and are folded when there are too
-	// many of them. It reports how many rows it used.
-	group := func(title string, files []gitFile, isStaged bool, empty string, cap int) int {
-		heading := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5,
-			MinHeight: core.Pt(20), Margin: core.Edges{Top: 2}}, Children: []core.Node{
-			core.Text{Content: title, Style: core.Style{FontSize: 10.5, FontWeight: ui.Medium}, StyleFunc: ui.Colored(colors.Muted)},
-			gitCount(colors, func() string { return fmt.Sprint(len(files)) }),
-		}}
-		if len(files) == 0 {
-			rows = append(rows, heading, core.Text{Content: empty, Style: core.Style{FontSize: 10.5, Padding: core.Symmetric(3, 6)},
-				StyleFunc: ui.Colored(colors.Faint)})
-			return 2
+	// group draws one group: its heading, when the section's own heading does
+	// not already say it, then at most cap file rows. The folders above them
+	// come along, and are folded when there are too many of them.
+	group := func(title string, files []gitFile, isStaged bool, heading bool, cap int) {
+		if heading {
+			rows = append(rows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5,
+				MinHeight: core.Pt(22), Margin: core.Edges{Top: 4}}, Children: []core.Node{
+				core.Text{Content: title, Style: core.Style{FontSize: 11.5, FontWeight: ui.Medium}, StyleFunc: ui.Colored(colors.Muted)},
+				gitCount(colors, func() string { return fmt.Sprint(len(files)) }),
+			}})
 		}
 		list, drawn := a.gitFileRows(cx, files, tree, collapsed, isStaged, cap)
 		hidden += len(files) - drawn
-		rows = append(rows, heading)
 		rows = append(rows, list...)
-		return 1 + len(list)
 	}
 	if len(st.Files) == 0 {
-		rows = append(rows, core.Text{Content: apptext.T("工作区干净"), Style: core.Style{FontSize: 10.5, Padding: core.Symmetric(4, 6)},
+		rows = append(rows, core.Text{Content: apptext.T("工作区干净"), Style: core.Style{FontSize: 11.5, Padding: core.Symmetric(4, 6)},
 			StyleFunc: ui.Colored(colors.Faint)})
 	} else {
 		// When both groups have files, neither takes the whole budget:
@@ -110,8 +105,15 @@ func (a *app) gitChangesBody(cx *core.Scope) core.Node {
 			stagedCap = min(len(staged), max(2, budget/2))
 			worktreeCap = max(2, budget-stagedCap)
 		}
-		group(apptext.T("已暂存"), staged, true, apptext.T("还没有暂存的改动"), stagedCap)
-		group(apptext.T("更改"), worktree, false, apptext.T("工作区干净"), worktreeCap)
+		// An empty group is a heading and an apology, so only the groups
+		// with files are listed: an empty index leaves the section's own
+		// heading saying 更改 over the worktree's rows.
+		if len(staged) > 0 {
+			group(apptext.T("已暂存"), staged, true, true, stagedCap)
+		}
+		if len(worktree) > 0 {
+			group(apptext.T("更改"), worktree, false, len(staged) > 0, worktreeCap)
+		}
 	}
 	if hidden > 0 {
 		n := hidden
@@ -137,8 +139,8 @@ func (a *app) gitConflictsRow(cx *core.Scope, count int) core.Node {
 		Children: []core.Node{
 			ui.Icon(lucide.TriangleAlert, 12, colors.Danger),
 			core.Text{Content: apptext.T("%d 个文件有冲突", count), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-				Style: core.Style{FontSize: 11, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, StyleFunc: ui.Colored(colors.Danger)},
-			ui.Text(apptext.T("解决…"), 10.5, ui.Medium, colors.Danger),
+				Style: core.Style{FontSize: 12, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, StyleFunc: ui.Colored(colors.Danger)},
+			ui.Text(apptext.T("解决…"), 11, ui.Medium, colors.Danger),
 		}}
 }
 
@@ -150,9 +152,9 @@ func (a *app) gitListTail(label, testID string, press func()) core.Node {
 		Role: core.RoleButton, Label: label, TestID: testID,
 		StyleFunc: func() core.Style {
 			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
-				Height: core.Pt(24), CornerRadius: 6, Hover: &core.Style{Background: colors.Hover()}}
+				Height: core.Pt(26), CornerRadius: 6, Hover: &core.Style{Background: colors.Hover()}}
 		},
-		Children: []core.Node{core.Text{Content: label, MaxLines: 1, Style: core.Style{FontSize: 10.5}, StyleFunc: ui.Colored(colors.Muted)}}}
+		Children: []core.Node{core.Text{Content: label, MaxLines: 1, Style: core.Style{FontSize: 11.5}, StyleFunc: ui.Colored(colors.Muted)}}}
 }
 
 // gitFileRows draws a group within the row budget: the flat list of paths,
@@ -326,7 +328,7 @@ func (a *app) gitDirRow(cx *core.Scope, e gitChangeEntry) core.Node {
 		OnPress: func(core.PressEvent) { a.toggleGitFolder(e.Path) },
 		Role:    core.RoleButton, Label: e.Path, TestID: "git-dir",
 		StyleFunc: func() core.Style {
-			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, MinHeight: core.Pt(26),
+			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, MinHeight: core.Pt(30),
 				Padding: core.Edges{Left: core.Points(4 + e.Depth*12), Right: 4}, CornerRadius: 6, Transition: viewkit.PressMotion,
 				Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
 		},
@@ -336,15 +338,15 @@ func (a *app) gitDirRow(cx *core.Scope, e gitChangeEntry) core.Node {
 					return lucide.ChevronRight()
 				}
 				return lucide.ChevronDown()
-			}, 10, colors.Faint),
+			}, 11, colors.Faint),
 			ui.IconOf(func() *core.SVG {
 				if folded {
 					return lucide.Folder()
 				}
 				return lucide.FolderOpen()
-			}, 12, colors.Muted),
+			}, 13, colors.Muted),
 			core.Text{Content: e.Name, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-				Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11.5}, StyleFunc: ui.Colored(colors.Text)},
+				Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 12.5}, StyleFunc: ui.Colored(colors.Text)},
 			gitCount(colors, func() string { return fmt.Sprint(e.Count) }),
 		},
 	}
@@ -359,7 +361,7 @@ func (a *app) gitFileRow(cx *core.Scope, f gitFile, staged bool, depth int, show
 	// the flat list and truncates first when the drawer is narrow.
 	label := name
 	action := func(icon func() *core.SVG, label string, press func(), testID string) core.Node {
-		return a.pressIcon(icon, label, 20, 11, func() bool { return a.git.busy.Get() != "" }, press, testID)
+		return a.pressIcon(icon, label, 21, 11.5, func() bool { return a.git.busy.Get() != "" }, press, testID)
 	}
 	var actions []core.Node
 	switch {
@@ -384,21 +386,21 @@ func (a *app) gitFileRow(cx *core.Scope, f gitFile, staged bool, depth int, show
 		OnPress: func(core.PressEvent) { a.gitShowFileDiff(f, staged) },
 		Role:    core.RoleButton, Label: f.Path, TestID: testID,
 		StyleFunc: func() core.Style {
-			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinHeight: core.Pt(28),
+			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinHeight: core.Pt(30),
 				Padding: core.Edges{Left: core.Points(4 + depth*12), Right: 2}, CornerRadius: 6, Transition: viewkit.PressMotion,
 				Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
 		},
 		Children: []core.Node{
-			core.View{Style: core.Style{Width: core.Pt(15), Height: core.Pt(15), CornerRadius: 4, AlignItems: core.AlignCenter,
+			core.View{Style: core.Style{Width: core.Pt(16), Height: core.Pt(16), CornerRadius: 4, AlignItems: core.AlignCenter,
 				JustifyContent: core.JustifyCenter, Background: ui.Alpha(tone, 0.13), FlexShrink: 0},
-				Children: []core.Node{ui.Text(f.mark(), 9, ui.Semibold, func() core.Color { return tone })}},
+				Children: []core.Node{ui.Text(f.mark(), 9.5, ui.Semibold, func() core.Color { return tone })}},
 			core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5},
 				Children: []core.Node{
 					core.Text{Content: label, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-						Style: core.Style{FontSize: 11.5, FlexShrink: 1, MinWidth: core.Pt(0)}, StyleFunc: ui.Colored(colors.Text)},
+						Style: core.Style{FontSize: 12.5, FlexShrink: 1, MinWidth: core.Pt(0)}, StyleFunc: ui.Colored(colors.Text)},
 					core.Show{When: func() bool { return showPath && dir != "" }, Then: func(cx *core.Scope) core.Node {
 						return core.Text{Content: dir, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-							Style:     core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9, FlexShrink: 3, MinWidth: core.Pt(0)},
+							Style:     core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10, FlexShrink: 3, MinWidth: core.Pt(0)},
 							StyleFunc: ui.Colored(colors.Faint)}
 					}},
 				}},

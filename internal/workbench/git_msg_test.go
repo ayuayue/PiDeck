@@ -18,8 +18,12 @@ func TestGitRecentMessage(t *testing.T) {
 	}
 	dir, _ := gitFixture(t)
 	app := startGitApp(t, dir)
-	app.WaitFor("id:git-msg-recent >> nth=0", 20*time.Second)
-	app.Press("id:git-msg-recent >> nth=0")
+	// One line names the newest subject, and the dropdown holds it and the
+	// ones before it.
+	app.WaitFor("id:git-msg-recent", 20*time.Second)
+	app.Press("id:git-msg-recent")
+	app.WaitFor("id:git-msg-recent-item >> nth=1", 5*time.Second)
+	app.Press("id:git-msg-recent-item >> nth=0")
 	app.WaitUntil(5*time.Second, func() bool { return strings.TrimSpace(app.Find("id:git-commit-message").Text) != "" })
 	if got := strings.TrimSpace(app.Find("id:git-commit-message").Text); got != "second" {
 		t.Fatalf("message = %q, want the newest subject", got)

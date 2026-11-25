@@ -605,7 +605,7 @@
   "解决冲突": "Résoudre les conflits",
   "中止合并…": "Annuler la fusion...",
   "提交并推送": "Commit et push",
-  "用上次的说明：": "Utiliser le dernier message : ",
+  "用最近的提交说明": "Utiliser un message de commit récent",
   "先发布到 origin，才能提交并推送。": "Publiez d’abord vers Origin, puis vous pouvez valider et pousser.",
   "中止这次合并": "Annuler cette fusion",
   "回到操作前的状态；已经手动改好的冲突内容不会保留。": "Revient à l’état d’avant l’opération ; les modifications de conflit que vous avez effectuées ne seront pas conservées.",
