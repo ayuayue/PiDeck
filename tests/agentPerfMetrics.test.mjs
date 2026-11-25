@@ -16,7 +16,7 @@ test("AgentManager keeps per-agent streaming perf timers", () => {
 	// 计时状态：sendPrompt 请求时刻起表（首个 message_start 消费），首 delta 记 firstDeltaAt，正文首 delta 记 firstTextAt；
 	// agentStartAt/turnStartAt/messageStartAt 是阶段边界（归因日志用，首遇即记，0=未到）。
 	// 泛型参数可整体内联为一行，断言只锁字段名与类型语义（空白容忍，字段集变更须同步这里）。
-	assert.match(source, /perfByAgent = new Map<[\s\S]{0,20}?string,[\s\S]{0,20}?\{ startedAt: number; firstDeltaAt: number; firstTextAt: number; agentStartAt: number; turnStartAt: number; messageStartAt: number \}[\s\S]{0,20}?>\(\)/);
+	assert.match(source, /perfByAgent = new Map<[\s\S]{0,20}?string,[\s\S]{0,20}?\{ startedAt: number; firstDeltaAt: number; firstTextAt: number; deltaCount: number; agentStartAt: number; turnStartAt: number; messageStartAt: number \}[\s\S]{0,20}?>\(\)/);
 	assert.match(source, /lastPerfByAgent = new Map<string, MessagePerfSnapshot>\(\)/);
 	// AgentManager 持有唯一实例（域收口后不再有散落 Map）
 	assert.match(readAgentManager(), /private readonly messagePerf = new MessagePerfTracker\(\);/);
@@ -44,15 +44,17 @@ test("AgentManager starts the perf timer on message_start (idempotent)", () => {
 
 test("first content delta (text or thinking) stamps firstDeltaAt once", () => {
 	const source = readTracker();
-	// 首 token 判定：text_delta 与 thinking_delta 都算（用户最先感知到的是二者之一）
-	const markFirstDeltaBody = source.slice(source.indexOf("markFirstDelta(agentId: string): void {"), source.indexOf("ensureTimer(agentId: string): void {"));
-	assert.match(markFirstDeltaBody, /if \(perf && perf\.firstDeltaAt === 0\)/);
-	assert.match(markFirstDeltaBody, /perf\.firstDeltaAt = Date\.now\(\);/);
+	// 首 token 判定：text_delta 与 thinking_delta 都算（用户最先感知到的是二者之一）；
+	// delta 数每次都累加，它是「增量流式 vs 整段送达」的判据（#602）。
+	const noteDeltaBody = source.slice(source.indexOf("noteDelta(agentId: string): void {"), source.indexOf("ensureTimer(agentId: string): void {"));
+	assert.match(noteDeltaBody, /perf\.deltaCount \+= 1;/);
+	assert.match(noteDeltaBody, /if \(perf\.firstDeltaAt === 0\) perf\.firstDeltaAt = Date\.now\(\);/);
 	// 正文首 delta 单独计时：思考模式下用户感知的首字是正文首字，只在 text_delta 分支记
-	assert.match(markFirstDeltaBody, /if \(perf && perf\.firstTextAt === 0\)/);
-	assert.match(markFirstDeltaBody, /perf\.firstTextAt = Date\.now\(\);/);
+	assert.match(noteDeltaBody, /if \(perf && perf\.firstTextAt === 0\)/);
+	assert.match(noteDeltaBody, /perf\.firstTextAt = Date\.now\(\);/);
 	const agentManager = readAgentManager();
 	const textDeltaBranch = agentManager.slice(agentManager.indexOf('eventType === "text_delta"'), agentManager.indexOf('eventType === "thinking_delta"'));
+	assert.match(textDeltaBranch, /this\.messagePerf\.noteDelta\(agentId\);/);
 	assert.match(textDeltaBranch, /this\.messagePerf\.markFirstText\(agentId\);/);
 });
 
@@ -75,7 +77,7 @@ test("message_end/done/error settles perf and pushes a runtime-state patch", () 
 	assert.match(settle, /const totalMs = now - perf\.startedAt;/);
 	assert.match(settle, /perf\.firstTextAt > 0 \? perf\.firstTextAt : perf\.firstDeltaAt > 0 \? perf\.firstDeltaAt : 0/);
 	assert.match(settle, /const ttftMs =/);
-	assert.match(settle, /const streamingMs = hasMeasurableStreamingWindow\(perf\.firstDeltaAt, now\) \? now - perf\.firstDeltaAt : undefined;/);
+	assert.match(settle, /const streamingMs = hasMeasurableStreamingWindow\(perf\.firstDeltaAt, now\) && hasIncrementalDeltaStream\(outputTokens, perf\.deltaCount\) \? now - perf\.firstDeltaAt : undefined;/);
 	assert.match(settle, /calculateTokensPerSecond\(outputTokens, streamingMs\)/);
 	assert.match(settle, /calculateTokensPerSecond\(outputTokens, totalMs\)/);
 	// 模型事实不新增调用参数：settle 自身读 AgentManager 的最近快照（流式热路径不能等 RPC）。

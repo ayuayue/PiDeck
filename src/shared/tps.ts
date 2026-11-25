@@ -12,6 +12,22 @@ export function hasMeasurableStreamingWindow(firstDeltaAt: number | undefined, c
 	return typeof firstDeltaAt === "number" && firstDeltaAt > 0 && Number.isFinite(completedAt) && completedAt - firstDeltaAt >= MIN_STREAMING_WINDOW_MS;
 }
 
+// 一个 delta 塞几十 token 说明上游是「整段送达」：此时「首 delta → 结束」量到的是传输/刷新延迟，
+// 不是解码时间，算出的 tok/s 会是物理不可能的四位数（#602 实测 1022 / 5610 / 7289）。
+const MAX_TOKENS_PER_DELTA = 50;
+
+/**
+ * 流式窗口是否来自真正的增量流式。
+ *
+ * delta 数与 output tokens 完全不成比例时（如 1481 token 分 2 次送达），窗口长度不反映生成速度。
+ * deltaCount 未知（子代理区间等外部来源只给耗时与用量）时按旧口径放行，不改变既有统计。
+ */
+export function hasIncrementalDeltaStream(outputTokens: number | undefined, deltaCount: number | undefined): boolean {
+	if (deltaCount == null || !Number.isFinite(deltaCount) || deltaCount <= 0) return true;
+	if (outputTokens == null || !Number.isFinite(outputTokens) || outputTokens <= 0) return true;
+	return outputTokens / deltaCount <= MAX_TOKENS_PER_DELTA;
+}
+
 /** token 与耗时必须来自同一批回复；无用量或无有效耗时就不估算速度。 */
 export function calculateTokensPerSecond(outputTokens: number | undefined, durationMs: number | undefined): number | undefined {
 	if (outputTokens == null || !Number.isFinite(outputTokens) || outputTokens < 0 || durationMs == null || !Number.isFinite(durationMs) || durationMs <= 0) return undefined;
@@ -75,6 +91,8 @@ export interface TaskPerfSpan {
 	completedAt: number;
 	/** 本次生成的 output/completion tokens */
 	outputTokens: number;
+	/** 流式窗口内收到的 delta 数（增量流式判据）；子代理区间等外部来源缺省。 */
+	deltaCount?: number;
 }
 
 /** 会话级平均性能统计结果。 */
@@ -129,6 +147,7 @@ export function calculateSessionTokensPerSecond(spans: ReadonlyArray<TaskPerfSpa
 	const streamingIntervals: TimeInterval[] = [];
 	for (const span of validSpans) {
 		if (!hasMeasurableStreamingWindow(span.firstDeltaAt, span.completedAt)) continue;
+		if (!hasIncrementalDeltaStream(span.outputTokens, span.deltaCount)) continue;
 		streamingOutputTokens += span.outputTokens;
 		streamingIntervals.push([span.firstDeltaAt, span.completedAt]);
 	}
