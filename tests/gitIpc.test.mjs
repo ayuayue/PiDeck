@@ -7,7 +7,9 @@ const entry = mainAssemblySource;
 const gitIpc = readFileSync("src/main/ipc/gitIpc.ts", "utf8");
 // 摘要子系统已按文件体量门禁拆出，但仍由 gitIpc 的同一注册边界挂载。
 const gitCommitMessage = readFileSync("src/main/ipc/gitCommitMessageIpc.ts", "utf8");
-const gitIpcAll = gitIpc + gitCommitMessage;
+// push / pull / fetch 拆到 gitSyncIpc（三者也必须按仓库串行，见 #603），仍由 gitIpc 挂载。
+const gitSync = readFileSync("src/main/ipc/gitSyncIpc.ts", "utf8");
+const gitIpcAll = gitIpc + gitCommitMessage + gitSync;
 
 test("Git IPC is registered through one-way service dependencies", () => {
 	assert.match(entry, /registerGitIpc\(\{[\s\S]*appLogger,[\s\S]*gitService,[\s\S]*piLocator,[\s\S]*projectStore,[\s\S]*settingsStore,[\s\S]*worktreeService,[\s\S]*\}\)/);
@@ -67,7 +69,7 @@ test("git:fetch skips non-repositories instead of throwing", () => {
 	const fetchFn = service.slice(service.indexOf("async fetch(cwd: string)"), service.indexOf("async getAheadBehind"));
 	assert.match(fetchFn, /not a git repository/);
 	assert.match(fetchFn, /return;/);
-	assert.match(gitIpc, /if \(!\(await gitService\.isGitRepo\(cwd\)\)\) return;/);
+	assert.match(gitSync, /if \(!\(await gitService\.isGitRepo\(cwd\)\)\) return;/);
 });
 
 test("QuickGen spawn 必须挂 error 监听（ENOENT 无监听会崩主进程）且清理后挂起请求能结算", () => {

@@ -28,6 +28,7 @@ import type { RemoteGitReadIpc } from "./remoteGitReadIpc";
 import { createProjectGitHandler } from "./gitProjectHandlers";
 import { dropRecovery, listRecovery, restoreRecovery } from "../git/LocalGitRecovery";
 import { registerGitCommitMessageIpc } from "./gitCommitMessageIpc";
+import { registerGitSyncIpc } from "./gitSyncIpc";
 import { registerGitRecoveryIpc } from "./gitRecoveryIpc";
 import { parseProjectFileTarget } from "../files/projectFileTarget";
 import { GitBackendRouter, LocalGitBackend, resolveRelativeGitPath, type GitBackend, type GitRepositoryContext } from "../git/GitBackend";
@@ -644,17 +645,8 @@ export function registerGitIpc({ appLogger, mainCopy, gitService, gitRefsWatcher
 		void appLogger.info("git", "Commit reverted", { projectId, hash, repoPath: cwd });
 	});
 
-	handleProjectGit(ipcChannels.gitPush, async (_event, projectId: string, repoPath?: unknown) => {
-		const cwd = await requireGitCwd(projectId, repoPath);
-		await gitService.push(cwd);
-		void appLogger.info("git", "Pushed", { projectId, repoPath: cwd });
-	});
-
-	handleProjectGit(ipcChannels.gitPull, async (_event, projectId: string, repoPath?: unknown) => {
-		const cwd = await requireGitCwd(projectId, repoPath);
-		await gitService.pull(cwd);
-		void appLogger.info("git", "Pulled", { projectId, repoPath: cwd });
-	});
+	// push / pull / fetch 会写远程跟踪引用，按仓库串行化（#603，见 gitSyncIpc）。
+	registerGitSyncIpc({ handleProjectGit, requireGitCwd, gitService, appLogger });
 
 	handleProjectGit(ipcChannels.gitReset, async (_event, projectId: string, hash: string, mode: "soft" | "mixed" | "hard", repoPath?: unknown) => {
 		const cwd = await requireGitCwd(projectId, repoPath);
@@ -685,14 +677,6 @@ export function registerGitIpc({ appLogger, mainCopy, gitService, gitRefsWatcher
 		const context = await requireGitRepository(projectId, { projectId, relativePath: "" });
 		await gitService.init(context.projectRoot);
 		void appLogger.info("git", "Repository initialized", { projectId, target: { projectId, relativePath: "" } });
-	});
-
-	// Fetch：刷新远程跟踪引用（定时轮询 ahead/behind 的前置步骤）。
-	// 非仓库直接跳过：面板首次挂载时 status 与 fetch 会并行，不能等 UI 标记。
-	handleProjectGit(ipcChannels.gitFetch, async (_event, projectId: string, repoPath?: unknown) => {
-		const cwd = await requireGitCwd(projectId, repoPath);
-		if (!(await gitService.isGitRepo(cwd))) return;
-		await gitService.fetch(cwd);
 	});
 
 	// ahead/behind：驱动 push/pull 角标；无上游返回 null（不显示角标）
