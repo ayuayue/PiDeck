@@ -57,6 +57,7 @@ var appSettingFields = []settingField{
 	{Key: "scanAll", Type: "bool", Default: false},
 	{Key: "closeToTray", Type: "bool", Default: false},
 	{Key: "notifyOnDone", Type: "bool", Default: false},
+	{Key: "notifyOnWaiting", Type: "bool", Default: true},
 	{Key: "notifyOnlyHidden", Type: "bool", Default: false},
 	{Key: "soundEnabled", Type: "bool", Default: false},
 	{Key: "soundOnlyHidden", Type: "bool", Default: false},

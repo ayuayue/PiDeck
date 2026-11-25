@@ -218,12 +218,33 @@ func (a *app) notifyTurnDone(s *session) {
 	a.notifyDesktop(sessionNotificationPrefix+s.ID, title, body, nil)
 }
 
+// notifyAsk alerts for the question now shown, including ACP permissions.
+func (a *app) notifyAsk(s *session) {
+	if s == nil || !a.cfg.NotifyOnWaiting {
+		return
+	}
+	a.notifications.add(s, a.cx.Now())
+	showInApp := func() {
+		a.toastAction(ui.ToastInfo, "待确认", "Agent 正在等待你的回答或确认。", "打开会话", func() { a.openSessionByID(s.ID) })
+	}
+	if w := a.window(); a.cfg.NotifyOnlyHidden && w != nil && w.Visible() {
+		showInApp()
+		return
+	}
+	title := strings.TrimSpace(s.title.GetUntracked())
+	if title == "" {
+		title = apptext.T("会话")
+	}
+	a.notifyDesktop(sessionNotificationPrefix+s.ID, title, apptext.T("Agent 正在等待你的回答或确认。"), func(bool) { showInApp() })
+}
+
 // notifyDesktop posts a system notification. The ID is what a press reports
 // to setupNotifications' handler. Desktops post straight away: Windows
 // answers a permission query with "unavailable" until a toast has gone
 // through, so asking first would refuse notifications that work. Phones and
 // the web are asked first, as their systems gate them. It is best effort: a
 // refused notification falls back to an in-app toast with the same text.
+// When done is supplied, the caller handles that result and any fallback.
 func (a *app) notifyDesktop(id, title, body string, done func(shown bool)) {
 	if id == "" {
 		return
@@ -231,7 +252,7 @@ func (a *app) notifyDesktop(id, title, body string, done func(shown bool)) {
 	notify := core.Notification{ID: id, Title: viewkit.FirstLine(title, 120), Body: viewkit.FirstLine(body, 200)}
 	post := func() {
 		err := a.cx.ShowNotification(notify, func(shown bool) {
-			if !shown {
+			if !shown && done == nil {
 				// The platform took the notification and dropped it, or
 				// refused it: say so where the app can be seen.
 				a.toast(ui.ToastInfo, title, "系统没有显示这条通知："+body)
@@ -241,9 +262,10 @@ func (a *app) notifyDesktop(id, title, body string, done func(shown bool)) {
 			}
 		})
 		if err != nil {
-			a.toast(ui.ToastInfo, title, body)
 			if done != nil {
 				done(false)
+			} else {
+				a.toast(ui.ToastInfo, title, body)
 			}
 		}
 	}

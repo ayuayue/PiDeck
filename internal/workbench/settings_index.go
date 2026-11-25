@@ -31,6 +31,7 @@ var settingsIndex = []settingEntry{
 	{"general", "扫描所有项目", "scan all folders sessions"},
 	{"general", "关闭窗口时留在托盘", "tray close window quit"},
 	{"general", "一轮完成时通知", "notification done turn"},
+	{"general", "提问或等待确认时通知", "notification waiting ask question permission 提问 确认"},
 	{"general", "只在窗口隐藏时通知", "notify hidden focus"},
 	{"general", "匿名使用统计", "telemetry analytics posthog usage privacy 遥测 统计"},
 	{"general", "工具安全门", "security gate tool policy bash confirm deny workspace 安全 拦截 确认"},

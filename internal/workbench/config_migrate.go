@@ -16,7 +16,7 @@ import (
 
 // configVersion is the shape of config.json this build writes. A file
 // from an older build is migrated on load and written back once.
-const configVersion = 4
+const configVersion = 5
 
 // chatWidthPtMin and chatWidthPtMax were the old chat width slider's
 // range in points; they convert a config written before percentages. The
@@ -100,6 +100,13 @@ func migrateConfig(c *config, raw []byte) bool {
 	}
 	if c.Version < 4 {
 		c.Version = 4
+		changed = true
+	}
+	if c.Version < 5 {
+		if !bytes.Contains(raw, []byte(`"notifyOnWaiting"`)) {
+			c.NotifyOnWaiting = true
+		}
+		c.Version = 5
 		changed = true
 	}
 	return normalizeConfig(c) || changed

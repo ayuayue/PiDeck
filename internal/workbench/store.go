@@ -63,7 +63,7 @@ func newStore(dataDir string) (*store, error) {
 		path:     filepath.Join(dataDir, "config.json"),
 		metaPath: filepath.Join(dataDir, "session-meta-cache.json"),
 		c: &config{Version: configVersion, SidebarOpen: true, Theme: "system", Titles: map[string]string{}, ScanPi: true,
-			CloseToTray: true, NotifyOnDone: true, NotifyOnlyHidden: true},
+			CloseToTray: true, NotifyOnDone: true, NotifyOnWaiting: true, NotifyOnlyHidden: true},
 	}
 	if err := os.MkdirAll(s.sessions, 0o755); err != nil {
 		return nil, err

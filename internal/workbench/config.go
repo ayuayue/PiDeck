@@ -188,10 +188,11 @@ type config struct {
 	Keybindings map[string]string `json:"keybindings,omitempty"`
 	// CloseToTray keeps the app running in the tray when its window is
 	// closed. NotifyOnDone posts a desktop notification when a turn
-	// finishes, and NotifyOnlyHidden keeps it quiet while the window
-	// shows.
+	// finishes; NotifyOnWaiting also alerts for questions and permissions.
+	// NotifyOnlyHidden limits system notifications to a hidden window.
 	CloseToTray      bool `json:"closeToTray"`
 	NotifyOnDone     bool `json:"notifyOnDone"`
+	NotifyOnWaiting  bool `json:"notifyOnWaiting"`
 	NotifyOnlyHidden bool `json:"notifyOnlyHidden"`
 	// SoundEnabled plays a short sound when a turn finishes, fails or
 	// waits for an answer, and SoundOnlyHidden keeps it quiet while the

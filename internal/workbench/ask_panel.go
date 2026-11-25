@@ -64,6 +64,7 @@ func (a *app) showAsk(s *session, ask *extensionAsk) {
 	s.ask.Set(ask)
 	a.bumpAsk()
 	a.playAlert(alerts.KindWaiting)
+	a.notifyAsk(s)
 }
 
 // countAsks keeps the rail's badge in step with what is waiting.

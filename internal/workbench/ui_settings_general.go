@@ -164,6 +164,14 @@ func (a *app) settingsGeneral() core.Node {
 								a.bumpSettings()
 							}}),
 					setDivider(),
+					setRow("提问或等待确认时通知", "Agent 等待回答或权限确认时，显示应用内提醒和系统通知。",
+						ui.Switch{Checked: func() bool { return a.cfg.NotifyOnWaiting }, Label: apptext.T("提问或等待确认时通知"), TestID: "notify-waiting",
+							OnChange: func(on bool) {
+								a.cfg.NotifyOnWaiting = on
+								a.st.edit(func(c *config) { c.NotifyOnWaiting = on })
+								a.bumpSettings()
+							}}),
+					setDivider(),
 					setRow("只在窗口隐藏时通知", "窗口在前台时不再弹系统通知。",
 						ui.Switch{Checked: func() bool { return a.cfg.NotifyOnlyHidden }, Label: apptext.T("只在窗口隐藏时通知"), TestID: "notify-hidden",
 							OnChange: func(on bool) {
