@@ -22,6 +22,8 @@ const domainPaths = [
 	"src/renderer/src/atoms/session-runtime-ui-atoms.ts",
 	"src/renderer/src/atoms/session-state-atoms.ts",
 	"src/renderer/src/atoms/session-timeline-atoms.ts",
+	// 目录对账：已被目录移除的会话，运行态该不该清（纯判据 + dropSessionRuntimesAtom）。
+	"src/renderer/src/atoms/vanished-session-runtimes.ts",
 ];
 
 export const sessionAtomsSourceFiles = [entryPath, ...domainPaths];
@@ -42,23 +44,41 @@ export const sessionAtomsSource = sessionAtomsSources.map(({ path, source }) => 
  * @param {object} options
  * @param {(path: string, imports: object) => any} options.compileModule 调用方的编译函数
  * @param {object} options.imports 调用方原有的手写映射（桩）
+ * @param {string} [options.entrySpecifier] 入口模块自身的 specifier：域模块反向 import 入口时
+ *   拿到的是可后填的桥对象（`loadSessionAtoms` 编译完回填），CJS 产物只在调用时取值，够用。
  */
-export function sessionAtomsLoaderImports({ compileModule, imports }) {
+export function sessionAtomsLoaderImports({ compileModule, imports, entrySpecifier = "./session-atoms" }) {
 	const pathBySpecifier = new Map(domainPaths.map((path) => [`./${path.slice(path.lastIndexOf("/") + 1, -".ts".length)}`, path]));
 	const loaded = new Map();
+	// 入口模块exports：域模块（如 vanished-session-runtimes）会反查它的 atom。
+	const entryExports = {};
 	const bridge = new Proxy(imports, {
 		get(target, specifier) {
 			if (typeof specifier !== "string") return Reflect.get(target, specifier);
 			const known = Reflect.get(target, specifier);
 			if (known !== undefined) return known;
+			if (specifier === entrySpecifier) return entryExports;
 			const path = pathBySpecifier.get(specifier);
 			if (!path) return undefined;
 			if (!loaded.has(path)) loaded.set(path, compileModule(path, bridge));
 			return loaded.get(path);
 		},
 		has(target, specifier) {
-			return Reflect.has(target, specifier) || (typeof specifier === "string" && pathBySpecifier.has(specifier));
+			return Reflect.has(target, specifier) || (typeof specifier === "string" && (specifier === entrySpecifier || pathBySpecifier.has(specifier)));
 		},
 	});
-	return bridge;
+	return { bridge, bindEntry: (entry) => Object.assign(entryExports, entry) };
+}
+
+/**
+ * 编译 session-atoms 入口并在编译结束后回填循环依赖：入口 → 域模块（惰性编译）→ 反向 import 入口。
+ * 三处 loader 都走这里，新增域文件时只改上面的显式清单。
+ *
+ * @param {object} options 同 `sessionAtomsLoaderImports`，另加 `entry`（入口路径）。
+ */
+export function loadSessionAtoms({ compileModule, imports, entry = "src/renderer/src/atoms/session-atoms.ts" }) {
+	const { bridge, bindEntry } = sessionAtomsLoaderImports({ compileModule, imports });
+	const exports = compileModule(entry, bridge);
+	bindEntry(exports);
+	return exports;
 }

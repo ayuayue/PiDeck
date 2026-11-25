@@ -26,8 +26,15 @@ function runtime(agentId, overrides = {}) {
 	};
 }
 
+function session(id) {
+	return { id, projectId: "p1", title: id, source: "pi", environment: "native", filePath: `/sessions/${id}.jsonl`, preview: "", messageCount: 0, status: "active", createdAt: 1, updatedAt: 1 };
+}
+
 test("runtime/records 未变时库存数组引用稳定", () => {
 	const store = createStore();
+	// 目录归并后（2027-02）：运行时表里的 key 只有在 catalog 里还有记录、或是匿名会话时才占一行
+	// （runtimeEntryOwnsRow）。先给 s1 建目录记录，否则它本就不该出现在库存里。
+	store.set(atoms.replaceProjectSessionsAtom, { projectId: "p1", sessions: [session("s1")] });
 	store.set(atoms.sessionRuntimeByIdAtom, { s1: runtime("a1") });
 	const first = store.get(atoms.agentInventoryAtom);
 	assert.equal(first.length, 1);
