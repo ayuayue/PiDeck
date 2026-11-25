@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { t as translateFn, TranslationKey } from "../i18n";
 import { toggleSelectedPaths } from "../utils/importSessionList";
 import type { Project } from "../../../shared/types";
@@ -51,25 +51,52 @@ export type ImportSource<T, R> = {
 export function useImportSource<T extends { sourcePath: string }, R extends { imported: number; failed: number }>(config: ImportSourceConfig<T, R>): ImportSource<T, R> {
 	const { copyPrefix, scan, importSessions, selectablePaths, preselectOnScan = false, setProjectMenu, refreshProjectSessions, showToast, t } = config;
 
-	const [project, setProject] = useState<Project | null>(null);
+	// 每次打开都是独立的弹窗，即使重新打开的是同一个项目。
+	const [dialog, setDialog] = useState<{ project: Project } | null>(null);
+	const activeDialog = useRef(dialog);
+	const latestScan = useRef(0);
 	const [sessions, setSessions] = useState<T[]>([]);
 	const [selected, setSelected] = useState<string[]>([]);
 	const [loading, setLoading] = useState(false);
 	const [importing, setImporting] = useState(false);
 	const [report, setReport] = useState<R | null>(null);
 
+	useEffect(
+		() => () => {
+			activeDialog.current = null;
+		},
+		[],
+	);
+
+	const setProject = useCallback((next: React.SetStateAction<Project | null>) => {
+		const project = typeof next === "function" ? next(activeDialog.current?.project ?? null) : next;
+		const target = project ? { project } : null;
+		activeDialog.current = target;
+		setDialog(target);
+		setSessions([]);
+		setSelected([]);
+		setReport(null);
+		setLoading(false);
+		setImporting(false);
+		return target;
+	}, []);
+
 	const pickPaths = useCallback((list: T[]) => (selectablePaths ? selectablePaths(list) : list.map((session) => session.sourcePath)), [selectablePaths]);
 
 	const scanFn = useCallback(
-		async (target = project, clearReport = true) => {
-			if (!target) return;
+		async (target = dialog, clearReport = true) => {
+			if (!target || target !== activeDialog.current) return;
+			const request = ++latestScan.current;
+			const isCurrent = () => target === activeDialog.current && request === latestScan.current;
 			setLoading(true);
 			if (clearReport) setReport(null);
 			try {
-				const next = await scan(target.id);
+				const next = await scan(target.project.id);
+				if (!isCurrent()) return;
 				setSessions(next);
 				setSelected(preselectOnScan ? pickPaths(next) : []);
 			} catch (error) {
+				if (!isCurrent()) return;
 				showToast(
 					t(`${copyPrefix}.scanFailed` as TranslationKey, {
 						error: error instanceof Error ? error.message : String(error),
@@ -77,10 +104,10 @@ export function useImportSource<T extends { sourcePath: string }, R extends { im
 					4000,
 				);
 			} finally {
-				setLoading(false);
+				if (isCurrent()) setLoading(false);
 			}
 		},
-		[project, scan, pickPaths, preselectOnScan, showToast, t, copyPrefix],
+		[dialog, scan, pickPaths, preselectOnScan, showToast, t, copyPrefix],
 	);
 
 	const toggle = useCallback((sourcePath: string) => {
@@ -97,14 +124,18 @@ export function useImportSource<T extends { sourcePath: string }, R extends { im
 	);
 
 	const importSelected = useCallback(async () => {
-		if (!project || selected.length === 0) return null;
+		if (!dialog || dialog !== activeDialog.current || selected.length === 0) return null;
 		setImporting(true);
 		setReport(null);
 		try {
-			const next = await importSessions(project.id, selected);
-			setReport(next);
-			await scanFn(project, false);
-			await refreshProjectSessions(project.id);
+			const next = await importSessions(dialog.project.id, selected);
+			if (dialog === activeDialog.current) {
+				setReport(next);
+				await scanFn(dialog, false);
+			}
+			// 已执行的导入仍需刷新原项目目录，即使用户已经切走。
+			await refreshProjectSessions(dialog.project.id);
+			if (dialog !== activeDialog.current) return next;
 			showToast(
 				t(`${copyPrefix}.importDone` as TranslationKey, {
 					imported: next.imported,
@@ -113,6 +144,7 @@ export function useImportSource<T extends { sourcePath: string }, R extends { im
 			);
 			return next;
 		} catch (error) {
+			if (dialog !== activeDialog.current) return null;
 			showToast(
 				t(`${copyPrefix}.importFailed` as TranslationKey, {
 					error: error instanceof Error ? error.message : String(error),
@@ -121,20 +153,16 @@ export function useImportSource<T extends { sourcePath: string }, R extends { im
 			);
 			return null;
 		} finally {
-			setImporting(false);
+			if (dialog === activeDialog.current) setImporting(false);
 		}
-	}, [project, selected, importSessions, scanFn, refreshProjectSessions, showToast, t, copyPrefix]);
+	}, [dialog, selected, importSessions, scanFn, refreshProjectSessions, showToast, t, copyPrefix]);
 
 	const open = useCallback(
 		async (next: Project) => {
 			setProjectMenu(null);
-			setProject(next);
-			setReport(null);
-			setSessions([]);
-			setSelected([]);
-			await scanFn(next);
+			await scanFn(setProject(next));
 		},
-		[setProjectMenu, scanFn],
+		[setProjectMenu, setProject, scanFn],
 	);
 
 	const controller = useMemo<ImportController<T, R>>(
@@ -153,5 +181,5 @@ export function useImportSource<T extends { sourcePath: string }, R extends { im
 		[sessions, selected, loading, importing, report, scanFn, toggle, toggleAll, importSelected],
 	);
 
-	return { project, setProject, controller, open };
+	return { project: dialog?.project ?? null, setProject, controller, open };
 }
