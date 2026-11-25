@@ -104,22 +104,32 @@ func ToolRow(cx *core.Scope, line ToolLine, sizes ToolSizes) core.Node {
 		Children: header}
 }
 
+// NoTime is what a row shows where its time would be when none was
+// recorded: a call whose result never arrived, so the column reads as
+// unmeasured rather than missing.
+const NoTime = "—"
+
 // TimeCell is one row's time column: how long it took, between the word for
 // what ran and the thing it ran on. The figures start right after their verb
 // and the cell keeps one width whatever they say, so the details that follow
 // start on one line down the block, with a clear gap between them and the
-// time. A running row with no clock yet shows a spinner there, and a row with
-// no time at all keeps the column empty.
+// time. A running row with no clock yet shows a spinner there, and a row
+// whose time was never recorded says so in NoTime.
 func TimeCell(cx *core.Scope, size core.Points, running bool, text func() string) core.Node {
 	colors := ui.ColorsOf(cx)
-	var slot core.Node = core.View{}
+	wrote := text != nil && text() != ""
+	var slot core.Node
 	switch {
-	case text != nil && text() != "":
+	case wrote:
 		slot = ui.Tabular(core.Text{ContentFunc: text, MaxLines: 1,
 			Style:     core.Style{FontFamily: MonoFont(), FontSize: size, FlexShrink: 0},
 			StyleFunc: ui.Colored(colors.Faint)})
 	case running:
 		slot = ui.Spinner{Size: max(size-2, 8)}
+	default:
+		slot = core.Text{Content: NoTime, MaxLines: 1,
+			Style:     core.Style{FontFamily: MonoFont(), FontSize: size, FlexShrink: 0},
+			StyleFunc: ui.Colored(colors.Faint)}
 	}
 	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter,
 		Width: core.Pt(TimeWidth(size)), FlexShrink: 0, Margin: core.Edges{Right: timeGap(size)}},

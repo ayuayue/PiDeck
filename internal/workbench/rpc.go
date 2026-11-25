@@ -56,15 +56,18 @@ type piContent struct {
 
 // piMessage is an AgentMessage as the protocol sends and stores it.
 type piMessage struct {
-	EntryID    string          `json:"-"`
-	Role       string          `json:"role"`
-	Content    json.RawMessage `json:"content"`
-	Timestamp  int64           `json:"timestamp"`
-	Model      string          `json:"model"`
-	Provider   string          `json:"provider"`
-	Usage      *piUsage        `json:"usage"`
-	StopReason string          `json:"stopReason"`
-	ErrorMsg   string          `json:"errorMessage"`
+	EntryID   string          `json:"-"`
+	Role      string          `json:"role"`
+	Content   json.RawMessage `json:"content"`
+	Timestamp int64           `json:"timestamp"`
+	// DurationMs is how long the message took to arrive: pi records it on the
+	// message itself, for a model's answer and for a tool's run alike.
+	DurationMs int64    `json:"durationMs"`
+	Model      string   `json:"model"`
+	Provider   string   `json:"provider"`
+	Usage      *piUsage `json:"usage"`
+	StopReason string   `json:"stopReason"`
+	ErrorMsg   string   `json:"errorMessage"`
 
 	// toolResult
 	ToolCallID string `json:"toolCallId"`

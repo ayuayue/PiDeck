@@ -33,10 +33,9 @@ func turnsFromMessages(msgs []piMessage) []turn {
 		}
 		return now
 	}
-	// calledAt is when the message that made each call was written, so the
-	// result that answers it can say how long the call took: a session file
-	// keeps the two messages' times, not the run itself.
-	calledAt := map[string]time.Time{}
+	// pi records each message's own duration, so a session file says how long
+	// a call ran and how long a message took without the reader having to
+	// subtract two entry times.
 	for _, m := range msgs {
 		ts := at(m)
 		switch m.Role {
@@ -54,6 +53,9 @@ func turnsFromMessages(msgs []piMessage) []turn {
 				cur.Model = m.Model
 			}
 			step := turnStep{ID: fmt.Sprintf("h%d-%d", len(turns), len(cur.Steps))}
+			// What the message took to arrive is what it spent reasoning and
+			// answering before it acted.
+			step.Think = time.Duration(m.DurationMs) * time.Millisecond
 			var prose strings.Builder
 			var calls []piContent
 			proseAt := -1
@@ -80,7 +82,6 @@ func turnsFromMessages(msgs []piMessage) []turn {
 			for _, c := range calls {
 				action, detail := toolSummary(c.Name, c.Arguments)
 				step.Tools = append(step.Tools, toolRun{CallID: c.ID, Name: c.Name, Action: action, Detail: detail, Status: chat.Completed})
-				calledAt[c.ID] = ts
 				cur.Tools++
 			}
 			if len(calls) == 0 && prose.Len() > 0 {
@@ -100,11 +101,6 @@ func turnsFromMessages(msgs []piMessage) []turn {
 			}
 		case "toolResult":
 			run := toolRunFromResult(m)
-			if called, ok := calledAt[run.CallID]; ok && m.Timestamp > 0 {
-				if d := time.UnixMilli(m.Timestamp).Sub(called); d > 0 {
-					run.DurationMs = d.Milliseconds()
-				}
-			}
 			if cur != nil {
 				updated := false
 				for i := range cur.Steps {
@@ -125,7 +121,8 @@ func turnsFromMessages(msgs []piMessage) []turn {
 				cur = &turn{ID: fmt.Sprintf("h%d", len(turns)), Status: chat.Completed, Start: ts, End: ts}
 			}
 			run := toolRun{CallID: "bash-" + fmt.Sprint(len(cur.Steps)), Name: "bash", Action: "运行", Detail: viewkit.FirstLine(m.Command, 90),
-				Output: strings.TrimSpace(m.Output), Status: chat.Completed, IsError: m.ExitCode != nil && *m.ExitCode != 0}
+				Output: strings.TrimSpace(m.Output), Status: chat.Completed, DurationMs: m.DurationMs,
+				IsError: m.ExitCode != nil && *m.ExitCode != 0}
 			if run.IsError {
 				run.Status = chat.Failed
 			}

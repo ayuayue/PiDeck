@@ -207,7 +207,12 @@ type turnStep struct {
 	// TextAt is how many tool calls came before the prose, so the step reads
 	// in the order pi wrote it: prose, calls, or calls and then prose.
 	TextAt int
-	Start  time.Time
+	// Think is how long the message took to arrive: from the moment it began
+	// to the moment it was committed, which is the window its reasoning and
+	// its answer filled before the calls ran. A session file gives the same
+	// span from the times of the messages around it.
+	Think time.Duration
+	Start time.Time
 }
 
 // turn is one request and everything pi did for it.

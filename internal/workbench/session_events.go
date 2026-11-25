@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -221,6 +222,14 @@ func (a *app) commitAssistant(s *session, msg piMessage) {
 			t.Model = msg.Model
 		}
 		step := turnStep{ID: stepID(t, t.Msgs), Start: a.cx.Now()}
+		// What the message took, as pi timed it: the window its reasoning and
+		// its answer filled before it acted. Without pi's figure, the message's
+		// own start is the clock.
+		if d := time.Duration(msg.DurationMs) * time.Millisecond; d > 0 {
+			step.Think = d
+		} else if !s.replyStart.IsZero() {
+			step.Think = step.Start.Sub(s.replyStart)
+		}
 		t.Msgs++
 		if strings.TrimSpace(thinking.String()) != "" {
 			step.Thinking = thinking.String()

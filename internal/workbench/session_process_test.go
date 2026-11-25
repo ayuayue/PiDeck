@@ -384,7 +384,7 @@ func TestProcessRowsShareOneColumn(t *testing.T) {
 		sess.readySig.Set(true)
 		sess.turns.Set([]turn{{ID: "grid-1", Prompt: "读文件", Status: chat.Completed, Model: "fixture/model",
 			Start: now.Add(-time.Minute), End: now, Tools: 2, Final: "读完了",
-			Steps: []turnStep{{ID: "grid-1-s0", Thinking: "先看看文件。", Start: now, Tools: []toolRun{
+			Steps: []turnStep{{ID: "grid-1-s0", Thinking: "先看看文件。", Start: now, Think: 1500 * time.Millisecond, Tools: []toolRun{
 				{CallID: "grid-1-a", Name: "read", Action: "读取", Detail: "readme.md", Status: chat.Completed, DurationMs: 8},
 				{CallID: "grid-1-b", Name: "bash", Action: "运行", Detail: "go vet ./internal/viewkit", Status: chat.Completed, DurationMs: 4200}}}}}})
 	})
@@ -400,6 +400,15 @@ func TestProcessRowsShareOneColumn(t *testing.T) {
 		if d := float64(got - thought.Origin.X); d > 0.5 || d < -0.5 {
 			t.Fatalf("a thought starts at %.1f and a call's verb at %.1f; want one line", thought.Origin.X, got)
 		}
+	}
+	// A thought says how long it spent before it acted, in the same column a
+	// call's own time fills.
+	if n := len(screen.Query(`text:"1.5s"`)); n != 1 {
+		t.Fatalf("the thought's time shows %d times; want 1", n)
+	}
+	thoughtTime := screen.Find(`text:"1.5s"`).Bounds()
+	if thoughtTime.Origin.X <= right(thought) {
+		t.Fatalf("the thought's time starts at %.1f, at or before its verb, which ends at %.1f", thoughtTime.Origin.X, right(thought))
 	}
 	// The times follow their verbs and hold one column, so the details after
 	// them start on one line down the block.

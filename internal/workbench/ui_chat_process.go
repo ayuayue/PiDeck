@@ -7,6 +7,7 @@ package workbench
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"example.com/pideck-v2/internal/apptext"
 	"example.com/pideck-v2/internal/viewkit"
@@ -433,6 +434,22 @@ func (a *app) memberRows(s *session, t func() turn, m func() processItem) core.N
 	})
 }
 
+// thinkTime is how long a message spent before it said anything: from the
+// moment it began to the moment it was committed, which is the window its
+// reasoning filled. A message still streaming counts from that same start.
+func thinkTime(s *session, src stepSource, now time.Time) string {
+	if src.live() {
+		if s.replyStart.IsZero() {
+			return ""
+		}
+		return viewkit.Duration(now.Sub(s.replyStart))
+	}
+	if d := src.committed().Think; d > 0 {
+		return viewkit.Duration(d)
+	}
+	return ""
+}
+
 // thinkRow is what pi reasoned: one muted line while it is folded, the
 // reasoning itself once opened. While it streams the line follows the end,
 // so the row reads as the thought in progress.
@@ -462,6 +479,12 @@ func (a *app) thinkRow(s *session, src stepSource) core.Node {
 			ui.Icon(lucide.Brain, sizes.Glyph, func() core.Color { return thinkingTone(cx) }),
 			core.Text{ContentFunc: label, MaxLines: 1,
 				Style: core.Style{FontSize: sizes.Verb, FontWeight: ui.Medium, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Muted)},
+			// A thought holds the time column like a call does: how long the
+			// message spent before it acted, so no row of the block is missing
+			// one.
+			viewkit.TimeCell(cx, sizes.Detail, false, func() string {
+				return thinkTime(s, src, a.clock.Get())
+			}),
 			core.Show{When: open, Then: func(*core.Scope) core.Node { return core.View{Style: core.Style{FlexGrow: 1}} },
 				Else: func(*core.Scope) core.Node {
 					return core.Text{ContentFunc: preview, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,

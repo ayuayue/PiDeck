@@ -102,7 +102,8 @@ func (a *app) toolRow(s *session, run func() toolRun) core.Node {
 
 // toolTime is how long a call has taken, as its row says it: a finished
 // call's total, or what a running one has spent since it started — read from
-// the app's clock, so the figure counts up while the row is in sight.
+// the app's clock, so the figure counts up while the row is in sight. A call
+// pi timed itself without a figure was quick, not unknown.
 func toolTime(run toolRun, now time.Time) string {
 	if run.Status == chat.Running {
 		if run.Start.IsZero() {
@@ -110,7 +111,13 @@ func toolTime(run toolRun, now time.Time) string {
 		}
 		return viewkit.Duration(now.Sub(run.Start))
 	}
-	return viewkit.Duration(time.Duration(run.DurationMs) * time.Millisecond)
+	if run.DurationMs > 0 {
+		return viewkit.Duration(time.Duration(run.DurationMs) * time.Millisecond)
+	}
+	if !run.Start.IsZero() {
+		return viewkit.Duration(0)
+	}
+	return ""
 }
 
 // toolIcon is the glyph of what a tool does.

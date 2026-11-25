@@ -39,11 +39,13 @@ func Tokens(n int) string {
 // milliseconds under a second, tenths of a second under a minute, then
 // minutes and hours. The longest form is six figures cold ("59m59s"), which
 // is the width of that row's time column, so the durations line up down a
-// block.
+// block. A row with no time to show leaves this empty and draws NoTime.
 func Duration(d time.Duration) string {
 	switch {
-	case d <= 0:
+	case d < 0:
 		return ""
+	case d < time.Millisecond:
+		return "0ms"
 	case d < time.Second:
 		return fmt.Sprintf("%dms", d.Milliseconds())
 	case d < time.Minute:

@@ -116,15 +116,37 @@ func TestToolRowTimeFollowsTheVerb(t *testing.T) {
 
 // TestDurationFitsTheTimeColumn guards the widths the column was sized for:
 // six figures, so a block of durations stays inside its column whatever a
-// call took.
+// call took, and no known time renders as nothing.
 func TestDurationFitsTheTimeColumn(t *testing.T) {
 	for _, d := range []time.Duration{0, 3 * time.Millisecond, 999 * time.Millisecond, time.Second,
 		59_400 * time.Millisecond, 59*time.Minute + 59*time.Second, 23*time.Hour + 59*time.Minute} {
 		if got := len(Duration(d)); got > 6 {
 			t.Errorf("Duration(%v) = %q, %d figures; want at most 6", d, Duration(d), got)
 		}
+		if got := Duration(d); got == "" {
+			t.Errorf("Duration(%v) = %q; want a time", d, got)
+		}
 	}
-	if got := Duration(0); got != "" {
-		t.Errorf("Duration(0) = %q; want no time", got)
+	// Unknown is the caller's to say: a negative span has no time.
+	if got := Duration(-time.Second); got != "" {
+		t.Errorf("Duration(-1s) = %q; want no time", got)
+	}
+}
+
+// TestToolRowFillsTheTimeColumnEveryRow guards the column against holes: a
+// call with no time recorded says so where the figures go, and the details
+// after it start where a timed call's do.
+func TestToolRowFillsTheTimeColumnEveryRow(t *testing.T) {
+	screen := toolRowScreen(t,
+		ToolLine{Glyph: func() *core.SVG { return lucide.Terminal() }, Verb: "运行", Detail: "ls -l",
+			Time: func() string { return Duration(8 * time.Millisecond) }},
+		ToolLine{Glyph: func() *core.SVG { return lucide.Terminal() }, Verb: "运行", Detail: "sleep 3"},
+	)
+	if n := len(screen.Query(`text:"` + NoTime + `"`)); n != 1 {
+		t.Fatalf("rows saying %q = %d; want 1 for the call with no time", NoTime, n)
+	}
+	timed, plain := screen.Find("text:ls -l").Bounds(), screen.Find("text:sleep 3").Bounds()
+	if math.Abs(float64(timed.Origin.X-plain.Origin.X)) > 0.5 {
+		t.Fatalf("the details start at %.1f and %.1f; want one column", timed.Origin.X, plain.Origin.X)
 	}
 }

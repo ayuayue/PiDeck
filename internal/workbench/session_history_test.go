@@ -131,15 +131,16 @@ func TestSessionPaintsFromFile(t *testing.T) {
 	}
 }
 
-// TestSessionFileKeepsHowLongACallTook fills the time a call's row shows
-// from the two messages that bracket it: a session file says when the call
-// was made and when its result came back, not how long the run itself was.
+// TestSessionFileKeepsHowLongACallTook reads the times pi records on the
+// messages themselves: the run of a call, and what its message took before it
+// acted. The entry times deliberately are not the answer, since pi writes them
+// where the messages land rather than where they began.
 func TestSessionFileKeepsHowLongACallTook(t *testing.T) {
 	body := strings.Join([]string{
 		`{"type":"session","version":3,"id":"timed","timestamp":"2026-06-01T10:00:00Z","cwd":"C:/work"}`,
 		`{"type":"message","id":"u1","timestamp":"2026-06-01T10:00:01Z","message":{"role":"user","content":"跑测试"}}`,
-		`{"type":"message","id":"a1","timestamp":"2026-06-01T10:00:02Z","message":{"role":"assistant","content":[{"type":"toolCall","id":"t1","name":"bash","arguments":{"command":"go test ./..."}}]}}`,
-		`{"type":"message","id":"r1","timestamp":"2026-06-01T10:00:06Z","message":{"role":"toolResult","toolCallId":"t1","toolName":"bash","content":[{"type":"text","text":"ok"}]}}`,
+		`{"type":"message","id":"a1","timestamp":"2026-06-01T10:00:02Z","message":{"role":"assistant","durationMs":1500,"content":[{"type":"toolCall","id":"t1","name":"bash","arguments":{"command":"go test ./..."}}]}}`,
+		`{"type":"message","id":"r1","timestamp":"2026-06-01T10:00:06Z","message":{"role":"toolResult","toolCallId":"t1","toolName":"bash","durationMs":4000,"content":[{"type":"text","text":"ok"}]}}`,
 	}, "\n") + "\n"
 	path := filepath.Join(t.TempDir(), "timed.jsonl")
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
@@ -154,6 +155,9 @@ func TestSessionFileKeepsHowLongACallTook(t *testing.T) {
 		t.Fatalf("turns = %+v, want one call", turns)
 	}
 	if got := turns[0].Steps[0].Tools[0].DurationMs; got != 4000 {
-		t.Fatalf("the call's time = %d ms, want the 4000 ms between its call and its result", got)
+		t.Fatalf("the call's time = %d ms, want the 4000 ms pi recorded on its result", got)
+	}
+	if got := turns[0].Steps[0].Think; got != 1500*time.Millisecond {
+		t.Fatalf("the thought's time = %v, want the 1500 ms pi recorded on the message", got)
 	}
 }

@@ -102,8 +102,14 @@ func (a *mobileApp) toolLineRow(cx *core.Scope, m remotewire.Message, key transc
 		Removed: tool.Removed,
 		Nested:  tool.Nested,
 		// The wire says how long a call took once it ended, not when it
-		// started: a running one shows a spinner instead of a clock.
-		Time:    func() string { return viewkit.Duration(time.Duration(tool.DurationMs) * time.Millisecond) },
+		// started: a running one shows a spinner instead of a clock, and one
+		// the desktop timed without a figure has no time to show here.
+		Time: func() string {
+			if running || tool.DurationMs == 0 {
+				return ""
+			}
+			return viewkit.Duration(time.Duration(tool.DurationMs) * time.Millisecond)
+		},
 		Running: running,
 		Failed:  failed,
 		Open:    open,
