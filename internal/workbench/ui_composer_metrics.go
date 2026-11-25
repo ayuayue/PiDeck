@@ -117,38 +117,44 @@ func (a *app) toggleComposerMetricGroup(id string) {
 
 // composerMetricsNode is the footer's line of numbers, with the menu that
 // chooses which of them show.
+//
+// The numbers are a Dynamic of their own: a running reply rewrites them at
+// the flush rate, and the spinner beside them stays mounted, so it turns
+// instead of starting over with every flush.
 func (a *app) composerMetricsNode(s *session) core.Node {
-	trigger := core.Dynamic(func(cx *core.Scope) core.Node {
-		colors := ui.ColorsOf(cx)
-		var children []core.Node
-		for i, group := range a.composerMetricGroups(s) {
-			if i > 0 {
-				children = append(children, core.View{Style: core.Style{Width: core.Pt(1), Height: core.Pt(9),
-					FlexShrink: 0, Background: ui.Alpha(colors.Text(), 0.16)}})
-			}
-			children = append(children, core.Text{Content: group, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-				Style:     core.Style{FontSize: 10, FlexShrink: 1, MinWidth: core.Pt(0)},
-				StyleFunc: ui.Colored(colors.Faint)})
-		}
-		if len(children) == 0 {
-			// Every group is off: the row keeps a small way back to the menu.
-			children = []core.Node{ui.Icon(lucide.ChartNoAxesColumn, 11, colors.Faint),
-				ui.Text(apptext.T("指标"), 10, ui.Regular, colors.Faint)}
-		}
-		if s.busy() {
-			children = append(children, ui.Spinner{Size: 9})
-		}
-		return core.View{
-			OnPress: func(core.PressEvent) { a.metricsOpen.Update(func(v bool) bool { return !v }) },
-			Role:    core.RoleButton, Label: apptext.T("输入框指标"), TestID: "composer-metrics",
-			StyleFunc: func() core.Style {
-				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7, FlexShrink: 1, MinWidth: core.Pt(0),
-					Height: core.Pt(20), Padding: core.Symmetric(0, 6), CornerRadius: 6,
-					Hover: &core.Style{Background: colors.Hover()}, FocusVisible: ui.FocusRing(cx, 2)}
-			},
-			Children: children,
-		}
-	})
+	trigger := core.View{
+		OnPress: func(core.PressEvent) { a.metricsOpen.Update(func(v bool) bool { return !v }) },
+		Role:    core.RoleButton, Label: apptext.T("输入框指标"), TestID: "composer-metrics",
+		StyleFunc: func() core.Style {
+			colors := ui.ColorsOf(a.cx)
+			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7, FlexShrink: 1, MinWidth: core.Pt(0),
+				Height: core.Pt(20), Padding: core.Symmetric(0, 6), CornerRadius: 6,
+				Hover: &core.Style{Background: colors.Hover()}, FocusVisible: ui.FocusRing(a.cx, 2)}
+		},
+		Children: []core.Node{
+			core.Dynamic(func(cx *core.Scope) core.Node {
+				colors := ui.ColorsOf(cx)
+				var children []core.Node
+				for i, group := range a.composerMetricGroups(s) {
+					if i > 0 {
+						children = append(children, core.View{Style: core.Style{Width: core.Pt(1), Height: core.Pt(9),
+							FlexShrink: 0, Background: ui.Alpha(colors.Text(), 0.16)}})
+					}
+					children = append(children, core.Text{Content: group, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+						Style:     core.Style{FontSize: 10, FlexShrink: 1, MinWidth: core.Pt(0)},
+						StyleFunc: ui.Colored(colors.Faint)})
+				}
+				if len(children) == 0 {
+					// Every group is off: the row keeps a small way back to the menu.
+					children = []core.Node{ui.Icon(lucide.ChartNoAxesColumn, 11, colors.Faint),
+						ui.Text(apptext.T("指标"), 10, ui.Regular, colors.Faint)}
+				}
+				return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7,
+					FlexShrink: 1, MinWidth: core.Pt(0)}, Children: children}
+			}),
+			core.Show{When: s.busy, Then: func(*core.Scope) core.Node { return ui.Spinner{Size: 9} }},
+		},
+	}
 	return a.popoverCard(a.metricsOpen, core.PlaceTop, core.AlignEnd, 244,
 		hintOf(func() string { return apptext.T("点一下选择显示哪些数字") }, trigger),
 		func(cx *core.Scope) core.Node {
