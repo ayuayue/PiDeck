@@ -9,12 +9,12 @@ package workbench
 // Without the tag the site is absent and only the API is served.
 
 import (
-	"bytes"
 	"compress/gzip"
 	"io"
 	"io/fs"
 	"net/http"
 	"path"
+	"strconv"
 	"strings"
 
 	"github.com/andybalholm/brotli"
@@ -35,6 +35,23 @@ func webAccepts(r *http.Request, encoding string) bool {
 	return false
 }
 
+// webAssetFile opens a file of the site and says how long it is. Opening it
+// rather than reading it whole keeps the copy out of the heap: the wasm is ten
+// megabytes, and every page load would leave one behind until the next
+// collection.
+func webAssetFile(name string) (fs.File, int64, error) {
+	f, err := webAssets.Open(name)
+	if err != nil {
+		return nil, 0, err
+	}
+	info, err := f.Stat()
+	if err != nil {
+		f.Close()
+		return nil, 0, err
+	}
+	return f, info.Size(), nil
+}
+
 // serveWebAsset answers a request for the browser client and reports whether
 // it did. Its files are public: a page's own script and wasm fetch carry no
 // token, while every /api path keeps the token gate.
@@ -46,12 +63,12 @@ func serveWebAsset(w http.ResponseWriter, r *http.Request) bool {
 	if name == "" {
 		name = "index.html"
 	}
-	data, err := fs.ReadFile(webAssets, name)
+	file, size, err := webAssetFile(name)
 	encoded := false
 	if err != nil {
 		// A web build writes the wasm brotli-compressed and drops the raw
 		// file: a browser asks for app.wasm and gets the .br beside it.
-		if data, err = fs.ReadFile(webAssets, name+webEncodedSuffix); err == nil {
+		if file, size, err = webAssetFile(name + webEncodedSuffix); err == nil {
 			encoded = true
 		}
 	}
@@ -63,10 +80,11 @@ func serveWebAsset(w http.ResponseWriter, r *http.Request) bool {
 		// A release names its files by content and the app has no routes of
 		// its own, so an unknown path is the page.
 		name = "index.html"
-		if data, err = fs.ReadFile(webAssets, name); err != nil {
+		if file, size, err = webAssetFile(name); err != nil {
 			return false
 		}
 	}
+	defer file.Close()
 	w.Header().Set("Content-Type", webAssetType(name))
 	if webAssetHashed(name) {
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
@@ -74,8 +92,9 @@ func serveWebAsset(w http.ResponseWriter, r *http.Request) bool {
 		w.Header().Set("Cache-Control", "no-cache")
 	}
 	if !encoded {
+		w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
 		if r.Method == http.MethodGet {
-			_, _ = w.Write(data)
+			_, _ = io.Copy(w, file)
 		}
 		return true
 	}
@@ -88,8 +107,9 @@ func serveWebAsset(w http.ResponseWriter, r *http.Request) bool {
 	switch {
 	case webAccepts(r, "br"):
 		w.Header().Set("Content-Encoding", "br")
+		w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
 		if r.Method == http.MethodGet {
-			_, _ = w.Write(data)
+			_, _ = io.Copy(w, file)
 		}
 	case webAccepts(r, "gzip"):
 		w.Header().Set("Content-Encoding", "gzip")
@@ -98,12 +118,12 @@ func serveWebAsset(w http.ResponseWriter, r *http.Request) bool {
 			if err != nil {
 				return true
 			}
-			_, _ = io.Copy(zw, brotli.NewReader(bytes.NewReader(data)))
+			_, _ = io.Copy(zw, brotli.NewReader(file))
 			_ = zw.Close()
 		}
 	default:
 		if r.Method == http.MethodGet {
-			_, _ = io.Copy(w, brotli.NewReader(bytes.NewReader(data)))
+			_, _ = io.Copy(w, brotli.NewReader(file))
 		}
 	}
 	return true

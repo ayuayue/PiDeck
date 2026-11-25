@@ -11,6 +11,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
+	"strconv"
 	"testing"
 	"testing/fstest"
 
@@ -174,5 +176,57 @@ func TestWebAssetEncoded(t *testing.T) {
 	}
 	if webAccepts(httptest.NewRequest(http.MethodGet, "/", nil), "br") {
 		t.Fatal("a request without Accept-Encoding was read as brotli")
+	}
+}
+
+// discardResponse is a client that throws the body away, so a test measures
+// what serving a file allocates rather than what the recorder stores.
+type discardResponse struct {
+	header http.Header
+	code   int
+}
+
+func (w *discardResponse) Header() http.Header { return w.header }
+
+func (w *discardResponse) Write(b []byte) (int, error) { return len(b), nil }
+
+func (w *discardResponse) WriteHeader(code int) { w.code = code }
+
+// TestWebAssetsStream checks a file goes out as it is read, not through a
+// copy of the whole thing in the heap: the wasm is ten megabytes, and every
+// page load used to leave one behind until the next collection.
+func TestWebAssetsStream(t *testing.T) {
+	const size = 4 << 20
+	blob := bytes.Repeat([]byte{'x'}, size)
+	old := webAssets
+	webAssets = fstest.MapFS{
+		"index.html":             {Data: blob},
+		"app.0875381b2d.wasm.br": {Data: blob},
+	}
+	defer func() { webAssets = old }()
+	for _, c := range []struct {
+		name, path, accept string
+	}{
+		{"a plain file", "/index.html", ""},
+		{"the stored wasm", "/app.0875381b2d.wasm", "br"},
+	} {
+		req := httptest.NewRequest(http.MethodGet, c.path, nil)
+		if c.accept != "" {
+			req.Header.Set("Accept-Encoding", c.accept)
+		}
+		var before, after runtime.MemStats
+		runtime.GC()
+		runtime.ReadMemStats(&before)
+		w := &discardResponse{header: http.Header{}}
+		if !serveWebAsset(w, req) {
+			t.Fatalf("%s: nothing was served", c.name)
+		}
+		runtime.ReadMemStats(&after)
+		if allocated := after.TotalAlloc - before.TotalAlloc; allocated > size/2 {
+			t.Fatalf("%s: serving %d bytes allocated %d bytes, want the file streamed", c.name, size, allocated)
+		}
+		if got := w.header.Get("Content-Length"); got != strconv.Itoa(size) {
+			t.Errorf("%s: Content-Length = %q, want %d", c.name, got, size)
+		}
 	}
 }
