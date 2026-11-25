@@ -1,6 +1,7 @@
 import type { RefObject } from "react";
 import type { ChatMessage } from "../../../../../shared/types";
 import type { MessageScrollerScrollApi } from "../../../components/agents/message-scroller";
+import type { ScrollIntentSource, ScrollUserIntent } from "../../../lib/stick-to-bottom";
 
 /**
  * 时间线控制器对外契约（2026-12 从 useSessionTimelineController 提出）。
@@ -51,9 +52,9 @@ export type SessionTimelineController = {
 	/**
 	 * 引擎上报的用户滚动意图（wheel/触摸/滚动条真实输入）：
 	 * 近顶部自动扩窗/预取只消费该意图，布局 resize/clamp 不算用户上滑。
-	 * source 区分真实输入与 scroll 派生：只有真实输入才终止在途定位动画。
+	 * 真实输入可终止在途定位动画，引擎确认回到尾部时还会结束历史浏览。
 	 */
-	setUserScrollIntent: (intent: "up" | "down", source?: "scroll" | "input") => void;
+	setUserScrollIntent: (intent: ScrollUserIntent, source?: ScrollIntentSource) => void;
 	/** 新 run 开始（busy 边沿）：旧实现用来取消完结定位动画；现已删除该动画，
 	 *  保留同签名避免外部调用处崩溃。 */
 	cancelSettledRepositionForNewRun: () => void;
