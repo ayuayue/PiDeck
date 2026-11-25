@@ -24,10 +24,10 @@ func TestHeapReleaseDue(t *testing.T) {
 		want    bool
 	}{
 		{"mostly idle", heap(900*mb, 1000*mb), 5 * time.Minute, false, true},
-		{"exactly at the thresholds", heap(512*mb, 512*mb), 5 * time.Minute, false, true},
+		{"exactly at the thresholds", heap(192*mb, 192*mb), 5 * time.Minute, false, true},
 		{"nothing idle", heap(10*mb, 1000*mb), 5 * time.Minute, false, false},
-		{"idle but a small share of the heap", heap(600*mb, 2000*mb), 5 * time.Minute, false, false},
-		{"too little to be worth a pause", heap(400*mb, 400*mb), 5 * time.Minute, false, false},
+		{"idle but a small share of the heap", heap(400*mb, 2000*mb), 5 * time.Minute, false, false},
+		{"too little to be worth a pause", heap(100*mb, 100*mb), 5 * time.Minute, false, false},
 		{"released too recently", heap(900*mb, 1000*mb), 30 * time.Second, false, false},
 		{"a reply is streaming", heap(900*mb, 1000*mb), 5 * time.Minute, true, false},
 		{"no heap at all", heap(0, 0), 5 * time.Minute, false, false},

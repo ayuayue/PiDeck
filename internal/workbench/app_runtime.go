@@ -176,12 +176,13 @@ func (a *app) tick() {
 
 // heapReleaseIdle is how much idle heap is worth handing back, and
 // heapReleaseShare how much of the heap may stay idle: a full collection
-// costs one pause, so it only runs when there is a lot to return. A heap
+// costs one pause, so it only runs when there is something to return. A heap
 // that is mostly idle falls below what the runtime would ever shrink to on
-// its own.
+// its own, and a window left open at a few hundred megabytes would otherwise
+// keep its peak in Task Manager.
 const (
-	heapReleaseIdle  = 512 << 20
-	heapReleaseShare = 40
+	heapReleaseIdle  = 192 << 20
+	heapReleaseShare = 25
 	heapReleaseEvery = 2 * time.Minute
 )
 
