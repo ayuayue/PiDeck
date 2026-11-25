@@ -53,5 +53,6 @@ func piBlockImages(blocks []piContent) []remotewire.Image {
 func toolRunFromResult(m piMessage) toolRun {
 	blocks := m.blocks()
 	return toolRun{CallID: m.ToolCallID, Name: m.ToolName, Output: strings.TrimSpace(piBlockText(blocks)),
-		Images: piBlockImages(blocks), IsError: m.IsError, DurationMs: m.DurationMs}
+		Images: piBlockImages(blocks), Ask: askResultFromDetails(m.ToolName, m.Details),
+		IsError: m.IsError, DurationMs: m.DurationMs}
 }

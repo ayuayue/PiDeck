@@ -1000,6 +1000,7 @@
   "已经有这个 id 的预设。": "A preset with this id already exists.",
   "已续写": "Continued",
   "已跳过": "Skipped",
+  "未作答": "Unanswered",
   "已过期 %s": "Expired %s ago",
   "已连上中继，可以打开开关了": "Connected to the relay; you can turn the switch on.",
   "已连接中继，等待手机连接": "Relay connected, waiting for the phone",

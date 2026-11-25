@@ -149,7 +149,7 @@ func (a *app) settingsAddons() core.Node {
 			}
 		}
 		return a.scrollStashFor("settingsAddons:1").Bind(cx, core.Scroll{TestID: "settings-page", Style: ui.FillRest, Children: []core.Node{
-			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 4}, Children: []core.Node{
+			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: scrollbarGutter}, Gap: 4}, Children: []core.Node{
 				setGroup("插件", rows...),
 				core.Text{Content: apptext.T("插件声明命令、设置、主题、键位、事件钩子和智能体；只执行宿主提供的动作，不运行插件代码。"),
 					Style: core.Style{FontSize: 11, LineHeight: 17}, StyleFunc: ui.Colored(colors.Faint)},

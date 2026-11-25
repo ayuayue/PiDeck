@@ -10,6 +10,9 @@ import (
 	"example.com/pideck-v2/internal/viewkit"
 )
 
+// scrollbarGutter keeps content clear of overlay scrollbars at every nested scroll edge.
+const scrollbarGutter = 16
+
 // scrollStash is viewkit's stash, under the name this host uses.
 type scrollStash = viewkit.ScrollStash
 

@@ -102,7 +102,7 @@ func (a *app) settingsLook() core.Node {
 			return setGroup("配色", rows...)
 		})
 		return a.scrollStashFor("settingsLook:1").Bind(cx, core.Scroll{TestID: "settings-page", Style: ui.FillRest, Children: []core.Node{
-			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 4}, Children: []core.Node{
+			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: scrollbarGutter}, Gap: 4}, Children: []core.Node{
 				setRow("减弱动效", "关闭工作台布局和对话定位的动画。", ui.Switch{
 					Checked: a.reduceEffects.Get, Label: apptext.T("减弱动效"), TestID: "reduce-effects",
 					OnChange: func(on bool) {

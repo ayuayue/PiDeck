@@ -127,7 +127,7 @@ func (a *app) settingsEnv() core.Node {
 				}, "localhost,127.0.0.1,.local", "直连名单", "proxy-bypass")),
 		}
 		return a.scrollStashFor("settingsEnv:1").Bind(cx, core.Scroll{TestID: "settings-page", Style: ui.FillRest, Children: []core.Node{
-			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 2}, Children: []core.Node{
+			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: scrollbarGutter}, Gap: 2}, Children: []core.Node{
 				setGroup("本机", probeRows, editorRow),
 				setGroup("网络代理", proxyRows...),
 				core.Text{Content: apptext.T("应用代理只影响应用自己发出的请求；Agent 代理在启动进程时注入环境变量。"),

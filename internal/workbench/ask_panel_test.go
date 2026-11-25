@@ -58,6 +58,18 @@ func TestParseBatchAsk(t *testing.T) {
 	}
 }
 
+func TestParseBatchAskKeepsMultiSelectType(t *testing.T) {
+	for _, kind := range []string{"multi_select", "multi-select", "multiSelect", " MULTI SELECT "} {
+		t.Run(kind, func(t *testing.T) {
+			title := `{"__piDeckBatchAsk":1,"questions":[{"question":"选择多项","type":"` + kind + `","options":["A","B"]}]}`
+			env, ok := parseBatchAsk(title)
+			if !ok || env.Questions[0].Type != askMultiSelect {
+				t.Fatalf("type %q was not kept as multi-select: %+v", kind, env)
+			}
+		})
+	}
+}
+
 // TestAskOptionsFromStrings keeps the custom row the extension marks and
 // splits a description out of a label.
 func TestAskOptionsFromStrings(t *testing.T) {
@@ -117,25 +129,31 @@ func newAskApp(t *testing.T) (*app, *nsgotest.App, *session) {
 	t.Helper()
 	home, dir := t.TempDir(), t.TempDir()
 	t.Setenv("PIDECK_V2_HOME", home)
+	t.Setenv("PIDECK_V2_PI_CONFIG", t.TempDir())
+	t.Setenv("PIDECK_V2_LANG", "zh-CN")
 	raw, _ := json.Marshal(config{Version: 1, Workspaces: []workspaceCfg{{Path: dir, Name: "Ask"}},
 		Theme: "system", SidebarOpen: true})
 	if err := os.WriteFile(filepath.Join(home, "config.json"), raw, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	var built *app
-	root := func(cx *core.Scope) core.Node { built = newApp(cx); return built.view() }
+	var s *session
+	root := func(cx *core.Scope) core.Node {
+		built = newApp(cx)
+		ws := &workspace{Path: dir}
+		s = built.blankSession("ask-session", ws, "问一句话")
+		built.byID[s.ID] = s
+		built.all = append(built.all, s)
+		built.tabs.Set([]string{s.ID})
+		built.activeID.Set(s.ID)
+		return built.view()
+	}
 	screen := nsgotest.Start(t, root, nsgotest.Size(1280, 860))
-	screen.Advance(200 * time.Millisecond)
 	if built == nil {
 		t.Fatal("the app did not start")
 	}
-	ws := &workspace{Path: dir}
-	s := built.blankSession("ask-session", ws, "问一句话")
-	built.byID[s.ID] = s
-	built.all = append(built.all, s)
-	built.tabs.Set([]string{s.ID})
-	built.activeID.Set(s.ID)
-	screen.Advance(50 * time.Millisecond)
+	t.Cleanup(built.closeDiag)
+	screen.Advance(200 * time.Millisecond)
 	return built, screen, s
 }
 
@@ -197,6 +215,48 @@ func TestAskBatchCard(t *testing.T) {
 	}
 	if s.showingAsk() != nil {
 		t.Fatal("the session still waits on an answer")
+	}
+}
+
+// TestAskFirstMultiSelectRevisited keeps the first question editable until
+// Next, including after visiting a single-choice question with the same values.
+func TestAskFirstMultiSelectRevisited(t *testing.T) {
+	for _, kind := range []string{"multi_select", "multi-select"} {
+		t.Run(kind, func(t *testing.T) {
+			built, screen, s := newAskApp(t)
+			env, ok := parseBatchAsk(`{"__piDeckBatchAsk":1,"questions":[
+		{"id":"checks","type":"` + kind + `","question":"选择检查项","options":["A","B","C"]},
+		{"id":"next","type":"select","question":"下一步","options":["A","B"]}
+	]}`)
+			if !ok {
+				t.Fatal("the first multi-select envelope did not parse")
+			}
+			onNativeUI(t, screen, built, func() {
+				built.enqueueAsk(s, &extensionAsk{ID: "first-multi", Method: remotewire.AskMethodBatch, Questions: env.Questions})
+			})
+			screen.WaitFor("id:ask-multi-A", 5*time.Second)
+			press := func(value string, want ...string) {
+				t.Helper()
+				screen.Press("id:ask-multi-" + value)
+				screen.Settle()
+				state := s.askUI.GetUntracked()
+				if state.Tab != 0 {
+					t.Fatalf("toggling %s advanced to tab %d", value, state.Tab)
+				}
+				got, _ := askStringList(state.Answers["checks"].Value)
+				if strings.Join(got, ",") != strings.Join(want, ",") {
+					t.Fatalf("selected = %v, want %v", got, want)
+				}
+			}
+			press("A", "A")
+			press("B", "A", "B")
+			screen.Press("id:ask-next")
+			screen.WaitFor("id:ask-option-A", 5*time.Second)
+			screen.Press("id:ask-prev")
+			screen.WaitFor("id:ask-multi-A", 5*time.Second)
+			press("A", "B")
+			press("C", "B", "C")
+		})
 	}
 }
 

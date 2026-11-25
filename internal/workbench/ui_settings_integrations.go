@@ -33,7 +33,7 @@ func (a *app) settingsIntegrations() core.Node {
 			a.st.edit(fn)
 		}
 		return a.scrollStashFor("settingsIntegrations:1").Bind(cx, core.Scroll{TestID: "settings-page", Style: ui.FillRest, Children: []core.Node{
-			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 4}, Children: []core.Node{
+			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: scrollbarGutter}, Gap: 4}, Children: []core.Node{
 				a.wechatSettings(),
 				setGroup("飞书",
 					setRow("飞书机器人", "一轮结束时，把会话标题、状态和一句摘要发到群里的自定义机器人。",

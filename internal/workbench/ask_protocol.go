@@ -131,9 +131,12 @@ func normalizeAskQuestions(in []askQuestion) []askQuestion {
 // normalizeAskType resolves an omitted or odd type from the question's
 // shape, as the extension does.
 func normalizeAskType(q askQuestion) string {
-	switch strings.ToLower(strings.TrimSpace(q.Type)) {
-	case askSelect, askMultiSelect, askConfirm, askInput, askEditor:
-		return strings.ToLower(strings.TrimSpace(q.Type))
+	kind := strings.ToLower(strings.TrimSpace(q.Type))
+	switch kind {
+	case askMultiSelect, "multi-select", "multiselect", "multi select":
+		return askMultiSelect
+	case askSelect, askConfirm, askInput, askEditor:
+		return kind
 	}
 	if len(q.Options) > 0 {
 		return askSelect

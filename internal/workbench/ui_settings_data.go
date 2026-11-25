@@ -33,7 +33,7 @@ func (a *app) settingsData() core.Node {
 			piCount += len(ws.Pi.Get())
 		}
 		return a.scrollStashFor("settingsData:1").Bind(cx, core.Scroll{TestID: "settings-page", Style: ui.FillRest, Children: []core.Node{
-			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 2}, Children: []core.Node{
+			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: scrollbarGutter}, Gap: 2}, Children: []core.Node{
 				setGroup("位置",
 					setRow("数据目录", dir, ui.Button{Text: apptext.T("打开"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
 						if dir != "" {

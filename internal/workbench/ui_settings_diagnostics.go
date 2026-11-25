@@ -31,7 +31,7 @@ const diagLogLines = 12
 func (a *app) settingsDiagnostics(cx *core.Scope) core.Node {
 	return a.scrollStashFor("settingsDiagnostics:1").Bind(cx, core.Scroll{TestID: "settings-page",
 		Style: ui.FillRest, Children: []core.Node{
-			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 4}, Children: []core.Node{
+			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: scrollbarGutter}, Gap: 4}, Children: []core.Node{
 				a.diagRuntimeGroup(),
 				a.diagProcessGroup(),
 				a.diagLogGroup(),

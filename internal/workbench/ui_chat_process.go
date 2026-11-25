@@ -381,8 +381,7 @@ func (a *app) processGroup(s *session, t func() turn, node processNode, latest f
 			follow := s.procFollow(key)
 			follow.reset()
 			return core.Scroll{Ref: &follow.ref, TestID: "process-body", OnScroll: follow.scrolled,
-				Style: core.Style{MinWidth: core.Pt(0), Margin: core.Edges{Left: 6},
-					Padding: core.Edges{Bottom: 2, Left: 12}, Borders: core.Edges{Left: 1}},
+				Style: core.Style{MinWidth: core.Pt(0), Margin: core.Edges{Left: 6}, Borders: core.Edges{Left: 1}},
 				StyleFunc: func() core.Style {
 					return core.Style{MaxHeight: core.Pt(processBodyMax(cx)), BorderColors: core.EdgeColors{Left: colors.Now().Line}}
 				},
@@ -394,7 +393,8 @@ func (a *app) processGroup(s *session, t func() turn, node processNode, latest f
 						if auto() {
 							follow.grown()
 						}
-					}, Style: core.Style{MinWidth: core.Pt(0), FlexShrink: 0, Gap: 4}, Children: []core.Node{
+					}, Style: core.Style{MinWidth: core.Pt(0), FlexShrink: 0, Gap: 4,
+						Padding: core.Edges{Left: 12, Right: scrollbarGutter, Bottom: 2}}, Children: []core.Node{
 						core.Each(func() []processItem { return members },
 							func(m processItem) string { return m.id },
 							func(cx *core.Scope, m func() processItem, _ func() int) core.Node {
@@ -438,16 +438,10 @@ func (a *app) memberRows(s *session, t func() turn, m func() processItem) core.N
 // moment it began to the moment it was committed, which is the window its
 // reasoning filled. A message still streaming counts from that same start.
 func thinkTime(s *session, src stepSource, now time.Time) string {
-	if src.live() {
-		if s.replyStart.IsZero() {
-			return ""
-		}
-		return viewkit.Duration(now.Sub(s.replyStart))
+	if src.live() && !s.replyStart.IsZero() {
+		return viewkit.Duration(max(0, now.Sub(s.replyStart)))
 	}
-	if d := src.committed().Think; d > 0 {
-		return viewkit.Duration(d)
-	}
-	return ""
+	return viewkit.Duration(max(0, src.committed().Think))
 }
 
 // thinkRow is what pi reasoned: one muted line while it is folded, the
@@ -509,7 +503,7 @@ func (a *app) thinkRow(s *session, src stepSource) core.Node {
 				// starts in the row's own column, under the glyph that heads it.
 				return core.Scroll{Style: core.Style{MinWidth: core.Pt(0), MaxHeight: core.Pt(320)},
 					Children: []core.Node{core.View{Style: core.Style{MinWidth: core.Pt(0),
-						Padding: core.Edges{Left: viewkit.ContentLeft(sizes), Top: 2, Bottom: 4}},
+						Padding: core.Edges{Left: viewkit.ContentLeft(sizes), Right: scrollbarGutter, Top: 2, Bottom: 4}},
 						Children: []core.Node{viewkit.MarkdownLive(a.chatSearch, func() string { return src.thinking() }, src.live,
 							sizes.Verb, a.readingRowLine(), core.Style{Color: colors.Muted(), FontWeight: core.FontWeight(350)}, a.codeWrap.Get)}}}}
 			}},

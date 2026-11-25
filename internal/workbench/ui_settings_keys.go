@@ -69,7 +69,7 @@ func (a *app) settingsKeys() core.Node {
 				StyleFunc: ui.Colored(colors.Warn)})
 		}
 		return a.scrollStashFor("settingsKeys:1").Bind(cx, core.Scroll{TestID: "settings-page", Style: ui.FillRest, Children: []core.Node{
-			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 6}, Children: []core.Node{
+			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: scrollbarGutter}, Gap: 6}, Children: []core.Node{
 				setGroup("命令", rows...),
 				core.Text{Content: apptext.T("写法：mod（Mac 的 Command / 其他平台的 Ctrl）、ctrl、alt、shift、meta 加键名，例如 mod+shift+g、ctrl+tab、f5。回车保存，留空取消绑定。"),
 					Style: core.Style{FontSize: 11, LineHeight: 17}, StyleFunc: ui.Colored(colors.Faint)},

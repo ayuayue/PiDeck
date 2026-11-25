@@ -104,6 +104,9 @@ func mergeRun(old, next toolRun) toolRun {
 	if len(next.Images) > 0 {
 		old.Images = next.Images
 	}
+	if next.Ask != nil {
+		old.Ask = next.Ask
+	}
 	if next.Diff != "" {
 		old.Diff, old.Added, old.Removed = next.Diff, next.Added, next.Removed
 	}

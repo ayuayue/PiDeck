@@ -70,9 +70,10 @@ type piMessage struct {
 	ErrorMsg   string   `json:"errorMessage"`
 
 	// toolResult
-	ToolCallID string `json:"toolCallId"`
-	ToolName   string `json:"toolName"`
-	IsError    bool   `json:"isError"`
+	ToolCallID string          `json:"toolCallId"`
+	ToolName   string          `json:"toolName"`
+	IsError    bool            `json:"isError"`
+	Details    json.RawMessage `json:"details,omitempty"`
 
 	// bashExecution
 	Command          string `json:"command"`

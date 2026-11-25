@@ -36,7 +36,7 @@ func (a *app) toolRow(s *session, run func() toolRun) core.Node {
 		}
 		hasBody := func() bool {
 			r := run()
-			return toolBodyText(r) != "" || len(r.Images) > 0
+			return r.Ask != nil || toolBodyText(r) != "" || len(r.Images) > 0
 		}
 		sizes := a.processSizes()
 		header := viewkit.ToolRow(cx, viewkit.ToolLine{
@@ -59,8 +59,8 @@ func (a *app) toolRow(s *session, run func() toolRun) core.Node {
 			})}
 			return core.View{Style: core.Style{MinWidth: core.Pt(0), MaxHeight: core.Pt(320), Borders: core.Edges{Top: 1},
 				BorderColors: core.EdgeColors{Top: colors.Now().Line}}, Children: []core.Node{
-				core.Scroll{Style: core.Style{MinWidth: core.Pt(0)}, Children: []core.Node{
-					core.View{Style: core.Style{Padding: core.Edges{Top: 8, Bottom: 8, Left: viewkit.ContentLeft(sizes), Right: 10}, Gap: 4}, Children: append(children,
+				core.Scroll{TestID: "tool-output", Style: core.Style{MinWidth: core.Pt(0)}, Children: []core.Node{
+					core.View{Style: core.Style{Padding: core.Edges{Top: 8, Bottom: 8, Left: viewkit.ContentLeft(sizes), Right: scrollbarGutter}, Gap: 4}, Children: append(children,
 						core.Show{When: func() bool { return len(run().Images) > 0 }, Then: func(cx *core.Scope) core.Node {
 							images := run().Images
 							tiles := make([]core.Node, 0, len(images))
@@ -103,22 +103,16 @@ func (a *app) toolRow(s *session, run func() toolRun) core.Node {
 
 // toolTime is how long a call has taken, as its row says it: a finished
 // call's total, or what a running one has spent since it started — read from
-// the app's clock, so the figure counts up while the row is in sight. A call
-// pi timed itself without a figure was quick, not unknown.
+// the app's clock, so the figure counts up while the row is in sight. An
+// unrecorded completed duration reads as zero to keep the time column filled.
 func toolTime(run toolRun, now time.Time) string {
 	if run.Status == chat.Running {
 		if run.Start.IsZero() {
 			return ""
 		}
-		return viewkit.Duration(now.Sub(run.Start))
+		return viewkit.Duration(max(0, now.Sub(run.Start)))
 	}
-	if run.DurationMs > 0 {
-		return viewkit.Duration(time.Duration(run.DurationMs) * time.Millisecond)
-	}
-	if !run.Start.IsZero() {
-		return viewkit.Duration(0)
-	}
-	return ""
+	return viewkit.Duration(time.Duration(max(0, run.DurationMs)) * time.Millisecond)
 }
 
 // toolIcon is the glyph of what a tool does.
@@ -174,6 +168,9 @@ func toolBodyText(run toolRun) string {
 // toolBodyNodes is an open row's body: a diff colored by its signs, or the
 // output as it came.
 func (a *app) toolBodyNodes(cx *core.Scope, run toolRun) []core.Node {
+	if run.Ask != nil {
+		return []core.Node{a.askResultBody(cx, *run.Ask)}
+	}
 	colors := ui.ColorsOf(cx)
 	size, rowLine := a.readingDetailFont(), a.readingDetailLine()
 	if run.Diff != "" {

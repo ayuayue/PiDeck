@@ -78,6 +78,7 @@ type toolRun struct {
 	Action string // a short verb: 运行, 读取, 编辑…
 	Detail string // its target: a command, a path, a query
 	Output string
+	Ask    *askToolResult     `json:"-"`
 	Images []remotewire.Image `json:",omitempty"`
 	// Diff is what an edit changed, as lines beginning with - or +, and
 	// Added/Removed count them.
@@ -140,6 +141,9 @@ type toolDetails struct {
 // withDetails reads a tool result's details into the run: an edit's diff,
 // a nested tool's calls.
 func (r *toolRun) withDetails(raw json.RawMessage) {
+	if result := askResultFromDetails(r.Name, raw); result != nil {
+		r.Ask = result
+	}
 	if len(raw) == 0 {
 		return
 	}

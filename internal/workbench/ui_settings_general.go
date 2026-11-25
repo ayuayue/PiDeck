@@ -68,7 +68,7 @@ func (a *app) settingsGeneral() core.Node {
 			}))
 		}
 		return a.scrollStashFor("settings:general").Bind(cx, core.Scroll{TestID: "settings-page", Style: ui.FillRest, Children: []core.Node{
-			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}}, Children: []core.Node{
+			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: scrollbarGutter}}, Children: []core.Node{
 				setGroup("界面",
 					setRow("语言", "界面文案；切换后立即生效，未翻译的条目保留中文。",
 						ui.Select[string]{Options: languageOptions(), Value: func() string { return a.cfg.Language }, OnChange: a.setLanguage,

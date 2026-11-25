@@ -215,7 +215,7 @@ func (a *app) askSelectBody(s *session, ask *extensionAsk, q askQuestion, state 
 		}})
 	}
 	return core.View{Style: core.Style{Gap: 7, MinWidth: core.Pt(0)}, Children: []core.Node{
-		core.Scroll{Style: core.Style{MaxHeight: core.Pt(260)}, Children: []core.Node{core.View{Style: core.Style{Gap: 3}, Children: body}}},
+		core.Scroll{Style: core.Style{MaxHeight: core.Pt(260)}, Children: []core.Node{core.View{Style: core.Style{Gap: 3, Padding: core.Edges{Right: scrollbarGutter}}, Children: body}}},
 	}}
 }
 
@@ -233,7 +233,7 @@ func (a *app) askMultiBody(s *session, ask *extensionAsk, q askQuestion, state a
 		rows = append(rows, a.askOptionRow(s, ask, func() { a.toggleMultiSelect(s, ask, q, o) }, o, chosen[o.Value], "ask-multi-"+o.Value))
 	}
 	return core.View{Style: core.Style{Gap: 5}, Children: []core.Node{
-		core.Scroll{Style: core.Style{MaxHeight: core.Pt(240)}, Children: []core.Node{core.View{Style: core.Style{Gap: 3}, Children: rows}}},
+		core.Scroll{Style: core.Style{MaxHeight: core.Pt(240)}, Children: []core.Node{core.View{Style: core.Style{Gap: 3, Padding: core.Edges{Right: scrollbarGutter}}, Children: rows}}},
 		ui.Text(apptext.T("可多选"), 9.5, ui.Regular, ui.ColorsOf(a.cx).Faint),
 	}}
 }
@@ -346,7 +346,7 @@ func (a *app) askReview(s *session, ask *extensionAsk, state askUIState) core.No
 			}})
 	}
 	body := []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pt(220)}, Children: []core.Node{
-		core.View{Style: core.Style{Gap: 1}, Children: rows}}}}
+		core.View{Style: core.Style{Gap: 1, Padding: core.Edges{Right: scrollbarGutter}}, Children: rows}}}}
 	if !askSettled(ask, state) {
 		body = append(body, core.Text{Content: apptext.T("还有题目未回答"), Style: core.Style{FontSize: 10.5},
 			StyleFunc: ui.Colored(colors.Warn)})

@@ -471,6 +471,7 @@ func acpToolRun(u acpUpdate, status chat.Status) toolRun {
 
 // updateACPTool adds or merges a tool in the running turn's last step.
 func (a *app) updateACPTool(s *session, run toolRun, add bool) {
+	now := a.cx.Now()
 	s.turns.Update(func(ts []turn) []turn {
 		for i := len(ts) - 1; i >= 0; i-- {
 			if ts[i].ID != s.acpTurnID {
@@ -482,11 +483,17 @@ func (a *app) updateACPTool(s *session, run toolRun, add bool) {
 			step := &ts[i].Steps[len(ts[i].Steps)-1]
 			for j := range step.Tools {
 				if step.Tools[j].CallID == run.CallID {
-					step.Tools[j] = mergeRun(step.Tools[j], run)
+					previous := step.Tools[j]
+					if (previous.Status == chat.Running || previous.Status == chat.Waiting) &&
+						run.Status != chat.Running && run.Status != chat.Waiting && !previous.Start.IsZero() && run.DurationMs <= 0 {
+						run.DurationMs = max(0, now.Sub(previous.Start).Milliseconds())
+					}
+					step.Tools[j] = mergeRun(previous, run)
 					return ts
 				}
 			}
 			if add {
+				run.Start = now
 				step.Tools = append(step.Tools, run)
 				ts[i].Tools++
 			}
