@@ -72,6 +72,7 @@ var settingsIndex = []settingEntry{
 	{"look", "应用显示名称", "brand app display name title text 品牌 名称 文字"},
 	{"look", "主题文件", "theme file json yaml"},
 	{"look", "导出当前主题", "export theme file"},
+	{"look", "导入主题", "import theme file load share 导入 主题文件"},
 	{"look", "编辑器字号", "editor font size 字号"},
 	{"look", "终端字号", "terminal font size 字号"},
 	{"look", "聊天字号", "chat font size prose reading 字号 阅读"},

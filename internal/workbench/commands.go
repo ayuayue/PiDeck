@@ -355,6 +355,8 @@ func builtinCommands() []appCommand {
 			Run: func(a *app) { a.cycleAppearance() }},
 		{ID: "theme-export", Label: "导出当前主题…", Group: "外观", Icon: lucide.Palette,
 			Run: func(a *app) { a.exportTheme() }},
+		{ID: "theme-import", Label: "导入主题…", Group: "外观", Icon: lucide.FolderInput,
+			Run: func(a *app) { a.importTheme() }},
 		{ID: "settings", Label: "设置", Group: "应用", Shortcut: "mod+,", Icon: lucide.Settings, HookSafe: true,
 			Run: func(a *app) { a.openSettingsPane() }},
 	}
