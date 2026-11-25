@@ -201,7 +201,7 @@ func (a *app) turnFooter(s *session, t func() turn, now func() time.Time) core.N
 			colors := ui.ColorsOf(cx)
 			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7}, Children: []core.Node{
 				ui.Icon(lucide.Square, 11, colors.Faint),
-				core.Text{ContentFunc: func() string { return apptext.T("已停止 · 用时 %s", duration(t().elapsed(now()))) },
+				core.Text{ContentFunc: func() string { return apptext.T("已停止 · 用时 %s", duration(turnSpan(t(), now))) },
 					Style: core.Style{FontSize: 12}, StyleFunc: ui.Colored(colors.Muted)},
 			}}
 		}},
@@ -214,6 +214,17 @@ func (a *app) turnFooter(s *session, t func() turn, now func() time.Time) core.N
 			}}
 		}},
 	}
+}
+
+// turnSpan is how long a turn took, or has been going. A turn that stamped
+// its end has stopped counting, so its span is read from the stamp: the rows
+// that show it then never subscribe to the clock a finished turn no longer
+// needs, and a transcript being read does not redraw every second.
+func turnSpan(t turn, now func() time.Time) time.Duration {
+	if !t.End.IsZero() {
+		return t.elapsed(t.End)
+	}
+	return t.elapsed(now())
 }
 
 // failureText is what a failed turn says: pi's own words when it gave any,
@@ -352,7 +363,7 @@ func (a *app) turnMeta(t func() turn, now func() time.Time) core.Node {
 					row = append(row, core.Text{Content: "·", Style: faint, StyleFunc: ui.Colored(colors.Faint)})
 				}
 			}
-			if d := tt.elapsed(now()); d >= time.Second {
+			if d := turnSpan(tt, now); d >= time.Second {
 				dot()
 				row = append(row, ui.Icon(lucide.Clock, 11, colors.Faint),
 					core.Text{Content: duration(d), Style: faint, StyleFunc: ui.Colored(colors.Faint)})

@@ -114,6 +114,63 @@ func TestToolRowTimeFollowsTheVerb(t *testing.T) {
 	}
 }
 
+// TestToolRowOutlivesTheClock guards the time column against the clock it
+// shows: a running call counts up in its figures, and a tick changes those
+// figures alone — the row around them, its output and the scroll position in
+// that output are not built again every second.
+func TestToolRowOutlivesTheClock(t *testing.T) {
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	var clk *core.Signal[time.Time]
+	builds := 0
+	screen := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		cx.SetTheme(Theme())
+		clk = core.NewSignal(cx, start)
+		return core.Dynamic(func(*core.Scope) core.Node {
+			builds++
+			return ToolRow(cx, ToolLine{
+				Glyph:   func() *core.SVG { return lucide.Terminal() },
+				Verb:    "运行",
+				Detail:  "go test ./...",
+				Time:    func() string { return Duration(clk.Get().Sub(start)) },
+				Running: true,
+			}, phoneSizes)
+		})
+	}, nsgotest.Size(420, 300))
+	screen.Settle()
+	built := builds
+	if n := len(screen.Query("text:0ms")); n != 1 {
+		t.Fatalf("a call that just started showed 0ms %d times; want 1", n)
+	}
+	screen.Post(func() { clk.Set(start.Add(4200 * time.Millisecond)) })
+	screen.Settle()
+	if n := len(screen.Query("text:4.2s")); n != 1 {
+		t.Fatalf("after a tick the figures read 4.2s %d times; want 1", n)
+	}
+	if builds != built {
+		t.Fatalf("the row was built %d times for %d ticks; want %d: a tick redraws its figures, not the row", builds, 1, built)
+	}
+}
+
+// TestToolRowPendingShowsSpinner guards the first moment of a running call:
+// with no clock to show yet it takes the spinner, and says nothing about the
+// time rather than inventing a dash.
+func TestToolRowPendingShowsSpinner(t *testing.T) {
+	screen := toolRowScreen(t, ToolLine{
+		Glyph:   func() *core.SVG { return lucide.Terminal() },
+		Verb:    "运行",
+		Detail:  "sleep 3",
+		Time:    func() string { return "" },
+		Running: true,
+		Pending: true,
+	})
+	if n := len(screen.Query(`text:"` + NoTime + `"`)); n != 0 {
+		t.Fatalf("a pending call showed %q %d times; want a spinner instead", NoTime, n)
+	}
+	if n := len(screen.Query("text:运行")); n != 1 {
+		t.Fatalf("verb rows = %d; want 1", n)
+	}
+}
+
 // TestDurationFitsTheTimeColumn guards the widths the column was sized for:
 // six figures, so a block of durations stays inside its column whatever a
 // call took, and no known time renders as nothing.

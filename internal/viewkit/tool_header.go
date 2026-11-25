@@ -29,6 +29,10 @@ type ToolLine struct {
 	// up, so the row asks again whenever it paints; nil has no clock to show.
 	Time    func() string
 	Running bool
+	// Pending is a running call its host has not clocked yet: the time
+	// column shows a spinner instead of figures, and Reading it would
+	// subscribe the row to a clock that cannot say anything yet.
+	Pending bool
 	Failed  bool
 	// Open and HasBody drive the arrow: an open row shows its output, and a
 	// row with nothing to show has no arrow.
@@ -72,7 +76,7 @@ func ToolRow(cx *core.Scope, line ToolLine, sizes ToolSizes) core.Node {
 		// How long it took follows what ran and heads what it ran on: the
 		// figures hold a column of their own, so the details below them start
 		// on one line and a running call counts up in place.
-		TimeCell(cx, sizes.Detail, line.Running, line.Time),
+		TimeCell(cx, sizes.Detail, line.Pending || (line.Running && line.Time == nil), line.Time),
 		core.Text{Content: line.Detail, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
 			Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: MonoFont(), FontSize: sizes.Detail},
 			StyleFunc: ui.Colored(colors.Faint)})
@@ -113,23 +117,29 @@ const NoTime = "—"
 // what ran and the thing it ran on. The figures start right after their verb
 // and the cell keeps one width whatever they say, so the details that follow
 // start on one line down the block, with a clear gap between them and the
-// time. A running row with no clock yet shows a spinner there, and a row
-// whose time was never recorded says so in NoTime.
-func TimeCell(cx *core.Scope, size core.Points, running bool, text func() string) core.Node {
+// time. A pending row, still waiting for its first clock, shows a spinner
+// there, and a row whose time was never recorded says so in NoTime.
+//
+// text is read inside the figures' own content, never here: reading it while
+// the row is built would subscribe the row to the clock behind it, and every
+// second of a running call would rebuild the whole row — its output below,
+// the scroll position in it, and the spinner that never gets to turn.
+func TimeCell(cx *core.Scope, size core.Points, pending bool, text func() string) core.Node {
 	colors := ui.ColorsOf(cx)
-	wrote := text != nil && text() != ""
 	var slot core.Node
-	switch {
-	case wrote:
-		slot = ui.Tabular(core.Text{ContentFunc: text, MaxLines: 1,
+	if pending {
+		slot = ui.Spinner{Size: max(size-2, 8)}
+	} else {
+		slot = ui.Tabular(core.Text{ContentFunc: func() string {
+			if text != nil {
+				if wrote := text(); wrote != "" {
+					return wrote
+				}
+			}
+			return NoTime
+		}, MaxLines: 1,
 			Style:     core.Style{FontFamily: MonoFont(), FontSize: size, FlexShrink: 0},
 			StyleFunc: ui.Colored(colors.Faint)})
-	case running:
-		slot = ui.Spinner{Size: max(size-2, 8)}
-	default:
-		slot = core.Text{Content: NoTime, MaxLines: 1,
-			Style:     core.Style{FontFamily: MonoFont(), FontSize: size, FlexShrink: 0},
-			StyleFunc: ui.Colored(colors.Faint)}
 	}
 	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter,
 		Width: core.Pt(TimeWidth(size)), FlexShrink: 0, Margin: core.Edges{Right: timeGap(size)}},

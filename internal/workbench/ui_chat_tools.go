@@ -48,6 +48,7 @@ func (a *app) toolRow(s *session, run func() toolRun) core.Node {
 			Nested:  len(run().Nested),
 			Time:    func() string { return toolTime(run(), a.clock.Get()) },
 			Running: running(),
+			Pending: running() && run().Start.IsZero(),
 			Failed:  run().IsError,
 			Open:    open(),
 			HasBody: hasBody(),
