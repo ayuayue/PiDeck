@@ -52,7 +52,9 @@ test("TurnRow shows the turn model after the duration in the footer once the tur
 	assert.match(turnRow, /const showTurnModel = !isRunLive && Boolean\(turnModel\)/);
 	// 模型名长短不一，必须限宽截断 + title 给全量 provider/model
 	assert.match(actions, /min-w-0 max-w-\[16rem\] truncate[^"]*"/);
-	assert.match(actions, /title=\{\x60\$\{props\.turnModel\.provider\}\/\$\{props\.turnModel\.modelId\}\x60\}/);
+	assert.match(actions, /title=\{\x60\$\{props\.turnModel\.provider\}\/\$\{turnModelLabel\}\x60\}/);
+	// 显示名可以改写（旧 Kimi 导入的占位模型名显示为 kimi code），但原始 id 必须留在 data 属性里。
+	assert.match(actions, /props\.turnModel\?\.provider === "kimi" && props\.turnModel\.modelId === "kimi-import" \? "kimi code" : props\.turnModel\?\.modelId/);
 	// 落点是底部耗时行，不是行头：行头不再接收 model 字段
 	assert.doesNotMatch(header, /model\?: \{ provider: string; modelId: string \}/);
 	assert.doesNotMatch(header, /data-turn-model/);
@@ -82,7 +84,7 @@ test("轮尾操作栏按「按钮 | 耗时 | 模型」三区分隔，字符上�
 	assert.match(actions, /truncate font-mono text-body leading-none text-text-tertiary/);
 	assert.doesNotMatch(actions, /font-mono text-chat-detail/);
 	// 字符上限只钉在模型名上（等宽字体 1ch = 1 字符，超出即省略号），按钮与耗时区不得带 ch 上限。
-	assert.match(actions, /<span className="block max-w-\[28ch\] truncate">\{props\.turnModel\.modelId\}<\/span>/);
+	assert.match(actions, /<span className="block max-w-\[28ch\] truncate">\{turnModelLabel\}<\/span>/);
 	const upToModel = actions.slice(0, actions.indexOf("props.showTurnModel && props.turnModel && ("));
 	assert.doesNotMatch(upToModel, /max-w-\[\d+ch\]/, "字符上限只作用于模型名，不能漏到按钮/耗时区");
 });
