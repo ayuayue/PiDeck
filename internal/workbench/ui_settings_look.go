@@ -157,6 +157,9 @@ func (a *app) settingsLook() core.Node {
 						{0, apptext.T("跟随聊天")}, {14, apptext.T("紧凑")}, {viewkit.ChatFontDefault, apptext.T("标准")}, {18, apptext.T("大")},
 					}, func() float64 { return a.inputFont.Get() }, a.setInputFont)),
 				setDivider(),
+				setRow("输入框底部指标", "输入框下方那一行显示哪些数字；关掉也不会影响统计，只是不显示。",
+					a.composerMetricChips()),
+				setDivider(),
 				setRow("界面字体", "整个界面的字体（代码与等宽处除外）；系统已安装的字体名，如 Georgia。留空跟随主题，回车、失焦或点「应用」生效。",
 					fontControl(func() string { return a.cfg.UIFont }, func(v string) {
 						a.cfg.UIFont = strings.TrimSpace(v)

@@ -63,6 +63,7 @@ var settingsIndex = []settingEntry{
 	{"about", "请作者喝咖啡", "watcha 爱猹收 tip 打赏 coffee 支持"},
 	{"keys", "键位", "keybinding shortcut keyboard"},
 	{"look", "配色", "theme appearance color"},
+	{"look", "输入框底部指标", "composer footer metrics turns reply speed cache tokens context cost status 底部 指标 轮次 回复 缓存 上下文 费用"},
 	{"look", "减弱动效", "accessibility reduce effects motion animation 减少动画"},
 	{"look", "代码块自动换行", "code wrap markdown 自动换行"},
 	{"look", "视频壁纸", "background video wallpaper engine steam"},

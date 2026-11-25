@@ -55,8 +55,11 @@ type app struct {
 	favModels *core.Signal[[]string]
 	// Favorites are local snapshots of answers and references to sessions;
 	// favMu guards the list the dialog reads.
-	favOpen             *core.Signal[bool]
-	reviewOpen          *core.Signal[bool]
+	favOpen    *core.Signal[bool]
+	reviewOpen *core.Signal[bool]
+	// metricsOpen is the composer footer's metric menu. One composer shows
+	// at a time, so its popover state lives here rather than on a session.
+	metricsOpen         *core.Signal[bool]
 	draftsAtStart       map[string]storedSessionDraft
 	pendingTabs         []string // saved tabs waiting for their remote history scan
 	pendingActive       string
@@ -71,18 +74,21 @@ type app struct {
 	providerQuery       *core.Signal[string]
 	reduceEffects       *core.Signal[bool]
 	codeWrap            *core.Signal[bool]
-	preview             *core.Signal[*filePreview]
-	previewAudio        *previewPlayer
-	notifications       *notificationHistory
-	translation         *core.Signal[*translationDraft]
-	promptTemplate      *core.Signal[*promptTemplateForm]
-	settingsSync        *core.Signal[*settingsSyncForm]
-	favKind             *core.Signal[string]
-	favQuery            *core.Signal[string]
-	favRev              *core.Signal[int]
-	favMu               sync.Mutex
-	favorites           []favoriteEntry
-	favWriteTail        chan []favoriteEntry // UI thread; pending durable snapshots
+	// footerMetrics is which groups the composer footer's line shows, as
+	// the config stores them; "" is the default set, "none" shows none.
+	footerMetrics  *core.Signal[string]
+	preview        *core.Signal[*filePreview]
+	previewAudio   *previewPlayer
+	notifications  *notificationHistory
+	translation    *core.Signal[*translationDraft]
+	promptTemplate *core.Signal[*promptTemplateForm]
+	settingsSync   *core.Signal[*settingsSyncForm]
+	favKind        *core.Signal[string]
+	favQuery       *core.Signal[string]
+	favRev         *core.Signal[int]
+	favMu          sync.Mutex
+	favorites      []favoriteEntry
+	favWriteTail   chan []favoriteEntry // UI thread; pending durable snapshots
 
 	// Scheduled tasks: the list, run history and the editor's fields.
 	// taskMu guards the list the ticker and the UI both touch.

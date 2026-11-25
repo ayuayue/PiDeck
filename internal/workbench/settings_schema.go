@@ -43,6 +43,7 @@ var appSettingFields = []settingField{
 	{Key: "autoModelCatalog", Type: "bool", Default: false},
 	{Key: "reduceEffects", Type: "bool", Default: false},
 	{Key: "codeWrap", Type: "bool", Default: false},
+	{Key: "footerMetrics", Type: "text", Default: composerMetricsDefault},
 	{Key: "backgroundVideo", Type: "text", Default: ""},
 	{Key: "chatWidthPct", Type: "number", Default: chatWidthPctDefault, Min: intPtr(chatWidthPctMin), Max: intPtr(chatWidthPctMax)},
 	{Key: "tabWidthPct", Type: "number", Default: tabWidthPctDefault, Min: intPtr(tabWidthPctMin), Max: intPtr(tabWidthPctMax)},

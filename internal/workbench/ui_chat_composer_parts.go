@@ -144,11 +144,13 @@ func (a *app) composerTrailing(s *session) chat.View {
 }
 
 // composerFooter is the row under the card: where the session runs, which
-// agent it carries, what is failing, and the usage panel.
+// agent it carries, what is failing, and the numbers the session has
+// gathered.
 func (a *app) composerFooter(s *session) chat.View {
 	return func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
-		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, MinWidth: core.Pt(0)}, Children: []core.Node{
+		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, MinWidth: core.Pt(0),
+			FlexGrow: 1}, Children: []core.Node{
 			core.Show{When: func() bool { return s.readySig.Get() }, Then: func(*core.Scope) core.Node {
 				return core.View{TestID: "pi-ready", Label: apptext.T("pi 就绪"),
 					StyleFunc: func() core.Style {
@@ -163,7 +165,7 @@ func (a *app) composerFooter(s *session) chat.View {
 					Style: core.Style{FlexShrink: 1, FontFamily: viewkit.MonoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)}
 			}},
 			core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}},
-			a.usageStatsLine(s),
+			a.composerMetricsNode(s),
 		}}
 	}
 }

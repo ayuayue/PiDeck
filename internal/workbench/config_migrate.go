@@ -133,6 +133,10 @@ func normalizeConfig(c *config) bool {
 	trim(&c.ProxyBypass)
 	trim(&c.Theme)
 	trim(&c.BackgroundVideo)
+	if spec := normalizeComposerMetrics(c.FooterMetrics); spec != c.FooterMetrics {
+		c.FooterMetrics = spec
+		changed = true
+	}
 	if c.BackgroundVideo != "" && !wallpaperVideo(c.BackgroundVideo) {
 		c.BackgroundVideo = ""
 		changed = true

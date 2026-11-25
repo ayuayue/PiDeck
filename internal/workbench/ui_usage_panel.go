@@ -11,7 +11,6 @@ package workbench
 import (
 	"fmt"
 	"math"
-	"strings"
 	"time"
 
 	"example.com/pideck-v2/internal/apptext"
@@ -269,28 +268,6 @@ func paceDuration(d time.Duration) string {
 		return fmt.Sprintf("%.1fs", d.Seconds())
 	}
 	return duration(d)
-}
-
-// usageStatsLine is the composer footer's quiet line: the three numbers the
-// panel explains, without opening it.
-func (a *app) usageStatsLine(s *session) core.Node {
-	return core.Func(func(cx *core.Scope) core.Node {
-		colors := ui.ColorsOf(cx)
-		text := func() string {
-			u := a.contextUseOf(s)
-			perf := s.perf.Get()
-			parts := []string{u.reading()}
-			if perf.HasHit {
-				parts = append(parts, apptext.T("缓存 %.0f%%", perf.HitLast))
-			}
-			if cost := s.usage.Get().Cost; cost > 0 {
-				parts = append(parts, viewkit.Credits(cost))
-			}
-			return strings.Join(parts, " · ")
-		}
-		return core.Text{ContentFunc: text, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-			Style: core.Style{FontSize: 10, FlexShrink: 1, MinWidth: core.Pt(0)}, StyleFunc: ui.Colored(colors.Faint)}
-	})
 }
 
 // usageHint is the ring's hover text.

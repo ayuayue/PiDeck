@@ -56,6 +56,7 @@ func newApp(cx *core.Scope) *app {
 		providerQuery:     core.NewSignal(cx, ""),
 		reduceEffects:     core.NewSignal(cx, false),
 		codeWrap:          core.NewSignal(cx, false),
+		footerMetrics:     core.NewSignal(cx, ""),
 		aiBusy:            core.NewSignal(cx, ""),
 		bgImage:           core.NewSignal(cx, ""),
 		bgOpacity:         core.NewSignal(cx, 0.8),
@@ -234,6 +235,7 @@ func newApp(cx *core.Scope) *app {
 		favModels:              core.NewSignalFunc(cx, []string(nil), nil),
 		favOpen:                core.NewSignal(cx, false),
 		reviewOpen:             core.NewSignal(cx, false),
+		metricsOpen:            core.NewSignal(cx, false),
 		browser:                newBrowserState(cx),
 		preview:                core.NewSignal(cx, (*filePreview)(nil)),
 		notifications:          newNotificationHistory(cx),
@@ -440,6 +442,7 @@ func newApp(cx *core.Scope) *app {
 	a.cfg = st.config()
 	a.reduceEffects.Set(a.cfg.ReduceEffects)
 	a.codeWrap.Set(a.cfg.CodeWrap)
+	a.footerMetrics.Set(a.cfg.FooterMetrics)
 	securityPolicyPath = a.writeSecurityPolicy()
 	a.sounds = alerts.New(cx)
 	a.speech = &volcvoice.Client{}

@@ -150,6 +150,10 @@ type config struct {
 	AutoModelCatalog bool                     `json:"autoModelCatalog,omitempty"`
 	ReduceEffects    bool                     `json:"reduceEffects,omitempty"`
 	CodeWrap         bool                     `json:"codeWrap,omitempty"`
+	// FooterMetrics names the groups the composer footer's line shows, in
+	// a comma-separated spec: turns, reply, cache, tokens, context and
+	// cost. Empty keeps the default set; "none" shows none of them.
+	FooterMetrics string `json:"footerMetrics,omitempty"`
 	// PluginIndexURL and PromptIndexURL are the markets' last links.
 	PluginIndexURL string `json:"pluginIndexUrl,omitempty"`
 	PromptIndexURL string `json:"promptIndexUrl,omitempty"`
