@@ -263,6 +263,11 @@ type mobileApp struct {
 	notice   *core.Signal[string]
 
 	stateLoading bool
+	// pendingRoute is the session a page's address named before the state
+	// that holds it arrived; applyingRoute says the app is following the
+	// browser, so the address it reads is not written back.
+	pendingRoute  webRoute
+	applyingRoute bool
 	// sessionSeq identifies each visit, including reopening the same session.
 	// Reads from an earlier visit cannot publish into the current one.
 	sessionSeq int
@@ -439,13 +444,19 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 	a.sounds = alerts.New(cx)
 	// A page is served by a desktop, so its origin is the server and a link's
 	// ?token= the token; a saved connection wins only over the origin.
-	if origin, linkToken := webStart(); origin != "" {
+	entry := webStart()
+	if entry.Server != "" {
 		if saved.Server == "" {
-			saved.Server = origin
+			saved.Server = entry.Server
 		}
-		if linkToken != "" {
-			saved.Token = linkToken
+		if entry.Token != "" {
+			saved.Token = entry.Token
 		}
+		// The address keeps only the route: a token left in it would sit in
+		// the browser's history, a bookmark and a screenshot of this window.
+		// It is cleared once the connection works, so a mistyped or expired
+		// link still holds its token for a second try.
+		a.pendingRoute = entry.Route
 	}
 	if saved.Server != "" || len(saved.Recent) > 0 {
 		a.recent.Set(saved.Recent)
@@ -454,6 +465,14 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 			a.token.Set(saved.Token)
 			a.connect()
 		}
+	}
+	// A page keeps the open session in its address, so a reload, a bookmark
+	// and a link pasted into a chat all land on it. A browser navigation
+	// reads that address back; whether a sheet or a page closes first is the
+	// back handler's call, which the browser asks before this.
+	if webMode() {
+		cx.OnAppURLChange(func(change core.AppURLChange) { a.showWebRoute(parseWebRoute(change.URL)) })
+		cx.Effect(func() { setPageTitle(webPageTitle(a.connected.Get(), a.activeTitle.Get())) })
 	}
 	cx.OnBackPress(func() bool {
 		if a.transcriptPicture.GetUntracked().Open {

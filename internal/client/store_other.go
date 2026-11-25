@@ -32,7 +32,10 @@ func writeMobileStore(cx *core.Scope, raw []byte) error {
 }
 
 // webStart has nothing to say to a native build: no page served it.
-func webStart() (server, token string) { return "", "" }
+func webStart() webEntry { return webEntry{} }
+
+// setPageTitle has no tab to label on a device: its app is installed.
+func setPageTitle(string) {}
 
 // webReload has nothing to reload on a device: its app is installed.
 func webReload() {}

@@ -213,6 +213,9 @@ func (a *mobileApp) syncMode(snap remotewire.Snapshot) {
 
 // openSession downloads a session's transcript.
 func (a *mobileApp) openSession(id, title string) {
+	// Opening a different session is a step a reader may want to step back
+	// from; landing on the one already open is not.
+	changed := a.active.GetUntracked() != id
 	a.sessionSeq++
 	a.active.Set(id)
 	a.activeTitle.Set(title)
@@ -234,6 +237,7 @@ func (a *mobileApp) openSession(id, title string) {
 	a.syncMode(a.state.GetUntracked())
 	a.refreshTranscript()
 	a.loadOptions(id)
+	a.syncWebAddress(changed)
 }
 
 func (a *mobileApp) closeSession() {
@@ -254,6 +258,7 @@ func (a *mobileApp) closeSession() {
 	a.sendErr.Set("")
 	a.ask.Set(nil)
 	a.askText.Set("")
+	a.syncWebAddress(false)
 }
 
 func (a *mobileApp) refreshTranscript() {

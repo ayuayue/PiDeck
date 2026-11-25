@@ -126,6 +126,16 @@ GOFLAGS=-tags=webassets go tool nsgo build -target windows_x64
 
 然后在桌面端 `设置 → 远程` 开启手机服务，浏览器打开 `http://<地址>:<端口>/?token=<令牌>`：页面与 API 同源，链接里的令牌自动填好，连过的那台电脑记在浏览器的 localStorage。页面版本比电脑旧时，会提示刷新一下。
 
+浏览器端比手机端多出的一层（`internal/client` 的 `web_route.go` / `web_address.go`，只在 js 构建里生效）：
+
+- 令牌只在连接时从地址里读一次；连上后地址只留路由，`?token=` 被 `history.replaceState` 抹掉，
+  不会进浏览器历史、书签或截图。连不上时不清，用错的链接还能改一个字节重试
+- 打开的会话写在地址里（`#/session/<会话 ID>`）：刷新、加书签、把链接发给同一台电脑的另一个人，
+  都回到同一条会话；切换会话 `pushState`，关掉会话 `replaceState`，浏览器后退先关面板、再回新建页
+- 标签页标题跟着会话走（`会话标题 · PiDeck V2`），多个标签能分清；断开连接后回到 `PiDeck V2`
+- 地址与导航走 NSGo 现成的 `Scope.AppURL` / `SetAppURL` / `OnAppURLChange`，不直接碰 `history` 与 `document`；
+  后者只在 `store_js.go` 里有 `document.title` 一处，与 `webReload` 同一层
+
 `webassets/site/` 是生成物，不进仓库；`webassets/` 下的嵌入源码属于仓库。不带上标签构建时只有 API，访问 `/` 会落到令牌门禁上（带令牌也拿到 404）；局域网地址列表把虚拟网卡（Hyper-V、WSL、EasyTier、Tailscale）排在真实网卡之后并标注出来，因为手机通常经它们连不上。手机上看到的是同一套界面，但它走原生构建，不经过这一段。
 
 桌面工作台生产代码和整个会话导入包必须以 `//go:build !js && !android && !ios` 开头；共享协议放在 `internal/remotewire`，共享显示工具放在 `internal/viewkit`。`internal/architecture` 会检查标签，CI 的 12 MB wasm 上限仍负责兜底。

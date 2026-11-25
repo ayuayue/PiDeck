@@ -396,6 +396,14 @@ func (a *mobileApp) connect() {
 			// connection, so saveLook writes all of them.
 			a.saveLook()
 			a.startPolling()
+			// A reload or a shared link names a session; the state that
+			// lists it is here now, so the page lands on it.
+			a.resumeWebRoute()
+			// The token was read from the address on the way in. Now that it
+			// works, the address keeps only the route, so it does not sit in
+			// the browser's history, a bookmark or a screenshot of this
+			// window.
+			a.syncWebAddress(false)
 		})
 	}()
 }
@@ -489,6 +497,7 @@ func (a *mobileApp) disconnectWith(message string) {
 	a.olderBusy.Set(false)
 	a.ask.Set(nil)
 	a.state.Set(remotewire.Snapshot{})
+	a.syncWebAddress(false)
 	a.err.Set(message)
 }
 
