@@ -110,12 +110,16 @@ type reviewState struct {
 	DetailBusy  bool
 	DetailError string
 
-	Writing bool
-	WriteOK string
+	Writing     bool
+	WriteAction string
+	WriteOK     string
 
-	// Patch is the open pull request's unified diff.
-	Patch     string
-	PatchBusy bool
+	// Patch is the open pull request's unified diff. Errors stay separate
+	// so a failed read cannot be copied or cached as a successful patch.
+	Patch       string
+	PatchBusy   bool
+	PatchLoaded bool
+	PatchError  string
 }
 
 // ghUser is gh's author object.

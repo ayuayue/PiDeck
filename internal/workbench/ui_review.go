@@ -32,15 +32,8 @@ func (a *app) reviewPane() core.Node {
 				a.paneHeader(apptext.T("评审"), apptext.T("拉取请求与议题：查看、评论、合并，或交给会话评估。"), a.reviewHeaderActions(cx)),
 				a.reviewScopeRow(cx),
 				a.reviewToolbar(cx),
-				core.View{Style: ui.FillRest, Children: []core.Node{
-					core.Dynamic(func(cx *core.Scope) core.Node {
-						st := a.review.state.Get()
-						if st.Open != "" {
-							return a.reviewDetail(cx)
-						}
-						return a.reviewList(cx, st)
-					}),
-				}},
+				a.reviewFeedback(cx),
+				core.View{Style: ui.FillRest, Children: []core.Node{a.reviewContent(cx)}},
 			}}
 	})
 }
@@ -48,13 +41,11 @@ func (a *app) reviewPane() core.Node {
 // reviewHeaderActions are the page's own buttons: refresh and the browser.
 func (a *app) reviewHeaderActions(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
-	busy := func() bool { return a.review.state.Get().Loading || a.review.state.Get().DetailBusy }
+	busy := func() bool { st := a.review.state.Get(); return st.Loading || st.DetailBusy }
 	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
-		core.Show{When: func() bool { return busy() }, Then: func(cx *core.Scope) core.Node {
-			return ui.Spinner{Size: 12, Label: apptext.T("正在读取")}
-		}},
-		hintOf(func() string { return apptext.T("刷新") }, ui.IconButton{Icon: lucide.RefreshCw, Label: apptext.T("刷新"),
-			Size: 28, IconSize: 13.5, TestID: "review-refresh", OnPress: func() { a.review.reload(); a.review.reopenItem() }}),
+		hintOf(func() string { return apptext.T("刷新") }, ui.Button{Icon: lucide.RefreshCw, Label: apptext.T("刷新"),
+			Variant: ui.ButtonGhost, Side: 28, IconSize: 13.5, Busy: busy,
+			TestID: "review-refresh", OnPress: a.review.refresh}),
 		core.Show{When: func() bool {
 			st := a.review.state.Get()
 			return st.Detail != nil && st.Detail.Item.URL != ""
@@ -130,7 +121,6 @@ func (a *app) reviewToolbar(cx *core.Scope) core.Node {
 // reviewScopeRow is what the list reads: the repository of the open
 // project, and which of its repositories when it holds more than one.
 func (a *app) reviewScopeRow(cx *core.Scope) core.Node {
-	colors := ui.ColorsOf(cx)
 	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Wrap: core.Wrap,
 		Padding: core.Edges{Left: 20, Right: 20, Top: 10, Bottom: 6}}, Children: []core.Node{
 		ui.Select[string]{Label: apptext.T("项目"), Placeholder: apptext.T("选择项目"), TestID: "review-project", Searchable: true,
@@ -153,12 +143,6 @@ func (a *app) reviewScopeRow(cx *core.Scope) core.Node {
 			}, OnChange: a.selectReviewProject},
 		a.reviewRepoMenu(cx),
 		core.View{Style: core.Style{FlexGrow: 1}},
-		core.Text{ContentFunc: func() string {
-			if a.review.state.Get().Loading {
-				return apptext.T("正在读取…")
-			}
-			return ""
-		}, MaxLines: 1, Style: core.Style{FontSize: 10.5}, StyleFunc: ui.Colored(colors.Faint)},
 	}}
 }
 
@@ -211,8 +195,7 @@ func (a *app) reviewList(cx *core.Scope, st reviewState) core.Node {
 		return reviewNotice(colors, lucide.TriangleAlert, apptext.T("读不到 GitHub"), st.Error,
 			apptext.T("重试"), func() { a.review.reload() })
 	case st.Loading && len(st.Items) == 0:
-		return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 8},
-			Children: []core.Node{ui.Spinner{Size: 16, Label: apptext.T("读取拉取请求与议题")}, ui.Text(apptext.T("正在读取…"), 12, ui.Regular, colors.Muted)}}
+		return reviewLoading(cx, apptext.T("读取拉取请求与议题"), "review-list-loading")
 	case len(st.Items) == 0 && len(a.projects()) == 0:
 		return reviewNotice(colors, lucide.FolderOpen, apptext.T("先打开一个项目"),
 			apptext.T("评审面板读的是项目所在的 GitHub 仓库。"), apptext.T("添加工作区"), func() { a.pickNative("workspace") })
@@ -230,13 +213,14 @@ func (a *app) reviewList(cx *core.Scope, st reviewState) core.Node {
 	}
 	if len(st.Items) >= st.Limit && st.Limit < 200 {
 		rows = append(rows, core.View{Style: core.Style{AlignItems: core.AlignCenter, Padding: core.All(8)}, Children: []core.Node{
-			ui.Button{Text: apptext.T("加载更多"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.review.loadMore() }}}})
+			ui.Button{Text: apptext.T("加载更多"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "review-load-more",
+				Busy: func() bool { return a.review.state.Get().Loading }, OnPress: a.review.loadMore}}})
 	}
 	if st.Error != "" {
 		rows = append(rows, core.Text{Content: st.Error, MaxLines: 3, Style: core.Style{FontSize: 11, Padding: core.All(8)},
 			StyleFunc: ui.Colored(colors.Danger)})
 	}
-	return core.Scroll{Style: ui.FillRest, Children: []core.Node{
+	return core.Scroll{TestID: "review-list-scroll", Style: ui.FillRest, Children: []core.Node{
 		core.View{Style: core.Style{Gap: 1, Padding: core.Edges{Left: 14, Right: 14, Bottom: 16}}, Children: rows}}}
 }
 

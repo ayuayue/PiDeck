@@ -176,7 +176,7 @@ func (r *review) reload() {
 
 // loadMore asks for another page of rows.
 func (r *review) loadMore() {
-	if r.limit >= 200 {
+	if r.limit >= 200 || r.working || r.discovering {
 		return
 	}
 	r.limit += 40
@@ -189,16 +189,22 @@ func (r *review) openItem(item reviewItem) {
 	if path == "" {
 		return
 	}
+	key := reviewKey(item)
+	if s := r.state.GetUntracked(); s.Open == key && s.DetailBusy {
+		return
+	}
 	r.rememberDraft()
 	r.detailSeq++
 	seq := r.detailSeq
-	key := reviewKey(item)
 	if r.state.GetUntracked().Open != key {
 		r.commentText.Set(r.drafts[key])
 		r.mergeOpen.Set(false)
 		r.reviewOpen.Set(false)
 		r.patchSeq++
-		r.state.Update(func(s reviewState) reviewState { s.Patch, s.PatchBusy = "", false; return s })
+		r.state.Update(func(s reviewState) reviewState {
+			s.Patch, s.PatchBusy, s.PatchLoaded, s.PatchError = "", false, false, ""
+			return s
+		})
 	}
 	r.state.Update(func(s reviewState) reviewState {
 		if s.Open != key {
@@ -240,7 +246,7 @@ func (r *review) closeItem() {
 	r.patchSeq++
 	r.state.Update(func(s reviewState) reviewState {
 		s.Open, s.Detail, s.DetailError, s.DetailBusy = "", nil, "", false
-		s.Patch, s.PatchBusy = "", false
+		s.Patch, s.PatchBusy, s.PatchLoaded, s.PatchError = "", false, false, ""
 		return s
 	})
 }
@@ -268,8 +274,7 @@ func (r *review) setKind(kind string) {
 		return
 	}
 	r.kind.Set(kind)
-	r.closeItem()
-	r.limit = 40
+	r.resetList()
 	r.reload()
 }
 
@@ -279,25 +284,47 @@ func (r *review) setFilter(filter string) {
 		return
 	}
 	r.filter.Set(filter)
-	r.limit = 40
+	r.resetList()
 	r.reload()
 }
 
 // setQuery rereads with the search text.
 func (r *review) setQuery(query string) {
+	query = strings.TrimSpace(query)
 	if r.query.GetUntracked() == query {
 		return
 	}
 	r.query.Set(query)
-	r.limit = 40
+	r.resetList()
 	r.reload()
+}
+
+// resetList removes results from the previous conditions immediately, while
+// keeping comment drafts and any in-flight write owned by their original view.
+func (r *review) resetList() {
+	r.closeItem()
+	r.limit = 40
+	r.state.Update(func(s reviewState) reviewState {
+		s.Items, s.Error, s.Checked = nil, "", false
+		s.Missing, s.NeedsLogin = false, false
+		return s
+	})
+}
+
+func (r *review) refresh() {
+	s := r.state.GetUntracked()
+	if s.Loading || s.DetailBusy || r.discovering {
+		return
+	}
+	r.reload()
+	r.reopenItem()
 }
 
 // write runs one gh write against the open item, then rereads both the
 // item and the list so the row the user sees is the one GitHub has.
 func (r *review) write(label, action, method, body string) {
 	s := r.state.GetUntracked()
-	if s.Detail == nil || s.Writing {
+	if s.Detail == nil || s.DetailBusy || s.Writing || reviewKey(s.Detail.Item) != s.Open {
 		return
 	}
 	t, path := r.repo()
@@ -306,7 +333,10 @@ func (r *review) write(label, action, method, body string) {
 	}
 	item := s.Detail.Item
 	view, key := r.viewKey(), reviewKey(item)
-	r.state.Update(func(st reviewState) reviewState { st.Writing, st.WriteOK, st.DetailError = true, "", ""; return st })
+	r.state.Update(func(st reviewState) reviewState {
+		st.Writing, st.WriteAction, st.WriteOK, st.DetailError = true, action, "", ""
+		return st
+	})
 	go func() {
 		err := runReviewWrite(t, path, item.Kind, item.Number, action, method, body)
 		r.cx.Post(func() { r.finishWrite(view, key, label, action, body, err) })
@@ -477,7 +507,10 @@ func (r *review) loadPatch() {
 	}
 	r.patchSeq++
 	number, seq, key := s.Detail.Item.Number, r.patchSeq, s.Open
-	r.state.Update(func(st reviewState) reviewState { st.PatchBusy, st.Patch = true, ""; return st })
+	r.state.Update(func(st reviewState) reviewState {
+		st.PatchBusy, st.PatchError = true, ""
+		return st
+	})
 	go func() {
 		patch, err := readReviewPatch(t, path, number)
 		r.cx.Post(func() {
@@ -487,10 +520,10 @@ func (r *review) loadPatch() {
 			r.state.Update(func(st reviewState) reviewState {
 				st.PatchBusy = false
 				if err != nil {
-					st.Patch = "无法读取补丁：" + reviewErrorText(err)
+					st.PatchError = reviewErrorText(err)
 					return st
 				}
-				st.Patch = patch
+				st.Patch, st.PatchLoaded = patch, true
 				return st
 			})
 		})

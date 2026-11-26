@@ -8,6 +8,7 @@ package workbench
 
 import (
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -16,49 +17,46 @@ import (
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
-	uidiff "github.com/nsgo-dev/nsgo/ui/diff"
 )
 
 // reviewDetail is the open item's page.
 func (a *app) reviewDetail(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
-	st := a.review.state.Get()
-	d := st.Detail
-	if d == nil {
-		var content core.Node
-		if st.DetailError != "" {
-			content = reviewNotice(colors, lucide.TriangleAlert, apptext.T("读不到这一条"), st.DetailError,
-				apptext.T("重试"), func() { a.review.reopenItem() })
-		} else {
-			content = core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 8},
-				Children: []core.Node{ui.Spinner{Size: 16, Label: apptext.T("读取详情")}, ui.Text(apptext.T("正在读取详情…"), 12, ui.Regular, colors.Muted)}}
+	detail := core.NewMemoFunc(cx, func() *reviewDetail { return a.review.state.Get().Detail },
+		func(a, b *reviewDetail) bool { return reflect.DeepEqual(a, b) })
+	ready := core.NewMemo(cx, func() bool { return detail.Get() != nil })
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		if !ready.Get() {
+			return core.View{Style: ui.FillRest, Children: []core.Node{
+				core.View{Style: core.Style{AlignItems: core.AlignStart, Padding: core.Symmetric(8, 20)}, Children: []core.Node{
+					ui.Button{Text: apptext.T("返回列表"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "review-back", OnPress: a.review.closeItem},
+				}},
+				core.Dynamic(func(cx *core.Scope) core.Node {
+					st := a.review.state.Get()
+					if st.DetailError != "" && !st.DetailBusy {
+						return reviewNotice(colors, lucide.TriangleAlert, apptext.T("读不到这一条"), st.DetailError,
+							apptext.T("重试"), a.review.reopenItem)
+					}
+					return reviewLoading(cx, apptext.T("正在读取详情…"), "review-detail-loading")
+				}),
+			}}
 		}
-		return core.View{Style: ui.FillRest, Children: []core.Node{
-			core.View{Style: core.Style{AlignItems: core.AlignStart, Padding: core.Symmetric(8, 20)}, Children: []core.Node{
-				ui.Button{Text: apptext.T("返回列表"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "review-back", OnPress: a.review.closeItem},
-			}}, content,
-		}}
-	}
-	item := d.Item
-	body := []core.Node{
-		a.reviewDetailHead(colors, item),
-		a.reviewDetailMeta(colors, d),
-		a.reviewActions(colors, d),
-		core.Show{When: func() bool { return a.review.state.Get().DetailError != "" }, Then: func(*core.Scope) core.Node {
-			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7, Padding: core.Symmetric(4, 0)},
-				Children: []core.Node{
-					ui.Icon(lucide.TriangleAlert, 12, colors.Danger),
-					core.Text{ContentFunc: func() string { return a.review.state.Get().DetailError }, MaxLines: 4,
-						Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11, LineHeight: 16},
-						StyleFunc: ui.Colored(colors.Danger)},
+		body := []core.Node{
+			core.Dynamic(func(*core.Scope) core.Node { return a.reviewDetailHead(colors, detail.Get().Item) }),
+			core.Dynamic(func(*core.Scope) core.Node { return a.reviewDetailMeta(colors, detail.Get()) }),
+			core.Dynamic(func(*core.Scope) core.Node { return a.reviewActions(colors, detail.Get()) }),
+			core.Dynamic(func(*core.Scope) core.Node {
+				d := detail.Get()
+				return core.View{Style: core.Style{Gap: 12}, Children: []core.Node{
+					a.reviewChecks(colors, d), a.reviewFiles(colors, d), a.reviewBody(colors, d), a.reviewConversation(colors, d),
 				}}
-		}},
-	}
-	body = append(body, a.reviewChecks(colors, d), a.reviewFiles(colors, d))
-	body = append(body, a.reviewBody(colors, d), a.reviewConversation(colors, d), a.reviewCommentBox(colors, item))
-	return core.Scroll{Style: ui.FillRest, Children: []core.Node{
-		core.View{Style: core.Style{Gap: 12, Padding: core.Edges{Left: 20, Right: 20, Top: 10, Bottom: 24}, MaxWidth: core.Pt(860)},
-			Children: body}}}
+			}),
+			a.reviewCommentBox(colors, detail.GetUntracked().Item),
+		}
+		return core.Scroll{TestID: "review-detail-scroll", Style: ui.FillRest, Children: []core.Node{
+			core.View{Style: core.Style{Gap: 12, Padding: core.Edges{Left: 20, Right: 20, Top: 10, Bottom: 24}, MaxWidth: core.Pt(860)},
+				Children: body}}}
+	})
 }
 
 // reviewDetailHead is the way back, the number and the title.
@@ -125,11 +123,12 @@ func (a *app) reviewActions(colors ui.Colors, d *reviewDetail) core.Node {
 					ui.Button{Text: apptext.T("变基合并"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
 						Disabled: busy, OnPress: func() { a.reviewMerge(item, "rebase") }},
 					ui.Button{Text: apptext.T("取消"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
-						OnPress: func() { a.review.mergeOpen.Set(false) }},
+						OnPress: func() { a.animateNextLayout(); a.review.mergeOpen.Set(false) }},
 				}
 			} else {
 				mergeRow = []core.Node{ui.Button{Text: apptext.T("合并…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
-					Disabled: busy, TestID: "review-merge", OnPress: func() { a.review.mergeOpen.Set(true) }}}
+					Disabled: busy, Busy: func() bool { st := a.review.state.Get(); return st.Writing && st.WriteAction == reviewActMerge },
+					TestID: "review-merge", OnPress: func() { a.animateNextLayout(); a.review.mergeOpen.Set(true) }}}
 			}
 		}
 		var reviewRow []core.Node
@@ -143,11 +142,12 @@ func (a *app) reviewActions(colors ui.Colors, d *reviewDetail) core.Node {
 					ui.Button{Text: apptext.T("只评论"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
 						Disabled: busy, TestID: "review-verdict-comment", OnPress: func() { a.reviewVerdict(item, verdictComment) }},
 					ui.Button{Text: apptext.T("取消"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
-						OnPress: func() { a.review.reviewOpen.Set(false) }},
+						OnPress: func() { a.animateNextLayout(); a.review.reviewOpen.Set(false) }},
 				}
 			} else {
 				reviewRow = []core.Node{ui.Button{Text: apptext.T("提交评审…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
-					Disabled: busy, TestID: "review-verdict", OnPress: func() { a.review.reviewOpen.Set(true) }}}
+					Disabled: busy, Busy: func() bool { st := a.review.state.Get(); return st.Writing && st.WriteAction == reviewActReview },
+					TestID: "review-verdict", OnPress: func() { a.animateNextLayout(); a.review.reviewOpen.Set(true) }}}
 			}
 		}
 		stateLabel, stateIcon := apptext.T("关闭"), lucide.CircleSlash
@@ -162,7 +162,11 @@ func (a *app) reviewActions(colors ui.Colors, d *reviewDetail) core.Node {
 		buttons = append(buttons, mergeRow...)
 		if item.State != "MERGED" {
 			buttons = append(buttons, ui.Button{Text: stateLabel, Variant: ui.ButtonGhost, Size: ui.SizeSmall, Icon: stateIcon,
-				Disabled: busy, TestID: "review-state-change", OnPress: func() { a.reviewChangeState(item) }})
+				Disabled: busy, Busy: func() bool {
+					st := a.review.state.Get()
+					return st.Writing && (st.WriteAction == reviewActClose || st.WriteAction == reviewActReopen)
+				},
+				TestID: "review-state-change", OnPress: func() { a.reviewChangeState(item) }})
 		}
 		if item.URL != "" {
 			buttons = append(buttons, ui.Button{Text: apptext.T("浏览器"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
@@ -249,46 +253,10 @@ func (a *app) patchButton(colors ui.Colors) core.Node {
 			TestID: "review-patch",
 			OnPress: func() {
 				a.openPane(paneReviewPatch)
-				a.review.loadPatch()
+				if !a.review.state.GetUntracked().PatchLoaded {
+					a.review.loadPatch()
+				}
 			}}}}
-}
-
-// reviewPatchPane shows the pull request's whole diff in the work area.
-func (a *app) reviewPatchPane() core.Node {
-	return core.Dynamic(func(cx *core.Scope) core.Node {
-		colors := ui.ColorsOf(cx)
-		st := a.review.state.Get()
-		title := apptext.T("补丁")
-		if st.Detail != nil {
-			title = fmt.Sprintf("#%d %s", st.Detail.Item.Number, st.Detail.Item.Title)
-		}
-		body := core.Dynamic(func(cx *core.Scope) core.Node {
-			st := a.review.state.Get()
-			switch {
-			case st.PatchBusy:
-				return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 8},
-					Children: []core.Node{ui.Spinner{Size: 16, Label: apptext.T("读取补丁")}, ui.Text(apptext.T("正在读取补丁…"), 12, ui.Regular, colors.Muted)}}
-			case st.Patch == "":
-				return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
-					Children: []core.Node{ui.Text(apptext.T("没有可显示的差异"), 12, ui.Regular, colors.Faint)}}
-			case strings.HasPrefix(st.Patch, "无法读取"):
-				return core.View{Style: core.Style{FlexGrow: 1, Padding: core.All(16)},
-					Children: []core.Node{core.Text{Content: st.Patch, Style: core.Style{FontSize: 12, LineHeight: 18}, StyleFunc: ui.Colored(colors.Danger)}}}
-			}
-			return uidiff.View{Patch: func() string { return st.Patch }, Unified: true, Selectable: true, SoftWrap: true,
-				Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0)}}
-		})
-		return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)},
-			Children: []core.Node{
-				a.paneHeader(title, apptext.T("拉取请求的完整改动"), ui.Button{Text: apptext.T("复制补丁"),
-					Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
-						a.copyText(a.review.state.GetUntracked().Patch, "补丁")
-					}}),
-				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Padding: core.Symmetric(10, 0)},
-					Children: []core.Node{core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0), BorderWidth: 1,
-						BorderColor: colors.Border(), CornerRadius: 8, Overflow: core.Hidden}, Children: []core.Node{body}}}},
-			}}
-	})
 }
 
 // reviewBody is the item's description.
@@ -342,12 +310,15 @@ func (a *app) reviewCommentBox(colors ui.Colors, item reviewItem) core.Node {
 					PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}
 			}},
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
-			core.Text{Content: note, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+			core.Text{ContentFunc: func() string {
+				if d := a.review.state.Get().Detail; d != nil && d.Item.State != "OPEN" {
+					return apptext.T("这一条已经关闭，评论仍会发到 GitHub。")
+				}
+				return note
+			}, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 				Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 10.5}, StyleFunc: ui.Colored(colors.Faint)},
-			core.Show{When: func() bool { return a.review.state.Get().WriteOK != "" }, Then: func(*core.Scope) core.Node {
-				return ui.Text(apptext.T("已提交"), 10.5, ui.Medium, colors.Up)
-			}},
 			ui.Button{Text: apptext.T("发表评论"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "review-comment-send",
+				Busy: func() bool { st := a.review.state.Get(); return st.Writing && st.WriteAction == reviewActComment },
 				Disabled: func() bool {
 					st := a.review.state.Get()
 					return st.Writing || st.DetailBusy || strings.TrimSpace(a.review.commentText.Get()) == ""

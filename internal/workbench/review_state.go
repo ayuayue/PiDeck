@@ -78,7 +78,7 @@ func (r *review) finishWrite(view, key, label, action, body string, err error) {
 	if active {
 		st, drafts = r.state.GetUntracked(), r.drafts
 	}
-	st.Writing = false
+	st.Writing, st.WriteAction = false, ""
 	if st.Open == key {
 		if err != nil {
 			st.DetailError = reviewErrorText(err)

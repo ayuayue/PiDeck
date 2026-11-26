@@ -115,7 +115,12 @@ func reviewTestScreen(t *testing.T, projects []workspaceCfg) (*nsgotest.App, *ap
 	var built *app
 	screen := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		built = newApp(cx)
-		return built.reviewPane()
+		return core.Dynamic(func(cx *core.Scope) core.Node {
+			if built.activePane.Get() == paneReviewPatch {
+				return built.reviewPatchPane()
+			}
+			return built.reviewPane()
+		})
 	}, nsgotest.Size(1100, 850))
 	// Native test hosts dispose their scope after testing's TempDir cleanup.
 	// Close the fixture's journal first so Windows can remove its data directory.
