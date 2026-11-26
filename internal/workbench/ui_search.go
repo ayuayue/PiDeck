@@ -30,7 +30,7 @@ func (a *app) searchDialog() core.Node {
 			Title:  apptext.T("搜索会话"),
 			TestID: "session-search",
 			Style:  core.Style{Width: a.dialogWidth(), Height: core.Pt(580)},
-			Children: []core.Node{core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0), Gap: 8}, Children: []core.Node{
+			Children: []core.Node{core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Gap: 8}, Children: []core.Node{
 				core.Input{Value: a.searchText.Get,
 					OnChange:       a.setSearchQuery,
 					OnSubmit:       a.submitSearch,
@@ -57,56 +57,66 @@ func (a *app) searchDialog() core.Node {
 					}
 					hits := result.visible(a.searchScope.Get())
 					if len(hits) == 0 {
-						return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 8},
+						return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 8},
 							Children: []core.Node{
 								ui.Icon(lucide.SearchX, 22, colors.Faint),
 								ui.Text(apptext.T("没有匹配的会话"), 12, ui.Regular, colors.Muted),
 							}}
 					}
-					var rows []core.Node
-					for _, h := range hits {
-						hit := h
-						meta := projectLabel(hit.Cwd)
-						if !hit.Updated.IsZero() {
-							meta += " · " + viewkit.WhenText(hit.Updated, a.cx.Now())
-						}
-						if hit.Count > 0 {
-							meta += apptext.T("· %d 处", hit.Count)
-						}
-						rows = append(rows, core.View{
-							OnPress: func(core.PressEvent) { a.chooseSearchHit(result, hit) },
-							Role:    core.RoleButton, Label: apptext.T("会话 ") + hit.Title, TestID: "search-hit",
-							StyleFunc: func() core.Style {
-								return core.Style{Direction: core.Row, AlignItems: core.AlignStart, Gap: 9, Padding: core.Symmetric(7, 8),
-									CornerRadius: 7, Hover: &core.Style{Background: colors.Hover()},
-									Active: &core.Style{Background: colors.Pressed()}, Transition: viewkit.PressMotion}
-							},
-							Children: []core.Node{
-								ui.Icon(lucide.MessageSquare, 13, colors.Faint),
-								core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 2}, Children: []core.Node{
-									core.Text{Content: hit.Title, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-										Style: core.Style{FontSize: 12.5, FontWeight: ui.Medium}, StyleFunc: ui.Colored(colors.Text)},
-									core.Text{Content: meta, MaxLines: 1, Style: core.Style{FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
-									core.Show{When: func() bool { return hit.Snippet != "" }, Then: func(*core.Scope) core.Node {
-										return core.Text{Content: hit.Snippet, MaxLines: 2, EllipsizeMode: core.EllipsizeTail,
-											Style: core.Style{FontSize: 10.5, LineHeight: 15}, StyleFunc: ui.Colored(colors.Muted)}
-									}},
-								}},
-							},
-						})
-					}
 					total := 0
 					for _, h := range hits {
 						total += h.Count
 					}
-					return core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0), Gap: 4}, Children: []core.Node{
-						core.Text{Content: apptext.T("找到 %d 个会话 · %d 处匹配", len(hits), total),
-							Style:     core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9.5, Padding: core.Edges{Left: 2}},
-							StyleFunc: ui.Colored(colors.Faint)},
-						a.scrollStashFor("searchDialog:1").Bind(cx, core.Scroll{Style: ui.FillRest, Children: []core.Node{
-							core.View{Style: core.Style{Gap: 2, Padding: core.Edges{Right: 4}}, Children: rows},
-						}}),
-					}}
+					return core.Func(func(cx *core.Scope) core.Node {
+						window := core.NewSignal(cx, searchVisibleLimit)
+						scroll := &scrollStash{}
+						return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Gap: 4}, Children: []core.Node{
+							core.Text{Content: apptext.T("找到 %d 个会话 · %d 处匹配", len(hits), total),
+								Style:     core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9.5, Padding: core.Edges{Left: 2}},
+								StyleFunc: ui.Colored(colors.Faint)},
+							scroll.Bind(cx, core.Scroll{TestID: "search-results", Style: ui.FillRest.Merge(core.Style{FlexShrink: 1, MinHeight: core.Pt(0)}), Children: []core.Node{
+								core.Dynamic(func(cx *core.Scope) core.Node {
+									end := min(window.Get(), len(hits))
+									rows := make([]core.Node, 0, end+1)
+									for _, hit := range hits[:end] {
+										meta := projectLabel(hit.Cwd)
+										if !hit.Updated.IsZero() {
+											meta += " · " + viewkit.WhenText(hit.Updated, a.cx.Now())
+										}
+										if hit.Count > 0 {
+											meta += apptext.T("· %d 处", hit.Count)
+										}
+										rows = append(rows, core.View{
+											OnPress: func(core.PressEvent) { a.chooseSearchHit(result, hit) },
+											Role:    core.RoleButton, Label: apptext.T("会话 ") + hit.Title, TestID: "search-hit",
+											StyleFunc: func() core.Style {
+												return core.Style{Direction: core.Row, AlignItems: core.AlignStart, Gap: 9, Padding: core.Symmetric(7, 8),
+													CornerRadius: 7, Hover: &core.Style{Background: colors.Hover()},
+													Active: &core.Style{Background: colors.Pressed()}, Transition: viewkit.PressMotion}
+											},
+											Children: []core.Node{
+												ui.Icon(lucide.MessageSquare, 13, colors.Faint),
+												core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 2}, Children: []core.Node{
+													core.Text{Content: hit.Title, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+														Style: core.Style{FontSize: 12.5, FontWeight: ui.Medium}, StyleFunc: ui.Colored(colors.Text)},
+													core.Text{Content: meta, MaxLines: 1, Style: core.Style{FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
+													core.Show{When: func() bool { return hit.Snippet != "" }, Then: func(*core.Scope) core.Node {
+														return core.Text{Content: hit.Snippet, MaxLines: 2, EllipsizeMode: core.EllipsizeTail,
+															Style: core.Style{FontSize: 10.5, LineHeight: 15}, StyleFunc: ui.Colored(colors.Muted)}
+													}},
+												}},
+											},
+										})
+									}
+									if end < len(hits) {
+										rows = append(rows, ui.Button{Text: apptext.T("加载更多"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+											TestID: "search-more", OnPress: func() { window.Update(func(n int) int { return n + searchVisibleLimit }) }})
+									}
+									return core.View{Style: core.Style{Gap: 2, Padding: core.Edges{Right: scrollbarGutter}}, Children: rows}
+								}),
+							}}),
+						}}
+					})
 				}),
 			}}},
 			Footer: []core.Node{

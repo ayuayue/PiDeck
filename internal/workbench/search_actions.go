@@ -160,13 +160,10 @@ func (h searchHit) inScope(scope string) bool {
 }
 
 func (result *searchResult) visible(scope string) []searchHit {
-	hits := make([]searchHit, 0, min(searchVisibleLimit, len(result.hits)))
+	hits := make([]searchHit, 0, len(result.hits))
 	for _, hit := range result.hits {
 		if hit.inScope(scope) {
 			hits = append(hits, hit)
-			if len(hits) == searchVisibleLimit {
-				break
-			}
 		}
 	}
 	return hits
