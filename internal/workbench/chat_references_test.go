@@ -23,6 +23,7 @@ func TestChatReferenceRecognition(t *testing.T) {
 		{"见 `src/main.go#L12`。", []string{"src/main.go"}},
 		{`见 C:\work\project\main.go:7。`, []string{`C:\work\project\main.go`}},
 		{"See `/tmp/my project/main.go`.", []string{"/tmp/my project/main.go"}},
+		{"See `C:\\work\\my project\\main.go`.", []string{`C:\work\my project\main.go`}},
 		{"[source](src/main.go:3) [docs](https://example.com/a?q=1#part)", []string{"src/main.go", "https://example.com/a?q=1#part"}},
 		{"(https://example.com/docs_(test)).", []string{"https://example.com/docs_(test)"}},
 		{"www.example.com/help", []string{"http://www.example.com/help"}},
@@ -32,6 +33,8 @@ func TestChatReferenceRecognition(t *testing.T) {
 		{"```go\n// src/main.go\n```", nil},
 		{"`x := a / b`", nil},
 		{"[remote](smb://host/share/a.go)", nil},
+		{"[remote](file://host/share/a.go)", nil},
+		{"[bad](file:///tmp/a%0Ab.go)", nil},
 	}
 	for _, c := range cases {
 		t.Run(c.text, func(t *testing.T) {

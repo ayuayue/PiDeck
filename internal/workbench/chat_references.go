@@ -56,9 +56,13 @@ func chatFileLocation(raw string) (string, int) {
 	return path, line
 }
 
+func chatAbsolutePath(path string) bool {
+	normal := strings.ReplaceAll(path, `\`, "/")
+	return strings.HasPrefix(normal, "/") || (len(normal) > 2 && normal[1] == ':' && normal[2] == '/')
+}
+
 func chatFileReference(raw string, known map[string]bool, explicit bool) (chatReference, bool) {
-	if raw == "" || len(raw) > 4096 || strings.ContainsAny(raw, "\x00\r\n\t<>|*?\"`") ||
-		strings.HasPrefix(raw, `\\`) || strings.HasPrefix(raw, "//") || strings.HasPrefix(raw, "@") {
+	if raw == "" || len(raw) > 4096 {
 		return chatReference{}, false
 	}
 	if strings.HasPrefix(strings.ToLower(raw), "file:") {
@@ -68,12 +72,15 @@ func chatFileReference(raw string, known map[string]bool, explicit bool) (chatRe
 			return chatReference{}, false
 		}
 	}
-	if strings.Contains(raw, "://") {
+	// Validate after URI decoding as well: encoded delimiters and remote
+	// file hosts must not bypass the plain-path checks.
+	if strings.ContainsAny(raw, "\x00\r\n\t<>|*?\"`") || strings.Contains(raw, "://") ||
+		strings.HasPrefix(raw, `\\`) || strings.HasPrefix(raw, "//") || strings.HasPrefix(raw, "@") {
 		return chatReference{}, false
 	}
 	path, line := chatFileLocation(raw)
 	normal := strings.ReplaceAll(path, `\`, "/")
-	absolute := strings.HasPrefix(normal, "/") || (len(normal) > 2 && normal[1] == ':' && normal[2] == '/')
+	absolute := chatAbsolutePath(path)
 	if !absolute && strings.Contains(normal, ":") {
 		return chatReference{}, false
 	}
@@ -103,7 +110,7 @@ func chatReferenceText(text string, known map[string]bool, code bool) []textview
 	// Inline code and quoted paths may contain spaces. Only take the
 	// whole value when it is a path, not a shell command with arguments.
 	if code && !strings.ContainsAny(text, "\r\n") {
-		if ref, ok := chatFileReference(text, known, false); ok && (!strings.Contains(text, " ") || strings.HasPrefix(ref.target, "/") || filepath.IsAbs(ref.target)) {
+		if ref, ok := chatFileReference(text, known, false); ok && (!strings.Contains(text, " ") || chatAbsolutePath(ref.target)) {
 			ref.code = true
 			return []textview.Inline{chatReferenceNode(text, ref, []textview.Inline{textview.Code{Code: text}})}
 		}

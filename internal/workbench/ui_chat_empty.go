@@ -47,11 +47,19 @@ func (a *app) historySkeleton(s *session) core.Node {
 // content can grow past the viewport when the draft or a panel is tall.
 func (a *app) emptyChat(s *session, composer core.Node, editor *core.Ref, column func() core.Length, height func() core.Points) core.Node {
 	colors := ui.ColorsOf(a.cx)
-	return core.Scroll{TestID: "chat-start", Style: core.Style{Position: core.Absolute, Top: core.Pt(0),
+	var scroll core.Ref
+	return core.Scroll{Ref: &scroll, TestID: "chat-start", Style: core.Style{Position: core.Absolute, Top: core.Pt(0),
 		Left: core.Pt(0), Right: core.Pt(0), Bottom: core.Pt(0)}, Children: []core.Node{
 		core.View{Style: core.Style{AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
 			Padding: core.Symmetric(24, chatSidePadding)},
 			StyleFunc: func() core.Style { return core.Style{MinHeight: core.Pt(height())} },
+			OnLayout: func(core.Bounds) {
+				if s.draft.GetUntracked() != "" || len(s.images.GetUntracked()) > 0 || len(pastedFiles(s)) > 0 {
+					// The welcome content may scroll away as the draft grows;
+					// the composer and its Send action stay in view.
+					scroll.ScrollToEnd(false)
+				}
+			},
 			Children: []core.Node{
 				core.View{Style: core.Style{AlignItems: core.AlignCenter, Gap: 16, Margin: core.Edges{Bottom: 44}}, Children: []core.Node{
 					a.brandMark(64, "empty-chat-logo"),

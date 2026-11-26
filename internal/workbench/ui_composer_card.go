@@ -203,8 +203,7 @@ func (a *app) composer(s *session, ref *core.Ref, surface func() core.Points) co
 		}, nil)
 		selected := core.NewSignal(cx, false)
 		highlighted := func() bool {
-			return !selected.Get() && s.composing.Get() == "" && len(tokens.Get()) > 0 &&
-				(cx.Env().OS() != core.OSWindows || !focused.Get())
+			return !selected.Get() && !dragging.Get() && s.composing.Get() == "" && len(tokens.Get()) > 0
 		}
 		empty := func() bool { return strings.TrimSpace(s.draft.Get()) == "" }
 		hasMessage := func() bool {
@@ -283,17 +282,11 @@ func (a *app) composer(s *session, ref *core.Ref, surface func() core.Points) co
 			StyleFunc: func() core.Style {
 				limit := max(core.Points(48), composerMaxHeight(surface())-attachmentsHeight.Get())
 				height := min(max(max(core.Points(48), line+4), contentHeight.Get()), limit)
-				ink, opacity := colors.Text(), core.Alpha(1)
-				if highlighted() {
-					if cx.Env().OS() == core.OSWindows {
-						// RichEdit ignores text alpha. Only replace its painting
-						// while unfocused; editing and IME remain fully native.
-						opacity = core.Alpha(0)
-					} else {
-						ink = core.Transparent
-					}
+				ink := colors.Text()
+				if highlighted() && cx.Env().OS() != core.OSWindows {
+					ink = core.Transparent
 				}
-				return core.Style{Height: core.Pt(height), Color: ink, Opacity: opacity, PlaceholderColor: colors.Muted(),
+				return core.Style{Height: core.Pt(height), Color: ink, PlaceholderColor: colors.Muted(),
 					SelectionColor: cx.Palette().Selection, CaretColor: colors.Accent()}
 			},
 			Role: core.RoleCombobox, Expanded: listed.Get,
@@ -314,28 +307,41 @@ func (a *app) composer(s *session, ref *core.Ref, surface func() core.Points) co
 						}}}}
 			}, Else: func(*core.Scope) core.Node { attachmentsHeight.Set(0); return core.Group{} },
 		})
-		// The native field keeps editing, selection and IME. A pointer-free
-		// text layer adds color at the same font, padding, wrap and scroll.
-		body = append(body, core.View{Style: core.Style{Position: core.Relative, Overflow: core.Hidden}, Children: []core.Node{
-			editor,
-			core.Show{When: highlighted, Then: func(*core.Scope) core.Node {
-				return core.Text{TestID: "composer-highlight", PointerEvents: core.PointerEventsNone,
-					Style:     core.Style{Position: core.Absolute, Left: core.Pt(14), Right: core.Pt(14), FontSize: font, LineHeight: line},
-					StyleFunc: func() core.Style { return core.Style{Top: core.Pt(4 - textScroll.Get()), Color: colors.Text()} },
-					SpansFunc: func() []core.Span {
-						text := s.draft.Get()
-						var spans []core.Span
-						last := 0
-						for _, token := range tokens.Get() {
-							spans = append(spans, core.Span{Content: text[last:token.start]},
-								core.Span{Content: text[token.start:token.end], Style: core.Style{Color: colors.Accent()}})
-							last = token.end
+		// Windows RichEdit paints transparent backgrounds but ignores text
+		// alpha. Put only token backgrounds beneath it so native editing,
+		// selection and IME keep drawing the sole foreground text.
+		highlight := core.Show{When: highlighted, Then: func(*core.Scope) core.Node {
+			return core.Text{TestID: "composer-highlight", PointerEvents: core.PointerEventsNone,
+				Style: core.Style{Position: core.Absolute, Left: core.Pt(14), Right: core.Pt(14), FontSize: font, LineHeight: line},
+				StyleFunc: func() core.Style {
+					ink := colors.Text()
+					if cx.Env().OS() == core.OSWindows {
+						ink = core.Transparent
+					}
+					return core.Style{Top: core.Pt(4 - textScroll.Get()), Color: ink}
+				},
+				SpansFunc: func() []core.Span {
+					text := s.draft.Get()
+					var spans []core.Span
+					last := 0
+					for _, token := range tokens.Get() {
+						style := core.Style{Background: ui.Alpha(colors.Accent(), 0.12)}
+						if cx.Env().OS() != core.OSWindows {
+							style.Color = colors.Accent()
 						}
-						return append(spans, core.Span{Content: text[last:]})
-					},
-				}
-			}},
-		}})
+						spans = append(spans, core.Span{Content: text[last:token.start]},
+							core.Span{Content: text[token.start:token.end], Style: style})
+						last = token.end
+					}
+					return append(spans, core.Span{Content: text[last:]})
+				},
+			}
+		}}
+		layers := []core.Node{editor, highlight}
+		if cx.Env().OS() == core.OSWindows {
+			layers = []core.Node{highlight, editor}
+		}
+		body = append(body, core.View{Style: core.Style{Position: core.Relative, Overflow: core.Hidden}, Children: layers})
 		body = append(body, ui.SuggestList{Suggest: suggest, Placement: core.PlaceTop, Label: apptext.T("文件"), TestID: "composer-suggestions",
 			Items: func(query string) []base.SuggestItem {
 				shown = a.composerSuggestions(s, query)

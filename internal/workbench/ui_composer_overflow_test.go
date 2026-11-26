@@ -28,13 +28,30 @@ func composerRegressionApp(t *testing.T) *nsgotest.App {
 
 func TestComposerResizesLongDraft(t *testing.T) {
 	app := composerRegressionApp(t)
-	app.Paste("id:composer", core.PasteEvent{Text: strings.Repeat("长文本仍然应该能滚动查看。\n", 35)})
+	const line = "长文本仍然应该能滚动查看。"
+	want := strings.Repeat(line+"\n", 35)
+	if nsgotest.Target() == "" {
+		app.Paste("id:composer", core.PasteEvent{Text: want})
+	} else {
+		// Synthetic Paste is headless-only. Native Shift+Enter inserts
+		// the same multiline draft without submitting or using the clipboard.
+		for range 35 {
+			app.Type("id:composer", line)
+			app.Key("Shift+Enter")
+		}
+	}
+	if got := app.Find("id:composer").Text; got != want {
+		t.Fatalf("multiline draft = %q, want %q", got, want)
+	}
 	app.Resize(1000, 560)
 	app.Settle()
 	card := app.Find("id:composer-card").Bounds()
 	viewport := app.Find("id:transcript").Bounds()
 	if card.Size.Height > viewport.Size.Height-28 {
 		t.Fatalf("composer height = %v, viewport = %v; footer and Send must fit", card.Size.Height, viewport.Size.Height)
+	}
+	if card.Origin.Y < viewport.Origin.Y || card.Origin.Y+card.Size.Height > viewport.Origin.Y+viewport.Size.Height {
+		t.Fatalf("composer %v extends outside the visible surface %v", card, viewport)
 	}
 	shot(app, "composer/long-draft-bounded")
 	app.Clear("id:composer")
@@ -69,6 +86,9 @@ func TestComposerAttachmentsAndTextStayBounded(t *testing.T) {
 	viewport := app.Find("id:transcript").Bounds()
 	if card.Size.Height > viewport.Size.Height-28 {
 		t.Fatalf("attachments plus text take %v points, viewport = %v", card.Size.Height, viewport.Size.Height)
+	}
+	if card.Origin.Y < viewport.Origin.Y || card.Origin.Y+card.Size.Height > viewport.Origin.Y+viewport.Size.Height {
+		t.Fatalf("composer with attachments %v extends outside the visible surface %v", card, viewport)
 	}
 	if !app.Enabled("id:composer-send") {
 		t.Fatal("attachments plus text disabled Send")

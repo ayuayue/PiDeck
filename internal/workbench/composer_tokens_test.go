@@ -45,7 +45,6 @@ func TestComposerHighlightPreservesInputAndComposition(t *testing.T) {
 	app := composerRegressionApp(t)
 	const draft = "看看 @note.txt，邮箱 a@note.txt 和 `@note.txt`。"
 	app.Type("id:composer", draft)
-	app.Key("tab")
 	app.WaitFor("id:composer-highlight", 5*time.Second)
 	if got := app.Find("id:composer").Text; got != draft {
 		t.Fatalf("highlight changed native text to %q", got)
@@ -53,13 +52,15 @@ func TestComposerHighlightPreservesInputAndComposition(t *testing.T) {
 	if displayed := app.Find("id:composer-highlight").Text; displayed != draft {
 		t.Fatalf("highlight text = %q, want unchanged draft", displayed)
 	}
-	shot(app, "composer/reference-highlight")
+	shot(app, "composer/reference-highlight-focused")
+	app.Key("tab")
+	app.WaitFor("id:composer-highlight", 5*time.Second)
 	app.Focus("id:composer")
 	app.Compose("id:composer", "你好")
 	if app.Exists("id:composer-highlight") {
 		t.Fatal("the display layer must leave composition to the native input")
 	}
 	app.Commit("id:composer", "你好")
-	app.Key("tab")
 	app.WaitFor("id:composer-highlight", 5*time.Second)
+	shot(app, "composer/reference-highlight")
 }

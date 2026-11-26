@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"example.com/pideck-v2/internal/apptext"
 	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/base/textview"
 	"github.com/nsgo-dev/nsgo/core"
@@ -90,7 +91,7 @@ func (a *app) openChatReference(s *session, ref chatReference, e core.PressEvent
 				return
 			}
 			if err != nil {
-				a.toast(ui.ToastError, "无法读取文件", filepath.Base(target))
+				a.toast(ui.ToastError, apptext.T("无法读取文件"), filepath.Base(target))
 				return
 			}
 			a.openFileAt(root, path, ref.line)
