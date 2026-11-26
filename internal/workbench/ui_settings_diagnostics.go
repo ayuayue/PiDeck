@@ -20,10 +20,6 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// diagLogLines is how many log lines the page shows at most; the whole log
-// stays in the file beside it.
-const diagLogLines = 12
-
 // settingsDiagnostics shows what is running and what went wrong. The scroll
 // view is built once: its groups read signals that a slow tick fills, so the
 // figures move without the page rebuilding - a page rebuilt every second used
@@ -184,44 +180,6 @@ func (a *app) askStopProcess(p procInfo) {
 		func() { a.stopProcess(p) })
 }
 
-// diagLogGroup is the newest log lines, oldest first.
-func (a *app) diagLogGroup() core.Node {
-	return setGroup("最近日志", core.Dynamic(func(cx *core.Scope) core.Node {
-		colors := ui.ColorsOf(cx)
-		snapshot := a.diagLog.Get()
-		if snapshot == nil || len(*snapshot) == 0 {
-			return core.View{Style: core.Style{Padding: core.Symmetric(9, 2)}, Children: []core.Node{
-				ui.Text(apptext.T("还没有日志。"), 11, ui.Regular, colors.Faint),
-			}}
-		}
-		events := *snapshot
-		start := max(0, len(events)-diagLogLines)
-		var rows []core.Node
-		for _, ev := range events[start:] {
-			tone := colors.Muted
-			switch ev.Level {
-			case "error":
-				tone = colors.Danger
-			case "warn":
-				tone = colors.Warn
-			}
-			rows = append(rows, core.View{Style: core.Style{Direction: core.Row, Gap: 8, Padding: core.Symmetric(1, 2)}, Children: []core.Node{
-				core.Text{Content: ev.Time.Format("15:04:05"), Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9.5, LineHeight: 14},
-					StyleFunc: ui.Colored(colors.Faint)},
-				core.Text{Content: ev.Text, MaxLines: 2, Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9.5, LineHeight: 14, FlexShrink: 1},
-					StyleFunc: ui.Colored(tone)},
-			}})
-		}
-		hint := ""
-		if len(events) > diagLogLines {
-			hint = fmt.Sprintf(apptext.T("只显示最近 %d 条；完整日志在 logs/pideck.log。"), diagLogLines)
-		}
-		rows = append(rows, core.Text{Content: hint, Style: core.Style{FontSize: 9.5, LineHeight: 15, Margin: core.Edges{Left: 2, Top: 3}},
-			StyleFunc: ui.Colored(colors.Faint)})
-		return core.View{Style: core.Style{Gap: 1, Padding: core.Symmetric(6, 2)}, Children: rows}
-	}))
-}
-
 // diagCrashGroup is the last crash, if there is one.
 func (a *app) diagCrashGroup() core.Node {
 	if path, at, ok := crashlog.Latest(a.dataDir); ok {
@@ -252,12 +210,6 @@ func (a *app) diagActions() core.Node {
 			if dir := a.diagDir(); dir != "" {
 				a.cx.OpenURL(fileURL(dir), nil)
 			}
-		}},
-		core.View{Style: core.Style{FlexGrow: 1}},
-		ui.Button{Text: apptext.T("清空内存日志"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
-			a.clearDiag()
-			a.diagRefresh()
-			a.toast(ui.ToastInfo, "内存日志已清空", "日志文件仍在数据目录的 logs 下。")
 		}},
 	}}
 }

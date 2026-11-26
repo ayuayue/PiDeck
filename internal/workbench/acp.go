@@ -112,6 +112,7 @@ type acpHooks struct {
 	update     func(acpUpdate)
 	permission func(acpPermission) string
 	exit       func(error)
+	protocol   func(method string, elapsed time.Duration, err error)
 }
 
 // setHooks binds the app's callbacks: at launch, or when a warm process is
@@ -494,7 +495,13 @@ func acpContentText(raw json.RawMessage) string {
 }
 
 // call sends one request and waits for its answer.
-func (c *acpClient) call(method string, params any, out any, timeout time.Duration) error {
+func (c *acpClient) call(method string, params any, out any, timeout time.Duration) (err error) {
+	started := time.Now()
+	defer func() {
+		if log := c.callbacks().protocol; log != nil {
+			log(method, time.Since(started), err)
+		}
+	}()
 	if timeout <= 0 {
 		timeout = 60 * time.Second
 	}
@@ -544,7 +551,11 @@ func (c *acpClient) notify(method string, params any) error {
 	if params != nil {
 		payload["params"] = params
 	}
-	return c.write(payload)
+	err := c.write(payload)
+	if log := c.callbacks().protocol; log != nil {
+		log(method, 0, err)
+	}
+	return err
 }
 
 // respond answers an agent's request.

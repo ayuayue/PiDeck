@@ -76,6 +76,7 @@ func (a *app) emit(name string, ev appEvent) {
 	if a == nil {
 		return
 	}
+	a.recordAppEvent(name, ev)
 	ev.Name = name
 	if ev.Data == nil {
 		ev.Data = map[string]string{}

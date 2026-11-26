@@ -2,8 +2,8 @@
 
 package workbench
 
-// Diagnostics: a small in-memory log, a rotating file, and a snapshot of
-// what the app is running, for the settings page and for bug reports.
+// Diagnostics: recent records and runtime snapshots for settings and reports.
+// The journal serializes history writes and maintenance off the UI thread.
 
 import (
 	"fmt"
@@ -20,9 +20,13 @@ import (
 
 // diagEvent is one log line.
 type diagEvent struct {
-	Time  time.Time
-	Level string
-	Text  string
+	Version  int       `json:"version"`
+	ID       string    `json:"id"`
+	Time     time.Time `json:"time"`
+	Level    string    `json:"level"`
+	Category string    `json:"category"`
+	Session  string    `json:"session,omitempty"`
+	Text     string    `json:"text"`
 }
 
 // diagRing is how many events the app keeps in memory.
@@ -102,75 +106,49 @@ func (a *app) stopProcess(p procInfo) {
 	a.diagRefresh()
 }
 
-// initDiag opens the log file and records the start.
+// initDiag starts the journal worker and records the launch without secrets.
 func (a *app) initDiag() {
 	if a.st == nil {
 		return
 	}
-	dir := filepath.Join(a.st.dir, "logs")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return
-	}
-	path := filepath.Join(dir, "pideck.log")
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-	if err == nil {
-		a.diagFile = f
-		a.diagPath = path
-		if info, err := f.Stat(); err == nil {
-			a.diagSize = int(info.Size())
-		}
-	}
+	a.diagPath = filepath.Join(a.st.dir, "logs", "events.jsonl")
+	a.diagJournal = newDiagJournal(a.diagPath)
 	a.startedAt = time.Now()
 	if a.cx != nil {
 		a.cx.Cleanup(a.closeDiag)
 	}
-	a.diagf("info", "应用启动 %s · %s/%s", appinfo.Version, runtime.GOOS, runtime.GOARCH)
+	a.logEvent("info", "startup", "", "应用启动 %s · %s/%s", appinfo.Version, runtime.GOOS, runtime.GOARCH)
+	if len(os.Args) > 0 {
+		a.logEvent("info", "startup", "", "启动参数：%s", diagCommand(os.Args[0], os.Args[1:]))
+	}
 }
 
-// diagf records one line, in memory and on disk.
+// diagf adapts existing diagnostic callers to the structured journal.
 func (a *app) diagf(level, format string, args ...any) {
-	ev := diagEvent{Time: time.Now(), Level: level, Text: fmt.Sprintf(format, args...)}
+	text := fmt.Sprintf(format, args...)
+	a.logEvent(level, diagCategory(text), "", "%s", text)
+}
+
+func (a *app) logEvent(level, category, sessionID, format string, args ...any) {
+	ev := diagEvent{Version: 1, Time: time.Now(), Level: level, Category: category,
+		Session: diagSessionKey(sessionID), Text: redactDiagText(fmt.Sprintf(format, args...))}
 	a.diagMu.Lock()
 	defer a.diagMu.Unlock()
+	a.diagSeq++
+	ev.ID = fmt.Sprintf("%d-%d", a.startedAt.UnixNano(), a.diagSeq)
 	a.diagEvents = append(a.diagEvents, ev)
 	if len(a.diagEvents) > diagRing {
 		a.diagEvents = a.diagEvents[len(a.diagEvents)-diagRing:]
 	}
-	if a.diagFile == nil {
-		return
-	}
-	line := fmt.Sprintf("%s [%s] %s\n", ev.Time.Format(time.RFC3339), level, ev.Text)
-	n, _ := a.diagFile.WriteString(line)
-	a.diagSize += n
-	if a.diagSize > diagFileLimit {
-		a.rotateDiag()
+	if a.diagJournal != nil {
+		a.diagJournal.append(ev)
 	}
 }
 
-// rotateDiag moves the log aside and starts a new one; the caller holds
-// diagMu.
-func (a *app) rotateDiag() {
-	if a.diagFile == nil || a.diagPath == "" {
-		return
-	}
-	_ = a.diagFile.Close()
-	_ = os.Rename(a.diagPath, a.diagPath+".1")
-	f, err := os.OpenFile(a.diagPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		a.diagFile = nil
-		return
-	}
-	a.diagFile = f
-	a.diagSize = 0
-}
-
-// closeDiag closes the log file.
 func (a *app) closeDiag() {
-	a.diagMu.Lock()
-	defer a.diagMu.Unlock()
-	if a.diagFile != nil {
-		_ = a.diagFile.Close()
-		a.diagFile = nil
+	if a.diagJournal != nil {
+		a.logEvent("info", "app", "", "应用退出")
+		a.diagJournal.close()
 	}
 }
 
@@ -292,7 +270,7 @@ func (a *app) diagnosticText() string {
 	}
 	b.WriteString("\n最近日志：\n")
 	for _, ev := range a.diagSnapshot() {
-		fmt.Fprintf(&b, "  %s [%s] %s\n", ev.Time.Format("15:04:05"), ev.Level, ev.Text)
+		fmt.Fprintf(&b, "  %s [%s/%s] %s\n", ev.Time.Format("15:04:05"), ev.Level, ev.Category, ev.Text)
 	}
 	return b.String()
 }

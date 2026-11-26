@@ -271,17 +271,13 @@ func (a *app) animateNextLayout() {
 
 // toast shows one briefly.
 func (a *app) toast(kind ui.ToastType, title, detail string) {
-	switch kind {
-	case ui.ToastError:
-		a.diagf("error", "%s：%s", title, detail)
-	case ui.ToastWarning:
-		a.diagf("warn", "%s：%s", title, detail)
-	}
+	a.recordToast(kind, title, detail)
 	a.toaster.Show(ui.ToastContent{Type: kind, Title: apptext.T(title), Description: apptext.T(detail), Duration: 4 * time.Second})
 }
 
 // toastAction shows one with a button.
 func (a *app) toastAction(kind ui.ToastType, title, detail, action string, fn func()) {
+	a.recordToast(kind, title, detail)
 	a.toaster.Show(ui.ToastContent{Type: kind, Title: apptext.T(title), Description: apptext.T(detail), Action: apptext.T(action), OnAction: fn, Duration: 6 * time.Second})
 }
 

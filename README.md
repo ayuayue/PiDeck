@@ -502,9 +502,10 @@ GOFLAGS=-tags=webassets go tool nsgo build -target windows_x64
   `PIDECK_V2_IMPORT_CLAUDE_DIR`、`_QODER_DIR`、`_CODEX_DIR`、`_CURSOR_DIR`、`_KIMI_DIR`、
   `_MINIMAX_DIR`、`_ZCODE_DIR`、`_OPENCODE_DIR`、`_WORKBUDDY_DIR`、`_CODEBUDDY_DIR`
 - 配置 `config.json`：工作区（含目标）、标签、收藏、默认模型与思考等级、主题、标题、键位、停用的插件、插件设置、智能体绑定、代理、生图供应商/模型/尺寸、编辑器与终端字号、提示音（开关、每种时刻的音、音量、导入的文件名）、火山语音凭据（App ID 与 Access Token）、匿名统计开关与安装 ID；旧文件读取时自动迁移并回写，越界的枚举/尺寸/端口会重置
-- 整理数据：收藏写 `favorites.json`（回复是正文快照、会话是引用，最多 200 条），定时任务与运行历史写 `tasks.json`（历史最多 200 条），自定义智能体写 `agents/custom.json`，导入的提示音放 `sounds/`（同一时间只保留一个，进设置备份包）；插件卸载保留文件于 `trash/plugins/`，可在 设置 → 扩展 恢复，设置包也包含这份回收区；都是可读文件，坏数据不阻断启动
-- 快捷短语与回复规则保存在 `reply-shortcuts.yaml`（`version: 1`，最多 256 KB，`quickMessages` 为短语数组，`replyActions` 为规则数组），原子保存，纳入设置备份/同步，不进入诊断包。规则包含 `text`、`triggers`（`kind` 为 `always` / `onStop` / `onFailure` / `textMatch`，后者使用 `patterns` 数组），可用 `requires: fileEdits` 限定成功文件修改。文件缺失时用内置清单，空数组表示主动关闭；坏文件停用快捷操作，坏规则只跳过该条，均保留原文件。打开短语或管理窗口会重读文件；本配置只用于桌面端。
+- 整理数据：收藏写 `favorites.json`（回复是正文快照、会话是引用，最多 200 条），定时任务与运行历史写 `tasks.json`（历史最多 200 条），自定义智能体写 `agents/custom.json`，导入的提示音放 `sounds/`（同一时间只保留一个，进设置备份包）；长粘贴的临时文件放 `paste-files/`（不进设置备份包，超过 7 天启动时清理）；插件卸载保留文件于 `trash/plugins/`，可在 设置 → 扩展 恢复，设置包也包含这份回收区；都是可读文件，坏数据不阻断启动
+- 统一日志保存在 `logs/events.jsonl`（JSONL `version: 1`，新文件权限 `0600`），每份最多 1 MiB，保留当前文件与 4 份轮转；旧版 `logs/pideck.log` / `.1` 仍可查询、筛选和清理。日志不进设置备份包；损坏记录跳过并保留原文件，日志不可写时在诊断页提示，不阻断启动。
 - 增强模板保存在数据目录 `prompt-enhance.md`（UTF-8、非空、最多 24 KB），原子保存并纳入设置备份/同步；不放进诊断包。缺失时使用内置模板，损坏时提示并退回内置模板，不阻断启动；未保存的编辑、AI 结果预览与撤销快照不进入设置包。
+- 快捷短语与回复规则保存在 `reply-shortcuts.yaml`（`version: 1`，最多 256 KB，`quickMessages` 为短语数组，`replyActions` 为规则数组），原子保存，纳入设置备份/同步，不进入诊断包。规则包含 `text`、`triggers`（`kind` 为 `always` / `onStop` / `onFailure` / `textMatch`，后者使用 `patterns` 数组），可用 `requires: fileEdits` 限定成功文件修改。文件缺失时用内置清单，空数组表示主动关闭；坏文件停用快捷操作，坏规则只跳过该条，均保留原文件。打开短语或管理窗口会重读文件；本配置只用于桌面端。
 
 **目标：本机 / WSL / SSH**
 - 探测：`pi --version`、`wsl -l -q`、`~/.ssh/config` 的 Host，逐个试 `command -v pi`
@@ -570,7 +571,7 @@ GOFLAGS=-tags=webassets go tool nsgo build -target windows_x64
 - 集成：飞书群自定义机器人；一轮结束把标题、状态与一句摘要发到群里，可填签名密钥并测试；
   也可接收群消息（事件订阅指向 `/api/feishu`，校验 Verification Token），消息发给当前会话，
   开启「把回答发回群」后把这一轮的回答发回群里
-- 诊断：运行中的 pi/终端进程（可逐个停止）、goroutine 与堆（已用 / 已提交 / 空闲）、最近日志；可复制诊断报告、导出诊断包（zip，含报告/脱敏配置/日志尾部/插件列表/设置结构）、打开日志目录、清空内存日志。桌面宿主的 Go 堆软上限是 3 GiB（设置 `GOMEMLIMIT` 可覆盖）；空闲页超过 192 MB 且占堆的四分之一以上、并且没有回合在跑时，每两分钟归还一次给系统，「释放内存」可随时手动归还
+- 诊断：运行中的 pi/终端进程（可逐个停止）、goroutine 与堆（已用 / 已提交 / 空闲）、统一日志。日志记录普通/提醒/错误/异常，按应用、启动、ACP、Git、会话、通知分类；覆盖脱敏启动参数、ACP 请求结果与耗时/工具状态/权限交互、Git 操作结果、会话创建/打开/删除/回合/重载/重启，以及提示和异常。可组合分类、级别、最近一小时/一天/七天与关键词查询，最新在前，按需加载；清理当前筛选或全部历史前必须确认，确认期间产生的新记录保留。日志在后台写入与轮转，启动参数、凭据与完整路径脱敏，ACP 不记录对话正文和协议原文，会话使用匿名关联码。可复制诊断报告、导出诊断包（zip，含报告/脱敏配置/日志尾部/插件列表/设置结构）、打开日志目录。桌面宿主的 Go 堆软上限是 3 GiB（设置 `GOMEMLIMIT` 可覆盖）；空闲页超过 192 MB 且占堆的四分之一以上、并且没有回合在跑时，每两分钟归还一次给系统，「释放内存」可随时手动归还
 - 崩溃：界面外层有错误边界，任一屏 panic 时写崩溃日志（数据目录 `crashes/`）并显示「重新加载界面」，
   应用不退出；启动时若发现上次崩溃会提示一次，设置 → 诊断可查看最近崩溃与日志数量
 - 资源：pi 的技能（读 `SKILL.md` 的 name/description，点开在编辑器里看）与扩展
@@ -915,7 +916,7 @@ go tool nsgo test -target windows   # 真实窗口，截图写到 .nsgo/test/scr
 - 翻译覆盖设置页、命令面板、托盘、键位、主界面外壳、右键菜单、常用对话框与手机端；`TestVisibleStringsTranslated`、`TestToastTitlesTranslated`、`TestToastDetailsTranslated` 与 `TestTraditionalCoversEnglish` 会拦住没有英文的正文、按钮/菜单/占位/标题字段、提示标题与说明，以及缺繁体条目的文案；动态错误文本（如 pi 的原始报错）原样显示
 - 飞书集成默认只发摘要；接收群消息需要远程服务对外可达、填 Verification Token，且只发给当前会话（没有会话时新建内置对话），回答最多回传 1500 字
 - 桌面宠物功能暂时停用，等待 [nsgo-pet](https://github.com/nsgo-dev/nsgo-pet) 提供可嵌入运行时后再接入
-- 日志文件超过 1 MB 时轮转一次（`pideck.log` → `pideck.log.1`）；没有日志级别设置
+- 统一日志只保存在桌面宿主本机，当前文件加 4 份轮转共约 5 MiB；查询最多展示 1000 条，可缩小筛选范围。旧版两份日志额外保留；未识别记录不会在筛选清理时删除。没有记录级别开关，也不逐条记录高频状态轮询或 ACP 文本流
 - 外部编辑器只在本机可用；打开时不开终端，编辑器自己的报错不会回传
 - 用量统计最多读最近 3000 个会话文件，按会话 ID 去重；导入副本与移动过的文件可能让统计略有偏差
 - 全局搜索索引同样最多 3000 个会话、每个会话取前 16 KB 文本；更早或更长的内容需要「重建索引」后再搜

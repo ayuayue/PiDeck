@@ -73,6 +73,7 @@ func (a *app) closeAgent(s *session) {
 }
 
 func (a *app) stopSessionAgent(s *session, restart bool) {
+	a.logEvent("info", "session", s.ID, "停止会话进程 · restart=%t", restart)
 	s.agentClosed = !restart
 	s.agentStopping = true
 	s.restarting = restart
@@ -116,6 +117,7 @@ func (a *app) stopSessionAgent(s *session, restart bool) {
 	s.status.Set(statusWaiting)
 	go func() {
 		<-stopped
+		a.logEvent("info", "session", s.ID, "会话进程已停止")
 		a.cx.Post(func() {
 			s.agentStopping = false
 			s.agentStopped = nil
@@ -176,6 +178,7 @@ func (a *app) reloadSession(s *session) {
 	if !s.canReloadSession() {
 		return
 	}
+	a.logEvent("info", "session", s.ID, "重新读取会话：开始")
 	s.historyGeneration++
 	generation := s.historyGeneration
 	s.historyLoading = true
@@ -216,6 +219,11 @@ func (a *app) reloadSession(s *session) {
 				msgs, err = sessionFileMessages(file)
 			}
 			history, items = turnsFromMessages(msgs), todosFromMessages(msgs)
+		}
+		if err != nil {
+			a.logEvent("error", "session", s.ID, "重新读取会话：失败")
+		} else {
+			a.logEvent("info", "session", s.ID, "重新读取会话：完成")
 		}
 		a.cx.Post(func() {
 			if s.historyGeneration != generation || a.byID[s.ID] != s {

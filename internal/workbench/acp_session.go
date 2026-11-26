@@ -94,17 +94,24 @@ func (a *app) startACPEngine(s *session, generation uint64, presetID, savedID, c
 		fail(apptext.T("没有这个 ACP 预设"))
 		return
 	}
-	a.diagf("info", "ACP 启动 %s：%s %s", preset.Name, preset.Command, strings.Join(preset.Args, " "))
+	a.logEvent("info", "acp", s.ID, "ACP 启动 %s：%s", preset.Name, diagCommand(preset.Command, preset.Args))
 	handle := acpHooks{
+		protocol: func(method string, elapsed time.Duration, err error) { a.recordACPCall(s.ID, method, elapsed, err) },
 		update: func(u acpUpdate) {
+			a.recordACPUpdate(s.ID, u)
 			a.cx.Post(func() {
 				if s.acpGeneration == generation {
 					a.applyACPUpdate(s, u)
 				}
 			})
 		},
-		permission: func(p acpPermission) string { return a.askACPPermission(s, generation, p) },
-		exit:       func(err error) { a.cx.Post(func() { a.onACPExit(s, generation, err) }) },
+		permission: func(p acpPermission) string {
+			a.logEvent("warn", "acp", s.ID, "ACP 权限请求")
+			answer := a.askACPPermission(s, generation, p)
+			a.logEvent("info", "acp", s.ID, "ACP 权限请求已响应")
+			return answer
+		},
+		exit: func(err error) { a.cx.Post(func() { a.onACPExit(s, generation, err) }) },
 	}
 	// A handshaken spare skips the launch and the handshake; the session
 	// only needs its session/new. A saved one may have died meanwhile.
@@ -125,6 +132,7 @@ func (a *app) startACPEngine(s *session, generation uint64, presetID, savedID, c
 			fail(apptext.T("启动 ACP 失败：%s", err.Error()))
 			return
 		}
+		c.setHooks(handle)
 		// A first npx run downloads the package before it answers, which
 		// looks like nothing happening: say what the tab waits for.
 		a.cx.AfterFunc(8*time.Second, func() {

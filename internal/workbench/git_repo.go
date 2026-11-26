@@ -45,6 +45,7 @@ type gitRepo struct {
 	// onResult lets the app toast an action's outcome: what it did, and the
 	// line the action reports under it.
 	onResult func(label, detail string, err error)
+	onLog    func(level, text string)
 
 	// logLimit grows as the history's "more" is pressed.
 	logLimit int

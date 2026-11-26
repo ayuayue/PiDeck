@@ -79,7 +79,7 @@ func (a *app) startEngineWarm(s *session, c *piClient, generation uint64, starte
 		onUI:    func(req uiRequest) { a.onPiUIGeneration(s, generation, req) },
 		onExit:  func(err error) { a.onPiExit(s, generation, err) },
 	})
-	a.diagf("info", "会话接管 pi 预热进程 %s", shortPath(s.WS, 48))
+	a.logEvent("info", "session", s.ID, "会话接管 pi 预热进程")
 	a.engineState(s, c, generation)
 }
 
@@ -133,6 +133,7 @@ func (a *app) startEngine(s *session, generation uint64, started chan<- *piClien
 		})
 		return
 	}
+	a.logEvent("info", "startup", s.ID, "pi 启动参数：%s", diagCommand(c.cmd.Path, c.cmd.Args[1:]))
 	a.engineState(s, c, generation)
 }
 
@@ -363,6 +364,7 @@ func (a *app) loadHistoryFromFile(s *session) {
 
 // failSession ends a session that could not start.
 func (a *app) failSession(s *session, why string) {
+	a.logEvent("error", "session", s.ID, "会话启动失败：%s", why)
 	s.starting = false
 	if s.backend != "acp" && s.engine != nil && s.engine.isClosed() {
 		s.engine = nil

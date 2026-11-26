@@ -8,7 +8,6 @@ package workbench
 import (
 	"context"
 	"example.com/pideck-v2/internal/remotewire"
-	"os"
 	"sync"
 	"time"
 
@@ -130,13 +129,13 @@ type app struct {
 	askBox  *core.Signal[askBox]
 	askText *core.Signal[string]
 
-	// Diagnostics: the in-memory log, its file, and when the app started.
-	diagMu     sync.Mutex
-	diagEvents []diagEvent
-	diagFile   *os.File
-	diagPath   string
-	diagSize   int
-	startedAt  time.Time
+	// Diagnostics: recent records, the asynchronous journal and launch time.
+	diagMu      sync.Mutex
+	diagEvents  []diagEvent
+	diagJournal *diagJournal
+	diagSeq     uint64
+	diagPath    string
+	startedAt   time.Time
 
 	// projectsRev changes when a project is pinned, grouped or moved.
 	projectsRev           *core.Signal[int]

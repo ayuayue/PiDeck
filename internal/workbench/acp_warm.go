@@ -64,6 +64,10 @@ func (a *app) ensureWarmACP(p acpPreset, cwd string) {
 			a.diagf("warn", "ACP 预热失败 %s：%v", p.Name, err)
 			return
 		}
+		c.setHooks(acpHooks{exit: func(error) { a.dropWarmACP(key) }, protocol: func(method string, elapsed time.Duration, err error) {
+			a.recordACPCall("", method, elapsed, err)
+		}})
+		a.logEvent("info", "acp", "", "ACP 预热启动参数：%s", diagCommand(p.Command, p.Args))
 		if _, err := c.initialize(); err != nil {
 			c.stop()
 			a.finishWarmACPSpawn(key, nil)

@@ -85,8 +85,21 @@ func (r *gitRepo) runDetail(label string, fn func(g gitRunner) (string, error), 
 	r.err.Set("")
 	r.busy.Set(label)
 	seq := r.seq
+	onLog := r.onLog
 	go func() {
+		started := time.Now()
+		if onLog != nil {
+			onLog("info", label+"：开始")
+		}
 		detail, err := fn(gitRunner{t: t, path: path})
+		if onLog != nil {
+			level, outcome := "info", "完成"
+			if err != nil {
+				level, outcome = "error", "失败"
+			}
+			// Command output may contain diffs, commit text or private remotes.
+			onLog(level, fmt.Sprintf("%s：%s · %s", label, outcome, time.Since(started).Round(time.Millisecond)))
+		}
 		r.cx.Post(func() {
 			if seq != r.seq {
 				return

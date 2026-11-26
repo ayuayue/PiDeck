@@ -18,6 +18,7 @@ import (
 func (a *app) crashScreen(cx *core.Scope, err error, reset func()) core.Node {
 	if err != nil && a.crashShown != err.Error() {
 		a.crashShown = err.Error()
+		a.logEvent("exception", "app", "", "界面异常：%s", err.Error())
 		if path, werr := crashlog.WriteReport(a.dataDir, err, nil); werr == nil {
 			a.crashPath = path
 		}

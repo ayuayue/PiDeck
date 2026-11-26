@@ -33,7 +33,10 @@ func TestDiagRing(t *testing.T) {
 	if events[len(events)-1].Text != "event 349" {
 		t.Fatalf("last = %q", events[len(events)-1].Text)
 	}
-	raw, err := os.ReadFile(filepath.Join(dir, "logs", "pideck.log"))
+	if err := a.diagJournal.flush(); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "logs", "events.jsonl"))
 	if err != nil {
 		t.Fatal(err)
 	}

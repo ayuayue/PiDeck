@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"example.com/pideck-v2/extensions"
 	"example.com/pideck-v2/internal/alerts"
@@ -404,6 +405,7 @@ func newApp(cx *core.Scope) *app {
 		a.toast(ui.ToastSuccess, title, "")
 	}
 	a.git = newGitRepo(cx)
+	a.git.onLog = func(level, text string) { a.logEvent(level, "git", "", "%s", text) }
 	a.review = newReview(cx)
 	a.term = newTerminalHost(cx)
 	a.term.height.Set(defaultTerminalHeight)
@@ -470,6 +472,7 @@ func newApp(cx *core.Scope) *app {
 	}
 	// A crash from the last run is worth one notice, with a way to look.
 	if path, at, ok := crashlog.Latest(a.dataDir); ok && filepath.Base(path) != a.cfg.CrashSeen {
+		a.logEvent("exception", "app", "", "发现上次运行的崩溃报告 · %s", at.Format(time.RFC3339))
 		name := filepath.Base(path)
 		a.cfg.CrashSeen = name
 		st.edit(func(c *config) { c.CrashSeen = name })

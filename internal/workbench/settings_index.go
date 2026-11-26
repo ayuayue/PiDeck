@@ -121,6 +121,7 @@ var settingsIndex = []settingEntry{
 	{"integrations", "收藏夹", "favorite saved reply session 收藏"},
 	{"diagnostics", "导出诊断包", "diagnostics bundle zip"},
 	{"diagnostics", "复制诊断信息", "diagnostics report copy"},
+	{"diagnostics", "日志", "logs search filter category level time clear 查询 筛选 分类 级别 时间 清理"},
 	{"diagnostics", "打开日志目录", "logs directory"},
 	{"data", "数据目录", "data directory"},
 	{"data", "会话目录", "sessions directory"},
