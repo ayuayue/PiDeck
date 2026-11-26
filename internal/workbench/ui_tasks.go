@@ -105,27 +105,36 @@ func (a *app) tasksPane() core.Node {
 			}
 			run := r
 			runRows = append(runRows, core.View{TestID: "task-run-row-" + run.ID,
-				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(30),
-					Padding: core.Symmetric(2, 7)}, Children: []core.Node{
-					ui.Icon(lucide.Circle, 8, func() core.Color { return taskStatusColor(colors, run.Status) }),
-					core.Text{Content: run.TaskName, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-						Style: core.Style{Width: core.Pt(150), FontSize: 11}, StyleFunc: ui.Colored(colors.Text)},
-					core.Text{Content: taskStatusLabel(run.Status), MaxLines: 1,
-						Style: core.Style{Width: core.Pt(52), FontSize: 10.5}, StyleFunc: ui.Colored(colors.Muted)},
-					core.Text{Content: run.StartedAt.Format("01-02 15:04"), MaxLines: 1,
-						Style: core.Style{Width: core.Pt(76), FontFamily: viewkit.MonoFont(), FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
-					core.Text{Content: run.Error, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-						Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 10},
-						StyleFunc: ui.Colored(colors.Faint)},
-					core.Show{When: func() bool { return run.SessionID != "" }, Then: func(*core.Scope) core.Node {
-						return core.View{OnPress: func(core.PressEvent) { a.openTaskRunSession(run) }, Role: core.RoleButton,
-							Label: apptext.T("打开会话"), TestID: "task-run-open-" + run.ID,
-							StyleFunc: func() core.Style {
-								return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 3, Height: core.Pt(22),
-									Padding: core.Symmetric(0, 6), CornerRadius: 5, Hover: &core.Style{Background: colors.Hover()}}
-							}, Children: []core.Node{
-								ui.Icon(lucide.ArrowUpRight, 10, colors.Faint),
-								ui.Text(apptext.T("打开"), 9.5, ui.Regular, colors.Muted),
+				Style: core.Style{MinWidth: core.Pt(0), Gap: 3, Padding: core.Symmetric(5, 7)}, Children: []core.Node{
+					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(22), MinWidth: core.Pt(0)}, Children: []core.Node{
+						ui.Icon(lucide.Circle, 8, func() core.Color { return taskStatusColor(colors, run.Status) }),
+						core.Text{Content: run.TaskName, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+							Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11}, StyleFunc: ui.Colored(colors.Text)},
+						core.Text{Content: taskStatusLabel(run.Status), MaxLines: 1,
+							Style: core.Style{Width: core.Pt(52), FontSize: 10.5}, StyleFunc: ui.Colored(colors.Muted)},
+						core.Text{Content: run.StartedAt.Format("01-02 15:04"), MaxLines: 1,
+							Style: core.Style{Width: core.Pt(76), FontFamily: viewkit.MonoFont(), FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
+						core.Show{When: func() bool { return run.Error != "" }, Then: func(*core.Scope) core.Node {
+							return ui.Button{Text: apptext.T("复制"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+								TestID: "task-run-copy-" + run.ID, OnPress: func() { cx.SetClipboard(run.Error) }}
+						}},
+						core.Show{When: func() bool { return run.SessionID != "" }, Then: func(*core.Scope) core.Node {
+							return core.View{OnPress: func(core.PressEvent) { a.openTaskRunSession(run) }, Role: core.RoleButton,
+								Label: apptext.T("打开会话"), TestID: "task-run-open-" + run.ID,
+								StyleFunc: func() core.Style {
+									return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 3, Height: core.Pt(22),
+										Padding: core.Symmetric(0, 6), CornerRadius: 5, Hover: &core.Style{Background: colors.Hover()}}
+								}, Children: []core.Node{
+									ui.Icon(lucide.ArrowUpRight, 10, colors.Faint),
+									ui.Text(apptext.T("打开"), 9.5, ui.Regular, colors.Muted),
+								}}
+						}},
+					}},
+					core.Show{When: func() bool { return run.Error != "" }, Then: func(*core.Scope) core.Node {
+						return core.View{TestID: "task-run-error-" + run.ID, Selectable: true,
+							Style: core.Style{MinWidth: core.Pt(0), Padding: core.Edges{Left: 16}}, Children: []core.Node{
+								core.Text{Content: run.Error, Style: core.Style{FontSize: 11.5, LineHeight: 17},
+									StyleFunc: ui.Colored(colors.Muted)},
 							}}
 					}},
 				}})
@@ -133,8 +142,8 @@ func (a *app) tasksPane() core.Node {
 		history := core.View{Style: core.Style{FlexShrink: 0, MinWidth: core.Pt(0), Gap: 3}, Children: []core.Node{
 			ui.Text(apptext.T("运行历史"), 10, ui.Semibold, colors.Faint),
 			core.Show{When: func() bool { return len(runRows) > 0 }, Then: func(*core.Scope) core.Node {
-				return core.Scroll{Style: core.Style{MaxHeight: core.Pt(150)}, Children: []core.Node{
-					core.View{Style: core.Style{Gap: 0}, Children: runRows}}}
+				return core.Scroll{TestID: "task-run-history", Style: core.Style{MaxHeight: core.Pt(150)}, Children: []core.Node{
+					core.View{Style: core.Style{Gap: 4, Padding: core.Edges{Right: scrollbarGutter}}, Children: runRows}}}
 			}},
 			core.Show{When: func() bool { return len(runRows) == 0 }, Then: func(*core.Scope) core.Node {
 				return core.Text{Content: apptext.T("还没有运行记录。"), Style: core.Style{FontSize: 10.5},
