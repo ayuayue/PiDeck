@@ -158,3 +158,12 @@ go tool nsgo test -target windows -run '^TestAxisTickHitArea$' -timeout 45s ./in
 原生截图位于 `internal/workbench/.nsgo/test/screenshots/windows/57-axis-ticks-rest.png` 和
 `58-axis-ticks-hover.png`，已检查默认刻度、悬停伸长和提示框的位置。
 整页 `TestTurnAxis` 在等待会话输入框加载时超时（20 s），不计入通过项。
+
+## 会话列表的日期分组
+
+同一项目按最近活动排序时，会话时间先统一到界面当前时间的时区，再判断“今天”“昨天”。
+历史文件的 UTC 时间与本地活动时间混排时，同一天的会话不会再因时区不同反复切换日期标题；
+原有的会话顺序和父子嵌套规则保留。“昨天”按日历前一天判断，兼容夏令时的 23／25 小时日。
+
+`TestSessionBucketsUseDisplayTimezone` 覆盖 UTC、UTC+8、UTC−8 下的混合时间戳、唯一日期标题和
+组内顺序；`TestSessionBucketsUseCalendarYesterday` 覆盖夏令时开始与结束的日期边界。

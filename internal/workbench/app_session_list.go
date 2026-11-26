@@ -123,11 +123,13 @@ func sessionBucketsBy(list []*session, now time.Time, when func(*session) time.T
 	}
 	var out []bucket
 	label := func(t time.Time) string {
+		// History can be UTC while live activity uses the local zone.
+		t = t.In(now.Location())
 		d := now.Sub(t)
 		switch {
 		case sameDay(t, now):
 			return "今天"
-		case sameDay(t, now.Add(-24*time.Hour)):
+		case sameDay(t, now.AddDate(0, 0, -1)):
 			return "昨天"
 		case d < 7*24*time.Hour:
 			return "本周"
