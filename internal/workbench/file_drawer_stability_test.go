@@ -52,4 +52,10 @@ func TestFileDrawerKeepsControlsAcrossBackgroundRefresh(t *testing.T) {
 	if got := screen.Find("id:files-search"); got.ID != field || got.Text != "note" {
 		t.Fatalf("background refresh replaced the active search: id=%v text=%q", got.ID, got.Text)
 	}
+	screen.Press("id:files-scope-session")
+	if got := screen.Find("id:files-search"); got.ID != field || got.Text != "note" {
+		t.Fatalf("scope switch replaced the search input: id=%v text=%q", got.ID, got.Text)
+	}
+	screen.Press("id:files-scope-all")
+	screen.WaitFor("id:file-hit", 5*time.Second)
 }

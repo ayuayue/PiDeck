@@ -57,6 +57,7 @@ func TestCommitDiffFiles(t *testing.T) {
 	run("commit", "-m", "two files")
 
 	app := startGitApp(t, dir)
+	app.Press("id:git-tab-history")
 	waitApp(app, "id:git-commit-row", 20*time.Second)
 	app.Press("id:git-commit-row >> nth=0")
 	app.WaitFor("id:git-diff", 10*time.Second)
@@ -80,6 +81,7 @@ func TestCommitDiffFileUnusualName(t *testing.T) {
 	run("commit", "-m", "unusual name")
 
 	app := startGitApp(t, dir)
+	app.Press("id:git-tab-history")
 	waitApp(app, "id:git-commit-row", 20*time.Second)
 	app.Press("id:git-commit-row >> nth=0")
 	app.WaitFor("id:git-diff", 10*time.Second)

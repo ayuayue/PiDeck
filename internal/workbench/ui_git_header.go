@@ -39,13 +39,13 @@ func (a *app) gitHeader(cx *core.Scope) core.Node {
 		}
 	}, Role: core.RoleButton, Label: apptext.T("切换分支"), TestID: "git-branch",
 		StyleFunc: func() core.Style {
-			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, Height: core.Pt(26), MinWidth: core.Pt(0),
+			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Height: core.Pt(32), MinWidth: core.Pt(0), FlexShrink: 1,
 				Padding: core.Symmetric(0, 6), CornerRadius: 6, Transition: viewkit.PressMotion,
 				Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
 		}, Children: []core.Node{
 			ui.Icon(lucide.GitBranch, 13, colors.Muted),
 			core.Text{ContentFunc: branchName, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-				Style: core.Style{FontSize: 12.5, FontWeight: ui.Semibold, MinWidth: core.Pt(0), FlexShrink: 1}, StyleFunc: ui.Colored(colors.Text)},
+				Style: core.Style{FontSize: 14, FontWeight: ui.Semibold, MinWidth: core.Pt(0), FlexShrink: 1}, StyleFunc: ui.Colored(colors.Text)},
 			ui.Icon(lucide.ChevronDown, 10, colors.Faint),
 			core.Show{When: func() bool { return a.git.state.Get().Ahead > 0 }, Then: func(*core.Scope) core.Node {
 				return gitSyncChip(colors, func() string { return fmt.Sprintf("↑%d", a.git.state.Get().Ahead) }, colors.Up())
@@ -58,7 +58,7 @@ func (a *app) gitHeader(cx *core.Scope) core.Node {
 		return a.gitBranchMenu(cx)
 	}, "git-branches-menu")
 
-	return core.View{Style: core.Style{Gap: 6, FlexShrink: 0}, Children: []core.Node{
+	return core.View{Style: core.Style{Gap: 8, FlexShrink: 0}, Children: []core.Node{
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2}, Children: []core.Node{
 			branchMenu,
 			core.View{Style: core.Style{FlexGrow: 1}},
@@ -68,13 +68,16 @@ func (a *app) gitHeader(cx *core.Scope) core.Node {
 				}
 				return nil
 			}),
-			hint("获取远程（fetch）", a.pressIcon(lucide.CloudDownload, apptext.T("获取远程（fetch）"), 24, 13, sync, a.gitFetch, "git-fetch")),
-			hint("拉取（pull）", a.pressIcon(lucide.ArrowDownToLine, apptext.T("拉取（pull）"), 24, 13, sync, a.gitPull, "git-pull")),
-			hint("推送（push）", a.pressIcon(lucide.ArrowUpFromLine, apptext.T("推送（push）"), 24, 13, sync, func() { a.gitPush(false) }, "git-push")),
+
 			hint("刷新 Git", a.pressIcon(lucide.RefreshCw, apptext.T("刷新 Git"), 24, 12.5, sync, func() { a.git.refreshAll() }, "git-refresh")),
 			a.gitMoreMenu(cx),
 		}},
 		a.gitUpstreamLine(cx),
+		core.View{Style: core.Style{Direction: core.Row, Gap: 8}, Children: []core.Node{
+			hint("获取远程（fetch）", ui.Button{Text: apptext.T("获取"), Label: apptext.T("获取远程（fetch）"), Icon: lucide.CloudDownload, Variant: ui.ButtonSecondary, Size: ui.SizeSmall, Style: core.Style{FlexGrow: 1}, Disabled: sync, OnPress: a.gitFetch, TestID: "git-fetch"}),
+			hint("拉取（pull）", ui.Button{Text: apptext.T("拉取"), Label: apptext.T("拉取（pull）"), Icon: lucide.ArrowDownToLine, Variant: ui.ButtonGhost, Size: ui.SizeSmall, Style: core.Style{FlexGrow: 1}, Disabled: sync, OnPress: a.gitPull, TestID: "git-pull"}),
+			hint("推送（push）", ui.Button{Text: apptext.T("推送"), Label: apptext.T("推送（push）"), Icon: lucide.ArrowUpFromLine, Variant: ui.ButtonGhost, Size: ui.SizeSmall, Style: core.Style{FlexGrow: 1}, Disabled: sync, OnPress: func() { a.gitPush(false) }, TestID: "git-push"}),
+		}},
 	}}
 }
 

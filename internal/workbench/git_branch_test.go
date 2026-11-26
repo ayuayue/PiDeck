@@ -177,6 +177,8 @@ func TestGitCommitMenu(t *testing.T) {
 	}
 	app := nsgotest.Start(t, Root, nsgotest.Size(1320, 860))
 	app.Press("id:git-toggle")
+	waitApp(app, "id:git-tab-history", 20*time.Second)
+	app.Press("id:git-tab-history")
 	waitApp(app, "id:git-commit-row", 20*time.Second)
 	app.RightClick("id:git-commit-row")
 	app.WaitFor("text:复制提交说明", 5*time.Second)

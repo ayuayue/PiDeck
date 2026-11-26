@@ -77,6 +77,8 @@ func TestGitHistoryScrolls(t *testing.T) {
 	root := func(cx *core.Scope) core.Node { built = newApp(cx); return built.view() }
 	screen := nsgotest.Start(t, root, nsgotest.Size(1280, 860))
 	screen.Press("id:git-toggle")
+	screen.WaitFor("id:git-tab-history", 30*time.Second)
+	screen.Press("id:git-tab-history")
 	// The newest page of commits is listed; the rest wait behind the
 	// section's button, so the panel keeps its shape.
 	screen.WaitUntil(30*time.Second, func() bool { return len(screen.Query("id:git-commit-row")) == gitHistoryShown })
@@ -87,15 +89,15 @@ func TestGitHistoryScrolls(t *testing.T) {
 	screen.WaitUntil(10*time.Second, func() bool { return len(screen.Query("id:git-commit-row")) > gitHistoryShown })
 	// The drawer scrolls, and a status poll leaves the reader where they
 	// are: a poll must not rebuild the scroll view.
-	screen.Scroll("id:git-scroll", 400)
-	before := screen.Find("id:git-scroll").Offset.Y
+	screen.Scroll("id:git-history-scroll", 400)
+	before := screen.Find("id:git-history-scroll").Offset.Y
 	if before <= 0 {
 		t.Fatalf("the drawer did not scroll: offset %v", before)
 	}
 	built.git.poll()
 	screen.WaitUntil(20*time.Second, func() bool { return !built.git.working })
 	screen.Settle()
-	if got := screen.Find("id:git-scroll").Offset.Y; got != before {
+	if got := screen.Find("id:git-history-scroll").Offset.Y; got != before {
 		t.Fatalf("a status poll moved the drawer from %v to %v", before, got)
 	}
 }

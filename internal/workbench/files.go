@@ -39,6 +39,7 @@ type fileTree struct {
 	root   *core.Signal[string]
 	nodes  *core.Signal[[]fileNode]
 	hidden *core.Signal[bool]
+	scope  *core.Signal[string]
 	busy   *core.Signal[bool]
 
 	dirs       map[string][]fileEntry
@@ -52,6 +53,7 @@ func newFileTree(cx *core.Scope) *fileTree {
 		root:     core.NewSignal(cx, ""),
 		nodes:    core.NewSignalFunc(cx, []fileNode(nil), nil),
 		hidden:   core.NewSignal(cx, false),
+		scope:    core.NewSignal(cx, "all"),
 		busy:     core.NewSignal(cx, false),
 		dirs:     map[string][]fileEntry{},
 		expanded: map[string]bool{},
@@ -87,6 +89,12 @@ func (t *fileTree) toggle(path string) {
 		t.expanded[path] = true
 		t.rebuild()
 	})
+}
+
+// collapse closes the visible folders without rereading the disk.
+func (t *fileTree) collapse() {
+	t.expanded = map[string]bool{}
+	t.rebuild()
 }
 
 // reload rereads every open directory.

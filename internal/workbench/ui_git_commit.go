@@ -30,7 +30,8 @@ func (a *app) gitCommitBox(cx *core.Scope) core.Node {
 	staged := func() int { return a.git.state.Get().stagedCount() }
 	changed := func() int { return len(a.git.state.Get().Files) }
 	amend := a.git.amend.Get
-	return core.View{Style: core.Style{Gap: 8}, Children: []core.Node{
+	conflicted := func() bool { return len(a.git.state.Get().conflicts()) > 0 }
+	return core.View{Style: core.Style{Gap: 8, FlexShrink: 0, Padding: core.Edges{Top: 12}, Borders: core.Edges{Top: 1}, BorderColors: core.EdgeColors{Top: colors.Line()}}, Children: []core.Node{
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinHeight: core.Pt(22)}, Children: []core.Node{
 			gitSectionTitle(colors, apptext.T("提交")),
 			// Nothing staged means nothing to commit: the count would
@@ -46,7 +47,7 @@ func (a *app) gitCommitBox(cx *core.Scope) core.Node {
 		core.Input{
 			Value: a.git.msg.Get, OnChange: a.git.msg.Set, Multiline: true,
 			Placeholder: apptext.T("提交说明（第一行是标题）"), Label: apptext.T("提交说明"), TestID: "git-commit-message",
-			Style: core.Style{MinHeight: core.Pt(52), MaxHeight: core.Pt(132), Padding: core.Symmetric(8, 9), FontSize: 12.5, Color: colors.Text()},
+			Style: core.Style{MinHeight: core.Pt(64), MaxHeight: core.Pt(112), Padding: core.Symmetric(8, 9), FontSize: 12.5, Color: colors.Text()},
 			StyleFunc: func() core.Style {
 				return core.Style{Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 8,
 					PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}
@@ -55,16 +56,19 @@ func (a *app) gitCommitBox(cx *core.Scope) core.Node {
 		core.Dynamic(func(*core.Scope) core.Node { return a.recentMessageMenu(a.cx) }),
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 			ui.Checkbox{Checked: amend, OnChange: a.git.amend.Set, Text: apptext.T("修订上次提交"), Label: apptext.T("修订上次提交"),
-				Hint: apptext.T("把这次改动并入上一次提交，不新增提交"), Style: core.Style{FlexGrow: 1}},
+				Hint: apptext.T("把这次改动并入上一次提交，不新增提交"), Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}},
 			ui.Button{Text: apptext.T("全部提交"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "git-commit-all",
 				OnPress:  func() { a.gitCommit(true, false) },
-				Disabled: func() bool { return busy() || msgEmpty() || changed() == 0 }},
+				Disabled: func() bool { return busy() || conflicted() || msgEmpty() || changed() == 0 }},
 			hint("提交并推送", a.pressIcon(lucide.CloudUpload, apptext.T("提交并推送"), 24, 12,
-				func() bool { return busy() || msgEmpty() || staged() == 0 }, a.gitCommitAndPush, "git-commit-push")),
-			ui.Button{Text: apptext.T("提交"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "git-commit",
-				OnPress:  func() { a.gitCommit(false, a.git.amend.Get()) },
-				Disabled: func() bool { return busy() || msgEmpty() || (staged() == 0 && !amend()) }},
+				func() bool { return busy() || conflicted() || msgEmpty() || staged() == 0 }, a.gitCommitAndPush, "git-commit-push")),
 		}},
+		core.Show{When: conflicted, Then: func(*core.Scope) core.Node {
+			return core.Text{Content: apptext.T("请先解决冲突再提交"), Style: core.Style{FontSize: 12}, StyleFunc: ui.Colored(colors.Danger)}
+		}},
+		ui.Button{Text: apptext.T("提交"), Variant: ui.ButtonPrimary, Size: ui.SizeDefault, TestID: "git-commit",
+			OnPress:  func() { a.gitCommit(false, a.git.amend.Get()) },
+			Disabled: func() bool { return busy() || conflicted() || msgEmpty() || (staged() == 0 && !amend()) }},
 		core.Show{When: amend, Then: func(*core.Scope) core.Node {
 			return core.Text{Content: apptext.T("这次的暂存改动会并入上一次提交，不再新增提交。"),
 				Style: core.Style{FontSize: 10.5, LineHeight: 15}, StyleFunc: ui.Colored(colors.Faint)}

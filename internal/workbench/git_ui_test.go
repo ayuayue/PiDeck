@@ -73,7 +73,7 @@ func TestGitDrawer(t *testing.T) {
 
 	app.Type("id:git-commit-message", "第一次提交")
 	app.Press("id:git-commit")
-	waitApp(app, "id:git-commit-row", 30*time.Second)
+	app.WaitUntil(30*time.Second, func() bool { return app.Find("id:git-commit-message").Text == "" })
 	app.Settle()
 	if got := app.Find("id:git-commit-message").Text; got != "" {
 		t.Fatalf("commit message = %q, want cleared", got)
@@ -82,6 +82,8 @@ func TestGitDrawer(t *testing.T) {
 	shot(app, "40-git")
 
 	// The history filter keeps only matching commits.
+	app.Press("id:git-tab-history")
+	waitApp(app, "id:git-commit-row", 30*time.Second)
 	app.Type("id:git-log-search", "第一次")
 	waitApp(app, "id:git-commit-row", 10*time.Second)
 	app.Type("id:git-log-search", "不存在")
@@ -89,6 +91,7 @@ func TestGitDrawer(t *testing.T) {
 	app.Clear("id:git-log-search")
 	waitApp(app, "id:git-commit-row", 10*time.Second)
 
+	app.Press("id:git-tab-changes")
 	// Outside changes show up on their own: one staged, one in the
 	// worktree.
 	if err := os.WriteFile(filepath.Join(dir, "note.txt"), []byte("hello git again"), 0o644); err != nil {

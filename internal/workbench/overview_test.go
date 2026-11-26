@@ -34,6 +34,10 @@ func TestOverviewCopyID(t *testing.T) {
 	app.Key("mod+j")
 	app.WaitFor("id:drawer-tab-overview", 5*time.Second)
 	app.Press("id:drawer-tab-overview")
+	if app.Exists("id:overview-copy-id") {
+		t.Fatal("session details should start collapsed")
+	}
+	app.Press("id:overview-session-toggle")
 	app.WaitFor("id:overview-copy-id", 5*time.Second)
 	app.Press("id:overview-copy-id")
 	if app.Clipboard != id {

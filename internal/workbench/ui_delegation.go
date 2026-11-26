@@ -27,14 +27,41 @@ func (a *app) delegationOverview(s *session) core.Node {
 				a.delegationSession.Set(s)
 				a.openPane(paneDelegation)
 			}))
+		// Keep work that still needs attention ahead of finished history.
+		ordered := make([]delegation, 0, len(entries))
+		for _, active := range []bool{true, false} {
+			for _, d := range entries {
+				if d.active() == active {
+					ordered = append(ordered, d)
+				}
+			}
+		}
 		var rows []core.Node
-		for _, d := range entries[:min(len(entries), composerDelegationLimit)] {
+		for _, d := range ordered[:min(len(ordered), composerDelegationLimit)] {
 			rows = append(rows, core.View{TestID: "delegate-run-" + d.CallID, Children: []core.Node{
-				a.delegationSummaryRow(cx, s, d, "delegate-open-"+d.CallID),
+				a.delegationOverviewRow(cx, s, d),
 			}})
 		}
 		return overviewSection(colors, head, core.View{Style: core.Style{Direction: core.Column, Gap: 2}, Children: rows})
 	})
+}
+
+func (a *app) delegationOverviewRow(cx *core.Scope, s *session, d delegation) core.Node {
+	colors := ui.ColorsOf(cx)
+	icon, ink := delegationTone(d.state, colors)
+	return base.Button{TestID: "delegate-open-" + d.CallID, Label: firstNonEmpty(d.Detail, d.Name) + " · " + apptext.T(d.state),
+		OnPress: func(core.PressEvent) { a.openDelegation(s, d) },
+		Style:   core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(44), Padding: core.Symmetric(8, 4), CornerRadius: 8, MinWidth: core.Pt(0)},
+		StyleFunc: func() core.Style {
+			return core.Style{Hover: &core.Style{Background: colors.Hover()}, FocusVisible: ui.FocusRing(cx, 2)}
+		},
+		Children: []core.Node{
+			ui.Icon(icon, 14, ink),
+			core.Text{Content: firstNonEmpty(d.Detail, d.Name), MaxLines: 2, EllipsizeMode: core.EllipsizeTail,
+				Style: core.Style{FontSize: 13, LineHeight: 19, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, StyleFunc: ui.Colored(colors.Text)},
+			ui.Text(apptext.T(d.state), 11, ui.Medium, ink),
+			ui.Icon(lucide.ArrowUpRight, 12, colors.Muted),
+		}}
 }
 
 // delegationPane is the whole history of the subagents and workflows a

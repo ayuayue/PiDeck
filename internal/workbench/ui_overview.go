@@ -14,6 +14,7 @@ package workbench
 
 import (
 	"fmt"
+	"path/filepath"
 	"strconv"
 
 	"example.com/pideck-v2/internal/apptext"
@@ -53,13 +54,12 @@ func (a *app) drawerOverview() core.Node {
 		return a.scrollStashFor("drawerOverview:1").Bind(cx, core.Scroll{Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 4, Bottom: 24, Right: 2, Left: 2}}, Children: []core.Node{
 				a.overviewHead(cx, s),
-				a.overviewContext(s),
 				a.overviewTodos(s),
 				a.overviewChanges(s),
 				a.delegationOverview(s),
-				a.overviewRelations(s),
-				a.overviewUsage(s),
+				a.overviewResources(s),
 				a.overviewSession(s),
+				a.overviewRelations(s),
 			}},
 		}})
 	})
@@ -68,7 +68,7 @@ func (a *app) drawerOverview() core.Node {
 // overviewSection sets a block off from the one above it with a hairline and
 // the room a block needs to read as its own.
 func overviewSection(colors ui.Colors, head core.Node, rows ...core.Node) core.Node {
-	return core.View{Style: core.Style{Gap: 8, Padding: core.Edges{Top: 16}, Borders: core.Edges{Top: 1},
+	return core.View{Style: core.Style{Gap: 12, Padding: core.Edges{Top: 16, Bottom: 16}, Borders: core.Edges{Top: 1},
 		BorderColors: core.EdgeColors{Top: colors.Line()}}, Children: append([]core.Node{head}, rows...)}
 }
 
@@ -76,7 +76,7 @@ func overviewSection(colors ui.Colors, head core.Node, rows ...core.Node) core.N
 // follow it pushed to the row's end.
 func overviewLabel(colors ui.Colors, title string, trailing ...core.Node) core.Node {
 	children := []core.Node{core.Text{Content: title, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-		Style: core.Style{FontSize: 11, FontWeight: ui.Semibold, LetterSpacing: 0.4}, StyleFunc: ui.Colored(colors.Faint)}}
+		Style: core.Style{FontSize: 13, FontWeight: ui.Semibold}, StyleFunc: ui.Colored(colors.Text)}}
 	if len(trailing) > 0 {
 		children = append(children, core.View{Style: core.Style{FlexGrow: 1}},
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, FlexShrink: 0}, Children: trailing})
@@ -90,9 +90,9 @@ func overviewLabel(colors ui.Colors, title string, trailing ...core.Node) core.N
 func overviewAction(colors ui.Colors, label, testID string, onPress func()) core.Node {
 	return core.View{OnPress: func(core.PressEvent) { onPress() }, Role: core.RoleButton, Label: label, TestID: testID,
 		StyleFunc: func() core.Style {
-			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Height: core.Pt(20), Padding: core.Symmetric(0, 6),
-				CornerRadius: 4, Transition: viewkit.PressMotion, Hover: &core.Style{Background: colors.Hover()}}
-		}, Children: []core.Node{ui.Text(label, 11, ui.Medium, colors.Muted)}}
+			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, MinHeight: core.Pt(28), Padding: core.Symmetric(4, 8),
+				CornerRadius: 6, Transition: viewkit.PressMotion, Hover: &core.Style{Background: colors.Hover()}, FocusVisible: &core.Style{Background: colors.Hover(), BorderWidth: 1, BorderColor: colors.Text()}}
+		}, Children: []core.Node{ui.Text(label, 12, ui.Medium, colors.Muted)}}
 }
 
 // overviewMeter is a thin bar of fill, from 0 to 1, in tint.
@@ -184,7 +184,7 @@ func (a *app) overviewHead(cx *core.Scope, s *session) core.Node {
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: state},
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignStart, Gap: 4}, Children: []core.Node{
 			core.Text{ContentFunc: func() string { return s.title.Get() }, MaxLines: 2, EllipsizeMode: core.EllipsizeTail,
-				Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 14.5, FontWeight: ui.Semibold, LineHeight: 20},
+				Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 17, FontWeight: ui.Semibold, LineHeight: 24},
 				StyleFunc: ui.Colored(colors.Text)},
 			hintOf(func() string { return apptext.T("重命名") }, ui.IconButton{Icon: lucide.Pencil, Label: apptext.T("重命名"),
 				Size: 24, IconSize: 12.5, Tint: colors.Faint, TestID: "overview-rename", OnPress: func() { a.askRename(s) }}),
@@ -342,9 +342,10 @@ func (a *app) overviewChanges(s *session) core.Node {
 						Padding: core.Symmetric(0, 5), Margin: core.Edges{Left: -5}, CornerRadius: 5, Hover: &core.Style{Background: colors.Hover()}}
 				},
 				Children: []core.Node{
-					core.Text{Content: change.Path, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-						Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: viewkit.MonoFont(), FontSize: 11.5},
-						StyleFunc: ui.Colored(colors.Muted)},
+					hintOf(func() string { return change.Path }, core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 2, Padding: core.Symmetric(6, 0)}, Children: []core.Node{
+						core.Text{Content: filepath.Base(change.Path), MaxLines: 1, EllipsizeMode: core.EllipsizeTail, Style: core.Style{FontSize: 13}, StyleFunc: ui.Colored(colors.Text)},
+						core.Text{Content: filepath.Dir(change.Path), MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle, Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 11}, StyleFunc: ui.Colored(colors.Muted)},
+					}}),
 				}}
 			if change.Added > 0 || change.Removed > 0 {
 				row.Children = append(row.Children,
@@ -358,7 +359,13 @@ func (a *app) overviewChanges(s *session) core.Node {
 		if more := len(files) - len(shown); more > 0 {
 			rows = append(rows, ui.Text(fmt.Sprintf(apptext.T("另有 %d 项"), more), 11, ui.Regular, colors.Faint))
 		}
-		return overviewSection(colors, overviewLabel(colors, fmt.Sprintf(apptext.T("修改 %d 个文件"), len(files)), trailing...),
+		trailing = append(trailing, overviewAction(colors, apptext.T("查看全部"), "overview-changes-all", func() {
+			a.files.scope.Set("session")
+			a.filesQuery.Set("")
+			a.setDrawerTab("files")
+		}))
+		return overviewSection(colors, overviewLabel(colors, apptext.T("本次改动"), trailing...),
+			ui.Text(fmt.Sprintf(apptext.T("修改 %d 个文件"), len(files)), 12, ui.Regular, colors.Muted),
 			core.View{Style: core.Style{Direction: core.Column, Gap: 2}, Children: rows})
 	})
 }
@@ -406,7 +413,17 @@ func (a *app) overviewRelations(s *session) core.Node {
 // id and file behind it, and the machine it answers from.
 func (a *app) overviewSession(s *session) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
+		_ = s.uiSeq.Get()
 		colors := ui.ColorsOf(cx)
+		open := s.toolOpen("overview:session", false)
+		label := apptext.T("展开")
+		if open {
+			label = apptext.T("收起")
+		}
+		head := overviewLabel(colors, apptext.T("这个会话"), overviewAction(colors, label, "overview-session-toggle", func() { s.toggleOpen("overview:session") }))
+		if !open {
+			return overviewSection(colors, head)
+		}
 		name := func(label string) core.Node {
 			return core.Text{Content: label, Style: core.Style{FontSize: 12.5, Width: core.Pt(overviewLabelWidth), FlexShrink: 0},
 				StyleFunc: ui.Colored(colors.Faint)}
@@ -477,7 +494,7 @@ func (a *app) overviewSession(s *session) core.Node {
 					}}
 			}},
 		}
-		return overviewSection(colors, overviewLabel(colors, apptext.T("这个会话")),
-			core.View{Style: core.Style{Direction: core.Column, Gap: 3}, Children: rows})
+		return overviewSection(colors, head,
+			core.View{Style: core.Style{Direction: core.Column, Gap: 8}, Children: rows})
 	})
 }

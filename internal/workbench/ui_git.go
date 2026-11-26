@@ -8,6 +8,8 @@ package workbench
 // actions back.
 
 import (
+	"fmt"
+
 	"example.com/pideck-v2/internal/apptext"
 	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
@@ -15,35 +17,40 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// drawerGit draws the repository in the right drawer. The branch bar, the
-// commit box and the scroll view are mounted once: the status timer
-// refreshes the regions inside them, so the offset, the caret in the
-// message and an open menu all stay where the user put them. The message
-// stays put while the changes scroll under it, as it does in an editor's
-// source control view.
+// drawerGit keeps navigation and commit controls outside the scrolling
+// content. Status polling updates their values without replacing the inputs.
 func (a *app) drawerGit() core.Node {
 	isRepo := func() bool { return a.git.state.Get().IsRepo }
 	return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), MinWidth: core.Pt(0), Gap: 8},
 		Children: []core.Node{
 			core.Show{When: isRepo, Then: func(cx *core.Scope) core.Node { return a.gitHeader(cx) }},
 			core.Show{When: func() bool { return a.git.err.Get() != "" }, Then: func(cx *core.Scope) core.Node { return a.gitError(cx) }},
-			core.Show{When: isRepo, Then: func(cx *core.Scope) core.Node { return a.gitCommitBox(cx) }},
-			// A hairline keeps the fixed box apart from the changes and the
-			// history, which scroll under it.
-			core.Show{When: isRepo, Then: func(cx *core.Scope) core.Node {
-				return core.View{Style: core.Style{Height: core.Pt(1)}, StyleFunc: ui.Filled(func() core.Color { return ui.ColorsOf(cx).Line() })}
+			core.Show{When: func() bool { return !isRepo() }, Then: func(cx *core.Scope) core.Node {
+				return core.Scroll{Style: ui.FillRest, Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node { return a.gitStateNote(cx) })}}
 			}},
-			core.Scroll{TestID: "git-scroll", Style: ui.FillRest, Children: []core.Node{
-				core.View{Style: core.Style{Gap: 14, Padding: core.Edges{Top: 2, Bottom: 20, Right: 2, Left: 2}}, Children: []core.Node{
-					core.Dynamic(func(cx *core.Scope) core.Node { return a.gitStateNote(cx) }),
-					core.Show{When: isRepo, Then: func(cx *core.Scope) core.Node {
-						return core.View{Style: core.Style{Gap: 14}, Children: []core.Node{
-							a.gitChanges(cx),
-							a.gitHistory(cx),
-							a.gitPathNote(cx),
-						}}
+			core.Show{When: isRepo, Then: func(cx *core.Scope) core.Node {
+				return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Gap: 12}, Children: []core.Node{
+					ui.Tabs[string]{Variant: ui.TabsSegmented, Equal: true, Size: ui.SizeSmall, Label: "Git", TestID: "git-sections",
+						Value: a.git.panel.Get, OnChange: a.git.panel.Set,
+						OptionsFunc: func() []ui.Option[string] {
+							st := a.git.state.Get()
+							return []ui.Option[string]{
+								{Value: "changes", Label: fmt.Sprintf("%s %d", apptext.T("更改"), len(st.Files)), TestID: "git-tab-changes"},
+								{Value: "history", Label: apptext.T("历史"), TestID: "git-tab-history"},
+							}
+						}},
+					core.Show{When: func() bool { return a.git.panel.Get() == "changes" }, Then: func(cx *core.Scope) core.Node {
+						return a.scrollStashFor("drawerGit:changes").Bind(cx, core.Scroll{TestID: "git-scroll", Style: ui.FillRest, Children: []core.Node{
+							core.View{Style: core.Style{Gap: 16, Padding: core.Edges{Bottom: 16}}, Children: []core.Node{a.gitChanges(cx), a.gitPathNote(cx)}},
+						}})
 					}},
-				}},
+					core.Show{When: func() bool { return a.git.panel.Get() == "history" }, Then: func(cx *core.Scope) core.Node {
+						return a.scrollStashFor("drawerGit:history").Bind(cx, core.Scroll{TestID: "git-history-scroll", Style: ui.FillRest, Children: []core.Node{
+							core.View{Style: core.Style{Gap: 16, Padding: core.Edges{Bottom: 16}}, Children: []core.Node{a.gitHistory(cx), a.gitPathNote(cx)}},
+						}})
+					}},
+					core.Show{When: func() bool { return a.git.panel.Get() == "changes" }, Then: func(cx *core.Scope) core.Node { return a.gitCommitBox(cx) }},
+				}}
 			}},
 		}}
 }
@@ -120,12 +127,12 @@ func (a *app) gitNotRepo(cx *core.Scope, st gitState) core.Node {
 // drawer's other tabs use.
 func gitSectionTitle(colors ui.Colors, title string) core.Node {
 	return core.Text{Content: title, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-		Style:     core.Style{FontSize: 11, FontWeight: ui.Semibold, LetterSpacing: 0.4},
-		StyleFunc: ui.Colored(colors.Faint)}
+		Style:     core.Style{FontSize: 13, FontWeight: ui.Semibold},
+		StyleFunc: ui.Colored(colors.Text)}
 }
 
 // gitCount is the quiet number beside a section's heading.
 func gitCount(colors ui.Colors, count func() string) core.Node {
-	return core.Text{ContentFunc: count, Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10.5},
-		StyleFunc: ui.Colored(colors.Faint)}
+	return core.Text{ContentFunc: count, Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 12},
+		StyleFunc: ui.Colored(colors.Muted)}
 }

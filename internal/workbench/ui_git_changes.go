@@ -65,6 +65,9 @@ func (a *app) gitChangesBody(cx *core.Scope) core.Node {
 	budget := a.git.filesShown.Get()
 	var staged, worktree []gitFile
 	for _, f := range st.Files {
+		if f.Conflicted {
+			continue
+		}
 		if f.staged() {
 			staged = append(staged, f)
 		}
@@ -83,8 +86,8 @@ func (a *app) gitChangesBody(cx *core.Scope) core.Node {
 	group := func(title string, files []gitFile, isStaged bool, heading bool, cap int) {
 		if heading {
 			rows = append(rows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5,
-				MinHeight: core.Pt(22), Margin: core.Edges{Top: 4}}, Children: []core.Node{
-				core.Text{Content: title, Style: core.Style{FontSize: 11.5, FontWeight: ui.Medium}, StyleFunc: ui.Colored(colors.Muted)},
+				MinHeight: core.Pt(32), Margin: core.Edges{Top: 12}, Padding: core.Symmetric(4, 8), Background: colors.Inset(), CornerRadius: 6}, Children: []core.Node{
+				core.Text{Content: title, Style: core.Style{FontSize: 12, FontWeight: ui.Semibold}, StyleFunc: ui.Colored(colors.Muted)},
 				gitCount(colors, func() string { return fmt.Sprint(len(files)) }),
 			}})
 		}
@@ -108,11 +111,11 @@ func (a *app) gitChangesBody(cx *core.Scope) core.Node {
 		// An empty group is a heading and an apology, so only the groups
 		// with files are listed: an empty index leaves the section's own
 		// heading saying 更改 over the worktree's rows.
+		if len(worktree) > 0 {
+			group(apptext.T("未暂存"), worktree, false, true, worktreeCap)
+		}
 		if len(staged) > 0 {
 			group(apptext.T("已暂存"), staged, true, true, stagedCap)
-		}
-		if len(worktree) > 0 {
-			group(apptext.T("更改"), worktree, false, len(staged) > 0, worktreeCap)
 		}
 	}
 	if hidden > 0 {
@@ -361,7 +364,7 @@ func (a *app) gitFileRow(cx *core.Scope, f gitFile, staged bool, depth int, show
 	// the flat list and truncates first when the drawer is narrow.
 	label := name
 	action := func(icon func() *core.SVG, label string, press func(), testID string) core.Node {
-		return a.pressIcon(icon, label, 21, 11.5, func() bool { return a.git.busy.Get() != "" }, press, testID)
+		return a.pressIcon(icon, label, 24, 13, func() bool { return a.git.busy.Get() != "" }, press, testID)
 	}
 	var actions []core.Node
 	switch {
@@ -390,22 +393,22 @@ func (a *app) gitFileRow(cx *core.Scope, f gitFile, staged bool, depth int, show
 		OnPress: func(core.PressEvent) { a.gitShowFileDiff(f, staged) },
 		Role:    core.RoleButton, Label: f.Path, TestID: testID,
 		StyleFunc: func() core.Style {
-			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinHeight: core.Pt(30),
-				Padding: core.Edges{Left: core.Points(4 + depth*12), Right: 2}, CornerRadius: 6, Transition: viewkit.PressMotion,
+			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinHeight: core.Pt(40),
+				Padding: core.Edges{Top: 6, Bottom: 6, Left: core.Points(4 + depth*12), Right: 4}, CornerRadius: 6, Transition: viewkit.PressMotion,
 				Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
 		},
 		Children: []core.Node{
 			core.View{Style: core.Style{Width: core.Pt(16), Height: core.Pt(16), CornerRadius: 4, AlignItems: core.AlignCenter,
 				JustifyContent: core.JustifyCenter, Background: ui.Alpha(tone, 0.13), FlexShrink: 0},
 				Children: []core.Node{ui.Text(f.mark(), 9.5, ui.Semibold, func() core.Color { return tone })}},
-			core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5},
+			core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Direction: core.Column, Gap: 4},
 				Children: []core.Node{
 					core.Text{Content: label, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-						Style: core.Style{FontSize: 12.5, FlexShrink: 1, MinWidth: core.Pt(0)}, StyleFunc: ui.Colored(colors.Text)},
+						Style: core.Style{FontSize: 13, FlexShrink: 1, MinWidth: core.Pt(0)}, StyleFunc: ui.Colored(colors.Text)},
 					core.Show{When: func() bool { return showPath && dir != "" }, Then: func(cx *core.Scope) core.Node {
 						return core.Text{Content: dir, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-							Style:     core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10, FlexShrink: 3, MinWidth: core.Pt(0)},
-							StyleFunc: ui.Colored(colors.Faint)}
+							Style:     core.Style{FontFamily: viewkit.MonoFont(), FontSize: 11, MinWidth: core.Pt(0)},
+							StyleFunc: ui.Colored(colors.Muted)}
 					}},
 				}},
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 0, FlexShrink: 0}, Children: actions},

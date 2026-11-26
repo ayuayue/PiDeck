@@ -112,6 +112,7 @@ func TestGitHistorySearchBox(t *testing.T) {
 	dir, run := gitFixture(t)
 	run("commit", "--allow-empty", "-m", "普通标题", "-m", "深层说明")
 	app := startGitApp(t, dir)
+	app.Press("id:git-tab-history")
 	waitApp(app, "id:git-commit-row", 20*time.Second)
 	app.Type("id:git-log-search", "深层说明")
 	app.Advance(searchDebounce)

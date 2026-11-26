@@ -42,6 +42,7 @@ type gitRepo struct {
 	// The drawer's own controls: how the changes are listed, which folders
 	// are folded, how many rows of each section are shown. They outlive a
 	// status read, so the panel does not jump while the user reads it.
+	panel        *core.Signal[string]
 	view         *core.Signal[string]
 	collapsed    *core.Signal[map[string]bool]
 	filesShown   *core.Signal[int]
@@ -77,6 +78,7 @@ func newGitRepo(cx *core.Scope) *gitRepo {
 		amend:        core.NewSignal(cx, false),
 		busy:         core.NewSignal(cx, ""),
 		err:          core.NewSignal(cx, ""),
+		panel:        core.NewSignal(cx, "changes"),
 		view:         core.NewSignal(cx, gitViewFlat),
 		collapsed:    core.NewSignalFunc(cx, map[string]bool(nil), nil),
 		filesShown:   core.NewSignal(cx, gitFilesShown),
@@ -150,6 +152,7 @@ func (r *gitRepo) attach(ws *workspace) bool {
 	r.err.Set("")
 	r.busy.Set("")
 	r.msg.Set("")
+	r.panel.Set("changes")
 	r.amend.Set(false)
 	r.collapsed.Set(nil)
 	r.filesShown.Set(gitFilesShown)
