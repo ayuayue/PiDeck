@@ -51,7 +51,7 @@ func (a *app) reviewDetail(cx *core.Scope) core.Node {
 					a.reviewChecks(colors, d), a.reviewFiles(colors, d), a.reviewBody(colors, d), a.reviewConversation(colors, d),
 				}}
 			}),
-			a.reviewCommentBox(colors, detail.GetUntracked().Item),
+			a.reviewCommentBox(colors),
 		}
 		return core.Scroll{TestID: "review-detail-scroll", Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Gap: 12, Padding: core.Edges{Left: 20, Right: 20, Top: 10, Bottom: 24}, MaxWidth: core.Pt(860)},
@@ -296,11 +296,7 @@ func (a *app) reviewConversation(colors ui.Colors, d *reviewDetail) core.Node {
 }
 
 // reviewCommentBox posts a comment on the open item.
-func (a *app) reviewCommentBox(colors ui.Colors, item reviewItem) core.Node {
-	note := apptext.T("写一条评论，回车换行，发出去会直接贴到 GitHub。")
-	if item.State != "OPEN" {
-		note = apptext.T("这一条已经关闭，评论仍会发到 GitHub。")
-	}
+func (a *app) reviewCommentBox(colors ui.Colors) core.Node {
 	return core.View{Style: core.Style{Gap: 6}, Children: []core.Node{
 		core.Input{Value: a.review.commentText.Get, OnChange: a.review.commentText.Set, Multiline: true,
 			Placeholder: apptext.T("写评论…"), Label: apptext.T("评论"), TestID: "review-comment",
@@ -314,7 +310,7 @@ func (a *app) reviewCommentBox(colors ui.Colors, item reviewItem) core.Node {
 				if d := a.review.state.Get().Detail; d != nil && d.Item.State != "OPEN" {
 					return apptext.T("这一条已经关闭，评论仍会发到 GitHub。")
 				}
-				return note
+				return apptext.T("写一条评论，回车换行，发出去会直接贴到 GitHub。")
 			}, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 				Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 10.5}, StyleFunc: ui.Colored(colors.Faint)},
 			ui.Button{Text: apptext.T("发表评论"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "review-comment-send",

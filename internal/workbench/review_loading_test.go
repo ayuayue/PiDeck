@@ -9,6 +9,9 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
 func TestReviewRefreshKeepsEditorMounted(t *testing.T) {
@@ -42,12 +45,16 @@ func TestReviewRefreshKeepsEditorMounted(t *testing.T) {
 	if screen.Enabled("id:review-refresh") {
 		t.Fatal("refresh can be started again while reads are in flight")
 	}
+	if !screen.Exists("text:正在读取…") {
+		t.Fatal("refreshing an existing detail has no visible loading feedback")
+	}
 	screen.Type("id:review-comment", " while reading")
 	finish()
 	screen.WaitFor("text:Detail version 2", 10*time.Second)
 	if got := screen.Find("id:review-comment"); got.ID != editor || !got.Focused || got.Text != "Draft before refresh while reading" {
 		t.Fatalf("refresh completion interrupted the editor: %+v", got)
 	}
+	screen.Screenshot("review/detail-refreshed")
 }
 
 func TestReviewFilterLeavesDetailAndClearsOldRows(t *testing.T) {
@@ -73,9 +80,38 @@ func TestReviewFilterLeavesDetailAndClearsOldRows(t *testing.T) {
 		t.Fatal("new filter still shows the old detail or rows")
 	}
 	screen.WaitFor("id:review-list-loading", time.Second)
+	if screen.Exists("text:正在读取…") {
+		t.Fatal("initial list skeleton is duplicated by the feedback row")
+	}
 	screen.Screenshot("review/loading")
+	screen.SetEnvironment(core.Environment{Dark: true})
+	screen.Resize(680, 780)
+	if field := screen.Find("id:review-search").Frame; field.Origin.X < 0 || field.Origin.X+field.Size.Width > 680 {
+		t.Fatalf("search overflows the narrow pane: %+v", field)
+	}
+	screen.Screenshot("review/loading-dark-narrow")
 	finish()
 	screen.WaitFor("text:Closed result", 10*time.Second)
+	screen.Screenshot("review/filtered-dark-narrow")
+}
+
+func TestReviewRefreshKeepsListMounted(t *testing.T) {
+	var reads atomic.Int32
+	reviewTestCLI(t, func(call reviewCLICall) reviewCLIResult {
+		if len(call.Args) > 1 && call.Args[1] == "list" {
+			return reviewCLIResult{Out: fmt.Sprintf(`[{"number":1,"title":"List version %d","state":"OPEN"}]`, reads.Add(1))}
+		}
+		return reviewTestResponse(call)
+	})
+	repo := reviewTestRepo(t, t.TempDir(), "alpha")
+	screen, _ := reviewTestScreen(t, []workspaceCfg{{Path: repo, Name: "Project"}})
+	screen.WaitFor("text:List version 1", 10*time.Second)
+	list := screen.Find("id:review-list-scroll").ID
+	screen.Press("id:review-refresh")
+	screen.WaitFor("text:List version 2", 10*time.Second)
+	if got := screen.Find("id:review-list-scroll").ID; got != list {
+		t.Fatalf("refresh replaced the list scroll: %v -> %v", list, got)
+	}
 }
 
 func TestReviewLoadMoreDoesNotQueueExtraPages(t *testing.T) {
@@ -134,5 +170,77 @@ func TestReviewPatchRetryCacheAndReturn(t *testing.T) {
 	screen.WaitFor("id:review-patch-content", time.Second)
 	if got := reads.Load(); got != 2 {
 		t.Fatalf("opening a cached patch reread it: %d reads", got)
+	}
+	screen.Key("Escape")
+	screen.WaitFor("id:review-comment", time.Second)
+	screen.Key("Escape")
+	screen.WaitFor("id:review-row-pr#1", time.Second)
+}
+
+func TestReviewRetryShowsLoading(t *testing.T) {
+	var reads atomic.Int32
+	release := make(chan struct{})
+	finish := sync.OnceFunc(func() { close(release) })
+	reviewTestCLI(t, func(call reviewCLICall) reviewCLIResult {
+		if len(call.Args) > 1 && call.Args[1] == "list" {
+			if reads.Add(1) == 1 {
+				return reviewCLIResult{Err: "fixture list unavailable", Code: 1}
+			}
+			<-release
+		}
+		return reviewTestResponse(call)
+	})
+	defer finish()
+	repo := reviewTestRepo(t, t.TempDir(), "alpha")
+	screen, _ := reviewTestScreen(t, []workspaceCfg{{Path: repo, Name: "Project"}})
+	screen.WaitFor("text:fixture list unavailable", 10*time.Second)
+	screen.Press("text:重试")
+	screen.WaitFor("id:review-list-loading", time.Second)
+	if screen.Exists("text:fixture list unavailable") {
+		t.Fatal("retry still shows the previous failure instead of loading")
+	}
+	finish()
+	screen.WaitFor("id:review-row-pr#1", 10*time.Second)
+}
+
+func TestReviewTransitionRespectsReducedMotion(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		app, os, live bool
+	}{
+		{name: "animated"}, {name: "app preference", app: true},
+		{name: "system preference", os: true}, {name: "enabled while animating", live: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var reduced *core.Signal[bool]
+			screen := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+				reduced = core.NewSignal(cx, tc.app)
+				a := &app{reduceEffects: reduced}
+				return a.reviewTransition(cx, core.View{Style: core.Style{Height: core.Pt(100)}}, true)
+			}, nsgotest.ManualFrames(), nsgotest.Environment(core.Environment{ReduceMotion: tc.os}))
+			atRest := func() {
+				t.Helper()
+				got := screen.Find("id:review-page-content").Animated
+				if got.Opacity != 1 || got.TranslateX != 0 {
+					t.Fatalf("page did not land at rest: %+v", got)
+				}
+			}
+			if tc.app || tc.os {
+				atRest()
+			} else if nsgotest.Target() == "" {
+				// The model's manual clock can inspect the initial frame;
+				// a native host may already have presented subsequent frames.
+				if got := screen.Find("id:review-page-content").Animated; got.Opacity <= 0 || got.Opacity >= 1 || got.TranslateX <= 0 {
+					t.Fatalf("navigation has no visible entrance: %+v", got)
+				}
+			}
+			if tc.live {
+				screen.Post(func() { reduced.Set(true) })
+				screen.Settle()
+				atRest()
+			}
+			screen.Advance(200 * time.Millisecond)
+			atRest()
+		})
 	}
 }

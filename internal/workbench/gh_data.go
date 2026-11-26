@@ -316,6 +316,7 @@ func (r *review) refresh() {
 	if s.Loading || s.DetailBusy || r.discovering {
 		return
 	}
+	r.state.Update(func(st reviewState) reviewState { st.DetailError = ""; return st })
 	r.reload()
 	r.reopenItem()
 }

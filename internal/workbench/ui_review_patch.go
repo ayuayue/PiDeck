@@ -17,6 +17,7 @@ import (
 func (a *app) reviewPatchPane() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = a.langRev.Get()
+		cx.OnBackPress(func() bool { a.openPane(paneReview); return true })
 		colors := ui.ColorsOf(cx)
 		title := core.NewMemo(cx, func() string {
 			if d := a.review.state.Get().Detail; d != nil {
@@ -26,10 +27,11 @@ func (a *app) reviewPatchPane() core.Node {
 		})
 		busy := func() bool { return a.review.state.Get().PatchBusy }
 		patch := core.NewMemo(cx, func() string { return a.review.state.Get().Patch })
+		empty := core.NewMemo(cx, func() bool { return patch.Get() == "" })
 		loaded := core.NewMemo(cx, func() bool { return a.review.state.Get().PatchLoaded })
 		body := core.Dynamic(func(cx *core.Scope) core.Node {
 			if loaded.Get() {
-				if patch.Get() == "" {
+				if empty.Get() {
 					return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter}, Children: []core.Node{
 						ui.Text(apptext.T("没有可显示的差异"), 12, ui.Regular, colors.Muted),
 					}}
@@ -54,7 +56,7 @@ func (a *app) reviewPatchPane() core.Node {
 			core.Dynamic(func(*core.Scope) core.Node {
 				return a.paneHeader(title.Get(), apptext.T("拉取请求的完整改动"),
 					ui.Button{Text: apptext.T("刷新"), Icon: lucide.RefreshCw, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
-						Busy: busy, TestID: "review-patch-refresh", OnPress: a.review.loadPatch},
+						Busy: busy, Disabled: busy, TestID: "review-patch-refresh", OnPress: a.review.loadPatch},
 					ui.Button{Text: apptext.T("复制补丁"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "review-patch-copy",
 						Disabled: func() bool {
 							s := a.review.state.Get()
@@ -69,9 +71,9 @@ func (a *app) reviewPatchPane() core.Node {
 				)
 			}),
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(36)}, Children: []core.Node{
-				ui.Button{Text: apptext.T("返回"), Icon: lucide.ChevronLeft, Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "review-patch-back",
+				ui.Button{Text: apptext.T("评审"), Icon: lucide.ChevronLeft, Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "review-patch-back",
 					OnPress: func() { a.openPane(paneReview) }},
-				core.Show{When: busy, Then: func(*core.Scope) core.Node {
+				core.Show{When: func() bool { s := a.review.state.Get(); return s.PatchBusy && s.PatchLoaded }, Then: func(*core.Scope) core.Node {
 					return ui.Text(apptext.T("正在读取补丁…"), 11, ui.Regular, colors.Muted)
 				}},
 				core.Show{When: func() bool { s := a.review.state.Get(); return s.PatchLoaded && s.PatchError != "" }, Then: func(*core.Scope) core.Node {

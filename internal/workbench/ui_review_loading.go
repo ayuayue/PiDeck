@@ -24,6 +24,7 @@ func (a *app) reviewContent(cx *core.Scope) core.Node {
 		p := current.Get()
 		var body core.Node
 		if p.open != "" {
+			cx.OnBackPress(func() bool { a.review.closeItem(); return true })
 			body = a.reviewDetail(cx)
 		} else {
 			// Busy flags and detail responses do not recreate the list's scroll.
@@ -35,7 +36,7 @@ func (a *app) reviewContent(cx *core.Scope) core.Node {
 				}
 				return st
 			}, func(a, b reviewState) bool { return reflect.DeepEqual(a, b) })
-			body = core.Dynamic(func(cx *core.Scope) core.Node { return a.reviewList(cx, list.Get()) })
+			body = a.reviewList(cx, list.Get)
 		}
 		return a.reviewTransition(cx, body, p.open != "")
 	})
@@ -80,14 +81,14 @@ func (a *app) reviewFeedback(cx *core.Scope) core.Node {
 			busy := s.Loading || s.DetailBusy || s.Writing
 			switch {
 			case s.Writing:
-				text = reviewActionLabel(s.WriteAction)
+				text, tint = reviewActionLabel(s.WriteAction), colors.Muted
 			case s.DetailError != "" && s.Detail != nil:
 				text, icon, tint = s.DetailError, lucide.TriangleAlert, colors.Danger
-				retry = a.review.reopenItem
+				retry = a.review.refresh
 			case s.Open == "" && len(s.Items) > 0 && s.Error != "":
 				text, icon, tint = s.Error, lucide.TriangleAlert, colors.Danger
 				retry = a.review.reload
-			case s.Loading || s.DetailBusy:
+			case (s.Loading || s.DetailBusy) && ((s.Open != "" && s.Detail != nil) || (s.Open == "" && len(s.Items) > 0)):
 				text, tint = apptext.T("正在读取…"), colors.Muted
 			case s.Open != "" && s.WriteOK != "":
 				text = reviewSuccessLabel(s.WriteOK)
