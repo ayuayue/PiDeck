@@ -668,6 +668,8 @@ GOFLAGS=-tags=webassets go tool nsgo build -target windows_x64
 - `sync-atomgit.yml`：把 main、`v*` 标签和 Release 正文与附件同步到 AtomGit 的
   `ayuayue/PiDeck-V2`（国内可达的镜像，应用的公告也先读它）。发版时先等附件清单稳定再传，
   按「名字 + 大小」去重，同版本号重建产物后用 `force_resync` 重跑；令牌是仓库 Secret `ATOMGIT_TOKEN`
+- 不带 `-target` 的 `go tool nsgo build` 只编 `nsgo.yaml` 里 `build.targets` 列出的目标，本机只留了
+  `windows_x64`：跨平台编译是构建里最贵的一段，多一个平台就多一轮；要编别的平台就显式给 `-target`
 - 本机一次构建六个发布目标：`go run ./scripts build all`（不含安装器；正式包仍由 CI 出）
 - `.github/dependabot.yml`：每周检查 Go 依赖、每月检查 Actions 版本，开 PR 由 CI 验证
 

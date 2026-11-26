@@ -61,4 +61,9 @@ build:
   output: dist
   # true opens the output directory after building.
   open: false
-  targets: [macos_arm64, windows_x64, ios_simulator, android_arm64, web]
+  # 不带 -target 的 `go tool nsgo build` 只编这一台的目标：日常构建是 Windows 桌面
+  # 宿主的事，多编一个平台就要多一轮跨平台编译（darwin/arm64 约 1 分钟、linux_x64
+  # 约 1.7 分钟），而 macOS 与 iOS 在这台机器上本来也打不完包。
+  # 六个发布目标各自由 CI 作业用 -target 指定（.github/workflows/），不依赖这里；
+  # 本机要一次编六个：go run ./scripts build all。
+  targets: [windows_x64]
