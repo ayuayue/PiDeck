@@ -8,6 +8,7 @@ import (
 	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
@@ -82,10 +83,11 @@ func (a *app) turnReplyShortcuts(s *session, t func() turn) core.Node {
 		if len(texts) == 0 {
 			return nil
 		}
-		return core.View{TestID: "reply-action-strip", Label: apptext.T("回复快捷操作"), Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: a.composerFont() / 4}, Children: []core.Node{
+		return core.Group{
+			a.menuSeparator(cx),
 			core.Each(func() []string { return texts }, func(text string) string { return text }, func(cx *core.Scope, text func() string, _ func() int) core.Node {
-				return ui.Button{Text: text(), TestID: "reply-action-" + text(), Size: ui.SizeSmall, Variant: ui.ButtonSecondary,
-					Disabled: func() bool { s.status.Get(); return !a.shortcutSendAllowed(s) }, OnPress: func() {
+				return ui.MenuItem{Text: text(), Icon: lucide.MessageSquare, TestID: "reply-action-" + text(),
+					Disabled: func() bool { s.status.Get(); return !a.shortcutSendAllowed(s) }, OnSelect: func() {
 						// A queued native click may belong to an older reply.
 						latest := s.turns.GetUntracked()
 						if len(latest) == 0 || latest[len(latest)-1].ID != t().ID || latest[len(latest)-1].running() {
@@ -94,7 +96,7 @@ func (a *app) turnReplyShortcuts(s *session, t func() turn) core.Node {
 						a.sendShortcut(s, text())
 					}}
 			}),
-		}}
+		}
 	})
 }
 

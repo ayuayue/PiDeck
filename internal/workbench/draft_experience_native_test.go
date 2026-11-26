@@ -36,7 +36,7 @@ func TestNativeDraftExperienceScreens(t *testing.T) {
 		return a.view()
 	}, nsgotest.Size(1280, 860))
 	t.Cleanup(a.closeDiag)
-	screen.WaitFor("id:turn-edit-prompt", 10*time.Second)
+	screen.WaitFor("id:prompt-edit", 10*time.Second)
 	onNativeUI(t, screen, a, func() {
 		s.draft.Set("继续检查输入和消息修改的体验。")
 		a.offerDraftChange(s, "", "请补充一份可复现的首版验收清单，覆盖输入、修改、翻译与保存失败的反馈。")

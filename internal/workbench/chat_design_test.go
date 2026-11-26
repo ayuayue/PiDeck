@@ -72,7 +72,7 @@ func TestChatDesignCustomFontWins(t *testing.T) {
 
 func TestChatDesignEditPromptPreservesDraft(t *testing.T) {
 	_, screen, sess := chatDesignFixture(t, 0)
-	screen.Press("id:turn-edit-prompt")
+	screen.Press("id:prompt-edit")
 	screen.WaitUntil(5*time.Second, func() bool {
 		return screen.Find("id:composer").Text == "检查字体、间距与按钮的光学对齐。"
 	})

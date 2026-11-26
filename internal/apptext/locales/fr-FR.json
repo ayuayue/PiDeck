@@ -117,6 +117,7 @@
   "需要 Node.js：找不到 npx": "Node.js est requis : npx est introuvable",
   "未安装 · %s": "Non installé · %s",
   "未安装 · 按官网说明安装": "Non installé · voir la documentation",
+  "分享": "Partager",
   "分享副本": "Copie à partager",
   "原始内容": "Contenu original",
   "导出内容": "Contenu à exporter",

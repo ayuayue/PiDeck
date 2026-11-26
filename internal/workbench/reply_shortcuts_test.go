@@ -250,8 +250,10 @@ func TestReplyShortcutsNativeLayout(t *testing.T) {
 		t.Skip("native screenshot regression")
 	}
 	a, screen, s := startNativeSurfaceApp(t)
+	screen.RightClick("id:chat-reply")
 	screen.WaitFor("id:reply-action-继续", 5*time.Second)
 	screen.Screenshot("reply-shortcuts/reply")
+	screen.Key("escape")
 	screen.Press("id:composer-quick-messages")
 	screen.WaitFor("id:quick-send-继续", 5*time.Second)
 	screen.Screenshot("reply-shortcuts/picker")

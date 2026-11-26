@@ -30,6 +30,7 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 		// The clock is read inside the labels that show an elapsed time,
 		// never here: rebuilding the turn every second would reset the
 		// disclosures inside it.
+		var reply core.Ref
 		now := func() time.Time { return a.clock.Get() }
 		foldKey := s.ID + "/fold/" + t().ID
 		auto := func() bool { return t().running() }
@@ -57,14 +58,13 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 					return a.turnWorkingRow(cx, t, now)
 				}},
 				core.Show{When: func() bool { tt := t(); return !tt.running() && tt.Final != "" }, Then: func(cx *core.Scope) core.Node {
-					return a.replyContent(s, t, a.chatMarkdownLive(func() string { return t().Final }, func() bool { return false }, core.Style{}))
+					return a.replyContent(s, t, &reply, a.chatMarkdownLive(func() string { return t().Final }, func() bool { return false }, core.Style{}))
 				}},
 				a.turnFooter(s, t, now),
-				a.turnReplyShortcuts(s, t),
-				core.Show{When: func() bool { tt := t(); return !tt.running() && (tt.Final != "" || tt.Err != "") },
+				core.Show{When: func() bool { tt := t(); return !tt.running() && tt.Final != "" },
 					Then: func(cx *core.Scope) core.Node {
-						return core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4},
-							Children: []core.Node{a.turnActions(s, t, now)}}
+						return core.View{TestID: "reply-actions", Style: core.Style{Direction: core.Row, Wrap: core.Wrap, AlignItems: core.AlignCenter, Gap: 4},
+							Children: []core.Node{a.turnActions(s, t, &reply, now)}}
 					}},
 			}},
 		}}
@@ -224,9 +224,9 @@ func recoveredAfter(turns []turn, id string) bool {
 }
 
 // replyContent offers the actions for this answer at the text itself.
-func (a *app) replyContent(s *session, t func() turn, content core.Node) core.Node {
+func (a *app) replyContent(s *session, t func() turn, reply *core.Ref, content core.Node) core.Node {
 	return base.ContextMenu{
-		Trigger: core.View{TestID: "chat-reply", Style: core.Style{MinWidth: core.Pt(0)}, Children: []core.Node{content}},
+		Trigger: core.View{Ref: reply, TestID: "chat-reply", Style: core.Style{MinWidth: core.Pt(0)}, Children: []core.Node{content}},
 		TestID:  "chat-reply-menu", PopupStyleFunc: func() core.Style { return a.menuCard(a.cx) },
 		PopupStyle: a.menuPopup(a.cx),
 		Children: []core.Node{
@@ -234,60 +234,47 @@ func (a *app) replyContent(s *session, t func() turn, content core.Node) core.No
 			a.menuRow(a.cx, lucide.Languages, "翻译回复", "", false, func() { a.openTranslationWith(t().Final) }),
 			a.menuRow(a.cx, lucide.Star, "收藏这条回复", "", false, func() { a.favoriteReply(s, t()) }),
 			a.menuRow(a.cx, lucide.Activity, "查看轨迹", "", false, func() { a.openTrajectory(s, t()) }),
+			a.turnReplyShortcuts(s, t),
+			core.Show{When: func() bool { return t().Plan }, Then: func(*core.Scope) core.Node {
+				return core.Group{
+					a.menuSeparator(a.cx),
+					ui.MenuItem{Text: apptext.T("执行计划"), Icon: lucide.Play,
+						Disabled: func() bool { return t().running() || t().Final == "" },
+						OnSelect: func() { a.executePlan(s, t()) }},
+					ui.MenuItem{Text: apptext.T("逐步执行"), Icon: lucide.ListChecks,
+						Disabled: func() bool { return t().running() || len(planSteps(t().Final)) < 2 },
+						OnSelect: func() { a.executePlanSteps(s, t()) }},
+					ui.MenuItem{Text: apptext.T("修改计划"), Icon: lucide.PencilLine,
+						Disabled: func() bool { return t().Final == "" },
+						OnSelect: func() { a.editPlan(s, t()) }},
+				}
+			}},
 		},
 	}
 }
 
-// turnActions is the row under a finished answer: what the turn can do
-// again, and the fresh actions of a plan.
-func (a *app) turnActions(s *session, t func() turn, now func() time.Time) core.Node {
-	tt := t()
-	var planActions []core.Node
-	if tt.Plan {
-		planActions = append(planActions,
-			chat.IconAction{Label: apptext.T("执行计划"), Icon: lucide.Play,
-				Disabled: func() bool { return t().running() || t().Final == "" },
-				OnPress:  func() { a.executePlan(s, tt) }},
-			chat.IconAction{Label: apptext.T("逐步执行"), Icon: lucide.ListChecks,
-				Disabled: func() bool { return t().running() || len(planSteps(t().Final)) < 2 },
-				OnPress:  func() { a.executePlanSteps(s, tt) }},
-			chat.IconAction{Label: apptext.T("修改计划"), Icon: lucide.PencilLine,
-				Disabled: func() bool { return t().Final == "" },
-				OnPress:  func() { a.editPlan(s, tt) }},
-		)
-	}
-	actions := append(planActions, []core.Node{
-		chat.IconAction{Label: apptext.T("复制回复"), Icon: lucide.Copy, TestID: "turn-copy", OnPress: func() {
-			text := tt.Final
-			if text == "" {
-				for i := len(tt.Steps) - 1; i >= 0; i-- {
-					if tt.Steps[i].Text != "" {
-						text = tt.Steps[i].Text
-						break
-					}
-				}
-			}
-			a.copyText(text, "回复")
+// turnActions keeps finished replies to copying and sharing. The copy
+// button uses Markdown by default; its adjacent menu offers image capture.
+func (a *app) turnActions(s *session, t func() turn, reply *core.Ref, now func() time.Time) core.Node {
+	copyMarkdown := func() { a.copyText(t().Final, "回复") }
+	return core.Group{
+		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter}, Children: []core.Node{
+			chat.IconAction{Label: apptext.T("复制回复"), Icon: lucide.Copy, TestID: "turn-copy", OnPress: copyMarkdown},
+			ui.Menu{Label: apptext.T("复制回复"), TestID: "turn-copy-menu", Placement: core.PlaceBottom,
+				Trigger: ui.Button{Icon: lucide.ChevronDown, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+					Style: core.Style{Width: core.Pt(22), Height: core.Pt(26)}},
+				Children: []core.Node{
+					ui.MenuItem{Text: apptext.T("复制 Markdown"), Icon: lucide.FileText, TestID: "turn-copy-markdown", OnSelect: copyMarkdown},
+					ui.MenuItem{Text: apptext.T("复制图片"), Icon: lucide.Image, TestID: "turn-copy-image",
+						OnSelect: func() { a.cx.Post(func() { a.copyReplyImage(reply) }) }},
+				}},
 		}},
-		chat.IconAction{Label: apptext.T("修改提问"), Icon: lucide.SquarePen, TestID: "turn-edit-prompt",
-			Disabled: func() bool { return t().running() || t().Prompt == "" }, OnPress: func() { a.editTurnPrompt(s, t()) }},
-		chat.IconAction{Label: apptext.T("删除这一轮"), Icon: lucide.Trash, TestID: "turn-delete",
-			Disabled: func() bool { return !canDeleteTurn(s, t()) }, OnPress: func() { a.askDeleteTurn(s, t()) }},
-		chat.IconAction{Label: apptext.T("收藏这条回复"), Icon: lucide.Star, TestID: "turn-favorite",
-			OnPress: func() { a.favoriteReply(s, t()) }},
-		chat.IconAction{Label: apptext.T("重新生成"), Icon: lucide.RotateCcw, TestID: "turn-retry",
-			Disabled: func() bool { tt := t(); return tt.running() || (tt.Prompt == "" && len(tt.Images) == 0) },
-			OnPress:  func() { a.retry(s, t()) }},
-		chat.IconAction{Label: apptext.T("从这里分叉"), Icon: lucide.GitBranch, TestID: "turn-fork",
-			Disabled: func() bool { return !canBranchTurn(s, t()) }, OnPress: func() { a.forkSession(s, t().ID) }},
-	}...)
-	// The reply's own line closes the row: how long it took and which model
-	// answered.
-	return core.Group(append(actions, a.turnMeta(t, now)))
+		chat.IconAction{Label: apptext.T("分享"), Icon: lucide.Share2, TestID: "turn-share", OnPress: func() { a.shareReply(s, t()) }},
+		a.turnMeta(t, now),
+	}
 }
 
-// promptActions sits under a sent prompt: copying it, editing it, deleting
-// its turn, or forking from it.
+// promptActions is the complete action set for a sent user message.
 func (a *app) promptActions(s *session, t func() turn) core.Node {
 	return core.Show{
 		When: func() bool { tt := t(); return !tt.running() && (tt.Prompt != "" || len(tt.Images) > 0) },
@@ -295,12 +282,14 @@ func (a *app) promptActions(s *session, t func() turn) core.Node {
 			return core.View{TestID: "prompt-actions",
 				Style: core.Style{Direction: core.Row, JustifyContent: core.JustifyEnd, Gap: 2, Padding: core.Edges{Right: 2}},
 				Children: []core.Node{
-					chat.IconAction{Label: apptext.T("复制提问"), Icon: lucide.Quote, TestID: "prompt-copy",
+					chat.IconAction{Label: apptext.T("复制提问"), Icon: lucide.Copy, TestID: "prompt-copy",
 						OnPress: func() { a.copyText(t().Prompt, "提问") }},
 					chat.IconAction{Label: apptext.T("修改提问"), Icon: lucide.SquarePen, TestID: "prompt-edit",
 						Disabled: func() bool { return t().Prompt == "" }, OnPress: func() { a.editTurnPrompt(s, t()) }},
 					chat.IconAction{Label: apptext.T("删除这一轮"), Icon: lucide.Trash, TestID: "prompt-delete",
 						Disabled: func() bool { return !canDeleteTurn(s, t()) }, OnPress: func() { a.askDeleteTurn(s, t()) }},
+					chat.IconAction{Label: apptext.T("把提问放回输入框"), Icon: lucide.CornerDownLeft, TestID: "prompt-restore",
+						Disabled: func() bool { return t().Prompt == "" }, OnPress: func() { a.restoreTurnDraft(s, t()) }},
 					chat.IconAction{Label: apptext.T("从这里分叉"), Icon: lucide.GitBranch, TestID: "prompt-fork",
 						Disabled: func() bool { return !canBranchTurn(s, t()) }, OnPress: func() { a.forkSession(s, t().ID) }},
 				}}
