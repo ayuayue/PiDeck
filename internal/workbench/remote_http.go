@@ -110,6 +110,15 @@ func (h *remoteHost) handleSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rest := strings.TrimPrefix(r.URL.Path, "/api/session/")
+	if strings.HasSuffix(rest, "/commands") {
+		id, err := url.PathUnescape(strings.TrimSuffix(rest, "/commands"))
+		if err != nil || id == "" {
+			writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": "缺少会话 ID"})
+			return
+		}
+		h.sessionCommands(w, r, id)
+		return
+	}
 	if strings.HasSuffix(rest, "/options") {
 		id, err := url.PathUnescape(strings.TrimSuffix(rest, "/options"))
 		if err != nil || id == "" {

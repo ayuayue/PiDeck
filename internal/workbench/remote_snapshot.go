@@ -50,9 +50,13 @@ func (a *app) remoteSnapshot() (remotewire.Snapshot, error) {
 	host, _ := os.Hostname()
 	out.Name, out.Version, out.Host = "PiDeck V2", appinfo.Version, host
 	ok := a.withUI(func() {
+		sessionsByTarget := map[string][]*session{}
+		var projectTargets []string
 		for _, ws := range a.workspaces.GetUntracked() {
 			a.scanProject(ws)
 			pinned, rest := a.projectSessions(ws)
+			sessionsByTarget[ws.Target.key()] = append(sessionsByTarget[ws.Target.key()], append(pinned, rest...)...)
+			projectTargets = append(projectTargets, ws.Target.key())
 			project := remotewire.Project{Path: projectWireKey(ws), Name: ws.label()}
 			if ws.Target.remote() {
 				project.Target, project.Root = ws.Target.shortLabel(), ws.Path
@@ -72,6 +76,16 @@ func (a *app) remoteSnapshot() (remotewire.Snapshot, error) {
 				})
 			}
 			out.Projects = append(out.Projects, project)
+		}
+		parentsByTarget := map[string]map[string]string{}
+		for key, sessions := range sessionsByTarget {
+			parentsByTarget[key] = sessionParents(sessions, a.organization.GetUntracked().Links, a.cfg.ForkParents)
+		}
+		for i := range out.Projects {
+			for j := range out.Projects[i].Sessions {
+				s := &out.Projects[i].Sessions[j]
+				s.ParentID = parentsByTarget[projectTargets[i]][s.ID]
+			}
 		}
 	})
 	if !ok {
@@ -117,6 +131,8 @@ func (a *app) remoteTranscript(id string, before int) (remotewire.Transcript, er
 	var turns []turn
 	var found, loaded, running bool
 	var live, liveThinking string
+	var liveTools []toolRun
+	var activity remotewire.SessionActivity
 	var ask *remotewire.Ask
 	ok := a.withUI(func() {
 		s := a.byID[id]
@@ -127,6 +143,8 @@ func (a *app) remoteTranscript(id string, before int) (remotewire.Transcript, er
 		t = s.Target
 		running = s.busyNow()
 		ask = remoteAskOf(s)
+		activity = a.remoteSessionActivity(s)
+		liveTools = append([]toolRun(nil), s.liveTools.GetUntracked()...)
 		live, liveThinking = s.streamText.GetUntracked(), s.streamThinking.GetUntracked()
 		if loaded {
 			turns = cloneTranscriptTurns(s.turns.GetUntracked())
@@ -138,7 +156,7 @@ func (a *app) remoteTranscript(id string, before int) (remotewire.Transcript, er
 	if !found {
 		return out, errors.New("找不到这个会话")
 	}
-	out.ID, out.Title, out.Ask = id, title, ask
+	out.ID, out.Title, out.Ask, out.Activity = id, title, ask, &activity
 	if !loaded {
 		if file == "" {
 			// A session that never ran has no file yet; that is empty, not
@@ -160,6 +178,7 @@ func (a *app) remoteTranscript(id string, before int) (remotewire.Transcript, er
 		}
 		turns = history
 	}
+	activity.Delegations = remoteDelegations(turns, liveTools)
 	out.Messages, out.Before, out.Truncated = remoteMessages(turns, before)
 	out.Running = running
 	// The live buffers are what pi is saying right now; the turns only

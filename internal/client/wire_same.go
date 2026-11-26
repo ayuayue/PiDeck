@@ -61,7 +61,7 @@ func sameSnapshot(a, b remotewire.Snapshot) bool {
 		}
 		for j, s := range p.Sessions {
 			t := q.Sessions[j]
-			if s.ID != t.ID || s.Title != t.Title || s.Status != t.Status || s.Updated != t.Updated ||
+			if s.ID != t.ID || s.ParentID != t.ParentID || s.Title != t.Title || s.Status != t.Status || s.Updated != t.Updated ||
 				s.External != t.External || s.Pinned != t.Pinned || s.Running != t.Running ||
 				s.Mode != t.Mode || s.Tokens != t.Tokens || s.Context != t.Context ||
 				s.ContextWindow != t.ContextWindow || s.Cost != t.Cost || !sameAsk(s.Ask, t.Ask) {

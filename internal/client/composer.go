@@ -43,9 +43,12 @@ type composerSource struct {
 func (a *mobileApp) composer(cx *core.Scope) core.Node {
 	return core.View{Style: core.Style{Padding: core.Edges{Top: 4, Right: 10, Bottom: 6, Left: 10},
 		PaddingEnv: core.EnvEdges{Bottom: core.EnvKeyboard}}, Children: []core.Node{
+		a.sessionActivityBar(cx),
+		a.sessionActivitySheet(cx),
 		a.draftChangeBar(),
+		a.commandSuggestions(cx),
 		a.composerCard(cx, composerSource{
-			draft: a.draft.Get, setDraft: a.draft.Set,
+			draft: a.draft.Get, setDraft: a.commandDraftChanged,
 			pending: a.pending.Get,
 			drop: func(index int) {
 				a.pending.Update(func(list []remotewire.Image) []remotewire.Image { return withoutImage(list, index) })
@@ -284,7 +287,7 @@ func (a *mobileApp) sendMessage() {
 	case a.sending.GetUntracked():
 		a.flash(apptext.T("上一条还在发送"))
 		return
-	case a.mode.GetUntracked() == modeImage && text != "":
+	case a.mode.GetUntracked() == modeImage && text != "" && !strings.HasPrefix(text, "/"):
 		// Image mode draws the words instead of prompting pi; the picture
 		// arrives in the composer, ready to send.
 		a.drawImage()
@@ -305,6 +308,9 @@ func (a *mobileApp) sendMessage() {
 				a.pending.Set(images)
 				a.sendErr.Set(remoteErrorText(err))
 				return
+			}
+			if strings.HasPrefix(text, "/") {
+				a.features.commandSession = ""
 			}
 			a.refreshTranscript()
 		})

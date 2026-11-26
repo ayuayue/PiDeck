@@ -224,3 +224,39 @@ func sessionVisible(sessions []*session, parents map[string]string, match func(*
 	}
 	return visible
 }
+
+// sessionRelations is the same parent resolution used by the rail, scoped
+// to the target that owns the conversation. Read the lists reactively so a
+// newly discovered child or a changed user link updates the composer too.
+func (a *app) sessionRelations(s *session) (*session, []*session) {
+	if s == nil {
+		return nil, nil
+	}
+	list := []*session{s}
+	seen := map[string]bool{s.ID: true}
+	for _, ws := range a.workspaces.Get() {
+		if ws.Target.key() != s.Target.key() {
+			continue
+		}
+		for _, sessions := range [][]*session{ws.Sessions.Get(), ws.Pi.Get()} {
+			for _, candidate := range sessions {
+				if candidate != nil && !candidate.deleting && !seen[candidate.ID] {
+					seen[candidate.ID] = true
+					list = append(list, candidate)
+				}
+			}
+		}
+	}
+	parents := sessionParents(list, a.organization.Get().Links, a.cfg.ForkParents)
+	var parent *session
+	var children []*session
+	for _, candidate := range list {
+		if candidate.ID == parents[s.ID] {
+			parent = candidate
+		}
+		if parents[candidate.ID] == s.ID {
+			children = append(children, candidate)
+		}
+	}
+	return parent, children
+}

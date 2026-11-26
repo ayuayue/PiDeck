@@ -20,13 +20,14 @@ import (
 
 // Exercise the phone's real prompt handler without starting pi, watchers or
 // the app's startup probes. The pipe records and answers its JSONL calls.
-func remoteCommandFixture(t *testing.T) (*app, *session, *nsgotest.App, <-chan map[string]any) {
+func remoteCommandFixture(t *testing.T, replies ...func(map[string]any) map[string]any) (*app, *session, *nsgotest.App, <-chan map[string]any) {
 	t.Helper()
 	var a *app
 	var s *session
 	screen := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		a = &app{cx: cx, byID: map[string]*session{},
-			workspaces: core.NewSignalFunc(cx, []*workspace(nil), nil), toaster: ui.NewToaster(cx)}
+			workspaces: core.NewSignalFunc(cx, []*workspace(nil), nil), toaster: ui.NewToaster(cx),
+			organization: core.NewSignalFunc(cx, sessionOrganization{}, nil)}
 		s = a.blankSession("phone-command", &workspace{}, "Phone command")
 		return core.View{}
 	})
@@ -44,8 +45,14 @@ func remoteCommandFixture(t *testing.T) (*app, *session, *nsgotest.App, <-chan m
 				return
 			}
 			commands <- command
-			reply, _ := json.Marshal(map[string]any{"type": "response", "id": command["id"], "success": true,
-				"data": map[string]any{"disposition": "handled", "tokensBefore": 1200, "estimatedTokensAfter": 200}})
+			body := map[string]any{"type": "response", "id": command["id"], "success": true,
+				"data": map[string]any{"disposition": "handled", "tokensBefore": 1200, "estimatedTokensAfter": 200}}
+			if len(replies) > 0 {
+				for key, value := range replies[0](command) {
+					body[key] = value
+				}
+			}
+			reply, _ := json.Marshal(body)
 			c.dispatch(reply)
 		}
 	}()
@@ -213,7 +220,7 @@ func TestRemoteBusyCommandDelivery(t *testing.T) {
 		queued                    bool
 	}{
 		{name: "ACP native command", backend: "acp", mode: deliverySteer, text: "/compact", queued: true},
-		{name: "pi follow-up", backend: "pi", mode: deliveryFollowUp, text: "/extension arg", queued: true},
+		{name: "pi follow-up", backend: "pi", mode: deliveryFollowUp, text: "/extension arg"},
 		{name: "pi steering", backend: "pi", text: "/extension arg"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -250,8 +257,12 @@ func TestRemoteBusyCommandDelivery(t *testing.T) {
 					return false
 				}
 			})
-			if command["type"] != "steer" || command["message"] != tc.text {
-				t.Fatalf("steering command = %v", command)
+			wantDelivery := tc.mode
+			if wantDelivery == "" {
+				wantDelivery = deliverySteer
+			}
+			if command["type"] != "prompt" || command["message"] != tc.text || command["streamingBehavior"] != wantDelivery {
+				t.Fatalf("slash command must use prompt with %s delivery: %v", wantDelivery, command)
 			}
 			if len(s.sending.GetUntracked()) != 0 {
 				t.Fatal("steering command was also queued")

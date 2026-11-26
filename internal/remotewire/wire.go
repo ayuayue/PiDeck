@@ -114,6 +114,7 @@ type Project struct {
 }
 
 type Session struct {
+	ParentID string `json:"parentID,omitempty"`
 	ID       string `json:"id"`
 	Title    string `json:"title"`
 	Status   string `json:"status"`
@@ -240,12 +241,13 @@ type ToolLine struct {
 }
 
 type Transcript struct {
-	ID       string    `json:"id"`
-	Title    string    `json:"title"`
-	Running  bool      `json:"running"`
-	Messages []Message `json:"messages"`
-	Ask      *Ask      `json:"ask,omitempty"`
-	Error    string    `json:"error,omitempty"`
+	Activity *SessionActivity `json:"activity,omitempty"`
+	ID       string           `json:"id"`
+	Title    string           `json:"title"`
+	Running  bool             `json:"running"`
+	Messages []Message        `json:"messages"`
+	Ask      *Ask             `json:"ask,omitempty"`
+	Error    string           `json:"error,omitempty"`
 	// Before is how many turns come before the first one sent: the client
 	// asks for them with ?before=, so a long session pages instead of
 	// losing its start.

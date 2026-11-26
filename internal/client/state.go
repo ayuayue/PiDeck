@@ -143,8 +143,9 @@ type mobileApp struct {
 	fileErr      *core.Signal[string]
 	fileFind     *core.Signal[string]
 
-	client *remoteClient
-	gen    int
+	client   *remoteClient
+	gen      int
+	features mobileSessionFeatures
 
 	// drawer is the rail over the page on a phone; initProject, initDraft
 	// and initPending are the new-session page's choices, and railCollapsed
@@ -289,6 +290,7 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 	apptext.SetLanguage(apptext.ResolveLanguage(setting, cx.Env().Locale()))
 	a := &mobileApp{
 		cx:                  cx,
+		features:            newMobileSessionFeatures(cx),
 		server:              core.NewSignal(cx, ""),
 		recent:              core.NewSignalFunc(cx, []mobileRecent(nil), nil),
 		token:               core.NewSignal(cx, ""),
@@ -432,6 +434,7 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		favoritesOpen:       core.NewSignal(cx, false),
 		favOpen:             core.NewSignal(cx, ""),
 	}
+	a.watchSessionActivity(cx)
 	saved := loadMobileSaved(cx)
 	// The saved look, language and last project win over the system's:
 	// the user chose them here, not on this boot.

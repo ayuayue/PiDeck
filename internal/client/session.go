@@ -41,6 +41,10 @@ func splitRecentSessions(list []remotewire.Session, now time.Time) (recent, earl
 // mobileSessionRow is one session in the rail: a status dot, its title,
 // and when it last did something.
 func (a *mobileApp) mobileSessionRow(cx *core.Scope, s remotewire.Session) core.Node {
+	return a.mobileSessionRowDepth(cx, s, 0)
+}
+
+func (a *mobileApp) mobileSessionRowDepth(cx *core.Scope, s remotewire.Session, depth int) core.Node {
 	colors := ui.ColorsOf(cx)
 	tone := remoteStatusColor(s.Status, colors)
 	if s.Ask != nil {
@@ -52,7 +56,7 @@ func (a *mobileApp) mobileSessionRow(cx *core.Scope, s remotewire.Session) core.
 	}, Role: core.RoleButton, Label: s.Title, TestID: "mobile-session",
 		StyleFunc: func() core.Style {
 			st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(44),
-				Padding: core.Edges{Left: 8, Right: 2}, CornerRadius: 8, Transition: viewkit.PressMotion,
+				Padding: core.Edges{Left: core.Points(8 + min(depth, 4)*12), Right: 2}, CornerRadius: 8, Transition: viewkit.PressMotion,
 				Active: &core.Style{Background: colors.Pressed()}}
 			if a.active.Get() == s.ID {
 				st.Background = colors.Pressed()
@@ -127,16 +131,16 @@ func (a *mobileApp) pressIcon(icon func() *core.SVG, label string, size, iconSiz
 // worth, then the older ones behind one row that opens and closes them.
 func (a *mobileApp) railSessionRows(cx *core.Scope, path string, sessions []remotewire.Session) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		recent, earlier := splitRecentSessions(sessions, time.Now())
+		recent, earlier := mobileSessionBranches(sessions, time.Now())
 		expanded := a.railExpanded(path)
 		rows := make([]core.Node, 0, len(recent)+2)
-		for _, s := range recent {
-			rows = append(rows, a.mobileSessionRow(cx, s))
+		for _, row := range recent {
+			rows = append(rows, a.mobileSessionRowDepth(cx, row.session, row.depth))
 		}
 		if len(earlier) > 0 {
 			if expanded {
-				for _, s := range earlier {
-					rows = append(rows, a.mobileSessionRow(cx, s))
+				for _, row := range earlier {
+					rows = append(rows, a.mobileSessionRowDepth(cx, row.session, row.depth))
 				}
 				rows = append(rows, a.railMoreRow(apptext.T("收起更早的会话"), path, "mobile-sessions-fewer"))
 			} else {
@@ -217,6 +221,7 @@ func (a *mobileApp) openSession(id, title string) {
 	// from; landing on the one already open is not.
 	changed := a.active.GetUntracked() != id
 	a.sessionSeq++
+	a.resetSessionFeatures()
 	a.active.Set(id)
 	a.activeTitle.Set(title)
 	a.messages.Set(nil)
@@ -242,6 +247,7 @@ func (a *mobileApp) openSession(id, title string) {
 
 func (a *mobileApp) closeSession() {
 	a.sessionSeq++
+	a.resetSessionFeatures()
 	a.active.Set("")
 	a.messages.Set(nil)
 	a.running.Set(false)
@@ -296,6 +302,11 @@ func (a *mobileApp) refreshTranscript() {
 				return
 			}
 			a.activeTitle.Set(t.Title)
+			activity := remotewire.SessionActivity{}
+			if t.Activity != nil {
+				activity = *t.Activity
+			}
+			a.features.activity.Set(activity)
 			a.setTranscriptMessages(mergeMessages(a.messages.GetUntracked(), t.Messages, t.Before))
 			a.messagesBefore.Set(keepBefore(a.messagesBefore.GetUntracked(), t.Before))
 			a.transcriptTruncated.Set(t.Truncated)

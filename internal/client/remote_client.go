@@ -393,6 +393,9 @@ func (c *remoteClient) promptWithImages(id, text string, images []remotewire.Ima
 		}
 		body["images"] = list
 	}
+	if strings.HasPrefix(strings.TrimSpace(text), "/") {
+		return c.postWithin("/api/sessions/"+url.PathEscape(id)+"/prompt", body, nil, 65*time.Second)
+	}
 	return c.post("/api/sessions/"+url.PathEscape(id)+"/prompt", body, nil)
 }
 

@@ -109,6 +109,7 @@ func (h *remoteHost) sessionPrompt(w http.ResponseWriter, r *http.Request, id st
 		images = append(images, remotewire.Image{Data: data, MimeType: mime, Name: "phone"})
 	}
 	var failure error
+	var piSlash bool
 	ok := h.app.withUI(func() {
 		s := h.app.byID[id]
 		if s == nil {
@@ -138,6 +139,10 @@ func (h *remoteHost) sessionPrompt(w http.ResponseWriter, r *http.Request, id st
 			h.app.compactWithInstructions(s, strings.TrimSpace(strings.TrimPrefix(text, "/compact")))
 			return
 		}
+		if s.backend != "acp" && strings.HasPrefix(text, "/") {
+			piSlash = true
+			return
+		}
 		// Image mode draws the words instead of prompting pi, as the
 		// desktop's composer does.
 		if modeOn(s, modeImage) {
@@ -157,6 +162,13 @@ func (h *remoteHost) sessionPrompt(w http.ResponseWriter, r *http.Request, id st
 		}
 		h.app.submit(s, text, images)
 	})
+	if ok && failure == nil && piSlash {
+		command := map[string]any{"type": "prompt", "message": text}
+		if imgs := encodeImages(images); imgs != nil {
+			command["images"] = imgs
+		}
+		_, failure = h.remotePiCommand(r, id, command)
+	}
 	h.finishAction(w, ok, failure, map[string]any{"ok": true})
 }
 
