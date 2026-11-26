@@ -216,6 +216,8 @@ type app struct {
 	searchRev     *core.Signal[int]
 	searchResults *core.Signal[*searchResult]
 	searchBusy    *core.Signal[bool]
+	searchPick    *core.Signal[int]
+	searchInput   *core.Ref
 	searchDocs    []searchDoc
 	searchIndexed bool
 	searchTimer   func() bool

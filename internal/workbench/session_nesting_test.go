@@ -131,8 +131,11 @@ func TestRailNestsSpawnedSessions(t *testing.T) {
 	app.WaitForGone("text:子代理会话", 5*time.Second)
 
 	// A search keeps the match under the parent that spawned it, folded or
-	// not: the row reads in context instead of nowhere.
-	app.Type("id:rail-search", "子代理")
+	// not: the row reads in context instead of nowhere. The palette is where
+	// the query is typed now, and the rail filters behind it.
+	app.Press("id:rail-search")
+	app.WaitFor("id:session-search", 5*time.Second)
+	app.Type("id:search-input", "子代理")
 	app.WaitFor("text:子代理会话", 10*time.Second)
 	if !app.Exists("text:父会话") {
 		t.Fatal("a search showed the subagent without the session that spawned it")

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
@@ -47,6 +48,7 @@ func (a *app) loadSearchIndex() {
 func (a *app) openSearch() {
 	a.invalidateSearch()
 	a.searchText.Set("")
+	a.searchPick.Set(0)
 	a.searchOpen.Set(true)
 	a.loadSearchIndex()
 }
@@ -54,9 +56,30 @@ func (a *app) openSearch() {
 func (a *app) closeSearch() {
 	a.searchOpen.Set(false)
 	a.invalidateSearch()
+	a.searchPick.Set(0)
+	// The rail list narrowed behind the palette; it goes back with it.
+	if a.filter.GetUntracked() != "" {
+		a.filter.Set("")
+	}
 	if a.searchText.GetUntracked() != "" {
 		a.searchText.Set("")
 	}
+}
+
+// clearSearch empties the query and keeps the keyboard in the field.
+func (a *app) clearSearch() {
+	a.setSearchQuery("")
+	if a.searchInput != nil {
+		a.searchInput.Focus()
+	}
+}
+
+// searchFieldRef is the palette's field, made on first use.
+func (a *app) searchFieldRef() *core.Ref {
+	if a.searchInput == nil {
+		a.searchInput = new(core.Ref)
+	}
+	return a.searchInput
 }
 
 func (a *app) rebuildSearch() {
@@ -88,9 +111,29 @@ func (a *app) setSearchQuery(value string) {
 	}
 	a.invalidateSearch()
 	a.searchText.Set(value)
+	a.searchPick.Set(0)
+	// The rail keeps its title filter, and the palette is what drives it
+	// now: the list behind reads as the search's backdrop.
+	a.filter.Set(strings.TrimSpace(value))
 	if strings.TrimSpace(value) != "" {
 		a.searchTimer = a.cx.AfterFunc(searchDebounce, a.runSearch)
 	}
+}
+
+// moveSearchPick steps the highlighted result, as the command palette's
+// arrow keys do, and stays inside the results.
+func (a *app) moveSearchPick(by int) {
+	result := a.searchResults.GetUntracked()
+	if result == nil {
+		return
+	}
+	hits := result.visible(a.searchScope.GetUntracked())
+	if len(hits) == 0 {
+		return
+	}
+	pick := a.searchPick.GetUntracked() + by
+	pick = max(0, min(pick, len(hits)-1))
+	a.searchPick.Set(pick)
 }
 
 // runSearch moves matching off the UI thread. Enter bypasses the debounce
@@ -117,6 +160,7 @@ func (a *app) runSearch() {
 			cancel()
 			a.searchCancel = nil
 			a.searchResults.Set(result)
+			a.searchPick.Set(0)
 			if a.searchEnter {
 				a.searchEnter = false
 				a.openSearchTop()
@@ -127,11 +171,9 @@ func (a *app) runSearch() {
 
 func (a *app) openSearchTop() {
 	if result := a.searchResults.GetUntracked(); result != nil {
-		for _, hit := range result.hits {
-			if hit.inScope(a.searchScope.GetUntracked()) {
-				a.chooseSearchHit(result, hit)
-				return
-			}
+		hits := result.visible(a.searchScope.GetUntracked())
+		if len(hits) > 0 {
+			a.chooseSearchHit(result, hits[max(0, min(a.searchPick.GetUntracked(), len(hits)-1))])
 		}
 		return
 	}

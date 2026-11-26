@@ -328,6 +328,7 @@ func newApp(cx *core.Scope) *app {
 		searchRev:              core.NewSignal(cx, 0),
 		searchResults:          core.NewSignal(cx, (*searchResult)(nil)),
 		searchBusy:             core.NewSignal(cx, false),
+		searchPick:             core.NewSignal(cx, 0),
 		prompts:                core.NewSignalFunc(cx, []promptItem(nil), nil),
 		promptOpen:             core.NewSignal(cx, false),
 		promptLoading:          core.NewSignal(cx, false),

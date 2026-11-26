@@ -102,9 +102,9 @@ func (a *app) railHeader(title, count string) core.Node {
 func (a *app) piSessionRow(s *session) core.Node {
 	colors := ui.ColorsOf(a.cx)
 	selected := func() bool { return a.activeID.Get() == s.ID }
-	return base.ContextMenu{
+	row := base.ContextMenu{
 		Trigger: core.View{
-			OnPress: func(core.PressEvent) { a.selectSession(s) },
+			OnPress: func(core.PressEvent) { a.clearSessionHover(); a.selectSession(s) },
 			Role:    core.RoleButton, LabelFunc: func() string { return s.title.Get() },
 			StyleFunc: func() core.Style {
 				st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Height: core.Pt(32), Padding: core.Symmetric(0, 8),
@@ -131,6 +131,7 @@ func (a *app) piSessionRow(s *session) core.Node {
 			return a.menuCard(a.cx)
 		},
 	}
+	return a.sessionHoverCard(func() *session { return s }, sessionHoverRail, core.PlaceRight, row)
 }
 
 // piStatus is what the brand says about pi, and the color of its dot.
@@ -168,20 +169,23 @@ func (a *app) newSessionButton() core.Node {
 	}
 }
 
-// searchField filters the rail's list: a quiet row, not a framed field.
+// searchField opens the session search palette, as the command palette
+// opens: the row reads as a way in, with its key, rather than a field the
+// rail filters with.
 func (a *app) searchField() core.Node {
 	colors := ui.ColorsOf(a.cx)
-	return core.View{StyleFunc: func() core.Style {
-		return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Height: core.Pt(32), Padding: core.Symmetric(0, 8),
-			CornerRadius: 7, Hover: &core.Style{Background: colors.Hover()}}
-	}, Children: []core.Node{
-		ui.Icon(lucide.Search, 15, colors.Muted),
-		core.Input{
-			Value: a.filter.Get, OnChange: a.filter.Set, Placeholder: apptext.T("搜索会话"), Label: apptext.T("搜索会话"), TestID: "rail-search",
-			Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0), FontSize: 13, LineHeight: 18, Color: colors.Text()},
-			StyleFunc: func() core.Style {
-				return core.Style{PlaceholderColor: colors.Muted(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}
-			},
+	return core.View{
+		OnPress: func(core.PressEvent) { a.openSearch() },
+		Role:    core.RoleButton, Label: apptext.T("搜索会话"), TestID: "rail-search",
+		StyleFunc: func() core.Style {
+			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 9, Height: core.Pt(32), Padding: core.Symmetric(0, 8),
+				CornerRadius: 7, Transition: viewkit.PressMotion,
+				Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
 		},
-	}}
+		Children: []core.Node{
+			ui.Icon(lucide.Search, 15, colors.Muted),
+			core.Text{Content: apptext.T("搜索会话"), Style: core.Style{FontSize: 13.5, LineHeight: 19, FlexGrow: 1}, StyleFunc: ui.Colored(colors.Muted)},
+			core.Text{Content: modKey() + "F", Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
+		},
+	}
 }

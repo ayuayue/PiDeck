@@ -31,16 +31,14 @@ func (a *app) searchDialog() core.Node {
 			TestID: "session-search",
 			Style:  core.Style{Width: a.dialogWidth(), Height: core.Pt(580)},
 			Children: []core.Node{core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Gap: 8}, Children: []core.Node{
-				core.Input{Value: a.searchText.Get,
-					OnChange:       a.setSearchQuery,
-					OnSubmit:       a.submitSearch,
-					SubmitBehavior: core.SubmitBehaviorSubmit,
-					Placeholder:    apptext.T("搜索所有会话的标题与内容…"), Label: apptext.T("搜索会话"), TestID: "search-input", AutoFocus: true,
-					Style: core.Style{Height: core.Pt(34), Padding: core.Symmetric(0, 10), CornerRadius: 8,
-						Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(),
-						Color: colors.Text(), FontSize: 13}},
+				a.searchBar(colors),
 				choiceChips([]choice[string]{{"", "全部"}, {"title", "标题"}, {"body", "正文"}},
-					func() string { return a.searchScope.Get() }, func(v string) { a.searchScope.Set(v) }),
+					func() string { return a.searchScope.Get() },
+					func(v string) {
+						a.searchScope.Set(v)
+						a.searchPick.Set(0)
+					}),
+				core.Func(a.bindSearchKeys),
 				core.Dynamic(func(cx *core.Scope) core.Node {
 					colors := ui.ColorsOf(cx)
 					if strings.TrimSpace(a.searchText.Get()) == "" {
@@ -70,6 +68,14 @@ func (a *app) searchDialog() core.Node {
 					return core.Func(func(cx *core.Scope) core.Node {
 						window := core.NewSignal(cx, searchVisibleLimit)
 						scroll := &scrollStash{}
+						rowRefs := make([]core.Ref, len(hits))
+						cx.Effect(func() {
+							pick := max(0, min(a.searchPick.Get(), len(hits)-1))
+							if pick >= window.GetUntracked() {
+								window.Set(min(len(hits), (pick/searchVisibleLimit+1)*searchVisibleLimit))
+							}
+							cx.Post(func() { rowRefs[pick].Reveal(core.RevealOptions{Vertical: core.ScrollAlignNearest}) })
+						})
 						return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Gap: 4}, Children: []core.Node{
 							core.Text{Content: apptext.T("找到 %d 个会话 · %d 处匹配", len(hits), total),
 								Style:     core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9.5, Padding: core.Edges{Left: 2}},
@@ -78,7 +84,7 @@ func (a *app) searchDialog() core.Node {
 								core.Dynamic(func(cx *core.Scope) core.Node {
 									end := min(window.Get(), len(hits))
 									rows := make([]core.Node, 0, end+1)
-									for _, hit := range hits[:end] {
+									for i, hit := range hits[:end] {
 										meta := projectLabel(hit.Cwd)
 										if !hit.Updated.IsZero() {
 											meta += " · " + viewkit.WhenText(hit.Updated, a.cx.Now())
@@ -87,12 +93,18 @@ func (a *app) searchDialog() core.Node {
 											meta += apptext.T("· %d 处", hit.Count)
 										}
 										rows = append(rows, core.View{
+											Ref:     &rowRefs[i],
 											OnPress: func(core.PressEvent) { a.chooseSearchHit(result, hit) },
 											Role:    core.RoleButton, Label: apptext.T("会话 ") + hit.Title, TestID: "search-hit",
 											StyleFunc: func() core.Style {
-												return core.Style{Direction: core.Row, AlignItems: core.AlignStart, Gap: 9, Padding: core.Symmetric(7, 8),
+												st := core.Style{Direction: core.Row, AlignItems: core.AlignStart, Gap: 9, Padding: core.Symmetric(7, 8),
 													CornerRadius: 7, Hover: &core.Style{Background: colors.Hover()},
 													Active: &core.Style{Background: colors.Pressed()}, Transition: viewkit.PressMotion}
+												// The picked row reads as the palette's selection: Return opens it.
+												if a.searchPick.Get() == i {
+													st.Background = colors.Pressed()
+												}
+												return st
 											},
 											Children: []core.Node{
 												ui.Icon(lucide.MessageSquare, 13, colors.Faint),
@@ -120,6 +132,9 @@ func (a *app) searchDialog() core.Node {
 				}),
 			}}},
 			Footer: []core.Node{
+				core.Text{Content: apptext.T("↑↓ 选择，Enter 打开"),
+					Style:     core.Style{FlexGrow: 1, FontFamily: viewkit.MonoFont(), FontSize: 9.5},
+					StyleFunc: ui.Colored(colors.Faint)},
 				ui.Button{Text: apptext.T("重建索引"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "search-rebuild",
 					Disabled: a.searchBusy.Get, OnPress: a.rebuildSearch},
 				ui.Button{Text: apptext.T("关闭"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "search-close",
@@ -127,6 +142,39 @@ func (a *app) searchDialog() core.Node {
 			},
 		}
 	})
+}
+
+// searchBar is the palette's field: the icon, the query, and a clear
+// button once there is something to clear.
+func (a *app) searchBar(colors ui.Colors) core.Node {
+	return core.View{
+		Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Height: core.Pt(34), Padding: core.Symmetric(0, 10),
+			CornerRadius: 8, Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder()},
+		Children: []core.Node{
+			ui.Icon(lucide.Search, 13, colors.Faint),
+			core.Input{Ref: a.searchFieldRef(), Value: a.searchText.Get,
+				OnChange:       a.setSearchQuery,
+				OnSubmit:       a.submitSearch,
+				SubmitBehavior: core.SubmitBehaviorSubmit,
+				Role:           core.RoleSearchField,
+				Placeholder:    apptext.T("搜索所有会话的标题与内容…"), Label: apptext.T("搜索会话"), TestID: "search-input", AutoFocus: true,
+				Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0), Height: core.Pt(26), FontSize: 13, LineHeight: 18, Color: colors.Text()},
+				StyleFunc: func() core.Style {
+					return core.Style{PlaceholderColor: colors.Muted(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}
+				}},
+			core.Show{When: func() bool { return a.searchText.Get() != "" }, Then: func(*core.Scope) core.Node {
+				return ui.IconButton{Icon: lucide.X, Label: apptext.T("清空搜索"), Size: 22, IconSize: 13, TestID: "search-clear",
+					Tint: func() core.Color { return colors.Faint() }, OnPress: a.clearSearch}
+			}},
+		}}
+}
+
+// bindSearchKeys moves the picked result as the command palette does, so
+// the query stays where it is typed.
+func (a *app) bindSearchKeys(cx *core.Scope) core.Node {
+	cx.OnKeyWith("down", core.KeyOptions{When: core.KeyAlways, Repeat: true}, func() { a.moveSearchPick(1) })
+	cx.OnKeyWith("up", core.KeyOptions{When: core.KeyAlways, Repeat: true}, func() { a.moveSearchPick(-1) })
+	return nil
 }
 
 func (a *app) searchEmpty() core.Node {

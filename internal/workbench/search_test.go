@@ -267,6 +267,67 @@ func TestSearchRecentClearSurvivesResultRefresh(t *testing.T) {
 	screen.WaitForGone("text:最近搜索", 5*time.Second)
 }
 
+// TestSearchClearButton empties the query and takes the results away.
+func TestSearchClearButton(t *testing.T) {
+	if nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	a, screen := startSearchDialog(t)
+	// The field fills the bar it sits in, so a press anywhere on the bar lands.
+	if h := screen.Find("id:search-input").Bounds().Size.Height; h < 24 {
+		t.Fatalf("the search field is %v tall, want the bar's height", h)
+	}
+	screen.Type("id:search-input", "alpha")
+	screen.Post(a.runSearch)
+	screen.WaitFor("id:search-hit >> text:alpha", 5*time.Second)
+	screen.Press("id:search-clear")
+	if got := a.searchText.GetUntracked(); got != "" {
+		t.Fatalf("query after clear = %q, want empty", got)
+	}
+	screen.WaitForGone("id:search-hit", 5*time.Second)
+	if screen.Exists("id:search-clear") {
+		t.Fatal("the clear button stays once the query is empty")
+	}
+	screen.Type("id:search-input", "beta")
+	if got := a.searchText.GetUntracked(); got != "beta" {
+		t.Fatalf("query after typing again = %q, want beta", got)
+	}
+}
+
+// TestSearchArrowKeysPickResult moves the highlighted result with the
+// arrow keys, as the command palette does, and stops at either end.
+func TestSearchArrowKeysPickResult(t *testing.T) {
+	if nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
+	t.Setenv("PIDECK_V2_PI_CONFIG", t.TempDir())
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", t.TempDir())
+	var a *app
+	screen := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		a = newApp(cx)
+		a.searchDocs = []searchDoc{{ID: "one", Title: "发布记录"}, {ID: "two", Title: "发布会话"}}
+		a.searchIndexed = true
+		a.openSearch()
+		return a.searchDialog()
+	}, nsgotest.Size(1200, 800))
+	screen.WaitFor("id:session-search", 5*time.Second)
+	screen.Type("id:search-input", "发布")
+	screen.Post(a.runSearch)
+	screen.WaitUntil(5*time.Second, func() bool { return len(screen.Query("id:search-hit")) == 2 })
+	assertPick := func(want int, key string) {
+		t.Helper()
+		screen.Key(key)
+		if got := a.searchPick.GetUntracked(); got != want {
+			t.Fatalf("%s left the pick at %d, want %d", key, got, want)
+		}
+	}
+	assertPick(1, "Down")
+	assertPick(1, "Down") // the last result is the end of the list
+	assertPick(0, "Up")
+	assertPick(0, "Up") // so is the first
+}
+
 func startSearchDialog(t *testing.T) (*app, *nsgotest.App) {
 	t.Helper()
 	t.Setenv("PIDECK_V2_HOME", t.TempDir())

@@ -48,6 +48,7 @@ func TestSearchResultsLoadMore(t *testing.T) {
 				built = &app{
 					cx: cx, chatWidthPctSig: core.NewSignal(cx, chatWidthPctDefault),
 					searchOpen: core.NewSignal(cx, true), searchText: core.NewSignal(cx, "发布"),
+					searchPick: core.NewSignal(cx, 0), filter: core.NewSignal(cx, ""),
 					searchScope: core.NewSignal(cx, ""), searchRev: core.NewSignal(cx, 0),
 					searchBusy: core.NewSignal(cx, false), searchDocs: docs, searchIndexed: true,
 					searchResults: core.NewSignal(cx, &searchResult{query: "发布", hits: matchSearch(t.Context(), docs, "发布", 0)}),
@@ -127,6 +128,17 @@ func TestSearchResultsLoadMore(t *testing.T) {
 			screen.Press("role:radio 正文")
 			assertSummary(75, 150)
 			assertRows(60)
+			screen.Focus("id:search-input")
+			screen.Post(func() { built.searchPick.Set(59) })
+			screen.WaitUntil(5*time.Second, func() bool { return built.searchPick.GetUntracked() == 59 })
+			screen.Key("Down")
+			screen.WaitUntil(5*time.Second, func() bool { return built.searchPick.GetUntracked() == 60 })
+			assertRows(75)
+			picked := screen.Find("id:search-hit >> text:" + docs[120].Title).Bounds()
+			viewport = screen.Find("id:search-results").Bounds()
+			if picked.Origin.Y < viewport.Origin.Y || picked.Origin.Y+picked.Size.Height > viewport.Origin.Y+viewport.Size.Height+1 {
+				t.Fatalf("keyboard selection is outside the viewport: selected=%v viewport=%v", picked, viewport)
+			}
 			screen.Press("role:radio 全部")
 			assertSummary(135, 150)
 			assertRows(60)
