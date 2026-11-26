@@ -22,33 +22,45 @@ import (
 // A scroll view takes the pointer, so a strip that only scrolled could never
 // move the window.
 func (a *app) tabBar() core.Node {
-	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
-		core.Scroll{Horizontal: true, HideIndicator: true, TestID: "tab-bar", Style: core.Style{FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
-			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, Padding: core.Symmetric(0, 2)}, Children: []core.Node{
-				core.Each(a.tabs.Get, func(id string) string { return id }, func(cx *core.Scope, id func() string, _ func() int) core.Node {
-					return a.tab(cx, id)
-				}),
-				hint("新建会话", ui.IconButton{Icon: lucide.Plus, Label: apptext.T("新建会话"), Size: 28, IconSize: 14, OnPress: func() {
-					a.newSession(a.activeWS.Get())
-				}}),
-				// A line keeps the panes' tabs apart from the sessions'.
-				core.Show{When: func() bool { return len(a.openPaneIDs()) > 0 }, Then: func(cx *core.Scope) core.Node {
-					return core.View{Style: core.Style{Width: core.Pt(1), Height: core.Pt(16), FlexShrink: 0, Margin: core.Symmetric(0, 3)},
-						StyleFunc: ui.Filled(ui.ColorsOf(cx).Line)}
+	return core.Func(func(cx *core.Scope) core.Node {
+		colors := ui.ColorsOf(cx)
+		selection := a.navigationSelection(cx, func() string {
+			if a.paneVisible() && !a.filePaneVisible() {
+				return ""
+			}
+			return a.activeID.Get()
+		})
+		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
+			core.Scroll{Horizontal: true, HideIndicator: true, TestID: "tab-bar", Style: core.Style{FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
+				core.View{OnLayout: selection.measureList, Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, Padding: core.Symmetric(0, 2)}, Children: []core.Node{
+					selection.indicator("session-tab-selection", func() core.Style {
+						return core.Style{Background: colors.Surface(), BorderWidth: 1, BorderColor: colors.Border(), CornerRadius: 8}
+					}),
+					core.Each(a.tabs.Get, func(id string) string { return id }, func(cx *core.Scope, id func() string, _ func() int) core.Node {
+						return core.View{OnLayout: selection.measure(id()), Style: core.Style{MinWidth: core.Pt(0)}, Children: []core.Node{a.tab(cx, id)}}
+					}),
+					hint("新建会话", ui.IconButton{Icon: lucide.Plus, Label: apptext.T("新建会话"), Size: 28, IconSize: 14, OnPress: func() {
+						a.newSession(a.activeWS.Get())
+					}}),
+					// A line keeps the panes' tabs apart from the sessions'.
+					core.Show{When: func() bool { return len(a.openPaneIDs()) > 0 }, Then: func(cx *core.Scope) core.Node {
+						return core.View{Style: core.Style{Width: core.Pt(1), Height: core.Pt(16), FlexShrink: 0, Margin: core.Symmetric(0, 3)},
+							StyleFunc: ui.Filled(ui.ColorsOf(cx).Line)}
+					}},
+					core.Each(a.openPaneIDs, func(id string) string { return id }, func(cx *core.Scope, id func() string, _ func() int) core.Node {
+						def, ok := a.pane(id())
+						if !ok {
+							return nil
+						}
+						return a.paneTab(def)
+					}),
 				}},
-				core.Each(a.openPaneIDs, func(id string) string { return id }, func(cx *core.Scope, id func() string, _ func() int) core.Node {
-					def, ok := a.pane(id())
-					if !ok {
-						return nil
-					}
-					return a.paneTab(def)
-				}),
 			}},
-		}},
-		core.View{TestID: "tab-bar-drag", Desktop: core.DesktopViewProps{WindowDrag: core.WindowDragOn},
-			Style: core.Style{FlexGrow: 1, FlexShrink: 1, Height: core.Pct(100), MinWidth: core.Pt(0)}},
-		a.sessionToolbar(),
-	}}
+			core.View{TestID: "tab-bar-drag", Desktop: core.DesktopViewProps{WindowDrag: core.WindowDragOn},
+				Style: core.Style{FlexGrow: 1, FlexShrink: 1, Height: core.Pct(100), MinWidth: core.Pt(0)}},
+			a.sessionToolbar(),
+		}}
+	})
 }
 
 // tab is one open session.
@@ -70,11 +82,9 @@ func (a *app) tab(cx *core.Scope, id func() string) core.Node {
 			StyleFunc: func() core.Style {
 				st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7, Height: core.Pt(30), MaxWidth: a.tabWidth(cx),
 					Padding: core.Edges{Left: 10, Right: 6}, CornerRadius: 8, BorderWidth: 1, BorderColor: core.Transparent,
-					Transition: viewkit.PressMotion, Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
+					Transition: a.navigationPressMotion(cx), Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
 				if active() {
-					st.Background = colors.Surface()
-					st.BorderColor = colors.Border()
-					st.Hover = &core.Style{Background: colors.Surface()}
+					st.Hover = &core.Style{Background: core.Transparent}
 				}
 				return st
 			},

@@ -185,13 +185,11 @@ func (a *app) terminalPanel() core.Node {
 // terminalHeader is the row of tabs and the panel's actions.
 func (a *app) terminalHeader(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
+	selection := a.navigationSelection(cx, a.term.active.Get)
 	tab := func(t *termTab) core.Node {
 		on := func() bool { return a.term.active.Get() == t.ID }
 		return ui.ContextMenu{Trigger: base.Tab{
 			OnPress: func(e core.PressEvent) {
-				if a.term.active.GetUntracked() != t.ID {
-					a.animateNextLayout()
-				}
 				// Roving focus invokes the tab with a zero press event.
 				a.term.selectTab(t.ID, e.Keyboard || e.Clicks == 0)
 			},
@@ -199,13 +197,11 @@ func (a *app) terminalHeader(cx *core.Scope) core.Node {
 			StyleFunc: func() core.Style {
 				st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, Height: core.Pt(25),
 					Padding: core.Edges{Left: 8, Right: 3}, CornerRadius: 6, MaxWidth: core.Pt(190), MinWidth: core.Pt(0),
-					Transition: viewkit.PressMotion, Hover: &core.Style{Background: colors.Hover()},
+					BorderWidth: 1, BorderColor: core.Transparent,
+					Transition: a.navigationPressMotion(cx), Hover: &core.Style{Background: colors.Hover()},
 					Active: &core.Style{Background: colors.Pressed()}, FocusVisible: ui.FocusRing(cx, -2)}
 				if on() {
-					st.Background = colors.Surface()
-					st.BorderWidth = 1
-					st.BorderColor = colors.Border()
-					st.Hover = &core.Style{Background: colors.Surface()}
+					st.Hover = &core.Style{Background: core.Transparent}
 				}
 				return st
 			},
@@ -243,9 +239,12 @@ func (a *app) terminalHeader(cx *core.Scope) core.Node {
 	}, Children: []core.Node{
 		core.Scroll{Horizontal: true, HideIndicator: true, Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
 			Children: []core.Node{base.Tabs{Label: apptext.T("终端"), TestID: "terminal-tabs",
-				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 3}, Children: []core.Node{
+				OnLayout: selection.measureList, Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 3}, Children: []core.Node{
+					selection.indicator("terminal-tab-selection", func() core.Style {
+						return core.Style{Background: colors.Surface(), BorderWidth: 1, BorderColor: colors.Border(), CornerRadius: 6}
+					}),
 					core.Each(a.term.tabs.Get, func(t *termTab) string { return t.ID }, func(cx *core.Scope, t func() *termTab, _ func() int) core.Node {
-						return tab(t())
+						return core.View{OnLayout: selection.measure(t().ID), Style: core.Style{MinWidth: core.Pt(0)}, Children: []core.Node{tab(t())}}
 					}),
 				}}},
 		},

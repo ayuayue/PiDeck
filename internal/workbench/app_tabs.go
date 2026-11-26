@@ -121,8 +121,15 @@ func (a *app) tabRef(key string) *core.Ref {
 // session, a pane opening) lands in sight in the bar above the content.
 func (a *app) revealTab(key string) {
 	a.cx.Post(func() {
+		selected := a.activeID.GetUntracked()
+		if pane := a.activePaneID(); pane != "" {
+			selected = paneTabKey(pane)
+		}
+		if selected != key {
+			return
+		}
 		if ref := a.tabRefs[key]; ref != nil {
-			ref.Reveal(core.RevealOptions{Horizontal: core.ScrollAlignNearest, Animated: true,
+			ref.Reveal(core.RevealOptions{Horizontal: core.ScrollAlignNearest, Animated: !a.navigationReduced(a.cx),
 				Margin: core.Edges{Left: 6, Right: 6}})
 		}
 	})

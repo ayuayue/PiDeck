@@ -100,6 +100,7 @@ func (a *app) railMore() core.Node {
 func (a *app) railTabBar() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
+		selection := a.navigationSelection(cx, a.railTab.Get)
 		on := func(id string) bool { return a.railTab.Get() == id }
 		labelColor := func(id string) core.Style {
 			if on(id) {
@@ -115,10 +116,10 @@ func (a *app) railTabBar() core.Node {
 				StyleFunc: func() core.Style {
 					st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 6,
 						Height: core.Pt(30), FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), CornerRadius: 15,
-						Transition: viewkit.PressMotion, Hover: &core.Style{Background: colors.Hover()},
+						Transition: a.navigationPressMotion(cx), Hover: &core.Style{Background: colors.Hover()},
 						Active: &core.Style{Background: colors.Pressed()}}
 					if on(id) {
-						st.Background = colors.Pressed()
+						st.Hover = &core.Style{Background: core.Transparent}
 					}
 					return st
 				},
@@ -137,10 +138,13 @@ func (a *app) railTabBar() core.Node {
 				PopupStyleFunc: func() core.Style { return a.menuCard(cx) }}
 		}
 		tabStyle := core.Style{FlexGrow: 1, FlexShrink: 1, FlexBasis: core.Pt(0), MinWidth: core.Pt(0)}
-		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2}, Children: []core.Node{
-			core.View{Style: tabStyle, Children: []core.Node{tab(railTabActivity, "活动", lucide.Activity)}},
-			core.View{Style: tabStyle, Children: []core.Node{tab(railTabChat, "聊天", lucide.MessageCircle)}},
-			core.View{Style: tabStyle, Children: []core.Node{tab(railTabProjects, "项目", lucide.Folder)}},
+		return core.View{OnLayout: selection.measureList, Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2}, Children: []core.Node{
+			selection.indicator("rail-tab-selection", func() core.Style {
+				return core.Style{Background: colors.Pressed(), CornerRadius: 15}
+			}),
+			core.View{OnLayout: selection.measure(railTabActivity), Style: tabStyle, Children: []core.Node{tab(railTabActivity, "活动", lucide.Activity)}},
+			core.View{OnLayout: selection.measure(railTabChat), Style: tabStyle, Children: []core.Node{tab(railTabChat, "聊天", lucide.MessageCircle)}},
+			core.View{OnLayout: selection.measure(railTabProjects), Style: tabStyle, Children: []core.Node{tab(railTabProjects, "项目", lucide.Folder)}},
 		}}
 	})
 }
