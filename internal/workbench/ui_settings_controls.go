@@ -8,7 +8,6 @@ package workbench
 
 import (
 	"example.com/pideck-v2/internal/apptext"
-	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -18,8 +17,8 @@ func setGroup(title string, rows ...core.Node) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
 		return core.View{Style: core.Style{Gap: 6, Margin: core.Edges{Bottom: 14}}, Children: []core.Node{
-			core.Text{Content: apptext.T(title), Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9.5, LetterSpacing: 0.6},
-				StyleFunc: ui.Colored(colors.Faint)},
+			core.Text{Content: apptext.T(title), Role: core.RoleHeader,
+				Style: core.Style{FontSize: 11, FontWeight: ui.Semibold}, StyleFunc: ui.Colored(colors.Muted)},
 			core.View{StyleFunc: func() core.Style {
 				return core.Style{Gap: 2, Padding: core.Symmetric(4, 10), CornerRadius: 9,
 					BorderWidth: 1, BorderColor: colors.Now().Line, Background: colors.Surface()}
@@ -36,14 +35,14 @@ func setRow(label, help string, control core.Node) core.Node {
 			core.Text{Content: apptext.T(label), Style: core.Style{FontSize: 12.5, LineHeight: 18}, StyleFunc: ui.Colored(colors.Text)},
 		}
 		if help != "" {
-			texts = append(texts, core.Text{Content: apptext.T(help), MaxLines: 2, EllipsizeMode: core.EllipsizeTail,
+			texts = append(texts, core.Text{Content: apptext.T(help),
 				Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: ui.Colored(colors.Muted)})
 		}
-		children := []core.Node{core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 1}, Children: texts}}
+		children := []core.Node{core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, FlexBasis: core.Pt(260), MinWidth: core.Pt(0), Gap: 1}, Children: texts}}
 		if control != nil {
-			children = append(children, core.View{Style: core.Style{FlexShrink: 0}, Children: []core.Node{control}})
+			children = append(children, core.View{Style: core.Style{FlexShrink: 1, MinWidth: core.Pt(0), MaxWidth: core.Pct(100)}, Children: []core.Node{control}})
 		}
-		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 12, MinHeight: core.Pt(38),
+		return core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, AlignItems: core.AlignCenter, Gap: 12, MinHeight: core.Pt(38),
 			Padding: core.Symmetric(3, 2)}, Children: children}
 	})
 }

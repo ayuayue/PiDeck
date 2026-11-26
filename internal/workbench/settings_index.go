@@ -21,6 +21,7 @@ type settingEntry struct {
 
 // settingsIndex lists the settings by section and search words.
 var settingsIndex = []settingEntry{
+	{"general", "新会话默认思考等级", "thinking reasoning effort level default pi 默认 思考 推理 等级"},
 	{"general", "快捷短语与回复规则", "quick messages phrases reply actions shortcuts regex 快捷回复 正则 匹配 短语"},
 	{"general", "语言", "language locale english chinese traditional korean japanese russian french 简体 繁体 韩文 日文 俄语 法语 한국어 日本語 Русский Français"},
 	{"general", "内容宽度", "chat width content reading column narrow wide percentage percent 宽度 百分比"},
@@ -51,7 +52,7 @@ var settingsIndex = []settingEntry{
 	{"integrations", "火山语音", "voice speech volcengine 火山 语音"},
 	{"integrations", "App ID", "voice volcengine appid 火山 应用"},
 	{"integrations", "Access Token", "voice volcengine token 火山 令牌 凭据"},
-	{"models", "供应商与认证", "provider model auth api key"},
+	{"models", "供应商与认证", "provider model auth api key 模型与认证"},
 	{"models", "添加供应商", "provider model add custom api base url"},
 	{"models", "刷新模型目录", "models catalog 目录 刷新 更新"},
 	{"models", "自动刷新模型目录", "auto model catalog 后台 自动"},
@@ -93,7 +94,7 @@ var settingsIndex = []settingEntry{
 	{"addons", "插件市场", "plugin market registry"},
 	{"addons", "插件设置", "plugin settings"},
 	{"addons", "NSGo 插件预览", "nsgo plugin preview ui function 会话统计示例"},
-	{"resources", "技能", "skill SKILL.md"},
+	{"resources", "技能", "skill SKILL.md 资源"},
 	{"resources", "技能商店", "skill store index install"},
 	{"resources", "扩展", "extension package"},
 	{"resources", "扩展商店", "extension store pi.dev install remove update pi list"},

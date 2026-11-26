@@ -27,7 +27,7 @@ func (a *app) settingsGeneral() core.Node {
 		addChip := func(label string, on func() bool, fn func()) core.Node {
 			return core.View{
 				OnPress: func(core.PressEvent) { fn() },
-				Role:    core.RoleRadio, Label: label,
+				Role:    core.RoleRadio, Label: label, Checked: on,
 				StyleFunc: func() core.Style {
 					st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, Height: core.Pt(26), Padding: core.Symmetric(0, 9),
 						CornerRadius: 13, BorderWidth: 1, BorderColor: colors.Border(), Hover: &core.Style{Background: colors.Hover()}}
@@ -56,15 +56,19 @@ func (a *app) settingsGeneral() core.Node {
 				}))
 		}
 		var levelChips []core.Node
-		levelChips = append(levelChips, addChip(apptext.T("跟随会话"), func() bool { return a.defaultThinking == "" }, func() {
+		levelChips = append(levelChips, addChip(apptext.T("使用 pi 默认值"), func() bool { return a.defaultThinking == "" }, func() {
 			a.defaultThinking = ""
-			a.st.edit(func(c *config) { c.Thinking = "" })
+			a.st.change(func(c *config) { c.Thinking = "" })
+			a.saveConfigAsync()
+			a.bumpSettings()
 		}))
 		for _, lv := range []string{"off", "low", "medium", "high", "max"} {
 			lv := lv
 			levelChips = append(levelChips, addChip(levelLabel(lv), func() bool { return a.defaultThinking == lv }, func() {
 				a.defaultThinking = lv
-				a.st.edit(func(c *config) { c.Thinking = lv })
+				a.st.change(func(c *config) { c.Thinking = lv })
+				a.saveConfigAsync()
+				a.bumpSettings()
 			}))
 		}
 		return a.scrollStashFor("settings:general").Bind(cx, core.Scroll{TestID: "settings-page", Style: ui.FillRest, Children: []core.Node{
@@ -112,8 +116,10 @@ func (a *app) settingsGeneral() core.Node {
 					ui.Button{Text: apptext.T("编辑"), Size: ui.SizeSmall, Variant: ui.ButtonSecondary, TestID: "settings-reply-shortcuts", OnPress: a.openReplyShortcutSettings}),
 				setGroup("新会话默认模型", core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6, Padding: core.Symmetric(4, 2)},
 					Children: modelChips}),
-				setGroup("新会话默认思考等级", core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6, Padding: core.Symmetric(4, 2)},
-					Children: levelChips}),
+				setGroup("新会话默认思考等级",
+					core.Text{Content: apptext.T("思考等级控制模型的推理投入，只影响之后创建的 pi 会话；可用等级由模型决定。"),
+						Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: ui.Colored(colors.Muted)},
+					core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6, Padding: core.Symmetric(4, 2)}, Children: levelChips}),
 				setGroup("项目",
 					setRow("项目排序", "侧栏项目按手动顺序、最近活动、创建时间或名称排列；置顶项目总在最前。",
 						choiceChips([]choice[string]{

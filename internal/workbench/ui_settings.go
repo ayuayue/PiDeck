@@ -24,35 +24,36 @@ type settingsSection struct {
 	Icon    func() *core.SVG
 	Title   string
 	Summary string
-	Config  bool
+	Group   string
 }
 
 // settingsSections are the sections, in order.
 func settingsSections() []settingsSection {
 	return []settingsSection{
-		{"general", "通用", lucide.Settings2, "通用", "新会话的默认值，以及侧栏读什么。", false},
-		{"models", "模型与认证", lucide.Cpu, "模型与认证", "pi 认识哪些供应商、各自有多少模型、凭据是否可用。", true},
-		{"credentials", "pi 凭据", lucide.KeyRound, "pi 凭据", "pi 先看 auth.json，再看 models.json 的 apiKey，最后看环境变量。", true},
-		{"pi", "pi 设置", lucide.Settings, "pi 设置", "编辑 settings.json", true},
-		{"usage", "用量", lucide.ChartColumn, "用量", "从本地会话文件统计 token、费用、模型与项目分布。", false},
-		{"keys", "键位", lucide.Keyboard, "键位", "每个命令的快捷键；留空则不绑定，改坏了可以恢复默认。", false},
-		{"look", "外观", lucide.Palette, "外观", "配色与主题文件。", false},
-		{"remote", "远程", lucide.Globe, "远程访问", "让手机连接这台电脑上的项目和会话。", true},
-		{"env", "环境", lucide.Terminal, "环境", "pi 在哪里、能不能用；WSL 与 SSH 目标。", true},
-		{"mcp", "MCP", lucide.Plug, "MCP 服务器", "给 pi 挂上外部工具服务器；列表与增删走 pi mcp。", true},
-		{"addons", "插件", lucide.Puzzle, "插件", "插件给命令面板加命令，给外观加主题。", true},
-		{"resources", "资源", lucide.Package, "资源", "pi 的技能与扩展：看它们做什么，打开或停用。", true},
-		{"integrations", "集成", lucide.Webhook, "集成", "把一轮完成的消息发到飞书群。", true},
-		{"diagnostics", "诊断", lucide.Stethoscope, "诊断", "运行中的进程、内存与最近的日志。", false},
-		{"data", "数据", lucide.HardDrive, "数据", "会话与配置在磁盘上的位置。", false},
-		{"about", "关于", lucide.Info, "关于", "版本、许可与来源。", false},
+		{"general", "通用", lucide.Settings2, "通用", "语言、布局、会话默认值，以及通知和提示音。", "偏好设置"},
+		{"look", "外观", lucide.Palette, "外观", "主题配色、文字大小、字体和背景。", "偏好设置"},
+		{"keys", "快捷键", lucide.Keyboard, "快捷键", "每个命令的快捷键；留空则不绑定，改坏了可以恢复默认。", "偏好设置"},
+		{"models", "模型与供应商", lucide.Cpu, "模型与供应商", "供应商提供模型服务；这里管理连接信息、常用模型及翻译与提示词增强使用的模型。", "模型与运行"},
+		{"credentials", "登录与密钥", lucide.KeyRound, "登录与密钥", "管理 pi 使用的登录凭据和 API 密钥。", "模型与运行"},
+		{"pi", "pi 设置", lucide.Settings, "pi 设置", "pi 是运行会话的 AI 助手；这里管理它的 settings.json 设置。", "模型与运行"},
+		{"env", "运行环境", lucide.Terminal, "运行环境", "检查 pi 安装状态，配置本机、WSL 或 SSH 运行环境。", "模型与运行"},
+		{"mcp", "MCP 工具", lucide.Plug, "MCP 服务器", "MCP 是连接外部工具的协议；这里管理 pi 可用的工具服务器。", "扩展与连接"},
+		{"resources", "技能与扩展", lucide.Package, "技能与扩展", "查看和管理 pi 的技能说明、提示词模板与扩展能力。", "扩展与连接"},
+		{"addons", "插件", lucide.Puzzle, "插件", "管理 PiDeck 插件，为命令面板和外观添加功能。", "扩展与连接"},
+		{"integrations", "集成与自动化", lucide.Webhook, "集成与自动化", "语音输入、外部消息、智能体与定时任务的连接设置。", "扩展与连接"},
+		{"remote", "手机与远程", lucide.Globe, "远程访问", "让手机连接这台电脑上的项目和会话。", "扩展与连接"},
+		{"usage", "用量统计", lucide.ChartColumn, "用量统计", "按模型和项目统计会话用量及估算费用；Token 是模型处理内容的计量单位。", "数据与维护"},
+		{"data", "数据管理", lucide.HardDrive, "数据管理", "查看数据位置，备份或恢复设置，并管理缓存与同步。", "数据与维护"},
+		{"diagnostics", "诊断", lucide.Stethoscope, "诊断", "运行中的进程、内存与最近的日志。", "数据与维护"},
+		{"about", "关于", lucide.Info, "关于", "版本、许可与来源。", "数据与维护"},
 	}
 }
 
 // settingsPane is the settings page: its rail beside the section's rows.
 func (a *app) settingsPane() core.Node {
 	colors := ui.ColorsOf(a.cx)
-	var system, config []core.Node
+	var groups []string
+	rowsByGroup := map[string][]core.Node{}
 	for _, sec := range settingsSections() {
 		s := sec
 		on := func() bool { return a.settingsTab.Get() == s.ID }
@@ -78,7 +79,8 @@ func (a *app) settingsPane() core.Node {
 						}
 						return colors.Muted()
 					}),
-					core.Text{Content: apptext.T(s.Label), Style: core.Style{FontSize: 12.5},
+					core.Text{Content: apptext.T(s.Label), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+						Style: core.Style{FontSize: 12.5, FlexShrink: 1, MinWidth: core.Pt(0)},
 						StyleFunc: func() core.Style {
 							w := ui.Regular
 							if on() {
@@ -89,11 +91,10 @@ func (a *app) settingsPane() core.Node {
 				},
 			}
 		})
-		if s.Config {
-			config = append(config, row)
-		} else {
-			system = append(system, row)
+		if _, exists := rowsByGroup[s.Group]; !exists {
+			groups = append(groups, s.Group)
 		}
+		rowsByGroup[s.Group] = append(rowsByGroup[s.Group], row)
 	}
 	group := func(label string, rows []core.Node) core.Node {
 		return core.View{Style: core.Style{Gap: 2}, Children: append([]core.Node{
@@ -102,14 +103,17 @@ func (a *app) settingsPane() core.Node {
 				StyleFunc: ui.Colored(colors.Muted)},
 		}, rows...)}
 	}
-	nav := []core.Node{group("系统设置", system), group("配置管理", config)}
+	var nav []core.Node
+	for _, title := range groups {
+		nav = append(nav, group(title, rowsByGroup[title]))
+	}
 	return core.View{TestID: "settings", StyleFunc: func() core.Style {
 		return core.Style{Direction: core.Row, FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), MinWidth: core.Pt(0),
 			Background: colors.Background()}
 	}, Children: []core.Node{
 		// rail
 		core.View{StyleFunc: func() core.Style {
-			return core.Style{Width: core.Pt(176), Padding: core.All(10), Gap: 2, FlexShrink: 0,
+			return core.Style{Width: core.Pt(200), Padding: core.All(10), Gap: 2, FlexShrink: 0,
 				Background: colors.Inset(), Borders: core.Edges{Right: 1}, BorderColors: core.EdgeColors{Right: colors.Now().Line}}
 		}, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Left: 9, Top: 4, Bottom: 8}}, Children: []core.Node{
