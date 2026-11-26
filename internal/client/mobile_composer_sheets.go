@@ -133,22 +133,22 @@ func (a *mobileApp) runDraftTool(tool string) {
 func (a *mobileApp) drawImage() {
 	a.composerPlusOpen.Set(false)
 	id := a.active.GetUntracked()
-	prompt := strings.TrimSpace(a.draft.GetUntracked())
+	draft := a.draft.GetUntracked()
+	prompt := strings.TrimSpace(draft)
 	client := a.client
 	if id == "" || client == nil || prompt == "" || a.aiBusy.GetUntracked() != "" {
 		return
 	}
+	visit := a.sessionSeq
 	wasImageMode := a.mode.GetUntracked() == modeImage
 	a.aiBusy.Set("image")
 	go func() {
 		pictures, err := client.drawImage(id, prompt)
-		if err == nil && wasImageMode {
-			// The picture is the result, not another description: leave
-			// image mode once it is drawn, as the desktop does.
-			_, _ = client.setMode(id, modeNormal)
-		}
 		a.cx.Post(func() {
 			a.aiBusy.Set("")
+			if a.client != client || visit != a.sessionSeq || a.active.GetUntracked() != id {
+				return
+			}
 			if err != nil {
 				a.sendErr.Set(remoteErrorText(err))
 				return
@@ -173,9 +173,26 @@ func (a *mobileApp) drawImage() {
 				return
 			}
 			a.pending.Set(list)
-			a.draft.Set("")
-			if wasImageMode {
-				a.mode.Set("")
+			if a.draft.GetUntracked() == draft {
+				a.draft.Set("")
+			}
+			if wasImageMode && a.mode.GetUntracked() == modeImage {
+				// Only leave image mode while this visit still owns it.
+				a.aiBusy.Set("image")
+				go func() {
+					echo, err := client.setMode(id, modeNormal)
+					a.cx.Post(func() {
+						a.aiBusy.Set("")
+						if a.client != client || visit != a.sessionSeq || a.active.GetUntracked() != id || a.mode.GetUntracked() != modeImage {
+							return
+						}
+						if err != nil {
+							a.sendErr.Set(remoteErrorText(err))
+							return
+						}
+						a.mode.Set(echo)
+					})
+				}()
 			}
 			a.flash(apptext.T("已生成图片"))
 		})

@@ -149,12 +149,16 @@ func (a *mobileApp) openInitOptions() {
 	case a.initSending.GetUntracked():
 		return
 	}
+	visit := a.sessionSeq
 	a.initSending.Set(true)
 	a.err.Set("")
 	go func() {
 		id, title, err := client.createSession(project)
 		a.cx.Post(func() {
 			a.initSending.Set(false)
+			if a.client != client || visit != a.sessionSeq || a.active.GetUntracked() != "" {
+				return
+			}
 			if err != nil {
 				a.err.Set(remoteErrorText(err))
 				return
