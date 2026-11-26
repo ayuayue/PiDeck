@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { FAVORITE_ENTRY_LIMIT, FAVORITE_META_MAX_CHARS, FAVORITE_SESSION_TITLE_MAX_CHARS, FAVORITE_TEXT_MAX_CHARS, type FavoriteEntry, type FavoriteKind, type FavoriteRole } from "../../shared/types";
+import { readRepairableJsonFile } from "../persistence/durableJsonStore";
 import type { NormalizedFavoriteInput } from "./favoriteInput";
 
 /**
@@ -99,18 +100,9 @@ export class FavoritesStore {
 	constructor(private readonly filePath: string) {}
 
 	async load(): Promise<FavoriteEntry[]> {
-		let shouldRepair = false;
-		try {
-			const raw = await readFile(this.filePath, "utf8");
-			const normalized = normalizeState(JSON.parse(raw) as unknown);
-			this.state = normalized.state;
-			shouldRepair = normalized.changed;
-		} catch {
-			// 文件缺失 / 被截断 / 手改坏：收藏是可选功能，解析失败按空列表重建，不阻断启动。
-			this.state = { version: STORE_VERSION, entries: [] };
-			shouldRepair = true;
-		}
-		if (shouldRepair) await this.persist();
+		const { state, changed } = normalizeState(await readRepairableJsonFile(this.filePath));
+		this.state = state;
+		if (changed) await this.persist();
 		return this.list();
 	}
 
