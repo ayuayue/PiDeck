@@ -1,4 +1,10 @@
 {
+  "应用内 HTTP 请求（如供应商检测、余额与飞书）使用此代理；留空直连。Git 留空时仍继承启动环境。": "Proxy des requêtes HTTP de l’application (vérification des fournisseurs, soldes, Feishu). Vide : connexion directe. Git hérite toujours de son environnement de lancement si ce champ est vide.",
+  "为之后启动的本机 pi 与 ACP 设置代理；留空继承启动环境，不会清除已有代理。": "Définit le proxy des prochains processus pi et ACP locaux. Un champ vide hérite de l’environnement de lancement sans supprimer un proxy existant.",
+  "NO_PROXY：逗号分隔域名、IP 或网段；配置代理时应用此名单，应用与本机 Agent 共用。": "NO_PROXY : domaines, adresses IP ou réseaux séparés par des virgules. Utilisé lorsqu’un proxy est configuré ; partagé par l’application et les agents locaux.",
+  "修改后按回车或移开焦点保存。应用代理立即用于后续请求；Agent 代理需重新启动对应进程。": "Appuyez sur Entrée ou quittez le champ pour enregistrer. Le proxy de l’application s’applique immédiatement aux nouvelles requêtes ; redémarrez le processus concerné pour celui de l’agent.",
+  "未找到 pi：%s": "pi introuvable : %s",
+  "连不上或没有 pi：%s": "Connexion impossible ou pi absent : %s",
   "默认思考等级": "Niveau de réflexion par défaut",
   "请输入非负整数；留空或填 0 使用 pi 默认值。": "Saisissez un entier positif ou nul. Un champ vide ou 0 utilise la valeur par défaut de pi.",
   "写入 pi 的全局默认值；新建 pi 会话时，「通用」中的思考等级可覆盖此值。": "Définit le niveau de réflexion global de pi. Pour les nouvelles sessions pi, le niveau défini dans Général peut le remplacer.",

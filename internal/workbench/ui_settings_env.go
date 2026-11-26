@@ -59,7 +59,7 @@ func (a *app) settingsEnv() core.Node {
 			ok := d.PiPath != ""
 			status := d.PiPath
 			if !ok {
-				status = "未找到 pi：" + viewkit.FirstLine(d.Error, 60)
+				status = apptext.T("未找到 pi：%s", d.Error)
 			}
 			rows = append(rows, targetStatusRow("WSL", d.Name, status, ok))
 		}
@@ -67,7 +67,7 @@ func (a *app) settingsEnv() core.Node {
 			ok := h.PiPath != ""
 			status := h.PiPath
 			if !ok {
-				status = "连不上或没有 pi：" + viewkit.FirstLine(h.Error, 60)
+				status = apptext.T("连不上或没有 pi：%s", h.Error)
 			}
 			rows = append(rows, targetStatusRow("SSH", h.Name, status, ok))
 		}
@@ -96,7 +96,7 @@ func (a *app) settingsEnv() core.Node {
 				BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6},
 		})
 		proxyField := func(value func() string, set func(string), placeholder, label, testID string) core.Node {
-			return core.Input{Value: value, Placeholder: placeholder, Label: label, TestID: testID,
+			return core.Input{Value: value, Placeholder: placeholder, Label: apptext.T(label), TestID: testID,
 				OnChange: set,
 				OnSubmit: func(string) { a.applyProxy(); a.saveConfigAsync() },
 				OnBlur:   func() { a.applyProxy(); a.saveConfigAsync() },
@@ -105,21 +105,21 @@ func (a *app) settingsEnv() core.Node {
 					BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6}}
 		}
 		proxyRows := []core.Node{
-			setRow("应用请求代理", "供应商测试/余额、飞书与 Git 的网络请求；留空直连。", proxyField(
+			setRow("应用请求代理", "应用内 HTTP 请求（如供应商检测、余额与飞书）使用此代理；留空直连。Git 留空时仍继承启动环境。", proxyField(
 				func() string { return a.cfg.ProxyApp },
 				func(v string) {
 					a.cfg.ProxyApp = v
 					a.st.change(func(c *config) { c.ProxyApp = v })
 				}, "http://127.0.0.1:7890", "应用请求代理", "proxy-app")),
 			setDivider(),
-			setRow("Agent 代理", "启动 pi 与 ACP 时写入 HTTP(S)_PROXY；重启 Agent 后生效。", proxyField(
+			setRow("Agent 代理", "为之后启动的本机 pi 与 ACP 设置代理；留空继承启动环境，不会清除已有代理。", proxyField(
 				func() string { return a.cfg.ProxyAgent },
 				func(v string) {
 					a.cfg.ProxyAgent = v
 					a.st.change(func(c *config) { c.ProxyAgent = v })
 				}, "http://127.0.0.1:7890", "Agent 代理", "proxy-agent")),
 			setDivider(),
-			setRow("直连名单", "NO_PROXY，逗号分隔域名或网段；两侧共用。", proxyField(
+			setRow("直连名单", "NO_PROXY：逗号分隔域名、IP 或网段；配置代理时应用此名单，应用与本机 Agent 共用。", proxyField(
 				func() string { return a.cfg.ProxyBypass },
 				func(v string) {
 					a.cfg.ProxyBypass = v
@@ -130,10 +130,10 @@ func (a *app) settingsEnv() core.Node {
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: scrollbarGutter}, Gap: 2}, Children: []core.Node{
 				setGroup("本机", probeRows, editorRow),
 				setGroup("网络代理", proxyRows...),
-				core.Text{Content: apptext.T("应用代理只影响应用自己发出的请求；Agent 代理在启动进程时注入环境变量。"),
-					Style: core.Style{FontSize: 11, LineHeight: 17}, StyleFunc: ui.Colored(colors.Faint)},
+				core.Text{Content: apptext.T("修改后按回车或移开焦点保存。应用代理立即用于后续请求；Agent 代理需重新启动对应进程。"),
+					Style: core.Style{FontSize: 11, LineHeight: 17}, StyleFunc: ui.Colored(colors.Muted)},
 				setGroup("其它机器", targetRows),
-				core.View{Style: core.Style{Direction: core.Row, Gap: 8, Margin: core.Edges{Top: 4}}, Children: []core.Node{
+				core.View{TestID: "env-target-actions", Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 8, Margin: core.Edges{Top: 4}}, Children: []core.Node{
 					ui.Button{Text: apptext.T("添加 WSL 工作区"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() {
 						a.closePane(paneSettings)
 						a.openTargetDialog(targetWSL)
@@ -157,19 +157,19 @@ func targetStatusRow(kind, name, status string, ok bool) core.Node {
 		if kind == "WSL" {
 			icon = lucide.Monitor
 		}
-		ink := colors.Faint()
+		ink := colors.Muted()
 		if !ok {
 			ink = colors.Danger()
 		}
-		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(30),
-			Padding: core.Symmetric(2, 2)}, Children: []core.Node{
+		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignStart, Gap: 8, MinHeight: core.Pt(30),
+			Padding: core.Symmetric(4, 2)}, Children: []core.Node{
 			ui.IconOf(icon, 13, colors.Muted),
 			ui.Text(kind, 9.5, ui.Medium, colors.Faint),
-			core.Text{Content: name, Style: core.Style{FlexGrow: 0, FontSize: 12}, StyleFunc: ui.Colored(colors.Text)},
-			core.View{Style: core.Style{FlexGrow: 1}},
-			core.Text{Content: shorten(status, 52), MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-				Style:     core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10.5},
-				StyleFunc: ui.Colored(func() core.Color { return ink })},
+			core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 2}, Children: []core.Node{
+				core.Text{Content: name, Style: core.Style{FontSize: 12, LineHeight: 17}, StyleFunc: ui.Colored(colors.Text)},
+				core.Text{Content: status, Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10.5, LineHeight: 16},
+					StyleFunc: ui.Colored(func() core.Color { return ink })},
+			}},
 		}}
 	})
 }

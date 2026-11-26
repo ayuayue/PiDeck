@@ -1,4 +1,10 @@
 {
+  "应用内 HTTP 请求（如供应商检测、余额与飞书）使用此代理；留空直连。Git 留空时仍继承启动环境。": "Routes the app's HTTP requests (such as provider checks, balances, and Feishu). Leave empty for a direct connection. Git still inherits its launch environment when empty.",
+  "为之后启动的本机 pi 与 ACP 设置代理；留空继承启动环境，不会清除已有代理。": "Sets the proxy for local pi and ACP processes started afterward. Leaving it empty inherits the launch environment and does not remove an existing proxy.",
+  "NO_PROXY：逗号分隔域名、IP 或网段；配置代理时应用此名单，应用与本机 Agent 共用。": "NO_PROXY: comma-separated domains, IP addresses, or networks. Used when a proxy is configured; shared by the app and local agents.",
+  "修改后按回车或移开焦点保存。应用代理立即用于后续请求；Agent 代理需重新启动对应进程。": "Press Enter or leave the field to save. The application proxy applies to subsequent requests immediately; restart the relevant process for the agent proxy.",
+  "未找到 pi：%s": "pi not found: %s",
+  "连不上或没有 pi：%s": "Cannot connect or pi is missing: %s",
   "默认思考等级": "Default thinking level",
   "请输入非负整数；留空或填 0 使用 pi 默认值。": "Enter a non-negative integer. Leave blank or enter 0 to use the pi default.",
   "写入 pi 的全局默认值；新建 pi 会话时，「通用」中的思考等级可覆盖此值。": "Sets the global pi default. The thinking level under General can override it for new pi sessions.",
