@@ -37,7 +37,7 @@ func TestPluginDuplicateIDsKeepIdentityAndBlockAllContributions(t *testing.T) {
 			t.Errorf("conflict ID=%q, error=%q; want unchanged ID and visible error", p.ID, p.Error)
 		}
 	}
-	if added, _ := resolvePluginKeybindings(map[string]string{}, plugins); len(added) != 0 {
+	if added, _ := resolvePluginKeybindings(map[string]string{}, plugins, nil); len(added) != 0 {
 		t.Errorf("conflicting plugins bound keys: %+v", added)
 	}
 	for _, th := range a.loadThemes(plugins) {

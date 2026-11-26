@@ -58,6 +58,7 @@ func (a *app) resolveKeybindings() (map[string]string, []keyBinding, []string) {
 			}
 		}
 		if strings.TrimSpace(key) == "" {
+			all = append(all, keyBinding{Command: cmd, Source: "用户"})
 			continue
 		}
 		nk := normalizeKey(key)
@@ -69,16 +70,16 @@ func (a *app) resolveKeybindings() (map[string]string, []keyBinding, []string) {
 		all = append(all, keyBinding{Command: cmd, Key: key, Source: "用户"})
 	}
 	if a.plugins != nil {
-		added, more := resolvePluginKeybindings(keyToCmd, a.plugins.GetUntracked())
+		added, more := resolvePluginKeybindings(keyToCmd, a.plugins.GetUntracked(), user)
 		all = append(all, added...)
 		conflicts = append(conflicts, more...)
 	}
 	return keyToCmd, all, conflicts
 }
 
-// resolvePluginKeybindings takes the free keys a plugin asks for. It is
-// separate from the app so the rules can be tested without a window.
-func resolvePluginKeybindings(keyToCmd map[string]string, plugins []plugin) ([]keyBinding, []string) {
+// resolvePluginKeybindings takes free keys for commands without a user
+// override. Empty user values explicitly unbind the command.
+func resolvePluginKeybindings(keyToCmd map[string]string, plugins []plugin, overrides map[string]string) ([]keyBinding, []string) {
 	var all []keyBinding
 	var conflicts []string
 	for _, p := range plugins {
@@ -101,6 +102,9 @@ func resolvePluginKeybindings(keyToCmd map[string]string, plugins []plugin) ([]k
 			// references to other built-ins keep their existing meaning.
 			if !strings.Contains(cmd, ":") && (local || !isBuiltinCommand(cmd)) {
 				cmd = pluginCommandID(p.ID, cmd)
+			}
+			if _, overridden := overrides[cmd]; overridden {
+				continue
 			}
 			nk := normalizeKey(kb.Key)
 			if other, taken := keyToCmd[nk]; taken {

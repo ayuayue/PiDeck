@@ -46,6 +46,9 @@ func (a *app) loadMCPServers(force bool) {
 
 // openMCPAdd shows the add dialog with empty fields.
 func (a *app) openMCPAdd() {
+	if a.mcpAddBusy.GetUntracked() {
+		return
+	}
 	a.mcpName.Set("")
 	a.mcpURL.Set("")
 	a.mcpCommand.Set("")
@@ -61,7 +64,8 @@ func (a *app) addMCPServer() {
 	if a.mcpAddBusy.GetUntracked() {
 		return
 	}
-	args, err := mcpAddArgs(a.mcpName.GetUntracked(), a.mcpCommand.GetUntracked(),
+	name := a.mcpName.GetUntracked()
+	args, err := mcpAddArgs(name, a.mcpCommand.GetUntracked(),
 		a.mcpURL.GetUntracked(), a.mcpDesc.GetUntracked(), a.mcpLocal.GetUntracked())
 	if err != nil {
 		a.mcpAddErr.Set(err.Error())
@@ -89,7 +93,7 @@ func (a *app) addMCPServer() {
 				return
 			}
 			a.mcpAddOpen.Set(false)
-			a.toast(ui.ToastSuccess, "已添加 MCP 服务器", a.mcpName.GetUntracked())
+			a.toast(ui.ToastSuccess, "已添加 MCP 服务器", name)
 			a.loadMCPServers(true)
 		})
 	}()
@@ -251,11 +255,16 @@ func (a *app) mcpDialog() core.Node {
 				StyleFunc: ui.Colored(colors.Danger)}
 		}
 		return ui.Dialog{
-			Open:         a.mcpAddOpen.Get,
-			OnOpenChange: func(open bool, _ base.Reason) { a.mcpAddOpen.Set(open) },
-			Title:        apptext.T("添加 MCP 服务器"),
-			TestID:       "mcp-dialog",
-			Style:        core.Style{Width: a.dialogWidth()},
+			Open: a.mcpAddOpen.Get,
+			OnOpenChange: func(open bool, _ base.Reason) {
+				if !a.mcpAddBusy.GetUntracked() {
+					a.mcpAddOpen.Set(open)
+				}
+			},
+			Title:           apptext.T("添加 MCP 服务器"),
+			TestID:          "mcp-dialog",
+			NoCloseOnEscape: busy, NoCloseOnBackdropPress: busy,
+			Style: core.Style{Width: a.dialogWidth()},
 			Children: []core.Node{core.View{Style: core.Style{Gap: 10}, Children: []core.Node{
 				field("名字", "server-name", "mcp-name", a.mcpName),
 				field("URL（HTTP）", "https://…/mcp", "mcp-url", a.mcpURL),
@@ -272,9 +281,9 @@ func (a *app) mcpDialog() core.Node {
 			}}},
 			Footer: []core.Node{
 				ui.Button{Text: apptext.T("取消"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "mcp-cancel",
-					OnPress: func() { a.mcpAddOpen.Set(false) }},
+					Disabled: a.mcpAddBusy.Get, OnPress: func() { a.mcpAddOpen.Set(false) }},
 				ui.Button{Text: apptext.T("添加"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "mcp-add-go",
-					Disabled: func() bool { return busy }, OnPress: a.addMCPServer},
+					Disabled: func() bool { return busy }, Busy: a.mcpAddBusy.Get, OnPress: a.addMCPServer},
 			},
 		}
 	})

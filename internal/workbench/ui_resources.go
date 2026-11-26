@@ -78,7 +78,12 @@ func (a *app) settingsResources() core.Node {
 					Size: ui.SizeSmall, TestID: "extension-toggle-" + strings.ReplaceAll(ex.Bare, ":", "-"),
 					OnChange: func(on bool) { a.toggleExtension(ex.Bare, on) }}
 			} else {
-				control = ui.Text(apptext.T("自动加载"), 10, ui.Regular, colors.Faint)
+				state := "自动加载"
+				if !ex.Enabled {
+					state = "已停用"
+				}
+				control = core.Text{Content: apptext.T(state), TestID: "extension-status-" + strings.ReplaceAll(ex.Bare, ":", "-"),
+					Style: core.Style{FontSize: 10, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Muted)}
 			}
 			extRows = append(extRows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 9,
 				MinHeight: core.Pt(38), Padding: core.Symmetric(3, 2)}, Children: []core.Node{

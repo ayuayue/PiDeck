@@ -293,7 +293,7 @@ func TestBuiltinPluginExamplesInstallOfflineAndCoverContributions(t *testing.T) 
 			len(p.Contributes.Keybindings) == 0 || len(p.Contributes.Hooks) == 0 || len(p.Contributes.Agents) == 0 {
 			t.Fatalf("incomplete example %s: %+v", entry.ID, p)
 		}
-		if _, conflicts := resolvePluginKeybindings(keys, []plugin{p}); len(conflicts) != 0 {
+		if _, conflicts := resolvePluginKeybindings(keys, []plugin{p}, nil); len(conflicts) != 0 {
 			t.Errorf("example %s has key conflicts: %v", entry.ID, conflicts)
 		}
 		// Persisted bytes, not normalized copies, are the editable examples.

@@ -152,7 +152,7 @@ func TestPluginKeybindings(t *testing.T) {
 			{Command: "x", Key: "mod+alt+x"},
 		}}},
 	}
-	added, conflicts := resolvePluginKeybindings(base, plugins)
+	added, conflicts := resolvePluginKeybindings(base, plugins, nil)
 	if base["mod+shift+r"] != "plugin:team:review" {
 		t.Fatalf("plugin-local command not prefixed: %v", base)
 	}

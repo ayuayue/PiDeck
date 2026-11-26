@@ -153,7 +153,7 @@ func (a *app) settingsAddons() core.Node {
 				setGroup("插件", rows...),
 				core.Text{Content: apptext.T("插件声明命令、设置、主题、键位、事件钩子和智能体；只执行宿主提供的动作，不运行插件代码。"),
 					Style: core.Style{FontSize: 11, LineHeight: 17}, StyleFunc: ui.Colored(colors.Faint)},
-				core.View{Style: core.Style{Direction: core.Row, Gap: 8, Margin: core.Edges{Top: 4}}, Children: []core.Node{
+				core.View{TestID: "plugin-actions", Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 8, Margin: core.Edges{Top: 4}}, Children: []core.Node{
 					ui.Button{Text: apptext.T("新建插件…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "plugin-new",
 						OnPress: a.openPluginNew},
 					ui.Button{Text: apptext.T("插件市场…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "plugin-market-open",
