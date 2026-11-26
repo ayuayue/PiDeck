@@ -38,11 +38,25 @@ type session struct {
 	draft       *core.Signal[string]
 	draftChange *core.Signal[*viewkit.DraftChange]
 	images      *core.Signal[[]remotewire.Image]
-	model       *core.Signal[modelInfo]
-	models      *core.Signal[[]modelInfo]
-	modelsBusy  *core.Signal[bool]
-	thinking    *core.Signal[string]
-	levels      *core.Signal[[]string]
+	// composing is the input method's text that is drawn but not committed
+	// yet. A voice input method can hold a whole sentence there; Send counts
+	// it as the draft so the button is not dead while it waits.
+	composing *core.Signal[string]
+	// pasteFiles are long pastes kept out of the field: each one is written
+	// to the app's data directory, shown as a chip, and folded into the
+	// prompt when the message is sent.
+	pasteFiles *core.Signal[[]pastedText]
+	// pendingPaste is the text a long paste is about to put in the field.
+	// Its edit is undone so the text lives in the chip alone.
+	pendingPaste string
+	// sentComposition is the composing text a send already took; the edit
+	// that commits it is dropped instead of landed back in the field.
+	sentComposition string
+	model           *core.Signal[modelInfo]
+	models          *core.Signal[[]modelInfo]
+	modelsBusy      *core.Signal[bool]
+	thinking        *core.Signal[string]
+	levels          *core.Signal[[]string]
 	// usage is what the session has spent, and perf how fast its last
 	// reply came and how much of every prompt the cache served.
 	usage   *core.Signal[usageInfo]

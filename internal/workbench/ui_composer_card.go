@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"example.com/pideck-v2/internal/apptext"
-	"example.com/pideck-v2/internal/remotewire"
 	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
@@ -101,7 +100,9 @@ func (a *app) chatSurface(cx *core.Scope, s *session, selection *chatSelection) 
 	}).Get
 	var editor core.Ref
 	// Moving the mounted input preserves its native caret, focus, and draft.
-	stack := core.NewHolder(cx, func(*core.Scope) core.Node { return a.composerStack(s, column, &editor) })
+	stack := core.NewHolder(cx, func(*core.Scope) core.Node {
+		return a.composerStack(s, column, func() core.Points { return size.Get().Height }, &editor)
+	})
 	return core.View{TestID: "transcript", Style: ui.FillRest, OnLayout: func(b core.Bounds) {
 		selection.resized(b)
 		size.Set(b.Size)
@@ -174,17 +175,41 @@ type composerSuggestion struct {
 	Icon func() *core.SVG
 }
 
+// composerMaxHeight is how tall the growing field may get: the transcript
+// keeps the room above it, and a message this long turns into a file anyway.
+func composerMaxHeight(surface core.Points) core.Points {
+	if surface <= 0 {
+		return 420
+	}
+	return max(core.Points(240), surface*0.6)
+}
+
 // composer is the input card and its footer, floating under the transcript.
-func (a *app) composer(s *session, ref *core.Ref) core.Node {
+func (a *app) composer(s *session, ref *core.Ref, surface func() core.Points) core.Node {
 	return core.Func(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
 		font := a.composerFont()
 		line := a.composerLine()
-		height := core.NewSignal(cx, max(core.Points(48), line))
+		contentHeight := core.NewSignal(cx, max(core.Points(48), line+4))
+		attachmentsHeight := core.NewSignal(cx, core.Points(0))
 		focused, dragging := core.NewSignal(cx, false), core.NewSignal(cx, false)
 		controlsWidth := core.NewSignal(cx, core.Points(0))
 		trailingWidth := core.NewSignal(cx, core.Points(0))
+		textScroll := core.NewSignal(cx, core.Points(0))
+		commandNames := a.composerCommandNames(cx, s)
+		tokens := core.NewMemoFunc(cx, func() []composerToken {
+			a.filesRev.Get()
+			return composerTokens(s.draft.Get(), a.workspaceFiles(s.WS), commandNames())
+		}, nil)
+		selected := core.NewSignal(cx, false)
+		highlighted := func() bool {
+			return !selected.Get() && s.composing.Get() == "" && len(tokens.Get()) > 0 &&
+				(cx.Env().OS() != core.OSWindows || !focused.Get())
+		}
 		empty := func() bool { return strings.TrimSpace(s.draft.Get()) == "" }
+		hasMessage := func() bool {
+			return !empty() || len(s.images.Get()) > 0 || pastedTextComposing(s) != "" || len(pastedFiles(s)) > 0
+		}
 		imageBusy := func() bool { return a.aiBusy.Get() == "image" }
 		shell := func() (string, bool) {
 			if s.agentMode.Get() == modeImage {
@@ -199,7 +224,12 @@ func (a *app) composer(s *session, ref *core.Ref) core.Node {
 			if script, ok := shell(); ok {
 				return script != "" && len(s.images.Get()) == 0
 			}
-			return !empty() && !imageBusy()
+			if modeOn(s, modeImage) {
+				return !empty() && !imageBusy()
+			}
+			// A picture, dictation still in the input method, or a long
+			// paste is a message of its own.
+			return hasMessage() && !imageBusy()
 		}
 		send := func() {
 			if canSend() {
@@ -209,6 +239,25 @@ func (a *app) composer(s *session, ref *core.Ref) core.Node {
 		suggest, listed := core.NewSuggest(cx, core.SuggestOptions{}), core.NewSignal(cx, false)
 		var shown []composerSuggestion
 		editor := base.Input{Ref: ref, Value: s.draft.Get, OnChange: func(text string) {
+			// The commit of a composition Send already took lands nowhere.
+			if s.sentComposition != "" {
+				if text == s.sentComposition {
+					s.sentComposition = ""
+					clearComposing(s)
+					s.draft.Set("")
+					return
+				}
+				s.sentComposition = ""
+			}
+			// A long paste is a chip, not field text: undo the edit that
+			// put it here.
+			if chunk := s.pendingPaste; chunk != "" {
+				s.pendingPaste = ""
+				if stripped, ok := stripPastedText(s.draft.GetUntracked(), text, chunk); ok {
+					s.draft.Set(stripped)
+					return
+				}
+			}
 			s.draft.Set(text)
 			// Writing the first words is what engages a blank session: pi boots
 			// while the prompt is still being typed, and its own controls (the
@@ -219,35 +268,79 @@ func (a *app) composer(s *session, ref *core.Ref) core.Node {
 		}, Multiline: true, SubmitBehavior: core.SubmitBehaviorSubmit,
 			Label: apptext.T("消息"), PlaceholderFunc: a.composerPlaceholder(s), TestID: "composer", Suggest: suggest,
 			OnSubmit: func(string) { send() },
-			OnPaste: func(e core.PasteEvent) {
-				for _, f := range e.Files {
-					if strings.HasPrefix(f.MIME, "image/") && len(f.Data) > 0 {
-						a.addImage(s, remotewire.Image{Data: f.Data, MimeType: f.MIME, Name: f.Name})
-					}
+			OnPaste:  func(e core.PasteEvent) { a.pasteInto(s, e) },
+			OnCompositionChange: func(c core.Composition) {
+				if c.Composing {
+					setComposing(s, c.Text)
+					return
 				}
-				for _, uri := range e.URIs {
-					a.dropFiles(s, []string{uri})
-				}
+				clearComposing(s)
 			},
-			OnFocus: func() { focused.Set(true) },
-			OnBlur:  func() { focused.Set(false) },
-			OnContentSizeChange: func(size core.Size) {
-				height.Set(min(10*line, max(core.Points(48), max(line, size.Height))))
-			},
-			Style: core.Style{Padding: core.Edges{Top: 4, Right: 14, Left: 14}, MinHeight: core.Pt(line + 4),
+			OnFocus:             func() { focused.Set(true) },
+			OnBlur:              func() { focused.Set(false) },
+			OnContentSizeChange: func(size core.Size) { contentHeight.Set(size.Height + 4) },
+			OnScroll:            func(e core.ScrollEvent) { textScroll.Set(e.Offset.Y) },
+			OnSelectionChange:   func(r core.TextRange) { selected.Set(r.Start != r.End) },
+			// Explicit height bounds the native multiline control as well as
+			// its layout node, including after the viewport changes size.
+			Style: core.Style{Padding: core.Edges{Top: 4, Right: 14, Left: 14},
 				FontSize: font, LineHeight: line, TextAlignVertical: core.TextAlignVerticalTop},
 			StyleFunc: func() core.Style {
-				return core.Style{Height: core.Pt(height.Get() + 4), Color: colors.Text(), PlaceholderColor: colors.Muted(),
+				limit := max(core.Points(48), composerMaxHeight(surface())-attachmentsHeight.Get())
+				height := min(max(max(core.Points(48), line+4), contentHeight.Get()), limit)
+				ink, opacity := colors.Text(), core.Alpha(1)
+				if highlighted() {
+					if cx.Env().OS() == core.OSWindows {
+						// RichEdit ignores text alpha. Only replace its painting
+						// while unfocused; editing and IME remain fully native.
+						opacity = core.Alpha(0)
+					} else {
+						ink = core.Transparent
+					}
+				}
+				return core.Style{Height: core.Pt(height), Color: ink, Opacity: opacity, PlaceholderColor: colors.Muted(),
 					SelectionColor: cx.Palette().Selection, CaretColor: colors.Accent()}
 			},
 			Role: core.RoleCombobox, Expanded: listed.Get,
 		}
 		var body []core.Node
-		body = append(body, core.Show{When: func() bool { return len(s.images.Get()) > 0 }, Then: func(*core.Scope) core.Node {
-			return core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6, Padding: core.Edges{Right: 10, Bottom: 6, Left: 10}},
-				Children: []core.Node{core.Func(a.attachments(s))}}
+		body = append(body, core.Show{When: func() bool { return len(s.images.Get()) > 0 || len(pastedFiles(s)) > 0 },
+			Then: func(*core.Scope) core.Node {
+				return core.Scroll{TestID: "composer-attachments", OnLayout: func(b core.Bounds) { attachmentsHeight.Set(b.Size.Height) },
+					StyleFunc: func() core.Style {
+						return core.Style{MaxHeight: core.Pt(min(120, composerMaxHeight(surface())/3)), FlexShrink: 0}
+					},
+					Children: []core.Node{core.View{Style: core.Style{Gap: 6, Padding: core.Edges{Right: 10, Bottom: 6, Left: 10}},
+						Children: []core.Node{
+							core.Show{When: func() bool { return len(s.images.Get()) > 0 }, Then: func(*core.Scope) core.Node {
+								return core.Func(a.attachments(s))
+							}},
+							a.pastedTextStrip(s),
+						}}}}
+			}, Else: func(*core.Scope) core.Node { attachmentsHeight.Set(0); return core.Group{} },
+		})
+		// The native field keeps editing, selection and IME. A pointer-free
+		// text layer adds color at the same font, padding, wrap and scroll.
+		body = append(body, core.View{Style: core.Style{Position: core.Relative, Overflow: core.Hidden}, Children: []core.Node{
+			editor,
+			core.Show{When: highlighted, Then: func(*core.Scope) core.Node {
+				return core.Text{TestID: "composer-highlight", PointerEvents: core.PointerEventsNone,
+					Style:     core.Style{Position: core.Absolute, Left: core.Pt(14), Right: core.Pt(14), FontSize: font, LineHeight: line},
+					StyleFunc: func() core.Style { return core.Style{Top: core.Pt(4 - textScroll.Get()), Color: colors.Text()} },
+					SpansFunc: func() []core.Span {
+						text := s.draft.Get()
+						var spans []core.Span
+						last := 0
+						for _, token := range tokens.Get() {
+							spans = append(spans, core.Span{Content: text[last:token.start]},
+								core.Span{Content: text[token.start:token.end], Style: core.Style{Color: colors.Accent()}})
+							last = token.end
+						}
+						return append(spans, core.Span{Content: text[last:]})
+					},
+				}
+			}},
 		}})
-		body = append(body, editor)
 		body = append(body, ui.SuggestList{Suggest: suggest, Placement: core.PlaceTop, Label: apptext.T("文件"), TestID: "composer-suggestions",
 			Items: func(query string) []base.SuggestItem {
 				shown = a.composerSuggestions(s, query)
@@ -274,11 +367,11 @@ func (a *app) composer(s *session, ref *core.Ref) core.Node {
 						core.Func(a.composerTrailing(s)),
 						core.Dynamic(func(cx *core.Scope) core.Node {
 							if s.retryPending() {
-								return composerPill(cx, apptext.T("重试中"), func() bool { return true },
+								return composerPill(cx, "composer-send", apptext.T("重试中"), func() bool { return true },
 									func() core.Color { return colors.Hover() }, func() core.Color { return colors.Muted() }, func() {})
 							}
-							if s.busy() && empty() {
-								return composerPill(cx, apptext.T("停止"), nil, func() core.Color { return ui.Alpha(colors.Danger(), 0.14) },
+							if s.busy() && !hasMessage() {
+								return composerPill(cx, "composer-stop", apptext.T("停止"), nil, func() core.Color { return ui.Alpha(colors.Danger(), 0.14) },
 									func() core.Color { return colors.Danger() }, func() { a.stop(s) })
 							}
 							label := apptext.T("发送")
@@ -288,7 +381,7 @@ func (a *app) composer(s *session, ref *core.Ref) core.Node {
 							if s.filesLoading() {
 								label = apptext.T("正在读取")
 							}
-							return composerPill(cx, label, func() bool { return !canSend() }, func() core.Color {
+							return composerPill(cx, "composer-send", label, func() bool { return !canSend() }, func() core.Color {
 								if canSend() {
 									return colors.AccentFill()
 								}
@@ -349,8 +442,8 @@ func (a *app) composer(s *session, ref *core.Ref) core.Node {
 
 // composerPill is the compact Send or Stop action, disabled while it
 // cannot run.
-func composerPill(cx *core.Scope, label string, disabled func() bool, background, foreground func() core.Color, press func()) core.Node {
-	return base.Button{Label: label, Disabled: disabled, OnPress: func(core.PressEvent) { press() },
+func composerPill(cx *core.Scope, testID, label string, disabled func() bool, background, foreground func() core.Color, press func()) core.Node {
+	return base.Button{Label: label, TestID: testID, Disabled: disabled, OnPress: func(core.PressEvent) { press() },
 		Style: core.Style{Height: core.Pt(28), Padding: core.Symmetric(0, 12), FlexShrink: 0, CornerRadius: 8,
 			AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Disabled: &core.Style{Cursor: core.CursorDefault}},
 		StyleFunc: func() core.Style {
@@ -390,7 +483,11 @@ func (a *app) composerSuggestions(s *session, query string) []composerSuggestion
 	files := mentionMatches(a.workspaceFiles(s.WS), query, 8)
 	rows := make([]composerSuggestion, 0, len(files))
 	for _, rel := range files {
-		rows = append(rows, composerSuggestion{SuggestItem: base.SuggestItem{ID: rel, Label: rel, Insert: "@" + rel + " "}, Icon: lucide.File})
+		insert := "@" + rel + " "
+		if strings.ContainsAny(rel, " \t") {
+			insert = "@\"" + rel + "\" "
+		}
+		rows = append(rows, composerSuggestion{SuggestItem: base.SuggestItem{ID: rel, Label: rel, Insert: insert}, Icon: lucide.File})
 	}
 	return rows
 }

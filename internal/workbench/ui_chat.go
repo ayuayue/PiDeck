@@ -175,7 +175,7 @@ func (a *app) setTabWidthPct(pct int) {
 }
 
 // composerStack keeps the composer and its bars at the reading width.
-func (a *app) composerStack(s *session, width func() core.Length, editor *core.Ref) core.Node {
+func (a *app) composerStack(s *session, width func() core.Length, height func() core.Points, editor *core.Ref) core.Node {
 	return core.View{Style: core.Style{Width: core.Pct(100), AlignItems: core.AlignCenter}, Children: []core.Node{
 		core.View{TestID: "composer-column", Style: core.Style{Width: core.Pct(100), MinWidth: core.Pt(0)},
 			StyleFunc: func() core.Style { return core.Style{MaxWidth: width()} }, Children: []core.Node{
@@ -186,7 +186,7 @@ func (a *app) composerStack(s *session, width func() core.Length, editor *core.R
 					When: func() bool { return s.showingAsk() != nil },
 					Then: func(*core.Scope) core.Node { return a.askPanel(s) },
 					Else: func(*core.Scope) core.Node {
-						return core.View{Style: core.Style{Gap: 0}, Children: []core.Node{a.queuePanel(s), a.draftChangeBar(s), a.composer(s, editor)}}
+						return core.View{Style: core.Style{Gap: 0}, Children: []core.Node{a.queuePanel(s), a.draftChangeBar(s), a.composer(s, editor, height)}}
 					},
 				},
 			}},

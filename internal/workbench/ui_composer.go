@@ -78,7 +78,7 @@ func composerRow(cx *core.Scope, icon func() *core.SVG, title, detail string, ch
 		children = append(children, ui.Icon(icon, 13, colors.Muted))
 	}
 	body := core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 1}, Children: []core.Node{
-		core.Text{Content: title, MaxLines: 1, Style: core.Style{FontSize: 12.5}, StyleFunc: ui.Colored(colors.Text)},
+		core.Text{Content: title, MaxLines: 1, EllipsizeMode: core.EllipsizeTail, Style: core.Style{FontSize: 12.5}, StyleFunc: ui.Colored(colors.Text)},
 	}}
 	if detail != "" {
 		body.Children = append(body.Children, core.Text{Content: detail, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,

@@ -113,7 +113,7 @@ func (a *app) steer(s *session, text string, images []remotewire.Image) {
 			for i := len(ts) - 1; i >= 0; i-- {
 				if ts[i].running() {
 					ts[i].Steps = append(ts[i].Steps, turnStep{ID: "steer-" + fmt.Sprint(len(ts[i].Steps)),
-						Note: "发送引导：" + viewkit.FirstLine(text, 80)})
+						Note: apptext.T("发送引导"), Text: text})
 					break
 				}
 			}

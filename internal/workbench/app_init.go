@@ -435,6 +435,9 @@ func newApp(cx *core.Scope) *app {
 	a.localToolsExtension = installLocalToolsExtension(st.dir)
 	a.organization.Set(st.organization)
 	a.draftsAtStart = readSessionDrafts(st.dir)
+	// Long pastes outlive their message by a week; older ones go without
+	// holding up the first frame.
+	go cleanupPastedText(st.dir)
 	// The ask extension travels with the app: pi loads it with -e, and its
 	// questions reach the card.
 	askExtensionPath = installAskExtension(st.dir)

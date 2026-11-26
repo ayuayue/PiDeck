@@ -29,7 +29,7 @@ func (a *app) composerAccessory(s *session) chat.View {
 			s.agentMode.Get()
 			var parts []core.Node
 			parts = append(parts, a.composerAddMenu(s))
-			parts = append(parts, hintOf(func() string { return apptext.T("快捷短语") }, composerChip{Icon: lucide.MessageSquareText, Name: apptext.T("快捷短语"), TestID: "composer-quick-messages", OnPress: func() { a.openQuickMessages(s) }}.node()))
+			parts = append(parts, a.quickMessagesPopover(s))
 			if chip := a.composerModeChip(s); chip != nil {
 				parts = append(parts, chip)
 			}
@@ -191,6 +191,37 @@ func (a *app) attachments(s *session) chat.View {
 		}
 		return core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: children}
 	}
+}
+
+// pastedTextStrip shows the long pastes the composer keeps out of the field:
+// one chip each, naming the file they live in and the way out.
+func (a *app) pastedTextStrip(s *session) core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		files := s.pasteFiles.Get()
+		if len(files) == 0 {
+			return nil
+		}
+		colors := ui.ColorsOf(cx)
+		chips := make([]core.Node, 0, len(files))
+		for i, f := range files {
+			idx, file := i, f
+			chips = append(chips, core.View{TestID: "paste-file-chip",
+				StyleFunc: func() core.Style {
+					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Height: core.Pt(26), FlexShrink: 0,
+						Padding: core.Edges{Left: 8, Right: 2}, CornerRadius: 8, BorderWidth: 1, BorderColor: colors.Line(),
+						Background: colors.Inset()}
+				},
+				Children: []core.Node{
+					ui.Icon(lucide.FileText, 12, colors.Muted),
+					core.Text{Content: file.Name + " · " + viewkit.FileSize(int64(file.Bytes)), MaxLines: 1,
+						EllipsizeMode: core.EllipsizeTail,
+						Style:         core.Style{FontSize: 11, MinWidth: core.Pt(0), FlexShrink: 1}, StyleFunc: ui.Colored(colors.Muted)},
+					hintOf(func() string { return apptext.T("移除") }, a.pressIcon(lucide.X, apptext.T("移除"), 20, 10, nil,
+						func() { a.dropPastedText(s, idx) }, "paste-file-remove")),
+				}})
+		}
+		return core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: chips}
+	})
 }
 
 // attachmentTile is one pasted image: the picture opens the preview, and the

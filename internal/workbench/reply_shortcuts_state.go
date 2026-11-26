@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+	"unicode/utf16"
 
 	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/core"
@@ -25,16 +26,20 @@ type replyShortcutState struct {
 }
 
 type replyShortcutForm struct {
-	phrases *core.Signal[string]
-	rules   *core.Signal[[]*replyRuleForm]
-	busy    *core.Signal[bool]
-	message *core.Signal[string]
-	window  *core.Signal[int]
+	phraseRef *core.Ref
+	phrases   *core.Signal[string]
+	rules     *core.Signal[[]*replyRuleForm]
+	busy      *core.Signal[bool]
+	message   *core.Signal[string]
+	window    *core.Signal[int]
+	section   *core.Signal[string]
+	editing   *core.Signal[string]
 }
 
 // Each rule form owns stable signals; typing never changes its row identity.
 type replyRuleForm struct {
 	id                   string
+	textRef              *core.Ref
 	text, when, patterns *core.Signal[string]
 	files                *core.Signal[bool]
 	original             []replyActionTrigger
@@ -139,7 +144,7 @@ func (a *app) makeReplyRuleForm(rule replyActionRule) *replyRuleForm {
 		a.quickReplies.ruleSeq++
 		id += "new-" + strconv.FormatUint(a.quickReplies.ruleSeq, 10)
 	}
-	return &replyRuleForm{id: id, text: core.NewSignal(a.cx, rule.Text), when: core.NewSignal(a.cx, when), patterns: core.NewSignal(a.cx, strings.Join(patterns, "\n")), files: core.NewSignal(a.cx, rule.Requires == "fileEdits"), original: rule.Triggers}
+	return &replyRuleForm{id: id, textRef: new(core.Ref), text: core.NewSignal(a.cx, rule.Text), when: core.NewSignal(a.cx, when), patterns: core.NewSignal(a.cx, strings.Join(patterns, "\n")), files: core.NewSignal(a.cx, rule.Requires == "fileEdits"), original: rule.Triggers}
 }
 
 func (a *app) fillReplyShortcutForm(f *replyShortcutForm, data replyShortcuts) {
@@ -149,15 +154,25 @@ func (a *app) fillReplyShortcutForm(f *replyShortcutForm, data replyShortcuts) {
 		rules = append(rules, a.makeReplyRuleForm(rule))
 	}
 	f.rules.Set(rules)
+	f.editing.Set("")
+	f.window.Set(6)
 }
 
 func (a *app) openReplyShortcutSettings() {
+	a.openReplyShortcutSettingsFor("")
+}
+
+func (a *app) openReplyShortcutSettingsFor(phrase string) {
 	q := a.quickReplies
 	if a.st == nil || q.form.GetUntracked() != nil {
 		return
 	}
 	q.picker.Set(nil)
-	f := &replyShortcutForm{phrases: core.NewSignal(a.cx, ""), rules: core.NewSignalFunc(a.cx, []*replyRuleForm{}, nil), busy: core.NewSignal(a.cx, true), message: core.NewSignal(a.cx, ""), window: core.NewSignal(a.cx, 6)}
+	f := &replyShortcutForm{
+		phraseRef: new(core.Ref), phrases: core.NewSignal(a.cx, ""), rules: core.NewSignalFunc(a.cx, []*replyRuleForm{}, nil),
+		busy: core.NewSignal(a.cx, true), message: core.NewSignal(a.cx, ""), window: core.NewSignal(a.cx, 6),
+		section: core.NewSignal(a.cx, "phrases"), editing: core.NewSignal(a.cx, ""),
+	}
 	q.form.Set(f)
 	a.refreshReplyShortcuts(func(data replyShortcuts) {
 		if q.form.GetUntracked() != f {
@@ -166,6 +181,25 @@ func (a *app) openReplyShortcutSettings() {
 		a.fillReplyShortcutForm(f, data)
 		f.busy.Set(false)
 		f.message.Set(q.message.GetUntracked())
+		if phrase != "" {
+			// Focus after the loaded field is enabled, and select in the
+			// platform's UTF-16 units even when earlier phrases contain emoji.
+			a.cx.Post(func() {
+				if q.form.GetUntracked() != f || f.busy.GetUntracked() {
+					return
+				}
+				value, at := f.phrases.GetUntracked(), 0
+				for _, line := range strings.Split(value, "\n") {
+					if line == phrase {
+						start := len(utf16.Encode([]rune(value[:at])))
+						f.phraseRef.Focus()
+						f.phraseRef.SetSelection(start, start+len(utf16.Encode([]rune(phrase))))
+						return
+					}
+					at += len(line) + 1
+				}
+			})
+		}
 	})
 }
 

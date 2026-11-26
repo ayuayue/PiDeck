@@ -43,6 +43,8 @@ func (a *app) makeSession(m sessionMeta, t target) *session {
 		draft:          core.NewSignal(a.cx, ""),
 		draftChange:    core.NewSignal(a.cx, (*viewkit.DraftChange)(nil)),
 		images:         core.NewSignalFunc(a.cx, []remotewire.Image(nil), nil),
+		composing:      core.NewSignal(a.cx, ""),
+		pasteFiles:     core.NewSignalFunc(a.cx, []pastedText(nil), nil),
 		dropPending:    core.NewSignal(a.cx, 0),
 		model:          core.NewSignal(a.cx, modelInfo{}),
 		models:         core.NewSignalFunc(a.cx, []modelInfo(nil), nil),

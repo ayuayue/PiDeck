@@ -301,8 +301,17 @@ func (a *app) sendDraft(s *session, behavior string) {
 		return
 	}
 	text := strings.TrimSpace(s.draft.GetUntracked())
+	if text == "" {
+		// A voice input method draws its sentence without committing it.
+		// Send takes it as the draft instead of staying dead until Return.
+		if composing := pastedTextComposing(s); composing != "" {
+			text = composing
+			s.sentComposition = composing
+			clearComposing(s)
+		}
+	}
 	images := s.images.GetUntracked()
-	if text == "" && len(images) == 0 {
+	if text == "" && len(images) == 0 && len(pastedFiles(s)) == 0 {
 		return
 	}
 	if modeOf(s) == modeImage {
@@ -321,6 +330,8 @@ func (a *app) sendDraft(s *session, behavior string) {
 		})
 		return
 	}
+	// Long pastes join the message just before it goes, wherever it goes.
+	text = a.foldPastedText(s, text)
 	if behavior == deliveryParallel {
 		s.draft.Set("")
 		s.images.Set(nil)
