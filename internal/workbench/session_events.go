@@ -201,7 +201,8 @@ func (a *app) commitAssistant(s *session, msg piMessage) {
 		run, ok := byID[c.ID]
 		if !ok {
 			action, detail := toolSummary(c.Name, c.Arguments)
-			run = toolRun{CallID: c.ID, Name: c.Name, Action: action, Detail: detail, Status: chat.Running}
+			run = toolRun{CallID: c.ID, Name: c.Name, Action: action, Detail: detail,
+				filePaths: toolFileArgs(c.Arguments), Status: chat.Running}
 		}
 		runs = append(runs, run)
 	}

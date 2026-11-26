@@ -36,7 +36,7 @@ func (a *app) toolRow(s *session, run func() toolRun) core.Node {
 		}
 		hasBody := func() bool {
 			r := run()
-			return r.Ask != nil || toolBodyText(r) != "" || len(r.Images) > 0
+			return r.Ask != nil || toolBodyText(r) != ""
 		}
 		sizes := a.processSizes()
 		header := viewkit.ToolRow(cx, viewkit.ToolLine{
@@ -54,25 +54,16 @@ func (a *app) toolRow(s *session, run func() toolRun) core.Node {
 			HasBody: hasBody(),
 		}, sizes)
 		body := core.Show{When: func() bool { return open() && hasBody() }, Then: func(cx *core.Scope) core.Node {
-			children := []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
-				return core.Group(a.toolBodyNodes(cx, run()))
-			})}
 			return core.View{Style: core.Style{MinWidth: core.Pt(0), MaxHeight: core.Pt(320), Borders: core.Edges{Top: 1},
 				BorderColors: core.EdgeColors{Top: colors.Now().Line}}, Children: []core.Node{
 				core.Scroll{TestID: "tool-output", Style: core.Style{MinWidth: core.Pt(0)}, Children: []core.Node{
-					core.View{Style: core.Style{Padding: core.Edges{Top: 8, Bottom: 8, Left: viewkit.ContentLeft(sizes), Right: scrollbarGutter}, Gap: 4}, Children: append(children,
-						core.Show{When: func() bool { return len(run().Images) > 0 }, Then: func(cx *core.Scope) core.Node {
-							images := run().Images
-							tiles := make([]core.Node, 0, len(images))
-							for _, img := range images {
-								tiles = append(tiles, a.transcriptImageTile(img))
-							}
-							return core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: tiles}
-						}})},
+					core.View{Style: core.Style{Padding: core.Edges{Top: 8, Bottom: 8, Left: viewkit.ContentLeft(sizes), Right: scrollbarGutter}, Gap: 4}, Children: []core.Node{
+						core.Dynamic(func(cx *core.Scope) core.Node { return core.Group(a.toolBodyNodes(cx, run())) }),
+					}},
 				}},
 			}}
 		}}
-		return core.View{
+		row := core.View{
 			OnPress: func(core.PressEvent) {
 				if !hasBody() {
 					return
@@ -98,6 +89,7 @@ func (a *app) toolRow(s *session, run func() toolRun) core.Node {
 				body,
 			},
 		}
+		return core.View{Style: core.Style{MinWidth: core.Pt(0)}, Children: []core.Node{row, a.toolAttachments(s, run)}}
 	})
 }
 

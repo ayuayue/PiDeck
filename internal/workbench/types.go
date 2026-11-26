@@ -73,13 +73,14 @@ func (u usageInfo) add(v usageInfo) usageInfo {
 
 // toolRun is one executed tool call.
 type toolRun struct {
-	CallID string
-	Name   string
-	Action string // a short verb: 运行, 读取, 编辑…
-	Detail string // its target: a command, a path, a query
-	Output string
-	Ask    *askToolResult     `json:"-"`
-	Images []remotewire.Image `json:",omitempty"`
+	CallID    string
+	Name      string
+	Action    string // a short verb: 运行, 读取, 编辑…
+	Detail    string // its target: a command, a path, a query
+	Output    string
+	Ask       *askToolResult     `json:"-"`
+	filePaths []string           // complete local references, derived from arguments/results
+	Images    []remotewire.Image `json:",omitempty"`
 	// Diff is what an edit changed, as lines beginning with - or +, and
 	// Added/Removed count them.
 	Diff    string

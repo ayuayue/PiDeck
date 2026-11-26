@@ -81,7 +81,8 @@ func turnsFromMessages(msgs []piMessage) []turn {
 			}
 			for _, c := range calls {
 				action, detail := toolSummary(c.Name, c.Arguments)
-				step.Tools = append(step.Tools, toolRun{CallID: c.ID, Name: c.Name, Action: action, Detail: detail, Status: chat.Completed})
+				step.Tools = append(step.Tools, toolRun{CallID: c.ID, Name: c.Name, Action: action, Detail: detail,
+					filePaths: toolFileArgs(c.Arguments), Status: chat.Completed})
 				cur.Tools++
 			}
 			if len(calls) == 0 && prose.Len() > 0 {

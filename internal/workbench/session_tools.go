@@ -27,7 +27,8 @@ func (a *app) updateTodos(s *session, toolName string, args json.RawMessage) {
 func (a *app) toolStarted(s *session, ev piEvent) {
 	a.updateTodos(s, ev.ToolName, ev.Args)
 	action, detail := toolSummary(ev.ToolName, ev.Args)
-	run := toolRun{CallID: ev.ToolCallID, Name: ev.ToolName, Action: action, Detail: detail, Status: chat.Running, Start: a.cx.Now()}
+	run := toolRun{CallID: ev.ToolCallID, Name: ev.ToolName, Action: action, Detail: detail,
+		filePaths: toolFileArgs(ev.Args), Status: chat.Running, Start: a.cx.Now()}
 	if !a.updateTool(s, run) {
 		s.liveTools.Update(func(list []toolRun) []toolRun { return append(list, run) })
 	}
@@ -36,6 +37,9 @@ func (a *app) toolStarted(s *session, ev piEvent) {
 // toolUpdated publishes a tool's partial output.
 func (a *app) toolUpdated(s *session, ev piEvent) {
 	run := toolRun{CallID: ev.ToolCallID, Name: ev.ToolName, Output: resultText(ev.PartialResult), Status: chat.Running}
+	if ev.finishedTool != nil {
+		run.Images, run.filePaths = ev.finishedTool.Images, ev.finishedTool.filePaths
+	}
 	a.updateTool(s, run)
 }
 
@@ -46,6 +50,10 @@ func (a *app) toolEnded(s *session, ev piEvent) {
 	run := toolRun{CallID: ev.ToolCallID, Name: ev.ToolName, Output: resultText(&res),
 		Status: chat.Completed, IsError: ev.IsError, DurationMs: ev.DurationMs}
 	run.withDetails(res.Details)
+	run.filePaths = toolFileArgs(res.Details)
+	if ev.finishedTool != nil {
+		run.Images = ev.finishedTool.Images
+	}
 	if ev.IsError {
 		run.Status = chat.Failed
 	}
@@ -103,6 +111,9 @@ func mergeRun(old, next toolRun) toolRun {
 	}
 	if len(next.Images) > 0 {
 		old.Images = next.Images
+	}
+	if len(next.filePaths) > 0 {
+		old.filePaths = appendToolFilePaths(append([]string(nil), old.filePaths...), next.filePaths...)
 	}
 	if next.Ask != nil {
 		old.Ask = next.Ask

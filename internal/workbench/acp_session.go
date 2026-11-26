@@ -457,7 +457,7 @@ func acpToolAction(kind string) string {
 // so merging keeps what the initial call said.
 func acpToolRun(u acpUpdate, status chat.Status) toolRun {
 	run := toolRun{CallID: u.ToolID, Name: u.ToolName, Action: acpToolAction(u.ToolKind),
-		Output: u.Text, Status: status}
+		Output: u.Text, filePaths: appendToolFilePaths(nil, u.Locations...), Status: status}
 	switch {
 	case len(u.Locations) > 1:
 		run.Detail = fmt.Sprintf("%s 等 %d 个文件", u.Locations[0], len(u.Locations))

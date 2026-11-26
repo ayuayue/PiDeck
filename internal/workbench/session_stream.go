@@ -23,6 +23,7 @@ func (a *app) onPiEventGeneration(s *session, generation uint64, ev piEvent) {
 		a.onDeltaGeneration(s, generation, ev)
 		return
 	}
+	prepareToolPreviews(&ev)
 	if ev.Type == "message_end" {
 		var msg piMessage
 		if json.Unmarshal(ev.Message, &msg) == nil && msg.Role == "toolResult" {
