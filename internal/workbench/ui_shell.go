@@ -183,23 +183,36 @@ func (a *app) workArea() core.Node {
 	}
 }
 
-// mainPane is the editor when a file is open, the chat otherwise; a split
-// pane, when one shows, takes the whole area.
+// mainPane keeps file work beside the conversation; other pages use the
+// whole work area.
 func (a *app) mainPane() core.Node {
 	return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), MinHeight: core.Pt(0), AlignItems: core.AlignStretch}, Children: []core.Node{
 		core.Show{When: a.browser.open.Get, Then: func(*core.Scope) core.Node { return a.browserPane() }},
 		core.Show{When: func() bool { return a.activePane.Get() != paneBrowser }, Then: func(*core.Scope) core.Node {
-			return core.Show{When: a.paneVisible, Then: func(*core.Scope) core.Node { return a.paneView() },
+			return core.Show{When: func() bool { return a.paneVisible() && !a.filePaneVisible() }, Then: func(*core.Scope) core.Node { return a.paneView() },
 				Else: func(*core.Scope) core.Node { return a.sessionPane() }}
 		}},
 	}}
 }
 
-// sessionPane is the editor when a file is open, the chat otherwise.
+// sessionPane keeps the conversation mounted while files open on its right.
 func (a *app) sessionPane() core.Node {
-	return core.Show{
-		When: func() bool { return a.editor.open.Get() },
-		Then: func(*core.Scope) core.Node { return a.editorPane() },
-		Else: func(*core.Scope) core.Node { return a.chatPane() },
+	return base.ResizablePanelGroup{
+		Axis:                 base.Horizontal,
+		TestID:               "file-workspace",
+		HandleLabel:          apptext.T("调整面板宽度"),
+		Style:                core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), MinHeight: core.Pt(0)},
+		HandleStyleFunc:      ui.HandleLine(a.cx),
+		HandleThumbStyle:     ui.HandleThumb(a.cx),
+		HandleThumbStyleFunc: ui.HandleThumbColor(a.cx),
+		Panels: []base.ResizablePanel{
+			{MinSize: chatColumnMin, Children: []core.Node{a.chatPane()}},
+			{Visible: a.filePaneVisible, MinSize: chatColumnMin, TestID: "file-panel",
+				Children: []core.Node{core.Show{When: a.filePaneVisible, Then: func(*core.Scope) core.Node {
+					return core.Show{When: a.editor.open.Get,
+						Then: func(*core.Scope) core.Node { return a.editorPane() },
+						Else: func(*core.Scope) core.Node { return a.paneView() }}
+				}}}},
+		},
 	}
 }

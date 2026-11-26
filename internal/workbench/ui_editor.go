@@ -17,10 +17,10 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// editorPane is the editor in the middle of the window.
+// editorPane is the editor in the right-hand file split.
 func (a *app) editorPane() core.Node {
 	colors := ui.ColorsOf(a.cx)
-	return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0),
+	return core.View{TestID: "editor-pane", Style: core.Style{Direction: core.Column, FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), MinWidth: core.Pt(0),
 		Background: colors.Background()}, Children: []core.Node{
 		a.editorTabBar(),
 		a.editorBody(),
@@ -127,7 +127,7 @@ func (a *app) editorActions() core.Node {
 				}
 			}}),
 		core.View{Style: core.Style{Width: core.Pt(1), Height: core.Pt(18), Background: colors.Line(), Margin: core.Symmetric(0, 4)}},
-		hintOf(func() string { return apptext.T("回到对话") }, ui.IconButton{Icon: lucide.X, Label: apptext.T("回到对话"), Size: 28, IconSize: 14, TestID: "editor-close",
+		hintOf(func() string { return apptext.T("关闭文件") }, ui.IconButton{Icon: lucide.X, Label: apptext.T("关闭文件"), Size: 28, IconSize: 14, TestID: "editor-close",
 			OnPress: a.closeEditorPane}),
 	}}
 }

@@ -55,7 +55,7 @@ func (a *app) tabBar() core.Node {
 func (a *app) tab(cx *core.Scope, id func() string) core.Node {
 	colors := ui.ColorsOf(a.cx)
 	sess := func() *session { return a.byID[id()] }
-	active := func() bool { return a.activeID.Get() == id() && !a.paneVisible() }
+	active := func() bool { return a.activeID.Get() == id() && (!a.paneVisible() || a.filePaneVisible()) }
 	return base.ContextMenu{
 		Trigger: core.View{
 			TestID: "tab",

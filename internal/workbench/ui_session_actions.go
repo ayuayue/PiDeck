@@ -36,7 +36,7 @@ func (a *app) sessionRunMenuItems(sess func() *session) []core.Node {
 func (a *app) sessionToolbar() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		s := a.active()
-		if s == nil || a.paneVisible() || (a.editor != nil && a.editor.open.Get()) {
+		if s == nil || (a.paneVisible() && !a.filePaneVisible()) {
 			return nil
 		}
 		return core.View{TestID: "session-toolbar", Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2, FlexShrink: 0}, Children: []core.Node{

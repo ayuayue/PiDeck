@@ -2,8 +2,8 @@
 
 package workbench
 
-// Previews: a file the editor should not show as text opens in a dialog of
-// its own kind — rendered prose for Markdown, its own page for HTML and PDF,
+// Previews: a file the editor should not show as text opens in the right-hand
+// split — rendered prose for Markdown, its own page for HTML and PDF,
 // the platform's picture and players for images, audio and video, and a
 // document's words or cells for .docx and .xlsx. Anything else says what it
 // is and offers the system's own application.
@@ -15,6 +15,7 @@ import (
 
 	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
@@ -200,7 +201,9 @@ func (a *app) previewPane() core.Node {
 			actions = append(actions, ui.Button{Text: apptext.T("在系统应用中打开"), Variant: ui.ButtonSecondary,
 				TestID: "preview-open-native", OnPress: func() { a.cx.OpenURL(fileURL(p.path), nil) }})
 		}
-		return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)},
+		actions = append(actions, ui.IconButton{Icon: lucide.X, Label: apptext.T("关闭文件"),
+			TestID: "file-preview-close", Size: 28, IconSize: 14, OnPress: func() { a.closePane(panePreview) }})
+		return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), MinWidth: core.Pt(0)},
 			Children: []core.Node{
 				a.paneHeader(filepath.Base(p.path), p.kindLabel(), actions...),
 				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Padding: core.Symmetric(10, 0)},

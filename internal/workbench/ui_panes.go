@@ -29,9 +29,8 @@ const (
 	paneMemory        = "memory"
 	paneNotifications = "notifications"
 	paneVideo         = "video"
-	// The file pages: a preview of a file, a patch, and the commits and
-	// lines behind a path. They show in the work area as the settings do,
-	// so reading a file never covers the chat with a dialog.
+	// File content opens to the right of the conversation: previews,
+	// patches, and the commits and lines behind a path.
 	panePreview     = "preview"
 	paneDiff        = "diff"
 	paneFileHistory = "file-history"
@@ -182,7 +181,21 @@ func (a *app) bindPaneEscape() {
 	})
 }
 
-// paneVisible reports whether a pane, not a session, fills the work area.
+// isFilePane identifies content that shares the editor's right-hand split.
+func isFilePane(id string) bool {
+	switch id {
+	case panePreview, paneDiff, paneFileHistory, paneBlame, paneReviewPatch, paneTranscriptImage:
+		return true
+	}
+	return false
+}
+
+// filePaneVisible reports whether the conversation has file content beside it.
+func (a *app) filePaneVisible() bool {
+	return a.editor.open.Get() || (isFilePane(a.activePane.Get()) && a.paneVisible())
+}
+
+// paneVisible reports whether the active pane is open.
 func (a *app) paneVisible() bool {
 	id := a.activePane.Get()
 	if id == "" {
@@ -240,9 +253,8 @@ func (a *app) paneView() core.Node {
 		case paneDelegation:
 			maxWidth = core.Pt(760)
 		case paneDiff, panePreview, paneFileHistory, paneBlame, paneReviewPatch, paneTranscriptImage:
-			// Pages that show content a conversation column is too narrow
-			// for: patches, previews and long paths.
-			maxWidth = core.Pt(1320)
+			// File content uses the right-hand split's whole width.
+			padding = core.Edges{}
 		case paneTrajectory:
 			maxWidth = core.Pt(1100)
 		default:
