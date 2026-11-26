@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"example.com/pideck-v2/internal/apptext"
+	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
@@ -96,6 +97,28 @@ func TestLanguageSwitch(t *testing.T) {
 	}
 	app.Press("id:language-select")
 	app.Press("id:language-select-1")
+}
+
+// TestLanguageForcesTheScopeLocale checks the packages NSGo draws itself —
+// menus, dialogs, the updater — follow the app's language: they read the
+// scope's locale, which apptext's language alone does not set.
+func TestLanguageForcesTheScopeLocale(t *testing.T) {
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
+	t.Cleanup(func() { apptext.SetLanguage(apptext.LangZhCN) })
+	var a *app
+	screen := nsgotest.Start(t, func(cx *core.Scope) core.Node { a = newApp(cx); return a.view() }, nsgotest.Size(1000, 700))
+	t.Cleanup(func() { a.cx.SetLocale("") })
+	screen.Settle()
+	a.setLanguage(apptext.LangFrFR)
+	if got := a.cx.Env().Locale(); got != apptext.LangFrFR {
+		t.Fatalf("locale after choosing French = %q, want %q", got, apptext.LangFrFR)
+	}
+	// Following the system again must clear the forced locale, or the
+	// system's language can never be read back.
+	a.setLanguage("")
+	if got := a.cx.Env().Locale(); got == apptext.LangFrFR {
+		t.Fatalf("locale still forced to %q after following the system", got)
+	}
 }
 
 // TestMainUILabels checks the rail, welcome and composer strings have

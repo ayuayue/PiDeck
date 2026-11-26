@@ -48,6 +48,20 @@ func TestResolveLanguage(t *testing.T) {
 	}
 }
 
+// TestLocale checks the tag NSGo's own packages follow for a choice.
+func TestLocale(t *testing.T) {
+	for _, lang := range SupportedLanguages {
+		if got := Locale(lang); got != lang {
+			t.Errorf("Locale(%q) = %q, want the code itself", lang, got)
+		}
+	}
+	for _, code := range []string{LangSystem, "bogus", "zh", "zh-Hant"} {
+		if got := Locale(code); got != "" {
+			t.Errorf("Locale(%q) = %q, want the system's", code, got)
+		}
+	}
+}
+
 // TestT checks translation, fallback and formatting.
 func TestT(t *testing.T) {
 	defer SetLanguage(LangZhCN)

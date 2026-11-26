@@ -702,8 +702,10 @@ func (a *mobileApp) cycleAppearance() {
 
 // chooseLanguage switches the interface's language and keeps it.
 func (a *mobileApp) chooseLanguage(code string) {
-	apptext.SetLanguage(apptext.ResolveLanguage(code, a.cx.Env().Locale()))
-	a.language.Set(apptext.ResolveLanguage(code, a.cx.Env().Locale()))
+	a.cx.SetLocale(apptext.Locale(code))
+	lang := apptext.ResolveLanguage(code, a.cx.Env().Locale())
+	apptext.SetLanguage(lang)
+	a.language.Set(lang)
 	a.saveLook()
 }
 

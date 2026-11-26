@@ -285,6 +285,7 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 	cx.SetAppearance(core.AppearanceSystem)
 	cx.SetTheme(viewkit.Theme())
 	setting := strings.TrimSpace(os.Getenv("PIDECK_V2_LANG"))
+	cx.SetLocale(apptext.Locale(setting))
 	apptext.SetLanguage(apptext.ResolveLanguage(setting, cx.Env().Locale()))
 	a := &mobileApp{
 		cx:                  cx,
@@ -435,6 +436,7 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 	// The saved look, language and last project win over the system's:
 	// the user chose them here, not on this boot.
 	if saved.Language != "" {
+		cx.SetLocale(apptext.Locale(saved.Language))
 		apptext.SetLanguage(apptext.ResolveLanguage(saved.Language, cx.Env().Locale()))
 	}
 	a.language.Set(apptext.CurrentLanguage())

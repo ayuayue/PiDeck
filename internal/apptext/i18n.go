@@ -38,6 +38,17 @@ func SupportedLanguage(code string) bool {
 	return false
 }
 
+// Locale returns the tag to force on the scope for a language the app
+// ships: the packages NSGo draws itself — menus, dialogs, the updater —
+// read core.Env.Locale, not this package's language. "" follows the
+// system, as an unshipped code does.
+func Locale(code string) string {
+	if SupportedLanguage(code) {
+		return code
+	}
+	return ""
+}
+
 var (
 	uiLangMu        sync.RWMutex
 	uiLang          = LangZhCN
