@@ -9,8 +9,9 @@
  * - 坏文件按空列表重建，不阻断启动；会话引用不校验存在性（失效引用由渲染层按 catalog 过滤）。
  */
 import { randomUUID } from "node:crypto";
-import { readFile, rename, writeFile } from "node:fs/promises";
+import { rename, writeFile } from "node:fs/promises";
 import { SESSION_GROUP_COLORS, SESSION_GROUP_COUNT_LIMIT, SESSION_GROUP_DIRS_MAX_KEYS, SESSION_GROUP_META_MAX_CHARS, SESSION_GROUP_NAME_MAX_CHARS, SESSION_GROUP_SESSION_LIMIT, type SaveSessionGroupInput, type SessionGroup, type SessionGroupColor } from "../../shared/types";
+import { readRepairableJsonFile } from "../persistence/durableJsonStore";
 
 const STORE_VERSION = 1;
 
@@ -126,36 +127,16 @@ export class SessionGroupStore {
 	) {}
 
 	async load(): Promise<void> {
-		let shouldRepair = false;
-		try {
-			const raw = await readFile(this.filePath, "utf8");
-			const normalized = normalizeState(JSON.parse(raw) as unknown);
-			this.state = normalized.state;
-			shouldRepair = normalized.changed;
-		} catch {
-			// 文件缺失 / 被截断 / 手改坏：分组是可选功能，按空列表重建，不阻断启动。
-			this.state = { version: STORE_VERSION, migratedAt: null, groups: [] };
-			shouldRepair = true;
+		const { state, changed } = normalizeState(await readRepairableJsonFile(this.filePath));
+		if (state.migratedAt === null) {
+			if (this.pluginStoragePath && state.groups.length === 0) {
+				const legacy = await readRepairableJsonFile(this.pluginStoragePath);
+				state.groups = readSessionGroupsFromPluginStorage(legacy) ?? [];
+			}
+			state.migratedAt = Date.now();
 		}
-		if (this.state.migratedAt === null) {
-			this.state.migratedAt = Date.now();
-			shouldRepair = true;
-			await this.importFromPluginStorage();
-		}
-		if (shouldRepair) await this.persist();
-	}
-
-	/** 一次性导入：插件文件缺失/损坏时静默跳过（用户可能从没启用过插件）。 */
-	private async importFromPluginStorage(): Promise<void> {
-		if (!this.pluginStoragePath || this.state.groups.length > 0) return;
-		let raw: unknown;
-		try {
-			raw = JSON.parse(await readFile(this.pluginStoragePath, "utf8")) as unknown;
-		} catch {
-			return;
-		}
-		const groups = readSessionGroupsFromPluginStorage(raw);
-		if (groups && groups.length > 0) this.state.groups = groups;
+		this.state = state;
+		if (changed) await this.persist();
 	}
 
 	list(): SessionGroup[] {
