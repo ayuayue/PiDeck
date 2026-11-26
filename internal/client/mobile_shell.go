@@ -411,6 +411,11 @@ func (a *mobileApp) initComposer(cx *core.Scope) core.Node {
 		a.composerCard(cx, composerSource{
 			draft: a.initDraft.Get, setDraft: a.initDraft.Set,
 			pending: a.initPending.Get,
+			add: func(images []remotewire.Image) {
+				a.initPending.Update(func(list []remotewire.Image) []remotewire.Image {
+					return append(append([]remotewire.Image(nil), list...), images...)
+				})
+			},
 			drop: func(index int) {
 				a.initPending.Update(func(list []remotewire.Image) []remotewire.Image { return withoutImage(list, index) })
 			},

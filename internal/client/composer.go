@@ -28,6 +28,7 @@ type composerSource struct {
 	draft       func() string
 	setDraft    func(string)
 	pending     func() []remotewire.Image
+	add         func([]remotewire.Image)
 	drop        func(index int)
 	pick        func()
 	send        func()
@@ -50,6 +51,11 @@ func (a *mobileApp) composer(cx *core.Scope) core.Node {
 		a.composerCard(cx, composerSource{
 			draft: a.draft.Get, setDraft: a.commandDraftChanged,
 			pending: a.pending.Get,
+			add: func(images []remotewire.Image) {
+				a.pending.Update(func(list []remotewire.Image) []remotewire.Image {
+					return append(append([]remotewire.Image(nil), list...), images...)
+				})
+			},
 			drop: func(index int) {
 				a.pending.Update(func(list []remotewire.Image) []remotewire.Image { return withoutImage(list, index) })
 			},
@@ -75,6 +81,7 @@ func (a *mobileApp) composerCard(cx *core.Scope, src composerSource) core.Node {
 			Label: apptext.T("消息"), TestID: "mobile-draft",
 			// Return makes a new line; the send button sends.
 			Multiline: true, SubmitBehavior: core.SubmitBehaviorNewline,
+			OnPaste: func(e core.PasteEvent) { a.pastedPictures(src, e) },
 			Style: core.Style{MinHeight: core.Pt(38), MaxHeight: core.Pt(132), Padding: core.Symmetric(6, 1), FontSize: 15,
 				Color: colors.Text(), Background: colors.Surface(), PlaceholderColor: colors.Faint(),
 				CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}},
@@ -201,10 +208,15 @@ func (a *mobileApp) sendButton(cx *core.Scope, sending, empty bool, press func()
 }
 
 // pendingThumbs is the strip both composers show, each with its own list.
+// The list is read inside a Dynamic: a Show only rebuilds its content when
+// presence changes, so a second picture would never get its thumb.
 func (a *mobileApp) pendingThumbs(cx *core.Scope, images func() []remotewire.Image, drop func(index int)) core.Node {
-	colors := ui.ColorsOf(cx)
-	return core.Show{When: func() bool { return len(images()) > 0 }, Then: func(*core.Scope) core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
 		list := images()
+		if len(list) == 0 {
+			return nil
+		}
+		colors := ui.ColorsOf(cx)
 		thumbs := make([]core.Node, 0, len(list))
 		for i, img := range list {
 			index := i
@@ -217,7 +229,7 @@ func (a *mobileApp) pendingThumbs(cx *core.Scope, images func() []remotewire.Ima
 			})
 		}
 		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Padding: core.Symmetric(2, 2)}, Children: thumbs}
-	}}
+	})
 }
 
 // withoutImage drops one picture from a list.
@@ -231,13 +243,54 @@ func withoutImage(list []remotewire.Image, index int) []remotewire.Image {
 	return out
 }
 
+// composerImageMax is the most one picture may take, picked or pasted: the
+// desktop refuses more too.
+const composerImageMax = 6 << 20
+
+// pastedPictures attaches the pictures a paste carried. A browser's clipboard
+// offers them as files, which is the only way to paste a screenshot into the
+// web build; a paste of text is left to the field.
+func (a *mobileApp) pastedPictures(src composerSource, e core.PasteEvent) {
+	if src.add == nil {
+		return
+	}
+	var images []remotewire.Image
+	for _, file := range e.Files {
+		if len(file.Data) == 0 {
+			continue
+		}
+		mime := strings.ToLower(strings.TrimSpace(file.MIME))
+		if !strings.HasPrefix(mime, "image/") {
+			// The clipboard often names no type: read the bytes instead.
+			mime = http.DetectContentType(file.Data)
+		}
+		switch mime {
+		case "image/png", "image/jpeg", "image/gif", "image/webp":
+		default:
+			continue
+		}
+		if len(file.Data) > composerImageMax {
+			a.flash(apptext.T("图片太大，上限 6 MB"))
+			continue
+		}
+		name := strings.TrimSpace(file.Name)
+		if name == "" {
+			name = apptext.T("粘贴的图片")
+		}
+		images = append(images, remotewire.Image{Data: file.Data, MimeType: mime, Name: name})
+	}
+	if len(images) > 0 {
+		src.add(images)
+	}
+}
+
 // readImageFile reads one picture from the phone, ready to send.
 func readImageFile(path string) (remotewire.Image, error) {
 	data, err := os.ReadFile(path)
 	if err != nil || len(data) == 0 {
 		return remotewire.Image{}, errors.New(apptext.T("图片读不出来"))
 	}
-	if len(data) > 6<<20 {
+	if len(data) > composerImageMax {
 		return remotewire.Image{}, errors.New(apptext.T("图片太大，上限 6 MB"))
 	}
 	mime := http.DetectContentType(data)

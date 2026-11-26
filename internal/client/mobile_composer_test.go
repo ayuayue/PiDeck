@@ -33,6 +33,8 @@ type fakeComposerDesktop struct {
 	image    string
 	tool     string
 	failNext bool
+	// images counts the pictures the desktop was sent, in prompts.
+	images int
 	// optionReads counts the /options requests, so a test can tell a poll
 	// that rereads the same choices from one that left the sheet alone.
 	optionReads int
@@ -117,7 +119,11 @@ func newComposerDesktop(t *testing.T, sessions ...remotewire.Session) *fakeCompo
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/prompt"):
 			var body struct {
-				Text string `json:"text"`
+				Text   string `json:"text"`
+				Images []struct {
+					Mime string `json:"mime"`
+					Data string `json:"data"`
+				} `json:"images"`
 			}
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			d.mu.Lock()
@@ -125,6 +131,7 @@ func newComposerDesktop(t *testing.T, sessions ...remotewire.Session) *fakeCompo
 			d.failNext = false
 			if !fail {
 				d.prompts = append(d.prompts, body.Text)
+				d.images += len(body.Images)
 			}
 			d.mu.Unlock()
 			if fail {
@@ -236,6 +243,13 @@ func (d *fakeComposerDesktop) sentPrompts() []string {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return append([]string(nil), d.prompts...)
+}
+
+// sentImages is how many pictures the desktop was sent.
+func (d *fakeComposerDesktop) sentImages() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.images
 }
 
 func (d *fakeComposerDesktop) chosenLevel() string {
