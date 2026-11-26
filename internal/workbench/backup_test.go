@@ -142,15 +142,8 @@ func TestSettingsExportUI(t *testing.T) {
 	app.Press("id:settings-tab-data")
 	app.WaitFor("id:settings-export", 5*time.Second)
 	app.Press("id:settings-export")
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		files, _ := filepath.Glob(filepath.Join(home, "exports", "settings-*.zip"))
-		if len(files) > 0 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("no settings zip was written")
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+	app.WaitUntil(5*time.Second, func() bool {
+		files, err := filepath.Glob(filepath.Join(home, "exports", "settings-*.zip"))
+		return err == nil && len(files) > 0
+	})
 }

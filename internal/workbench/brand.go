@@ -332,24 +332,13 @@ func brandVersion() string {
 
 // build details come from Go's embedded metadata; absent fields stay out
 // of the panel rather than guessing dates or a development branch.
-type brandBuild struct{ NSGo, Revision, Time string }
+type brandBuild struct{ Revision, Time string }
 
 func readBrandBuild() brandBuild {
-	out := brandBuild{NSGo: "—"}
+	var out brandBuild
 	info, ok := debug.ReadBuildInfo()
 	if !ok {
 		return out
-	}
-	for _, dep := range info.Deps {
-		if dep.Path == "github.com/nsgo-dev/nsgo" {
-			if dep.Replace != nil {
-				dep = dep.Replace
-			}
-			out.NSGo = dep.Version
-			if out.NSGo == "" {
-				out.NSGo = "(devel)"
-			}
-		}
 	}
 	modified := false
 	for _, setting := range info.Settings {

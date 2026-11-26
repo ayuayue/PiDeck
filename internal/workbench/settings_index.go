@@ -19,6 +19,19 @@ type settingEntry struct {
 	Keywords string
 }
 
+// settingsHit is one row of a search: a setting, or the section itself
+// when the section has no setting of its own to name.
+type settingsHit struct {
+	Section string
+	Label   string
+	// Jump marks the section's own row: it opens the section, since there
+	// is no setting under it to land on.
+	Jump bool
+}
+
+// settingsHitLimit caps the rows a query lists.
+const settingsHitLimit = 40
+
 // settingsIndex lists the settings by section and search words.
 var settingsIndex = []settingEntry{
 	{"general", "新会话默认思考等级", "thinking reasoning effort level default pi 默认 思考 推理 等级"},
@@ -133,19 +146,31 @@ var settingsIndex = []settingEntry{
 	{"about", "版本", "version about"},
 }
 
-// searchSettings finds the settings a query names.
-func searchSettings(query string) []settingEntry {
+// searchSettings finds the settings a query names, and the sections a
+// query names that have no setting to show for themselves: a section stays
+// reachable by its title, as the rail's sections always are.
+func searchSettings(query string) []settingsHit {
 	q := strings.ToLower(strings.TrimSpace(query))
 	if q == "" {
 		return nil
 	}
-	var out []settingEntry
+	var out []settingsHit
+	named := map[string]bool{}
 	for _, e := range settingsIndex {
 		if strings.Contains(strings.ToLower(e.Label+" "+apptext.T(e.Label)+" "+e.Keywords), q) {
-			out = append(out, e)
-			if len(out) >= 40 {
-				break
+			out = append(out, settingsHit{Section: e.Section, Label: e.Label})
+			named[e.Section] = true
+			if len(out) == settingsHitLimit {
+				return out
 			}
+		}
+	}
+	for _, s := range settingsSections() {
+		if named[s.ID] || len(out) == settingsHitLimit {
+			continue
+		}
+		if strings.Contains(strings.ToLower(s.Label+" "+apptext.T(s.Label)+" "+s.Title+" "+apptext.T(s.Title)), q) {
+			out = append(out, settingsHit{Section: s.ID, Label: s.Title, Jump: true})
 		}
 	}
 	return out

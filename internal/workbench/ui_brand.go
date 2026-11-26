@@ -132,7 +132,6 @@ func (a *app) brandInfo(cx *core.Scope) core.Node {
 	}
 	versions := []core.Node{
 		row("Pi CLI", piVersion, "brand-pi-version"),
-		row("NSGo", build.NSGo, "brand-nsgo-version"),
 		row("Go", runtime.Version(), "brand-go-version"),
 		row("操作系统", runtime.GOOS+" / "+runtime.GOARCH, "brand-platform"),
 	}
@@ -175,7 +174,6 @@ func (a *app) brandInfo(cx *core.Scope) core.Node {
 					Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Muted)},
 			}},
 		}},
-		ui.Text(apptext.T("NSGo 原生 pi 工作台"), 11, ui.Regular, colors.Muted),
 		core.View{Style: core.Style{Gap: 7}, Children: versions},
 		setDivider(),
 		core.View{Style: core.Style{Gap: 1}, Children: []core.Node{

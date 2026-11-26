@@ -46,6 +46,10 @@ func TestNativeSettingsPageScreens(t *testing.T) {
 		switch id {
 		case "models":
 			screen.WaitFor("id:settings-content", 5*time.Second)
+			screen.WaitFor("id:default-model-provider", 5*time.Second)
+		case "credentials":
+			screen.WaitFor("id:settings-page", 5*time.Second)
+			screen.WaitFor("id:auth-overview-add", 5*time.Second)
 		case "usage":
 			screen.WaitUntil(5*time.Second, func() bool { return len(screen.Query("text:还没有可统计的用量")) > 0 })
 		default:
@@ -211,6 +215,17 @@ func TestProviderCreateFromSettings(t *testing.T) {
 		t.Fatalf("created provider or model settings missing: %q, %q, %v", got.BaseURL, got.API, got.Models)
 	}
 	screen.WaitFor("id:provider-configure-new-provider", 15*time.Second)
+	screen.Press("id:default-model-provider")
+	screen.WaitFor("role:option fixture", 5*time.Second)
+	screen.Press("role:option fixture")
+	screen.Press("id:default-model-select")
+	screen.WaitFor("role:option Fixture Chat", 5*time.Second)
+	screen.Press("role:option Fixture Chat")
+	onNativeUI(t, screen, built, func() {
+		if got := built.cfg.Model; got.Provider != "fixture" || got.ID != "fixture-chat" {
+			t.Errorf("default model = %+v, want fixture/fixture-chat", got)
+		}
+	})
 	screen.Type("id:provider-filter", "new-provider")
 	screen.WaitForGone("id:provider-configure-fixture", 5*time.Second)
 	screen.Find("id:provider-configure-new-provider")

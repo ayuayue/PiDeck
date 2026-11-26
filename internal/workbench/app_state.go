@@ -447,8 +447,9 @@ type app struct {
 	planAskSession *session
 	// The fork tree dialog.
 	forksOpen *core.Signal[bool]
-	// The settings search query.
+	// The settings search query, and its field.
 	settingsQuery *core.Signal[string]
+	settingsField *core.Ref
 	// MCP servers, read through pi's CLI.
 	mcpServers *core.Signal[[]mcpServer]
 	mcpBusy    *core.Signal[bool]

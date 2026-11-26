@@ -120,11 +120,7 @@ func (a *app) settingsPane() core.Node {
 				ui.Text(apptext.T("设置"), 13, ui.Semibold, colors.Text),
 			}},
 			core.View{Style: core.Style{Padding: core.Edges{Left: 1, Right: 1, Bottom: 8}}, Children: []core.Node{
-				core.Input{Value: a.settingsQuery.Get, OnChange: a.settingsQuery.Set, Placeholder: apptext.T("搜索设置"),
-					Label: apptext.T("搜索设置"), TestID: "settings-search",
-					Style: core.Style{Height: core.Pt(26), Padding: core.Symmetric(0, 8), FontSize: 11, Color: colors.Text(),
-						Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6,
-						PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}},
+				a.settingsSearchField(colors),
 			}},
 			a.settingsRail(nav),
 		}},
@@ -205,6 +201,50 @@ func (a *app) loadSettingsSection(id string) {
 	}
 }
 
+// settingsSearchField finds a setting by name: the icon, the query, and a
+// clear button once there is something to clear.
+func (a *app) settingsSearchField(colors ui.Colors) core.Node {
+	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, Height: core.Pt(26),
+		Padding: core.Symmetric(0, 6), CornerRadius: 6, Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder()},
+		Children: []core.Node{
+			ui.Icon(lucide.Search, 11, colors.Faint),
+			core.Input{Ref: a.settingsFieldRef(), Value: a.settingsQuery.Get, OnChange: a.settingsQuery.Set, OnSubmit: a.submitSettingsSearch,
+				Role: core.RoleSearchField, Placeholder: apptext.T("搜索设置"), Label: apptext.T("搜索设置"), TestID: "settings-search",
+				Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0), Height: core.Pt(20), FontSize: 11, LineHeight: 16, Color: colors.Text()},
+				StyleFunc: func() core.Style {
+					return core.Style{PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}
+				}},
+			core.Show{When: func() bool { return a.settingsQuery.Get() != "" }, Then: func(*core.Scope) core.Node {
+				return ui.IconButton{Icon: lucide.X, Label: apptext.T("清空搜索"), Size: 18, IconSize: 11, TestID: "settings-clear",
+					Tint: func() core.Color { return colors.Faint() }, OnPress: a.clearSettingsSearch}
+			}},
+		}}
+}
+
+// settingsFieldRef is the search field, made on first use.
+func (a *app) settingsFieldRef() *core.Ref {
+	if a.settingsField == nil {
+		a.settingsField = new(core.Ref)
+	}
+	return a.settingsField
+}
+
+// clearSettingsSearch empties the query and keeps the keyboard in the field.
+func (a *app) clearSettingsSearch() {
+	a.settingsQuery.Set("")
+	if a.settingsField != nil {
+		a.settingsField.Focus()
+	}
+}
+
+// submitSettingsSearch opens the first setting the query names, as Return
+// does in the command palette.
+func (a *app) submitSettingsSearch(string) {
+	if hits := searchSettings(a.settingsQuery.GetUntracked()); len(hits) > 0 {
+		a.openSettingsSection(hits[0].Section)
+	}
+}
+
 // settingsRail is the section list, or the search results while a query is
 // being typed.
 func (a *app) settingsRail(nav []core.Node) core.Node {
@@ -228,6 +268,10 @@ func (a *app) settingsRail(nav []core.Node) core.Node {
 			entry := e
 			n := bySection[entry.Section]
 			bySection[entry.Section] = n + 1
+			hint := apptext.T(settingsSectionTitle(entry.Section))
+			if entry.Jump {
+				hint = apptext.T("跳到分区")
+			}
 			rows = append(rows, core.View{
 				OnPress: func(core.PressEvent) { a.openSettingsSection(entry.Section) },
 				Role:    core.RoleButton, Label: apptext.T(entry.Label),
@@ -239,7 +283,7 @@ func (a *app) settingsRail(nav []core.Node) core.Node {
 				Children: []core.Node{
 					core.Text{Content: apptext.T(entry.Label), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 						Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11.5}, StyleFunc: ui.Colored(colors.Text)},
-					core.Text{Content: apptext.T(settingsSectionTitle(entry.Section)), MaxLines: 1, Style: core.Style{FontSize: 9.5, FlexShrink: 0},
+					core.Text{Content: hint, MaxLines: 1, Style: core.Style{FontSize: 9.5, FlexShrink: 0},
 						StyleFunc: ui.Colored(colors.Faint)},
 				},
 			})

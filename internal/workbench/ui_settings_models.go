@@ -19,8 +19,8 @@ import (
 
 // settingsModels keeps the provider filter mounted while results change.
 func (a *app) settingsModels() core.Node {
-	colors := ui.ColorsOf(a.cx)
 	return a.providerSettingsPage("settings-content",
+		a.modelSettingsCurrent(),
 		setGroup("供应商与认证",
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Wrap: core.Wrap, Gap: 8}, Children: []core.Node{
 				ui.Input{Value: a.providerQuery.Get, OnChange: a.providerQuery.Set,
@@ -30,16 +30,105 @@ func (a *app) settingsModels() core.Node {
 					OnPress: func() { a.openProviderDialog("") }},
 			}},
 			a.providerRows(),
-			core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: []core.Node{
-				ui.Button{Text: apptext.T("编辑 models.json"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
-					OnPress: func() { a.openPiConfigFile("models.json") }},
-				ui.Button{Text: apptext.T("检测全部"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: a.refreshProviders},
-			}},
+			ui.Button{Text: apptext.T("检测全部"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "model-check-all", OnPress: a.refreshProviders},
 		),
-		core.Text{Content: apptext.T("凭据由 pi 管理（~/.pi/agent/auth.json）。「登录…」在内置终端里跑 pi 自己的登录流程；改完点「检测全部」重新读状态。"),
-			Style: core.Style{FontSize: 11, LineHeight: 17, Margin: core.Edges{Bottom: 12}}, StyleFunc: ui.Colored(colors.Muted)},
-		a.favoriteModelSettings(), a.modelCatalogSettings(), a.balanceAccountsSettings(), a.toolModelsGroup(), a.tokenDanceGroup(),
+		a.favoriteModelSettings(),
+		a.toolModelsGroup(),
+		setGroup("文件", setRow("models.json", "编辑 models.json", ui.Button{Text: apptext.T("编辑 models.json"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+			OnPress: func() { a.openPiConfigFile("models.json") }})),
+		a.modelCatalogSettings(), a.balanceAccountsSettings(), a.tokenDanceGroup(),
 	)
+}
+
+// modelSettingsCurrent puts the two decisions a user makes most often at the
+// top of the page: which model a new session starts with, and whether pi can
+// authenticate the providers it knows.
+func (a *app) modelSettingsCurrent() core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		a.settingsTick()
+		colors := ui.ColorsOf(cx)
+		providers := a.providers.Get()
+		modelsByProvider := make(map[string][]modelConfig)
+		var providerOpts []ui.Option[string]
+		for _, p := range providers {
+			if len(p.Models) == 0 {
+				continue
+			}
+			modelsByProvider[p.ID] = p.Models
+			providerOpts = append(providerOpts, ui.Option[string]{Value: p.ID, Label: p.ID})
+		}
+		if a.defaultModel.Provider != "" && a.defaultModel.ID != "" {
+			models := modelsByProvider[a.defaultModel.Provider]
+			found := false
+			for _, model := range models {
+				if model.ID == a.defaultModel.ID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				modelsByProvider[a.defaultModel.Provider] = append(append([]modelConfig(nil), models...), modelConfig{ID: a.defaultModel.ID})
+				if models == nil {
+					providerOpts = append(providerOpts, ui.Option[string]{Value: a.defaultModel.Provider, Label: a.defaultModel.Provider})
+				}
+			}
+		}
+		modelOpts := func() []ui.Option[string] {
+			var options []ui.Option[string]
+			for _, model := range modelsByProvider[a.defaultModel.Provider] {
+				label := model.Name
+				if label == "" {
+					label = model.ID
+				}
+				options = append(options, ui.Option[string]{Value: model.ID, Label: label})
+			}
+			return options
+		}
+		setDefault := func(provider, id string) {
+			a.defaultModel = modelChoice{Provider: provider, ID: id}
+			a.st.edit(func(c *config) { c.Model = a.defaultModel })
+			a.bumpSettings()
+		}
+		currentModel := func() string {
+			if a.defaultModel.ID == "" {
+				return apptext.T("跟随 pi 当前模型")
+			}
+			if a.defaultModel.Provider == "" {
+				return a.defaultModel.ID
+			}
+			return a.defaultModel.Provider + " / " + a.defaultModel.ID
+		}
+		modelControls := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Wrap: core.Wrap, Gap: 6}, Children: []core.Node{
+			ui.Select[string]{Options: providerOpts, Value: func() string { return a.defaultModel.Provider },
+				Placeholder: apptext.T("跟随 pi 当前模型"), OnClear: func() { setDefault("", "") },
+				Label: apptext.T("供应商"), TestID: "default-model-provider", Style: core.Style{Width: core.Pt(132)},
+				OnChange: func(provider string) {
+					id := ""
+					if models := modelsByProvider[provider]; len(models) > 0 {
+						id = models[0].ID
+					}
+					setDefault(provider, id)
+				}},
+			ui.Select[string]{Options: modelOpts(), Value: func() string { return a.defaultModel.ID },
+				Placeholder: apptext.T("选择模型"), OnClear: func() { setDefault("", "") },
+				Disabled: func() bool { return a.defaultModel.Provider == "" }, Label: apptext.T("模型"), TestID: "default-model-select",
+				Style: core.Style{Width: core.Pt(190)}, OnChange: func(id string) { setDefault(a.defaultModel.Provider, id) }},
+		}}
+		status := authSummary(providers)
+		if status == "" {
+			status = apptext.T("未知")
+		}
+		return setGroup("当前",
+			setRow("新会话默认模型", "选择模型", modelControls),
+			setDivider(),
+			setRow("当前", currentModel(), nil),
+			setDivider(),
+			setRow("认证", status, ui.Button{Text: apptext.T("检测全部"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+				TestID: "model-check-all-current", OnPress: a.refreshProviders}),
+			core.Text{Content: apptext.T("凭据由 pi 管理（~/.pi/agent/auth.json）。「登录…」在内置终端里跑 pi 自己的登录流程；改完点「检测全部」重新读状态。"),
+				Style: core.Style{FontSize: 10.5, LineHeight: 16, Padding: core.Edges{Top: 3, Bottom: 3}}, StyleFunc: ui.Colored(colors.Faint)},
+		)
+	})
 }
 
 func (a *app) providerSettingsPage(testID string, content ...core.Node) core.Node {

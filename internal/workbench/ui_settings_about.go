@@ -33,7 +33,6 @@ func (a *app) settingsAbout() core.Node {
 						core.Text{ContentFunc: func() string { _ = a.brandNameRev.Get(); return resolveBrandName(a.cfg.AppDisplayName) },
 							Style: core.Style{FontSize: 15, FontWeight: ui.Semibold}, StyleFunc: ui.Colored(colors.Text)},
 						ui.Text("PiDeck V2 · v"+brandVersion(), 11, ui.Regular, colors.Muted),
-						ui.Text(apptext.T("NSGo 原生窗口 · 只做 pi"), 11, ui.Regular, colors.Muted),
 					}},
 				}},
 				setGroup("运行",
@@ -54,10 +53,6 @@ func (a *app) settingsAbout() core.Node {
 					setDivider(),
 					setRow("pi 项目", "github.com/badlogic/pi-mono", ui.Button{Text: apptext.T("复制"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
 						a.copyText("https://github.com/badlogic/pi-mono", "链接")
-					}}),
-					setDivider(),
-					setRow("NSGo 框架", "nsgo.dev", ui.Button{Text: apptext.T("复制"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
-						a.copyText("https://nsgo.dev/", "链接")
 					}}),
 					setDivider(),
 					setRow("请作者喝咖啡", "爱猹收打赏：纯打赏，不绑定会话和用量。",

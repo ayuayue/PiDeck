@@ -48,6 +48,43 @@ func TestSettingsFromPalette(t *testing.T) {
 	app.WaitFor("id:notify-done", 5*time.Second)
 }
 
+// TestSettingsSearchFindsSections checks a section stays reachable by its
+// own name, even when none of its settings names it.
+func TestSettingsSearchFindsSections(t *testing.T) {
+	for _, tt := range []struct{ query, section string }{
+		{"用量", "usage"}, {"远程", "remote"}, {"通用", "general"},
+	} {
+		hits := searchSettings(tt.query)
+		if len(hits) != 1 || !hits[0].Jump || hits[0].Section != tt.section {
+			t.Fatalf("searchSettings(%q) = %+v, want the %s section alone", tt.query, hits, tt.section)
+		}
+	}
+	if hits := searchSettings("代理"); len(hits) < 2 || hits[0].Jump {
+		t.Fatalf("searchSettings(代理) = %+v, want the settings named by it", hits)
+	}
+	if hits := searchSettings("  "); hits != nil {
+		t.Fatalf("an empty query lists %+v, want nothing", hits)
+	}
+}
+
+// TestSettingsSearchJumpsToSection opens a section from its name.
+func TestSettingsSearchJumpsToSection(t *testing.T) {
+	if nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
+	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
+	app.Press("label:设置")
+	app.WaitFor("id:settings-search", 5*time.Second)
+	app.Type("id:settings-search", "远程")
+	app.WaitFor("id:settings-hit-remote-0", 5*time.Second)
+	app.Press("id:settings-hit-remote-0")
+	app.WaitFor("id:remote-enabled", 5*time.Second)
+	if app.Exists("id:settings-hit-remote-0") {
+		t.Fatal("the search results stay after opening the section they named")
+	}
+}
+
 func TestSettingsNavigationResetsSectionScroll(t *testing.T) {
 	if nsgotest.Target() != "" {
 		t.Skip("driven headless; a platform run is for pixels")

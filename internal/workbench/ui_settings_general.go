@@ -8,7 +8,6 @@ package workbench
 
 import (
 	"fmt"
-	"strings"
 
 	"example.com/pideck-v2/internal/alerts"
 	"example.com/pideck-v2/internal/apptext"
@@ -23,7 +22,6 @@ func (a *app) settingsGeneral() core.Node {
 		// Redrawn when any setting changes: their values live in the config.
 		a.settingsTick()
 		colors := ui.ColorsOf(cx)
-		var modelChips []core.Node
 		addChip := func(label string, on func() bool, fn func()) core.Node {
 			return core.View{
 				OnPress: func(core.PressEvent) { fn() },
@@ -39,21 +37,6 @@ func (a *app) settingsGeneral() core.Node {
 				},
 				Children: []core.Node{ui.Text(label, 11.5, ui.Regular, colors.Text)},
 			}
-		}
-		modelChips = append(modelChips, addChip(apptext.T("跟随 pi 当前模型"), func() bool { return a.defaultModel.ID == "" }, func() {
-			a.defaultModel = modelChoice{}
-			a.st.edit(func(c *config) { c.Model = modelChoice{} })
-		}))
-		for _, key := range a.favModels.Get() {
-			provider, id, _ := strings.Cut(key, "/")
-			label := id
-			key := key
-			modelChips = append(modelChips, addChip(label, func() bool { return a.defaultModel.Provider == provider && a.defaultModel.ID == id },
-				func() {
-					a.defaultModel = modelChoice{Provider: provider, ID: id}
-					a.st.edit(func(c *config) { c.Model = a.defaultModel })
-					_ = key
-				}))
 		}
 		var levelChips []core.Node
 		levelChips = append(levelChips, addChip(apptext.T("使用 pi 默认值"), func() bool { return a.defaultThinking == "" }, func() {
@@ -114,8 +97,6 @@ func (a *app) settingsGeneral() core.Node {
 					}}),
 				setRow("快捷短语与回复规则", "管理常用短语，以及最新回复结束后按条件显示的发送按钮。",
 					ui.Button{Text: apptext.T("编辑"), Size: ui.SizeSmall, Variant: ui.ButtonSecondary, TestID: "settings-reply-shortcuts", OnPress: a.openReplyShortcutSettings}),
-				setGroup("新会话默认模型", core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6, Padding: core.Symmetric(4, 2)},
-					Children: modelChips}),
 				setGroup("新会话默认思考等级",
 					core.Text{Content: apptext.T("思考等级控制模型的推理投入，只影响之后创建的 pi 会话；可用等级由模型决定。"),
 						Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: ui.Colored(colors.Muted)},

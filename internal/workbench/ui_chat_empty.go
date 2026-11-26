@@ -137,8 +137,6 @@ func (a *app) welcome() core.Node {
 						ui.Button{Text: apptext.T("直接对话"), Variant: ui.ButtonSecondary, TestID: "welcome-chat", OnPress: func() { a.openChat() }},
 						ui.Button{Text: apptext.T("导入会话"), Variant: ui.ButtonSecondary, TestID: "welcome-secondary", OnPress: func() { a.openImportDialog() }},
 					}},
-					core.Text{Content: apptext.T("NSGo 原生窗口 · 不是 Electron · 会话由本机 pi 的 RPC 模式驱动"),
-						Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10, TextAlign: core.TextAlignCenter, LineHeight: 16}, StyleFunc: ui.Colored(colors.Faint)},
 				}},
 			}}
 	})
