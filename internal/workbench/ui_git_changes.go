@@ -375,6 +375,10 @@ func (a *app) gitFileRow(cx *core.Scope, f gitFile, staged bool, depth int, show
 	default:
 		actions = append(actions, action(lucide.Plus, "暂存 "+name, func() { a.gitStageFile(f) }, "git-stage"))
 	}
+	// Reading the file needs no Git operation, so this one stays available
+	// while the repository is busy.
+	actions = append(actions, a.pressIcon(lucide.FileCode, "打开源文件 "+name, 21, 11.5, nil,
+		func() { a.openGitSourceFile(f) }, "git-open-file"))
 	if !f.Conflicted {
 		actions = append(actions, action(lucide.Undo2, "丢弃 "+name, func() { a.gitDiscardFile(f) }, "git-discard"))
 	}

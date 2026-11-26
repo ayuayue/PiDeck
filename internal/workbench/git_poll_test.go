@@ -30,7 +30,7 @@ func TestGitPollPreservesPanelMetadata(t *testing.T) {
 	repo.attach(&workspace{Path: dir, Target: localTarget})
 	screen.WaitUntil(20*time.Second, func() bool { return !repo.working })
 	before := repo.state.GetUntracked()
-	if !before.IsRepo || before.Error != "" || before.Root == "" || len(before.Commits) != 2 || before.LogLimit != 50 ||
+	if !before.IsRepo || before.Error != "" || before.Root == "" || len(before.Commits) != 2 || before.LogLimit != 50 || before.Total != 2 ||
 		!slices.Contains(before.Branches, "feature") || !slices.Contains(before.RemoteBranches, "origin/main") ||
 		!slices.Equal(before.Tags, []string{"v1.0.0"}) || len(before.Remotes) != 1 || before.Remotes[0].Name != "origin" {
 		t.Fatalf("full refresh did not load the fixture: %+v", before)

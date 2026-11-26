@@ -10,6 +10,7 @@ package workbench
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -110,6 +111,82 @@ func (a *app) moreGitHistory() {
 	if shown >= len(st.Commits) && st.LogLimit > 0 && len(st.Commits) >= st.LogLimit {
 		a.git.loadMore()
 	}
+}
+
+// setGitLogQuery debounces the filter. The query is answered from the whole
+// history rather than the page the drawer has read, so it runs git off the
+// UI thread and waits for typing to pause.
+func (a *app) setGitLogQuery(q string) {
+	a.git.logQuery.Set(q)
+	a.stopGitSearchTimer()
+	query := strings.TrimSpace(q)
+	if query == "" {
+		a.git.logSearch.Set(nil)
+		return
+	}
+	a.git.logSearch.Set(&gitSearch{Query: query, Loading: true})
+	a.git.searchTimer = a.cx.AfterFunc(gitSearchDebounce, a.runGitLogSearch)
+}
+
+// stopGitSearchTimer drops a debounce that has not fired yet.
+func (a *app) stopGitSearchTimer() {
+	if a.git.searchTimer != nil {
+		a.git.searchTimer()
+		a.git.searchTimer = nil
+	}
+}
+
+// runGitLogSearch reads the query's matches off the UI thread. A search that
+// is already running answers the latest query once it lands.
+func (a *app) runGitLogSearch() {
+	a.stopGitSearchTimer()
+	query := strings.TrimSpace(a.git.logQuery.GetUntracked())
+	t, path := a.git.repo()
+	if query == "" || path == "" {
+		return
+	}
+	if a.git.searching {
+		a.git.searchPending = true
+		return
+	}
+	a.git.searching = true
+	limit, seq := a.git.searchLimit.GetUntracked(), a.git.seq
+	go func() {
+		commits, err := searchCommits(t, path, query, limit)
+		a.cx.Post(func() {
+			a.git.searching = false
+			if seq == a.git.seq && strings.TrimSpace(a.git.logQuery.GetUntracked()) == query {
+				res := &gitSearch{Query: query, Commits: commits}
+				if err != nil {
+					res.Error = err.Error()
+				}
+				a.git.logSearch.Set(res)
+			}
+			if a.git.searchPending {
+				a.git.searchPending = false
+				a.runGitLogSearch()
+			}
+		})
+	}()
+}
+
+// moreGitSearch asks for another page of matches.
+func (a *app) moreGitSearch() {
+	a.git.searchLimit.Update(func(n int) int { return n + gitSearchPage })
+	a.runGitLogSearch()
+}
+
+// openGitSourceFile shows a changed path itself in the editor. The path is
+// relative to the repository root, which can sit above the workspace.
+func (a *app) openGitSourceFile(f gitFile) {
+	root := a.git.state.GetUntracked().Root
+	if root == "" {
+		root = a.gitPath()
+	}
+	if root == "" {
+		return
+	}
+	a.openEditorFile(root, filepath.Join(root, filepath.FromSlash(f.Path)))
 }
 
 // gitStageFile stages one path.

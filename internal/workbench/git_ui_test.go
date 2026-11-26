@@ -3,7 +3,8 @@
 package workbench
 
 // Checks the Git drawer against a real temporary repository: reading a
-// folder that is not one, initializing it, staging a file and committing.
+// folder that is not one, initializing it, staging a file and committing,
+// and opening a changed file in the editor.
 
 import (
 	"encoding/json"
@@ -106,4 +107,25 @@ func TestGitDrawer(t *testing.T) {
 	waitApp(app, "id:git-file", 20*time.Second)
 	app.Advance(300 * time.Millisecond)
 	shot(app, "42-git-changes")
+}
+
+// TestGitOpenSourceFile opens a changed path in the editor from its row,
+// without going through the diff.
+func TestGitOpenSourceFile(t *testing.T) {
+	if nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	dir, _ := gitFixture(t)
+	if err := os.WriteFile(filepath.Join(dir, "note.txt"), []byte("dirty\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := startGitApp(t, dir)
+	waitApp(app, "id:git-open-file", 20*time.Second)
+	// The action sits in a scrolling row, where pointer hits can land on the
+	// row around it as the drawer settles: activate the control itself.
+	app.AccessibilityAction("id:git-open-file", "activate")
+	app.WaitUntil(20*time.Second, func() bool {
+		tabs := app.Query("id:editor-tab")
+		return len(tabs) == 1 && tabs[0].Props.Label == "note.txt"
+	})
 }

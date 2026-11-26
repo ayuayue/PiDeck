@@ -6,17 +6,22 @@ package workbench
 
 import (
 	"errors"
+	"fmt"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
+// gitLogFormat is the record format parseGitLog reads.
+const gitLogFormat = "%H%x1f%h%x1f%an%x1f%ae%x1f%ad%x1f%s%x1f%P%x1e"
+
 // readUnpushedCommits lists the commits the upstream branch does not have.
 func readUnpushedCommits(t target, dir string) ([]gitCommit, error) {
 	out, stderr, code, err := gitRun(t, dir, 30*time.Second, "--no-pager", "log", "-n", "100", "--date=iso-strict",
-		"--pretty=format:%H%x1f%h%x1f%an%x1f%ae%x1f%ad%x1f%s%x1f%P%x1e", "@{u}..HEAD")
+		"--pretty=format:"+gitLogFormat, "@{u}..HEAD")
 	if err != nil {
 		return nil, err
 	}
@@ -24,6 +29,63 @@ func readUnpushedCommits(t target, dir string) ([]gitCommit, error) {
 		return nil, errors.New(gitMessage(stderr, code))
 	}
 	return parseGitLog(out), nil
+}
+
+// commitMatches is the query box's rule on one commit: its subject, author,
+// short hash or full hash contains the text.
+func commitMatches(c gitCommit, query string) bool {
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return false
+	}
+	hay := strings.ToLower(c.Subject + " " + c.Author + " " + c.Short + " " + c.Hash)
+	return strings.Contains(hay, query)
+}
+
+// searchCommits looks for a query in the repository's whole history, not in
+// the page the drawer happens to have read. git cannot OR a message, an
+// author and a hash into one command, so each is asked separately and the
+// answers are merged newest first.
+func searchCommits(t target, dir, query string, limit int) ([]gitCommit, error) {
+	query = strings.TrimSpace(query)
+	if query == "" || limit <= 0 {
+		return nil, nil
+	}
+	var found []gitCommit
+	seen := make(map[string]bool, limit)
+	collect := func(out string) {
+		for _, c := range parseGitLog(out) {
+			if seen[c.Hash] {
+				continue
+			}
+			seen[c.Hash] = true
+			found = append(found, c)
+		}
+	}
+	for _, field := range []string{"--grep=", "--author="} {
+		out, stderr, code, err := gitRun(t, dir, 30*time.Second, "--no-pager", "log", "-n", fmt.Sprint(limit),
+			"-i", "-F", "--date=iso-strict", "--pretty=format:"+gitLogFormat, field+query)
+		if err != nil {
+			return nil, err
+		}
+		if code != 0 {
+			return nil, errors.New(gitMessage(stderr, code))
+		}
+		collect(out)
+	}
+	// A hash or a ref names one commit; plain words fail here and are
+	// simply ignored.
+	if !strings.HasPrefix(query, "-") {
+		if out, _, code, err := gitRun(t, dir, 20*time.Second, "--no-pager", "log", "-n", "1", "--date=iso-strict",
+			"--pretty=format:"+gitLogFormat, query, "--"); err == nil && code == 0 {
+			collect(out)
+		}
+	}
+	sort.SliceStable(found, func(i, j int) bool { return found[i].Date.After(found[j].Date) })
+	if len(found) > limit {
+		found = found[:limit]
+	}
+	return found, nil
 }
 
 // parseGitLog reads the record-separated log.

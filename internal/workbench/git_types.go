@@ -55,6 +55,14 @@ type gitCommit struct {
 	Date    time.Time
 }
 
+// gitSearch is the query box's answer over the whole repository.
+type gitSearch struct {
+	Query   string
+	Commits []gitCommit
+	Loading bool
+	Error   string
+}
+
 // gitState is everything the panel draws.
 type gitState struct {
 	Checked bool
@@ -79,6 +87,9 @@ type gitState struct {
 	RemoteBranches []string
 	Tags           []string
 	Remotes        []gitRemote
+	// Total is every commit HEAD reaches; Commits holds at most LogLimit
+	// of them, so the two differ on a long history.
+	Total int
 	// LogLimit is how many commits were asked for.
 	LogLimit int
 	Error    string
@@ -103,6 +114,15 @@ func (s gitState) changedCount() int {
 		}
 	}
 	return n
+}
+
+// historyCount is the history heading's number: every commit HEAD reaches,
+// not just the page that has been read.
+func (s gitState) historyCount() int {
+	if s.Total > 0 {
+		return s.Total
+	}
+	return len(s.Commits)
 }
 
 // conflicts lists the paths a merge or rebase left with conflict marks.

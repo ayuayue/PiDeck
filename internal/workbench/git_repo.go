@@ -7,6 +7,7 @@ package workbench
 import (
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -26,10 +27,17 @@ type gitRepo struct {
 	state    *core.Signal[gitState]
 	history  *commitgraph.History
 	logQuery *core.Signal[string]
-	msg      *core.Signal[string]
-	amend    *core.Signal[bool]
-	busy     *core.Signal[string]
-	err      *core.Signal[string]
+	// logSearch is the query's matches over the whole history; the box's
+	// debounce fills it, so typing does not run git per keystroke.
+	logSearch     *core.Signal[*gitSearch]
+	searchLimit   *core.Signal[int]
+	searchTimer   func() bool
+	searching     bool
+	searchPending bool
+	msg           *core.Signal[string]
+	amend         *core.Signal[bool]
+	busy          *core.Signal[string]
+	err           *core.Signal[string]
 
 	// The drawer's own controls: how the changes are listed, which folders
 	// are folded, how many rows of each section are shown. They outlive a
@@ -62,6 +70,8 @@ func newGitRepo(cx *core.Scope) *gitRepo {
 		cx:           cx,
 		state:        core.NewSignalFunc(cx, gitState{Checked: true}, nil),
 		logQuery:     core.NewSignal(cx, ""),
+		logSearch:    core.NewSignal(cx, (*gitSearch)(nil)),
+		searchLimit:  core.NewSignal(cx, gitSearchPage),
 		logLimit:     50,
 		msg:          core.NewSignal(cx, ""),
 		amend:        core.NewSignal(cx, false),
@@ -97,6 +107,10 @@ const (
 	gitFilesAll     = 1 << 20
 	gitHistoryShown = 8
 	gitHistoryPage  = 20
+	// gitSearchPage is how many matches one search reads, and the step its
+	// "earlier" repeats; gitSearchDebounce is how long typing waits.
+	gitSearchPage     = 100
+	gitSearchDebounce = 250 * time.Millisecond
 )
 
 // repo is the repository commands run in.
@@ -126,6 +140,13 @@ func (r *gitRepo) attach(ws *workspace) bool {
 	r.working, r.running, r.pending = false, false, false
 	r.logLimit = 50
 	r.logQuery.Set("")
+	if r.searchTimer != nil {
+		r.searchTimer()
+		r.searchTimer = nil
+	}
+	r.searching, r.searchPending = false, false
+	r.logSearch.Set(nil)
+	r.searchLimit.Set(gitSearchPage)
 	r.err.Set("")
 	r.busy.Set("")
 	r.msg.Set("")
@@ -176,9 +197,6 @@ func (r *gitRepo) refreshAll() {
 
 // loadMore asks for another page of history.
 func (r *gitRepo) loadMore() {
-	if r.logLimit >= 500 {
-		return
-	}
 	r.logLimit += 50
 	r.refreshAll()
 }
@@ -215,6 +233,7 @@ func (r *gitRepo) poll() {
 				st.Root, st.Commits, st.Branches = old.Root, old.Commits, old.Branches
 				st.RemoteBranches, st.Tags, st.Remotes = old.RemoteBranches, old.Tags, old.Remotes
 				st.LogLimit = old.LogLimit
+				st.Total = old.Total
 				st.Checked, st.Loading = true, false
 				r.state.Set(st)
 			}
@@ -242,9 +261,15 @@ func readGitState(t target, dir string, logLimit int) gitState {
 		st.Root = strings.TrimSpace(out)
 	}
 	if out, _, code, err := gitRun(t, dir, 30*time.Second, "--no-pager", "log", "-n", fmt.Sprint(logLimit), "--date=iso-strict",
-		"--pretty=format:%H%x1f%h%x1f%an%x1f%ae%x1f%ad%x1f%s%x1f%P%x1e"); err == nil && code == 0 {
+		"--pretty=format:"+gitLogFormat); err == nil && code == 0 {
 		st.Commits = parseGitLog(out)
 		st.LogLimit = logLimit
+	}
+	st.Total = len(st.Commits)
+	if out, _, code, err := gitRun(t, dir, 20*time.Second, "rev-list", "--count", "HEAD"); err == nil && code == 0 {
+		if n, convErr := strconv.Atoi(strings.TrimSpace(out)); convErr == nil && n > 0 {
+			st.Total = n
+		}
 	}
 	if out, _, code, err := gitRun(t, dir, 20*time.Second, "branch", "--list", "--format=%(refname:short)"); err == nil && code == 0 {
 		st.Branches = parseGitBranches(out)

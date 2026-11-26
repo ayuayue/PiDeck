@@ -21,7 +21,7 @@ import (
 // gitHistory is the commits under the changes.
 func (a *app) gitHistory(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
-	search := core.Input{Value: a.git.logQuery.Get, OnChange: a.git.logQuery.Set,
+	search := core.Input{Value: a.git.logQuery.Get, OnChange: a.setGitLogQuery,
 		Placeholder: apptext.T("搜索提交（标题、作者或哈希）…"), Label: apptext.T("搜索提交"), TestID: "git-log-search",
 		Style: core.Style{Height: core.Pt(30), Padding: core.Symmetric(0, 9), CornerRadius: 7,
 			Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(),
@@ -43,49 +43,74 @@ func (a *app) gitHistoryBar(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, MinHeight: core.Pt(24)}, Children: []core.Node{
 		gitSectionTitle(colors, apptext.T("历史")),
-		gitCount(colors, func() string { return fmt.Sprint(len(a.git.state.Get().Commits)) }),
+		gitCount(colors, func() string { return fmt.Sprint(a.git.state.Get().historyCount()) }),
 		core.View{Style: core.Style{FlexGrow: 1}},
 		hint("刷新历史", a.pressIcon(lucide.RefreshCw, apptext.T("刷新历史"), 22, 12.5,
 			func() bool { return a.git.busy.Get() != "" }, func() { a.git.refreshAll() }, "git-log-refresh")),
 	}}
 }
 
-// gitHistoryRows is the log itself, cut to the rows the user asked for.
+// gitHistoryRows is the log itself: the pages of history the drawer has
+// read, or the commits a query matches anywhere in the repository.
 func (a *app) gitHistoryRows(cx *core.Scope) core.Node {
+	query := strings.TrimSpace(a.git.logQuery.Get())
+	if query != "" {
+		return a.gitHistoryHits(cx, query)
+	}
 	colors := ui.ColorsOf(cx)
 	st := a.git.state.Get()
-	query := strings.ToLower(strings.TrimSpace(a.git.logQuery.Get()))
-	shown := a.git.historyShown.Get()
+	shown := min(a.git.historyShown.Get(), len(st.Commits))
 	var rows []core.Node
-	matched, visible := 0, 0
-	for i, c := range st.Commits {
-		if query != "" {
-			hay := strings.ToLower(c.Subject + " " + c.Author + " " + c.Short + " " + c.Hash)
-			if !strings.Contains(hay, query) {
-				continue
-			}
-		}
-		matched++
-		if visible >= shown {
-			continue
-		}
-		visible++
-		rows = append(rows, a.gitCommitRow(cx, i, c, query == ""))
+	for i, c := range st.Commits[:shown] {
+		rows = append(rows, a.gitCommitRow(cx, i, c, true))
 	}
 	switch {
-	case matched == 0:
-		msg := apptext.T("还没有提交")
-		if query != "" {
-			msg = apptext.T("没有匹配的提交")
-		}
-		rows = append(rows, core.Text{Content: msg, Style: core.Style{FontSize: 11.5, Padding: core.Symmetric(3, 6)},
-			StyleFunc: ui.Colored(colors.Faint)})
-	case matched > visible:
+	case len(st.Commits) == 0:
+		rows = append(rows, a.gitNotice(apptext.T("还没有提交"), colors.Faint))
+	case shown < len(st.Commits):
 		rows = append(rows, a.gitListTail(apptext.T("显示更早的提交"), "git-log-more", a.moreGitHistory))
-	case query == "" && st.LogLimit > 0 && len(st.Commits) >= st.LogLimit && st.LogLimit < 500:
+	case st.Total > len(st.Commits):
 		rows = append(rows, a.gitListTail(apptext.T("加载更多提交"), "git-log-more", a.moreGitHistory))
 	}
 	return core.View{Style: core.Style{Gap: 0}, Children: rows}
+}
+
+// gitHistoryHits draws a query's matches. Until the repository-wide answer
+// lands, the page already read answers, so typing stays quick.
+func (a *app) gitHistoryHits(cx *core.Scope, query string) core.Node {
+	colors := ui.ColorsOf(cx)
+	res := a.git.logSearch.Get()
+	settled := res != nil && res.Query == query && !res.Loading
+	var commits []gitCommit
+	more := false
+	switch {
+	case settled && res.Error != "":
+		return a.gitNotice(res.Error, colors.Danger)
+	case settled:
+		commits, more = res.Commits, len(res.Commits) >= a.git.searchLimit.Get()
+	default:
+		for _, c := range a.git.state.Get().Commits {
+			if commitMatches(c, query) {
+				commits = append(commits, c)
+			}
+		}
+	}
+	var rows []core.Node
+	for _, c := range commits {
+		rows = append(rows, a.gitCommitRow(cx, 0, c, false))
+	}
+	switch {
+	case len(commits) == 0:
+		rows = append(rows, a.gitNotice(apptext.T("没有匹配的提交"), colors.Faint))
+	case more:
+		rows = append(rows, a.gitListTail(apptext.T("显示更早的提交"), "git-log-more", a.moreGitSearch))
+	}
+	return core.View{Style: core.Style{Gap: 0}, Children: rows}
+}
+
+// gitNotice is one quiet line standing in for rows.
+func (a *app) gitNotice(text string, color func() core.Color) core.Node {
+	return core.Text{Content: text, Style: core.Style{FontSize: 11.5, Padding: core.Symmetric(3, 6)}, StyleFunc: ui.Colored(color)}
 }
 
 // gitCommitRow is one commit: its graph lane, subject and line of facts,
