@@ -4,6 +4,7 @@ package workbench
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/nsgo-dev/nsgo/ui/chat"
@@ -13,6 +14,7 @@ type delegation struct {
 	toolRun
 	turnID string
 	state  string
+	child  *session // a persisted child session rather than a tool call
 }
 
 func (d delegation) active() bool {
@@ -173,6 +175,29 @@ func delegations(turns []turn, live []toolRun) []delegation {
 	return entries
 }
 
+// sessionDelegations projects only this conversation's tool activity and
+// direct child sessions. Active work comes first, newest records first
+// within each group; all three activity surfaces share this ordering.
+func (a *app) sessionDelegations(s *session) []delegation {
+	entries := delegations(s.turns.Get(), s.liveTools.Get())
+	_, children := a.sessionRelations(s)
+	for _, child := range children {
+		entries = append(entries, delegation{toolRun: toolRun{CallID: "session:" + child.ID,
+			Name: child.title.Get(), Action: "会话", Detail: child.title.Get(), Output: lastAnswer(child)}, state: sessionDelegationState(child), child: child})
+	}
+	slices.Reverse(entries)
+	slices.SortStableFunc(entries, func(a, b delegation) int {
+		if a.active() == b.active() {
+			return 0
+		}
+		if a.active() {
+			return -1
+		}
+		return 1
+	})
+	return entries
+}
+
 // sessionDelegationState is shared by the parent's activity list and the
 // child's composer. A system note never replaces the last task's result.
 func sessionDelegationState(s *session) string {
@@ -204,4 +229,43 @@ func sessionDelegationState(s *session) string {
 		break
 	}
 	return "就绪"
+}
+
+func (a *app) openDelegation(s *session, d delegation) {
+	if d.child != nil {
+		if a.byID[d.child.ID] == d.child && !d.child.deleting {
+			a.selectSession(d.child)
+		}
+		return
+	}
+	if s == nil || a.byID[s.ID] != s || s.deleting {
+		return
+	}
+	for i, tr := range s.turns.GetUntracked() {
+		if tr.ID != d.turnID {
+			continue
+		}
+		a.selectSession(s)
+		foldKey := s.ID + "/fold/" + tr.ID
+		if !s.foldOpen(foldKey, false) {
+			s.toggleFold(foldKey, false)
+		}
+		for _, node := range processNodes(a.processItems(s, func() turn { return tr })) {
+			for _, item := range node.members {
+				src := stepSource{s: s, turn: func() turn { return tr }, id: func() string { return item.step }}
+				if slices.ContainsFunc(blockRuns(src, item.part), func(run toolRun) bool { return run.CallID == d.CallID }) {
+					key := s.ID + "/" + node.id
+					if !s.procOpen(key, false) {
+						s.toggleProc(key, false)
+					}
+				}
+			}
+		}
+		key := s.ID + "/tool/" + d.CallID
+		if !s.toolOpen(key, false) {
+			s.toggleOpen(key)
+		}
+		a.jumpToTurnIndex(s, i)
+		return
+	}
 }

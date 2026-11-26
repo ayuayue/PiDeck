@@ -179,7 +179,7 @@ func (a *app) composerStack(s *session, width func() core.Length, editor *core.R
 	return core.View{Style: core.Style{Width: core.Pct(100), AlignItems: core.AlignCenter}, Children: []core.Node{
 		core.View{TestID: "composer-column", Style: core.Style{Width: core.Pct(100), MinWidth: core.Pt(0)},
 			StyleFunc: func() core.Style { return core.Style{MaxWidth: width()} }, Children: []core.Node{
-				a.trustBar(s), a.goalStrip(s), a.todoBar(s),
+				a.trustBar(s), a.goalStrip(s), a.todoBar(s), a.subagentComposerBar(s),
 				// An ask takes the composer's place while it waits: the answer
 				// is the only thing to send then.
 				core.Show{

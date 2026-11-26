@@ -2453,6 +2453,8 @@
   "允许一次": "Autoriser une fois",
   "查看轨迹": "Voir la trace du tour",
   "子代理与工作流": "Sous-agents et flux de travail",
+  "当前会话": "Cette session",
+  "%d 进行中 · 共 %d 项": "%d en cours · %d au total",
   "工作流": "Flux de travail",
   "已转入后台": "Transmis en arrière-plan",
   "在对话中查看": "Voir dans la conversation",

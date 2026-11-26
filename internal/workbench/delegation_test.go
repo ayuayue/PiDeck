@@ -63,6 +63,7 @@ func TestDelegationHistoryShowsOriginalResults(t *testing.T) {
 	}, nsgotest.Size(1100, 760))
 	screen.Press("id:delegate-show-all")
 	screen.WaitFor("id:delegate-history-list", 5*time.Second)
+	screen.Press("id:delegate-history-toggle-399")
 	screen.WaitFor("text:Original result 399", 5*time.Second)
 	if a.delegationSession.GetUntracked() != s {
 		t.Fatal("history opened a different session")

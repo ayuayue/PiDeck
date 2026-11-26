@@ -245,9 +245,11 @@ func (a *app) paneView() core.Node {
 			// reading width, so the width slider does not rebuild the page it
 			// is on while it moves.
 			padding = core.Edges{}
-		case paneDiff, panePreview, paneFileHistory, paneBlame, paneReviewPatch, paneTranscriptImage, paneDelegation:
+		case paneDelegation:
+			maxWidth = core.Pt(760)
+		case paneDiff, panePreview, paneFileHistory, paneBlame, paneReviewPatch, paneTranscriptImage:
 			// Pages that show content a conversation column is too narrow
-			// for: patches, previews, long paths and a delegate's records.
+			// for: patches, previews and long paths.
 			maxWidth = core.Pt(1320)
 		case paneTrajectory:
 			maxWidth = core.Pt(1100)

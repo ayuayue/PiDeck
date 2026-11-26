@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"example.com/pideck-v2/internal/apptext"
 	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/ui"
 	"github.com/nsgo-dev/nsgo/ui/chat"
@@ -22,6 +23,7 @@ func (a *app) applyEvent(s *session, ev piEvent) {
 	case "agent_start":
 		s.status.Set(statusRunning)
 		s.live = true
+		a.ensureTurn(s)
 	case "message_start":
 		var msg piMessage
 		if len(ev.Message) > 0 && json.Unmarshal(ev.Message, &msg) == nil && msg.Role == "assistant" {
@@ -123,12 +125,13 @@ func (a *app) applyEvent(s *session, ev piEvent) {
 
 // ensureTurn makes sure a running turn exists for a run that pi started.
 func (a *app) ensureTurn(s *session) {
+	s.runningSig.Set(true)
 	ts := s.turns.GetUntracked()
-	if len(ts) > 0 && ts[len(ts)-1].running() {
+	if len(ts) > 0 && !ts[len(ts)-1].System && ts[len(ts)-1].running() {
 		return
 	}
 	s.turns.Update(func(ts []turn) []turn {
-		return append(ts, turn{ID: fmt.Sprintf("t%d", a.cx.Now().UnixNano()), Status: chat.Running, Start: a.cx.Now()})
+		return append(ts, turn{ID: fmt.Sprintf("t%d-%d", a.cx.Now().UnixNano(), len(ts)), Status: chat.Running, Start: a.cx.Now()})
 	})
 }
 
@@ -143,9 +146,49 @@ func (a *app) messageEnded(s *session, ev piEvent) {
 		return
 	}
 	switch msg.Role {
+	case "user":
+		a.recordPiInput(s, msg)
+	case "custom":
+		if _, state := delegationNotice(msg.text()); state != "" {
+			a.recordPiInput(s, msg)
+		}
 	case "assistant":
 		a.commitAssistant(s, msg)
 	}
+}
+
+// recordPiInput fills a run started by the backend, including a delegate's
+// wake-up prompt. Local prompt echoes keep their original display text;
+// completion notices arriving during a run become notes in that same turn.
+func (a *app) recordPiInput(s *session, msg piMessage) {
+	text := msg.text()
+	if text == "" && len(msg.blocks()) == 0 {
+		return
+	}
+	if msg.Role == "custom" && !s.busyNow() {
+		id, state := delegationNotice(text)
+		status := chat.Completed
+		switch state {
+		case "失败":
+			status = chat.Failed
+		case "已停止":
+			status = chat.Cancelled
+		}
+		a.addNote(s, "delegation-"+id, apptext.T("子代理与工作流"), text, status)
+		return
+	}
+	a.ensureTurn(s)
+	s.turns.Update(func(ts []turn) []turn {
+		i := len(ts) - 1
+		if ts[i].Prompt == "" {
+			ts[i].Prompt, ts[i].sourcePrompt = text, text
+			ts[i].Images = piBlockImages(msg.blocks())
+		} else if _, state := delegationNotice(text); state != "" && ts[i].Prompt != text {
+			ts[i].Steps = append(ts[i].Steps, turnStep{ID: fmt.Sprintf("%s-notice-%d", ts[i].ID, len(ts[i].Steps)),
+				Note: apptext.T("子代理与工作流"), Text: text})
+		}
+		return ts
+	})
 }
 
 // commitAssistant turns a finished message into steps, tools and usage.

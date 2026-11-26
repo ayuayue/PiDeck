@@ -2448,6 +2448,8 @@
   "允许一次": "Allow once",
   "查看轨迹": "View turn trace",
   "子代理与工作流": "Subagents and workflows",
+  "当前会话": "This session",
+  "%d 进行中 · 共 %d 项": "%d active · %d total",
   "工作流": "Workflow",
   "已转入后台": "Dispatched to background",
   "在对话中查看": "View in conversation",

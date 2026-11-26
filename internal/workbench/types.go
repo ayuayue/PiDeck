@@ -696,6 +696,8 @@ func toolSummary(name string, raw json.RawMessage) (string, string) {
 	case "fetch_content", "webfetch", "web_fetch":
 		action = "抓取"
 		return action, shorten(str("url"), 90)
+	case "SubagentWorkflow":
+		return "工作流", shorten(str("description", "name", "scriptPath", "script"), 120)
 	case "task", "agent", "Agent", "delegate", "acp_delegate", "subagent":
 		if name == "subagent" {
 			if str("workflowScript", "workflowScriptPath") != "" {
