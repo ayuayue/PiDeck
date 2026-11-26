@@ -6,7 +6,7 @@ require (
 	github.com/andybalholm/brotli v1.3.0
 	github.com/makiuchi-d/gozxing v0.1.1
 	github.com/modelcontextprotocol/go-sdk v1.8.0
-	github.com/nsgo-dev/nsgo v0.3.0
+	github.com/nsgo-dev/nsgo v0.3.4
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	go.yaml.in/yaml/v3 v3.0.6
 	golang.org/x/image v0.48.0

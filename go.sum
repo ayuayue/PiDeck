@@ -75,6 +75,8 @@ github.com/nsgo-dev/goja v0.1.0-nsgo.2.0.20261122032045-fee2b34506fc h1:+NcUDZPr
 github.com/nsgo-dev/goja v0.1.0-nsgo.2.0.20261122032045-fee2b34506fc/go.mod h1:a8RchL/4Hq7YGP5XrWPTMOEFFyo2J6qe8GLHZQNRxxo=
 github.com/nsgo-dev/nsgo v0.3.0 h1:M0lmLfcxBH1dCHQ58OdZdfDBB2TEZb38o5c7DLfHR/M=
 github.com/nsgo-dev/nsgo v0.3.0/go.mod h1:yq5N7g6RvTe7zSdb3TCFR2tOYur8IYFTASvy3pJGJr4=
+github.com/nsgo-dev/nsgo v0.3.4 h1:CvtM0nAeWBBDh0zy6ygTCuHXDJhR+v2fHU73Zl0e8wE=
+github.com/nsgo-dev/nsgo v0.3.4/go.mod h1:yq5N7g6RvTe7zSdb3TCFR2tOYur8IYFTASvy3pJGJr4=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec h1:W09IVJc94icq4NjY3clb7Lk8O1qJ8BdBEF8z0ibU0rE=
