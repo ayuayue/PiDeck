@@ -5553,7 +5553,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"settings.piUpdateDetails": "Release notes",
 	"settings.piUpdateVersions": "Current: {current} · Latest: {latest}",
 	"settings.updatePi": "Update Pi",
-	"settings.piUpdateDone": "Pi update command completed",
+	"settings.piUpdateRestartAgents": "Pi is updated. Sessions that were already running still use the pre-update pi process; restart them to use the new version.",
 	"settings.piUpdateChecked": "Pi is already up to date",
 	"settings.catalogSectionTitle": "Model Catalog",
 	"settings.catalogSectionDesc":

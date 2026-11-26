@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: ed0c52d0bf4df04639d07a74842cf6375d7e40c664a58b9b373c8aec6d501e4e（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 716694e3f5b40747d89ce814aa344899b273b5928acab9808a358903fda1134a（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -5537,7 +5537,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.piUpdateDetails": "更新詳情",
 	"settings.piUpdateVersions": "當前：{current} · 最新：{latest}",
 	"settings.updatePi": "更新 Pi",
-	"settings.piUpdateDone": "Pi 更新命令已完成",
+	"settings.piUpdateRestartAgents": "Pi 已更新完成。已經開啟的會話仍在使用更新前的 pi 程序，重啟這些會話後才會用上新版本。",
 	"settings.piUpdateChecked": "Pi 已是最新版本",
 	"settings.catalogSectionTitle": "模型目錄",
 	"settings.catalogSectionDesc": "內建模型目錄隨版本釋出（打包資源）；模型上新時可從 GitHub main 分支拉取預生成目錄覆蓋到本地（複用應用更新的 GitHub 映象配置，國內可達性更好），覆蓋檔案僅寫入應用資料目錄，可隨時一鍵還原。",

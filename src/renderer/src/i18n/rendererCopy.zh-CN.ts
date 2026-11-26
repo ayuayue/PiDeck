@@ -5530,7 +5530,7 @@ export const zhCN = {
 	"settings.piUpdateDetails": "更新详情",
 	"settings.piUpdateVersions": "当前：{current} · 最新：{latest}",
 	"settings.updatePi": "更新 Pi",
-	"settings.piUpdateDone": "Pi 更新命令已完成",
+	"settings.piUpdateRestartAgents": "Pi 已更新完成。已经打开的会话仍在使用更新前的 pi 进程，重启这些会话后才会用上新版本。",
 	"settings.piUpdateChecked": "Pi 已是最新版本",
 	"settings.catalogSectionTitle": "模型目录",
 	"settings.catalogSectionDesc": "内置模型目录随版本发布（打包资源）；模型上新时可从 GitHub main 分支拉取预生成目录覆盖到本地（复用应用更新的 GitHub 镜像配置，国内可达性更好），覆盖文件仅写入应用数据目录，可随时一键还原。",

@@ -488,7 +488,8 @@ PiDeck 曾内置 DSH 持久 pwsh 工具（`pwsh_persistent`，本地 file: 包 `
 - [ ] 在真实 pi 1.2.0 上回归 goal/plan 模式、安全档位提示与 todo 压缩后补注（`before_agent_start` 触发范围扩大，见 1.2.0 矩阵第 6 行）。
 - [x] 消费 bash 工具新增的 `details.fullOutputError`（pi 1.6.1；2026-11-26）：`extractPiToolTruncation` 读原因，渲染层在「没有路径」时给一行「完整输出未能保存：<原因>」（i18n `tool.piOutputNotSaved`），路径存在时仍以路径为准。
 - [ ] `compaction_end` 失败形成用户可见提示。
-- [ ] 更新完成后失效 `PiProcess.versionCache` 和 `ExtensionManager.piVersion`，并提示已有 Agent 需重启。
+- [x] 更新完成后失效 `PiProcess.versionCache` 和 `ExtensionManager.piVersion`，并提示已有 Agent 需重启（2026-11-26）：两份缓存的失效早在 `PiSelfUpdateRunner.update()` 的 finally 里（成功/失败都清）；本轮补上缺的那一半——更新成功后 toast + 设置页更新结果下常驻一行「已开的会话要重启才用新版本」（`settings.piUpdateRestartAgents`，三份词典）。不做“几个会话要重启”的计数：预热池与其他窗口的会话会让数字偏差。
+- [ ] pi 升级后回收 standby 预热池里的旧版进程（`StandbyAgentPool` 池条目是更新前的 pi，新会话可能被分到旧版本）；需要给 `AgentManager` 加一个回收方法，但它是只准降的巨文件（`check:file-size` 基线 4785，当前已到顶），先拆一块出来再加。
 - [x] 评估 `pi update --self`：pi 1.5.0 起提供 `selfUpdateCommand` / `PI_SELF_UPDATE_COMMAND`，让 `pi update` 走包装器或其它包管理器。PiDeck 不改写该键（用户在 `settings.json` 自行配置，未知键保留），PiDeck 自己的更新器仍独立。
 - [ ] 评估消费 pi 1.5.0 的扩展更新 changelog（`extensionChangelogVersions` + `collapseChangelog`）：PiDeck 商店/扩展页是否展示包内 `changelogPath`，先定 GUI 呈现再动手。
 - [x] Pi 后端调用 `get_available_thinking_levels`，按 sessionId + agentId + runtimeGeneration 读取，旧 Pi 回退静态列表。

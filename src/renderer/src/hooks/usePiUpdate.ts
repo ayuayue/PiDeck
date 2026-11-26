@@ -3,6 +3,7 @@ import { useSetAtom } from "jotai";
 import { t } from "../i18n";
 import { settingsOpenAtom } from "../atoms";
 import { resolvePiStatusFromProbe } from "../utils/piStatusSync";
+import { piUpdateToastKey } from "../utils/piUpdateHint";
 import type { AppSettings, NpmAvailabilityResult, PiCliUpdateResult, PiInstallation, PiInstallExecResult, PiInstallStatus, PiUpdateCheckResult } from "../../../shared/types";
 import type { PiDesktopApi } from "../../../preload";
 
@@ -473,7 +474,9 @@ export function usePiUpdate(options: UsePiUpdateOptions) {
 			setPiUpdateResult(result);
 			await checkPiInstallInline();
 			setPiUpdateCheck(await api.pi.checkUpdate());
-			showToast(result.updated ? t("settings.piUpdateDone") : t("settings.piUpdateChecked"));
+			// 升级只换了磁盘上的可执行文件：已开的会话仍跑旧 pi 进程，得重启才生效。
+			// 提示语选择见 utils/piUpdateHint（纯函数，运行时测得到）。
+			showToast(t(piUpdateToastKey(result)));
 		} catch (error) {
 			showToast(
 				t("settings.piUpdateFailed", {
