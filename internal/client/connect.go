@@ -379,7 +379,7 @@ func (a *mobileApp) connect() {
 			// A desktop may have rotated its token while this connect was in
 			// flight, and the reply already carried the new one.
 			token = client.currentToken()
-			client.onToken = a.rememberRotatedToken
+			client.onToken = func(token string) { a.rememberRotatedToken(client, token) }
 			a.client = client
 			a.server.Set(client.source)
 			a.token.Set(token)
@@ -411,9 +411,9 @@ func (a *mobileApp) connect() {
 // rememberRotatedToken keeps the token a desktop issued while the phone was
 // connected: the saved connection and the recent list would otherwise hold
 // the one the rotation replaced, and reopening the app would be refused.
-func (a *mobileApp) rememberRotatedToken(token string) {
+func (a *mobileApp) rememberRotatedToken(client *remoteClient, token string) {
 	a.cx.Post(func() {
-		if token == "" || token == a.token.GetUntracked() {
+		if a.client != client || token == "" || token == a.token.GetUntracked() {
 			return
 		}
 		a.token.Set(token)
