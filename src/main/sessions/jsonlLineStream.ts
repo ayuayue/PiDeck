@@ -1,4 +1,4 @@
-import { open, rm } from "node:fs/promises";
+import { type FileHandle, open, rm } from "node:fs/promises";
 
 /**
  * 会话 JSONL 的流式行扫描器（2026-09 大会话加载崩溃修复）。
@@ -71,7 +71,7 @@ export type JsonlScanOptions = {
 	/** 让出事件循环的实现（默认 setImmediate；测试可注入以断言节流）。 */
 	yieldToEventLoop?: () => Promise<void>;
 	/** 超长行回调（此时不会调用 visitor）。 */
-	onOversizedLine?: (info: JsonlOversizedLine) => void;
+	onOversizedLine?: (info: JsonlOversizedLine, source: FileHandle) => void | Promise<void>;
 };
 
 export type JsonlScanSummary = {
@@ -168,12 +168,15 @@ export async function scanJsonlLines(filePath: string, visitor: (line: string, c
 			lineIndex += 1;
 			if (oversize) {
 				oversizedLines += 1;
-				options.onOversizedLine?.({
-					offset,
-					byteLength,
-					prefix: oversizePrefix,
-					complete,
-				});
+				await options.onOversizedLine?.(
+					{
+						offset,
+						byteLength,
+						prefix: oversizePrefix,
+						complete,
+					},
+					handle,
+				);
 			} else {
 				const line = parts.length === 0 ? finalPiece.toString("utf8") : parts.length === 1 ? parts[0].toString("utf8") : Buffer.concat(parts, byteLength).toString("utf8");
 				if ((await visitor(line, { offset, byteLength, complete, index })) === "stop") stopped = true;
@@ -237,12 +240,28 @@ export type JsonlRewriteResult = {
 	lines: number;
 	/** 实际写入目标文件的行数（transform 返回 null 的被丢弃行不计）。 */
 	writtenLines: number;
-	/** 因超过 maxLineBytes 未 decode 的行数（这些行按 transform(null) 语义丢弃）。 */
+	/** 因超过 maxLineBytes 未 decode 的行数。 */
 	oversizedLines: number;
 };
 
 /** 写盘批大小：把行拼到这么多字节再 write，兼顾系统调用次数与内存占用。 */
 const REWRITE_FLUSH_BYTES = 256 * 1024;
+
+type JsonlRewriteOptions = Pick<JsonlScanOptions, "chunkBytes" | "maxLineBytes" | "yieldEveryLines" | "yieldToEventLoop"> & {
+	/** 超长行只允许有界检查后原样保留或显式过滤。 */
+	keepOversizedLine?: (chunks: AsyncIterable<Buffer>) => Promise<boolean>;
+};
+
+async function* readLineBytes(source: FileHandle, { offset, byteLength }: JsonlOversizedLine): AsyncGenerator<Buffer> {
+	const end = offset + byteLength;
+	while (offset < end) {
+		const buffer = Buffer.allocUnsafe(Math.min(REWRITE_FLUSH_BYTES, end - offset));
+		const { bytesRead } = await source.read(buffer, 0, buffer.length, offset);
+		if (!bytesRead) throw new Error("Session file changed during rewrite");
+		yield buffer.subarray(0, bytesRead);
+		offset += bytesRead;
+	}
+}
 
 /**
  * 流式重写 JSONL：逐行读源 → transform → 写目标，全程不 materialize 整个文件。
@@ -252,10 +271,9 @@ const REWRITE_FLUSH_BYTES = 256 * 1024;
  * 而且**写盘前就把全部内容持在内存里**（失败即丢原文件）。这里逐行消费，
  * 目标文件由调用方命名（通常写临时文件再原子改名覆盖源文件）。
  *
- * 注：超长行（> maxLineBytes）不 decode，按丢弃处理（`transform(null)` 语义），
- * 调用方无法对其做行变换——会话 JSONL 里出现这种行说明是异常内容，保留原样更危险。
+ * 超长行按源文件的字节范围复制，避免把内联附件解码成一个巨大的字符串。
  */
-export async function rewriteJsonlLines(srcPath: string, dstPath: string, transform: (line: string, context: JsonlLineContext | null) => string | null, options: Pick<JsonlScanOptions, "chunkBytes" | "maxLineBytes" | "yieldEveryLines" | "yieldToEventLoop"> = {}): Promise<JsonlRewriteResult> {
+export async function rewriteJsonlLines(srcPath: string, dstPath: string, transform: (line: string, context: JsonlLineContext) => string | null, options: JsonlRewriteOptions = {}): Promise<JsonlRewriteResult> {
 	const handle = await open(dstPath, "w");
 	let pending: string[] = [];
 	let pendingBytes = 0;
@@ -266,7 +284,7 @@ export async function rewriteJsonlLines(srcPath: string, dstPath: string, transf
 		const payload = pending.join("");
 		pending = [];
 		pendingBytes = 0;
-		await handle.write(payload, null, "utf8");
+		await handle.writeFile(payload, "utf8");
 	};
 
 	const writeLine = async (line: string) => {
@@ -290,10 +308,11 @@ export async function rewriteJsonlLines(srcPath: string, dstPath: string, transf
 				maxLineBytes: options.maxLineBytes,
 				yieldEveryLines: options.yieldEveryLines,
 				yieldToEventLoop: options.yieldToEventLoop,
-				onOversizedLine: () => {
-					// 超长行不进内存：按 transform(null) 语义丢弃（调用方无从变换）
-					const mapped = transform("", null);
-					if (mapped !== null) void writeLine(mapped);
+				onOversizedLine: async (info, source) => {
+					if (options.keepOversizedLine && !(await options.keepOversizedLine(readLineBytes(source, info)))) return;
+					await flush();
+					for await (const chunk of readLineBytes(source, info)) await handle.writeFile(chunk);
+					await writeLine(""); // CR 在原始字节内；补 LF 也让末尾无换行的记录和新标题分隔。
 				},
 			},
 		);

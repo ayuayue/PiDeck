@@ -744,7 +744,7 @@ export class SessionScanner {
 		const appender = createSessionInfoAppender({ isLegacySessionNameEntry });
 		const tempPath = `${hostPath}.pideck-rewrite-${randomUUID().slice(0, 8)}.tmp`;
 		try {
-			await rewriteJsonlLines(hostPath, tempPath, appender.transform);
+			await rewriteJsonlLines(hostPath, tempPath, appender.transform, { keepOversizedLine: appender.keepOversizedLine });
 			await appendFile(tempPath, `${appender.build(newName)}\n`, "utf8");
 			// 写临时文件再原子改名：大会话重写中途失败不会留下被截断的原会话。
 			// 重试一次：WSL 走 \\wsl.localhost 的 9P 通道，rename 偶发瞬时失败
@@ -1240,7 +1240,7 @@ export class SessionScanner {
 		const targetHostPath = this.hostPathFor(targetPath);
 		const appender = createSessionInfoAppender({ isLegacySessionNameEntry, extra: { copiedFrom: filePath } });
 		try {
-			await rewriteJsonlLines(sourceHostPath, targetHostPath, appender.transform);
+			await rewriteJsonlLines(sourceHostPath, targetHostPath, appender.transform, { keepOversizedLine: appender.keepOversizedLine });
 			await appendFile(targetHostPath, `${appender.build(copyName)}\n`, "utf8");
 		} catch (error) {
 			await rm(targetHostPath, { force: true }).catch(() => {});
