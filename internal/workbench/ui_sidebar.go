@@ -44,13 +44,15 @@ func (a *app) railNewSession() {
 // rail is the app's left area: the ways in, then the three columns under
 // a hairline, as PiDeck keeps them.
 func (a *app) rail() core.Node {
-	return core.Scroll{Style: ui.FillRest, Children: []core.Node{
-		core.View{Style: core.Style{Padding: core.Edges{Top: 12, Right: 12, Bottom: 14, Left: 12}, Gap: 8}, Children: []core.Node{
+	return core.View{Style: ui.FillRest, Children: []core.Node{
+		core.View{Style: core.Style{Padding: core.Edges{Top: 12, Right: 12, Bottom: 8, Left: 12}, Gap: 8, FlexShrink: 0}, Children: []core.Node{
 			a.brand(),
 			core.View{Style: core.Style{Gap: 2}, Children: []core.Node{a.newSessionButton(), a.searchField(), a.railMore()}},
 			a.railDivider(),
 			a.railTabBar(),
-			a.railTabContent(),
+		}},
+		core.Scroll{TestID: "rail-content-scroll", Style: ui.FillRest, Children: []core.Node{
+			core.View{Style: core.Style{Padding: core.Edges{Right: 12, Bottom: 14, Left: 12}}, Children: []core.Node{a.railTabContent()}},
 		}},
 	}}
 }
