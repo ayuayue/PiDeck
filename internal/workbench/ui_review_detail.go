@@ -25,12 +25,19 @@ func (a *app) reviewDetail(cx *core.Scope) core.Node {
 	st := a.review.state.Get()
 	d := st.Detail
 	if d == nil {
+		var content core.Node
 		if st.DetailError != "" {
-			return reviewNotice(colors, lucide.TriangleAlert, apptext.T("读不到这一条"), st.DetailError,
+			content = reviewNotice(colors, lucide.TriangleAlert, apptext.T("读不到这一条"), st.DetailError,
 				apptext.T("重试"), func() { a.review.reopenItem() })
+		} else {
+			content = core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 8},
+				Children: []core.Node{ui.Spinner{Size: 16, Label: apptext.T("读取详情")}, ui.Text(apptext.T("正在读取详情…"), 12, ui.Regular, colors.Muted)}}
 		}
-		return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 8},
-			Children: []core.Node{ui.Spinner{Size: 16, Label: apptext.T("读取详情")}, ui.Text(apptext.T("正在读取详情…"), 12, ui.Regular, colors.Muted)}}
+		return core.View{Style: ui.FillRest, Children: []core.Node{
+			core.View{Style: core.Style{AlignItems: core.AlignStart, Padding: core.Symmetric(8, 20)}, Children: []core.Node{
+				ui.Button{Text: apptext.T("返回列表"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "review-back", OnPress: a.review.closeItem},
+			}}, content,
+		}}
 	}
 	item := d.Item
 	body := []core.Node{
@@ -104,7 +111,7 @@ func (a *app) reviewActions(colors ui.Colors, d *reviewDetail) core.Node {
 	return core.Dynamic(func(*core.Scope) core.Node {
 		item := d.Item
 		open := item.State == "OPEN"
-		busy := func() bool { return a.review.state.Get().Writing }
+		busy := func() bool { st := a.review.state.Get(); return st.Writing || st.DetailBusy }
 		mergeOpen := func() bool { return a.review.mergeOpen.Get() }
 		reviewOpen := func() bool { return a.review.reviewOpen.Get() }
 		var mergeRow []core.Node
@@ -153,8 +160,10 @@ func (a *app) reviewActions(colors ui.Colors, d *reviewDetail) core.Node {
 		}
 		buttons = append(buttons, reviewRow...)
 		buttons = append(buttons, mergeRow...)
-		buttons = append(buttons, ui.Button{Text: stateLabel, Variant: ui.ButtonGhost, Size: ui.SizeSmall, Icon: stateIcon,
-			Disabled: busy, TestID: "review-state-change", OnPress: func() { a.reviewChangeState(item) }})
+		if item.State != "MERGED" {
+			buttons = append(buttons, ui.Button{Text: stateLabel, Variant: ui.ButtonGhost, Size: ui.SizeSmall, Icon: stateIcon,
+				Disabled: busy, TestID: "review-state-change", OnPress: func() { a.reviewChangeState(item) }})
+		}
 		if item.URL != "" {
 			buttons = append(buttons, ui.Button{Text: apptext.T("浏览器"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
 				Icon: lucide.ExternalLink, OnPress: func() { a.cx.OpenURL(item.URL, nil) }})
@@ -339,12 +348,11 @@ func (a *app) reviewCommentBox(colors ui.Colors, item reviewItem) core.Node {
 				return ui.Text(apptext.T("已提交"), 10.5, ui.Medium, colors.Up)
 			}},
 			ui.Button{Text: apptext.T("发表评论"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "review-comment-send",
-				Disabled: func() bool { return a.review.state.Get().Writing },
-				OnPress: func() {
-					text := a.review.commentText.GetUntracked()
-					a.review.commentText.Set("")
-					a.commentOnReview(text)
-				}},
+				Disabled: func() bool {
+					st := a.review.state.Get()
+					return st.Writing || st.DetailBusy || strings.TrimSpace(a.review.commentText.Get()) == ""
+				},
+				OnPress: func() { a.commentOnReview(a.review.commentText.GetUntracked()) }},
 		}},
 	}}
 }

@@ -49,12 +49,12 @@ func reviewRepos(t target, dir string) []reviewRepo {
 	}
 	add(reviewGitRoot(t, dir))
 	if t.remote() {
+		if len(out) == 0 {
+			add(dir)
+		}
 		return out
 	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return out
-	}
+	entries, _ := os.ReadDir(dir)
 	for _, entry := range entries {
 		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") || entry.Name() == "node_modules" {
 			continue
@@ -64,22 +64,21 @@ func reviewRepos(t target, dir string) []reviewRepo {
 			continue
 		}
 		add(child)
-		if len(out) >= 12 {
-			break
-		}
+	}
+	if len(out) == 0 {
+		add(dir)
 	}
 	return out
 }
 
-// reviewGitRoot is the repository a directory is in: the directory itself
-// when git cannot say.
+// reviewGitRoot is the repository a directory is in, or empty if it is not.
 func reviewGitRoot(t target, dir string) string {
 	if out, _, code, err := gitRun(t, dir, 15*time.Second, "rev-parse", "--show-toplevel"); err == nil && code == 0 {
 		if root := strings.TrimSpace(out); root != "" {
 			return root
 		}
 	}
-	return dir
+	return ""
 }
 
 // reviewRepoName names one repository: owner/name from its origin, else its
@@ -96,6 +95,7 @@ func reviewRepoName(t target, dir string) string {
 // repoFromRemoteURL is the owner and repository a clone URL names, for both
 // https and the git@ form.
 func repoFromRemoteURL(url string) string {
+	url = strings.TrimSuffix(strings.TrimSuffix(strings.TrimSpace(url), "/"), ".git")
 	if name := repoFromURL(url); name != "" {
 		return name
 	}
@@ -118,11 +118,12 @@ func repoFromRemoteURL(url string) string {
 // loadReviewRepos reads the candidate repositories and publishes them, then
 // loads the list of the one in force.
 func (r *review) loadReviewRepos() {
-	t, path := r.repo()
+	t, path := r.target, r.path
 	if path == "" {
 		r.repos.Set(nil)
 		return
 	}
+	r.discovering = true
 	seq := r.seq
 	go func() {
 		repos := reviewRepos(t, path)
@@ -130,7 +131,19 @@ func (r *review) loadReviewRepos() {
 			if seq != r.seq {
 				return
 			}
+			r.discovering = false
 			r.repos.Set(repos)
+			_, selected := r.repo()
+			for _, repo := range repos {
+				if reviewSamePath(t, repo.Path, selected) {
+					r.reload()
+					r.reopenItem()
+					return
+				}
+			}
+			if len(repos) > 0 {
+				r.setRepoPath(repos[0].Path)
+			}
 		})
 	}()
 }
@@ -139,7 +152,7 @@ func (r *review) loadReviewRepos() {
 func (r *review) repoName(repos []reviewRepo) string {
 	_, path := r.repo()
 	for _, repo := range repos {
-		if repo.Path == path {
+		if reviewSamePath(r.target, repo.Path, path) {
 			return repo.Name
 		}
 	}
@@ -151,38 +164,42 @@ func (r *review) repoName(repos []reviewRepo) string {
 
 // setRepoPath points the pane at another repository of the same project.
 func (r *review) setRepoPath(path string) {
-	r.mu.Lock()
-	if r.repoPath == path || path == "" {
-		r.mu.Unlock()
+	_, current := r.repo()
+	if path == "" || reviewSamePath(r.target, current, path) {
 		return
 	}
+	r.rememberView()
+	r.mu.Lock()
 	r.repoPath = path
 	r.mu.Unlock()
+	r.selectedRepos[r.projectKey()] = path
 	r.seq++
 	r.detailSeq++
-	r.closeItem()
-	r.limit = 40
-	r.state.Update(func(s reviewState) reviewState {
-		s.Items = nil
-		s.Checked = false
-		s.Error = ""
-		s.Missing = false
-		s.NeedsLogin = false
-		return s
-	})
-	r.state.Update(func(s reviewState) reviewState {
-		s.Repo = reviewRepoName(r.target, path)
-		return s
-	})
+	r.patchSeq++
+	r.working, r.pending, r.discovering = false, false, false
+	r.restoreView()
 	r.reload()
+	r.reopenItem()
+}
+
+func reviewSamePath(t target, a, b string) bool {
+	if t.remote() {
+		return a == b
+	}
+	return samePath(filepath.Clean(a), filepath.Clean(b))
 }
 
 // reviewRepoMenu offers the project's other repositories, when it has any.
 func (a *app) reviewRepoMenu(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
+	selected := core.NewMemo(cx, func() string {
+		_ = a.review.state.Get()
+		_, path := a.review.repo()
+		return path
+	})
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		repos := a.review.repos.Get()
-		_, path := a.review.repo()
+		path := selected.Get()
 		name := a.review.repoName(repos)
 		if name == "" {
 			name = apptext.T("仓库")
@@ -203,7 +220,7 @@ func (a *app) reviewRepoMenu(cx *core.Scope) core.Node {
 		items := make([]core.Node, 0, len(repos))
 		for _, repo := range repos {
 			target := repo.Path
-			inForce := repo.Path == path
+			inForce := reviewSamePath(a.review.target, repo.Path, path)
 			item := ui.MenuItem{Text: repo.Name, TestID: "review-repo-" + filepath.Base(repo.Path),
 				Checked:  func() bool { return inForce },
 				OnSelect: func() { a.review.setRepoPath(target) }}

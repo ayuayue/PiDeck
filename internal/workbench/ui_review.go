@@ -24,21 +24,22 @@ func (a *app) reviewPane() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = a.langRev.Get()
 		// Switching projects while the pane shows moves it to the new one.
-		if !a.review.attachedTo(a.activeWorkspace()) {
+		if !a.review.attachedTo(a.reviewWorkspace()) {
 			a.cx.Post(a.reviewAttach)
 		}
-		st := a.review.state.Get()
 		return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), MinWidth: core.Pt(0)},
 			Children: []core.Node{
 				a.paneHeader(apptext.T("评审"), apptext.T("拉取请求与议题：查看、评论、合并，或交给会话评估。"), a.reviewHeaderActions(cx)),
+				a.reviewScopeRow(cx),
 				a.reviewToolbar(cx),
 				core.View{Style: ui.FillRest, Children: []core.Node{
-					core.Show{When: func() bool { return a.review.state.Get().Open != "" }, Then: func(cx *core.Scope) core.Node {
-						return a.reviewDetail(cx)
-					}},
-					core.Show{When: func() bool { return a.review.state.Get().Open == "" }, Then: func(cx *core.Scope) core.Node {
+					core.Dynamic(func(cx *core.Scope) core.Node {
+						st := a.review.state.Get()
+						if st.Open != "" {
+							return a.reviewDetail(cx)
+						}
 						return a.reviewList(cx, st)
-					}},
+					}),
 				}},
 			}}
 	})
@@ -53,7 +54,7 @@ func (a *app) reviewHeaderActions(cx *core.Scope) core.Node {
 			return ui.Spinner{Size: 12, Label: apptext.T("正在读取")}
 		}},
 		hintOf(func() string { return apptext.T("刷新") }, ui.IconButton{Icon: lucide.RefreshCw, Label: apptext.T("刷新"),
-			Size: 28, IconSize: 13.5, OnPress: func() { a.review.reload() }}),
+			Size: 28, IconSize: 13.5, TestID: "review-refresh", OnPress: func() { a.review.reload(); a.review.reopenItem() }}),
 		core.Show{When: func() bool {
 			st := a.review.state.Get()
 			return st.Detail != nil && st.Detail.Item.URL != ""
@@ -130,8 +131,26 @@ func (a *app) reviewToolbar(cx *core.Scope) core.Node {
 // project, and which of its repositories when it holds more than one.
 func (a *app) reviewScopeRow(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
-	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6,
-		Padding: core.Edges{Left: 20, Right: 20, Bottom: 6}}, Children: []core.Node{
+	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Wrap: core.Wrap,
+		Padding: core.Edges{Left: 20, Right: 20, Top: 10, Bottom: 6}}, Children: []core.Node{
+		ui.Select[string]{Label: apptext.T("项目"), Placeholder: apptext.T("选择项目"), TestID: "review-project", Searchable: true,
+			Style: core.Style{Width: core.Pt(220), FlexShrink: 1, MinWidth: core.Pt(120)},
+			OptionsFunc: func() []ui.Option[string] {
+				var options []ui.Option[string]
+				for _, ws := range a.projects() {
+					name := ws.label()
+					if ws.Target.remote() {
+						name += " · " + ws.Target.label()
+					}
+					options = append(options, ui.Option[string]{Value: projectWireKey(ws), Label: name})
+				}
+				return options
+			}, Value: func() string {
+				if ws := a.reviewWorkspace(); ws != nil {
+					return projectWireKey(ws)
+				}
+				return ""
+			}, OnChange: a.selectReviewProject},
 		a.reviewRepoMenu(cx),
 		core.View{Style: core.Style{FlexGrow: 1}},
 		core.Text{ContentFunc: func() string {
@@ -194,6 +213,9 @@ func (a *app) reviewList(cx *core.Scope, st reviewState) core.Node {
 	case st.Loading && len(st.Items) == 0:
 		return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 8},
 			Children: []core.Node{ui.Spinner{Size: 16, Label: apptext.T("读取拉取请求与议题")}, ui.Text(apptext.T("正在读取…"), 12, ui.Regular, colors.Muted)}}
+	case len(st.Items) == 0 && len(a.projects()) == 0:
+		return reviewNotice(colors, lucide.FolderOpen, apptext.T("先打开一个项目"),
+			apptext.T("评审面板读的是项目所在的 GitHub 仓库。"), apptext.T("添加工作区"), func() { a.pickNative("workspace") })
 	case len(st.Items) == 0:
 		if a.review.kind.Get() == reviewPR {
 			return reviewNotice(colors, lucide.GitPullRequest, apptext.T("没有符合条件的拉取请求"),

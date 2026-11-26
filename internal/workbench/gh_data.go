@@ -43,9 +43,15 @@ type review struct {
 
 	seq       int
 	detailSeq int
+	patchSeq  int
 	working   bool
 	pending   bool
 	limit     int
+
+	discovering   bool
+	views         map[string]reviewView
+	selectedRepos map[string]string
+	drafts        map[string]string
 }
 
 // thePullFields is what a list needs, and no comment bodies: a repository
@@ -64,18 +70,21 @@ const theIssueDetailFields = theIssueFields + ",body,comments"
 // newReview builds the pane's state.
 func newReview(cx *core.Scope) *review {
 	return &review{
-		cx:          cx,
-		state:       core.NewSignalFunc(cx, reviewState{}, nil),
-		repos:       core.NewSignalFunc(cx, []reviewRepo(nil), nil),
-		kind:        core.NewSignal(cx, reviewPR),
-		filter:      core.NewSignal(cx, filterOpen),
-		query:       core.NewSignal(cx, ""),
-		search:      core.NewSignal(cx, ""),
-		commentText: core.NewSignal(cx, ""),
-		mergeOpen:   core.NewSignal(cx, false),
-		reviewOpen:  core.NewSignal(cx, false),
-		patchOpen:   core.NewSignal(cx, false),
-		limit:       40,
+		cx:            cx,
+		state:         core.NewSignalFunc(cx, reviewState{}, nil),
+		repos:         core.NewSignalFunc(cx, []reviewRepo(nil), nil),
+		kind:          core.NewSignal(cx, reviewPR),
+		filter:        core.NewSignal(cx, filterOpen),
+		query:         core.NewSignal(cx, ""),
+		search:        core.NewSignal(cx, ""),
+		commentText:   core.NewSignal(cx, ""),
+		mergeOpen:     core.NewSignal(cx, false),
+		reviewOpen:    core.NewSignal(cx, false),
+		patchOpen:     core.NewSignal(cx, false),
+		limit:         40,
+		views:         make(map[string]reviewView),
+		selectedRepos: make(map[string]string),
+		drafts:        make(map[string]string),
 	}
 }
 
@@ -108,35 +117,34 @@ func (r *review) attach(ws *workspace) bool {
 	if ws != nil {
 		path, t = ws.Path, ws.Target
 	}
-	r.mu.Lock()
-	same := path == r.path && t.key() == r.target.key()
-	if !same {
-		r.path, r.target, r.repoPath = path, t, ""
-	}
-	r.mu.Unlock()
-	if same {
+	if r.attachedTo(ws) {
 		return false
 	}
+	r.rememberView()
+	r.mu.Lock()
+	r.path, r.target = path, t
+	r.repoPath = r.selectedRepos[r.projectKey()]
+	r.mu.Unlock()
 	r.seq++
 	r.detailSeq++
-	r.working, r.pending = false, false
-	r.limit = 40
-	r.kind.Set(reviewPR)
-	r.filter.Set(filterOpen)
-	r.query.Set("")
+	r.patchSeq++
+	r.working, r.pending, r.discovering = false, false, false
+	r.restoreView()
+	r.repos.Set(nil)
 	if path == "" {
 		r.state.Set(reviewState{Checked: true})
-		r.repos.Set(nil)
 		return true
 	}
-	r.state.Set(reviewState{Loading: true, Limit: r.limit})
+	r.state.Update(func(s reviewState) reviewState { s.Loading = true; s.Limit = r.limit; return s })
 	r.loadReviewRepos()
-	r.reload()
 	return true
 }
 
 // reload rereads the list in the pane's own kind and filter.
 func (r *review) reload() {
+	if r.discovering {
+		return
+	}
 	t, path := r.repo()
 	if path == "" {
 		return
@@ -156,16 +164,12 @@ func (r *review) reload() {
 				return
 			}
 			r.working = false
-			if st.Detail == nil {
-				// A reload keeps the open item's conversation.
-				old := r.state.GetUntracked()
-				st.Detail, st.Open = old.Detail, old.Open
-			}
-			r.state.Set(st)
 			if r.pending {
 				r.pending = false
 				r.reload()
+				return
 			}
+			r.publishList(st)
 		})
 	}()
 }
@@ -185,13 +189,24 @@ func (r *review) openItem(item reviewItem) {
 	if path == "" {
 		return
 	}
+	r.rememberDraft()
 	r.detailSeq++
 	seq := r.detailSeq
 	key := reviewKey(item)
+	if r.state.GetUntracked().Open != key {
+		r.commentText.Set(r.drafts[key])
+		r.mergeOpen.Set(false)
+		r.reviewOpen.Set(false)
+		r.patchSeq++
+		r.state.Update(func(s reviewState) reviewState { s.Patch, s.PatchBusy = "", false; return s })
+	}
 	r.state.Update(func(s reviewState) reviewState {
-		s.Open, s.DetailError, s.WriteOK = key, "", ""
+		if s.Open != key {
+			s.WriteOK, s.DetailError = "", ""
+		}
+		s.Open = key
 		if s.Detail == nil || reviewKey(s.Detail.Item) != key {
-			s.Detail = nil
+			s.Detail, s.DetailError = nil, ""
 		}
 		s.DetailBusy = true
 		return s
@@ -217,9 +232,15 @@ func (r *review) openItem(item reviewItem) {
 
 // closeItem puts the list back.
 func (r *review) closeItem() {
+	r.rememberDraft()
+	r.commentText.Set("")
+	r.mergeOpen.Set(false)
+	r.reviewOpen.Set(false)
 	r.detailSeq++
+	r.patchSeq++
 	r.state.Update(func(s reviewState) reviewState {
 		s.Open, s.Detail, s.DetailError, s.DetailBusy = "", nil, "", false
+		s.Patch, s.PatchBusy = "", false
 		return s
 	})
 }
@@ -227,10 +248,18 @@ func (r *review) closeItem() {
 // reopenItem reads a last write into the open item, after a list reload.
 func (r *review) reopenItem() {
 	s := r.state.GetUntracked()
-	if s.Detail == nil {
+	if s.Open == "" {
 		return
 	}
-	r.openItem(s.Detail.Item)
+	if s.Detail != nil {
+		r.openItem(s.Detail.Item)
+		return
+	}
+	kind, number, ok := strings.Cut(s.Open, "#")
+	n, err := strconv.Atoi(number)
+	if ok && err == nil && n > 0 {
+		r.openItem(reviewItem{Kind: kind, Number: n})
+	}
 }
 
 // setKind switches between pull requests and issues and rereads.
@@ -276,28 +305,11 @@ func (r *review) write(label, action, method, body string) {
 		return
 	}
 	item := s.Detail.Item
+	view, key := r.viewKey(), reviewKey(item)
 	r.state.Update(func(st reviewState) reviewState { st.Writing, st.WriteOK, st.DetailError = true, "", ""; return st })
-	seq := r.seq
 	go func() {
 		err := runReviewWrite(t, path, item.Kind, item.Number, action, method, body)
-		r.cx.Post(func() {
-			r.state.Update(func(st reviewState) reviewState {
-				st.Writing = false
-				if err != nil {
-					st.DetailError = reviewErrorText(err)
-					return st
-				}
-				st.WriteOK = label
-				return st
-			})
-			if err != nil {
-				return
-			}
-			if seq == r.seq {
-				r.reload()
-				r.reopenItem()
-			}
-		})
+		r.cx.Post(func() { r.finishWrite(view, key, label, action, body, err) })
 	}()
 }
 
@@ -331,7 +343,7 @@ func (r *review) reopenItemOnHost() {
 // look like work.
 func (r *review) poll() {
 	t, path := r.repo()
-	if path == "" || r.working || r.state.GetUntracked().Writing {
+	if path == "" || r.discovering || r.working || r.state.GetUntracked().Writing {
 		return
 	}
 	kind, filter, query, limit := r.kind.GetUntracked(), r.filter.GetUntracked(), strings.TrimSpace(r.query.GetUntracked()), r.limit
@@ -350,22 +362,16 @@ func (r *review) poll() {
 				return
 			}
 			r.working = false
-			old := r.state.GetUntracked()
-			if st.Error != "" && (st.Missing || st.NeedsLogin) {
-				// gh went away or lost its login: say so rather than keep
-				// stale rows.
-				r.state.Set(st)
+			if r.pending {
+				r.pending = false
+				r.reload()
 				return
 			}
-			if st.Error != "" {
-				// A poll's failure leaves what the user is reading alone.
-				st = old
-				st.Error = ""
+			// A failed background refresh leaves the current page intact.
+			if st.Error == "" || st.Missing || st.NeedsLogin {
+				r.publishList(st)
 			}
-			st.Checked, st.Loading, st.Limit = true, false, limit
-			st.Detail, st.Open = old.Detail, old.Open
-			r.state.Set(st)
-			if item.Number > 0 {
+			if item.Number > 0 && r.state.GetUntracked().Open == reviewKey(item) {
 				r.refreshDetailQuiet(item)
 			}
 		})
@@ -393,7 +399,6 @@ func (r *review) refreshDetailQuiet(item reviewItem) {
 					return st
 				}
 				st.Detail = detail
-				st.DetailError = ""
 				return st
 			})
 		})
@@ -470,12 +475,13 @@ func (r *review) loadPatch() {
 	if path == "" {
 		return
 	}
-	number, seq := s.Detail.Item.Number, r.seq
+	r.patchSeq++
+	number, seq, key := s.Detail.Item.Number, r.patchSeq, s.Open
 	r.state.Update(func(st reviewState) reviewState { st.PatchBusy, st.Patch = true, ""; return st })
 	go func() {
 		patch, err := readReviewPatch(t, path, number)
 		r.cx.Post(func() {
-			if seq != r.seq {
+			if seq != r.patchSeq || r.state.GetUntracked().Open != key {
 				return
 			}
 			r.state.Update(func(st reviewState) reviewState {

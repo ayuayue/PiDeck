@@ -17,20 +17,34 @@ import (
 
 // openReviewPane shows the review pane for the active project.
 func (a *app) openReviewPane() {
-	if a.activeWorkspace() == nil {
-		a.toast(ui.ToastInfo, apptext.T("先打开一个项目"), apptext.T("评审面板读的是项目所在的 GitHub 仓库。"))
-		return
-	}
 	a.openPane(paneReview)
 }
 
 // reviewAttach points the pane at the active project.
 func (a *app) reviewAttach() {
-	ws := a.activeWorkspace()
+	ws := a.reviewWorkspace()
 	if a.review.attachedTo(ws) {
 		return
 	}
 	a.review.attach(ws)
+}
+
+// reviewWorkspace excludes the built-in chat and falls back to an imported project.
+func (a *app) reviewWorkspace() *workspace {
+	if ws := a.activeWorkspace(); ws != nil && !ws.Chat {
+		return ws
+	}
+	if projects := a.projects(); len(projects) > 0 {
+		return projects[0]
+	}
+	return nil
+}
+
+func (a *app) selectReviewProject(key string) {
+	if ws := a.workspaceByWireKey(key); ws != nil && !ws.Chat {
+		a.activeWS.Set(projectWireKey(ws))
+		a.review.attach(ws)
+	}
 }
 
 // commentOnReview posts the pane's comment box on the open item.
@@ -52,10 +66,15 @@ func (a *app) reviewMerge(item reviewItem, method string) {
 	case "rebase":
 		how = apptext.T("变基合并")
 	}
+	r, view, key := a.review, a.review.viewKey(), reviewKey(item)
 	a.askConfirm(apptext.T("合并拉取请求"),
 		fmt.Sprintf(apptext.T("「#%d %s」会以%s的方式合入目标分支，之后在 GitHub 上对所有人可见。分支不会被删除。"),
 			item.Number, item.Title, how),
-		apptext.T("合并"), func() { a.review.merge(method) })
+		apptext.T("合并"), func() {
+			if r.viewKey() == view && r.state.GetUntracked().Open == key {
+				r.merge(method)
+			}
+		})
 }
 
 // reviewVerdict submits a review verdict, with the comment box as the
@@ -63,7 +82,7 @@ func (a *app) reviewMerge(item reviewItem, method string) {
 func (a *app) reviewVerdict(item reviewItem, verdict string) {
 	const nl = "\n"
 	a.review.reviewOpen.Set(false)
-	body := strings.TrimSpace(a.review.commentText.GetUntracked())
+	body := a.review.commentText.GetUntracked()
 	what, action := apptext.T("批准"), apptext.T("批准")
 	switch verdict {
 	case verdictRequestChanges:
@@ -71,17 +90,22 @@ func (a *app) reviewVerdict(item reviewItem, verdict string) {
 	case verdictComment:
 		what, action = apptext.T("只留评论"), apptext.T("提交")
 	}
-	if body == "" && verdict != verdictApprove {
+	if strings.TrimSpace(body) == "" && verdict != verdictApprove {
 		a.toast(ui.ToastInfo, apptext.T("先在评论框里写说明"), apptext.T("这个评审结论要带一段说明。"))
 		return
 	}
-	note := body
+	note := strings.TrimSpace(body)
 	if note == "" {
 		note = apptext.T("（没有说明）")
 	}
+	r, view, key := a.review, a.review.viewKey(), reviewKey(item)
 	a.askConfirm(apptext.T("提交评审"),
 		fmt.Sprintf(apptext.T("「#%d %s」会带上这段说明提交为%s："+nl+nl+"%s"), item.Number, item.Title, what, note),
-		action, func() { a.review.submitReview(verdict, body) })
+		action, func() {
+			if r.viewKey() == view && r.state.GetUntracked().Open == key {
+				r.submitReview(verdict, body)
+			}
+		})
 }
 
 // reviewChangeState closes or reopens the open item.
@@ -105,12 +129,16 @@ func (a *app) reviewChangeState(item reviewItem) {
 	} else {
 		body = fmt.Sprintf(apptext.T("「#%d %s」会重新打开。"), item.Number, item.Title)
 	}
+	r, view, key := a.review, a.review.viewKey(), reviewKey(item)
 	a.askConfirm(title, body, action, func() {
-		if closing {
-			a.review.closeItemOnHost()
+		if r.viewKey() != view || r.state.GetUntracked().Open != key {
 			return
 		}
-		a.review.reopenItemOnHost()
+		if closing {
+			r.closeItemOnHost()
+			return
+		}
+		r.reopenItemOnHost()
 	})
 }
 
@@ -129,11 +157,11 @@ func reviewReadPrompt(item reviewItem, repo string) string {
 // answers with an evaluation. The phone calls it through the same path the
 // pane's button does.
 func (a *app) evaluateReview(project string, d reviewDetail) (string, error) {
-	ws := a.workspaceOf(project)
+	ws := a.workspaceByWireKey(project)
 	if ws == nil {
 		return "", errors.New("找不到这个项目")
 	}
-	s := a.newSession(ws.Path)
+	s := a.newSession(projectWireKey(ws))
 	if s == nil {
 		return "", errors.New("没有新建会话")
 	}
@@ -146,18 +174,32 @@ func (a *app) evaluateReview(project string, d reviewDetail) (string, error) {
 	return s.ID, nil
 }
 
+// reviewEvaluationWorkspace gives an AI session the selected clone's directory
+// and target. A child clone becomes a normal project so its session stays owned.
+func (a *app) reviewEvaluationWorkspace() *workspace {
+	t, path := a.review.repo()
+	if path == "" {
+		return nil
+	}
+	if ws := a.workspaceFor(t, path); ws != nil {
+		return ws
+	}
+	a.addWorkspaceFor(t, path, "")
+	return a.workspaceFor(t, path)
+}
+
 // evaluateReviewItem hands the open item to a new session.
 func (a *app) evaluateReviewItem() {
 	st := a.review.state.GetUntracked()
 	if st.Detail == nil {
 		return
 	}
-	ws := a.activeWorkspace()
+	ws := a.reviewEvaluationWorkspace()
 	if ws == nil {
 		a.toast(ui.ToastInfo, apptext.T("先打开一个项目"), apptext.T("会话要在项目的目录里跑，才能读到代码。"))
 		return
 	}
-	if _, err := a.evaluateReview(ws.Path, *st.Detail); err != nil {
+	if _, err := a.evaluateReview(projectWireKey(ws), *st.Detail); err != nil {
 		a.toast(ui.ToastError, apptext.T("没能交给会话"), err.Error())
 		return
 	}
