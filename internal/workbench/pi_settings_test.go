@@ -28,13 +28,14 @@ func TestPiSettingsRoundTrip(t *testing.T) {
 	if err != nil || !s.Loaded || !s.RetryEnabled || s.RetryMax != 3 || s.CompactionEnabled || s.ReserveTokens != 1000 {
 		t.Fatalf("read = %+v, %v", s, err)
 	}
+	before := s
 	s.HideThinking = true
 	s.QuietStartup = true
 	s.DefaultThinking = "high"
 	s.RetryMax = 9
 	s.CompactionEnabled = true
 	s.KeepRecentTokens = 500
-	if err := savePiSettings(s); err != nil {
+	if err := savePiSettings(before, s); err != nil {
 		t.Fatal(err)
 	}
 	raw, err := os.ReadFile(path)
@@ -75,31 +76,14 @@ func TestPiSettingsControls(t *testing.T) {
 	app.Press("id:settings-tab-pi")
 	app.WaitFor("id:pi-hide-thinking", 5*time.Second)
 	app.Press("id:pi-hide-thinking")
-	deadline := time.Now().Add(5 * time.Second)
-	for {
+	app.WaitUntil(5*time.Second, func() bool {
 		raw, err := os.ReadFile(path)
-		if err == nil && strings.Contains(string(raw), `"hideThinkingBlock": true`) {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("settings.json = %s, %v", raw, err)
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+		return err == nil && strings.Contains(string(raw), `"hideThinkingBlock": true`)
+	})
 	app.Type("id:pi-retry-max", "7")
 	app.Submit("id:pi-retry-max")
-	// Submission schedules the file write after the input event. Keep
-	// settling while the filesystem catches up, as target tests do.
-	app.Settle()
-	deadline = time.Now().Add(5 * time.Second)
-	for {
+	app.WaitUntil(5*time.Second, func() bool {
 		raw, err := os.ReadFile(path)
-		if err == nil && strings.Contains(string(raw), `"maxRetries": 7`) {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("settings.json after retries = %s, %v", raw, err)
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+		return err == nil && strings.Contains(string(raw), `"maxRetries": 7`)
+	})
 }
