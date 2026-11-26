@@ -65,6 +65,14 @@ func TestMobileLanguageSwitchAndRestore(t *testing.T) {
 		if got := mobile.language.GetUntracked(); got != lang {
 			t.Fatalf("chosen language = %q, want %q", got, lang)
 		}
+		app.WaitUntil(5*time.Second, func() bool {
+			raw, err := os.ReadFile(filepath.Join(dir, "remote.json"))
+			if err != nil {
+				return false
+			}
+			var saved mobileSaved
+			return json.Unmarshal(raw, &saved) == nil && saved.Language == lang
+		})
 		raw, err := os.ReadFile(filepath.Join(dir, "remote.json"))
 		if err != nil {
 			t.Fatal(err)

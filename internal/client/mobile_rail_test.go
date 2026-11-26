@@ -212,6 +212,14 @@ func TestMobileRail(t *testing.T) {
 	app.WaitFor("text:深色", 5*time.Second)
 	app.Advance(300 * time.Millisecond)
 	shot(app, "72-mobile-dark")
+	app.WaitUntil(5*time.Second, func() bool {
+		raw, err := os.ReadFile(filepath.Join(home, "remote.json"))
+		if err != nil {
+			return false
+		}
+		var saved mobileSaved
+		return json.Unmarshal(raw, &saved) == nil && saved.Appearance == appearanceDark
+	})
 	raw, err := os.ReadFile(filepath.Join(home, "remote.json"))
 	if err != nil {
 		t.Fatalf("remote.json: %v", err)

@@ -8,6 +8,8 @@ package client
 import (
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"example.com/pideck-v2/internal/alerts"
 	"example.com/pideck-v2/internal/apptext"
@@ -43,7 +45,9 @@ type mobileRecent struct {
 }
 
 type mobileApp struct {
-	cx *core.Scope
+	cx             *core.Scope
+	saveGeneration atomic.Uint64
+	saveWriteMu    sync.Mutex
 	// scrolls are the offsets of scroll views under a Dynamic, by key: a
 	// rerun clears the subtree, and the place has to come from outside.
 	scrolls viewkit.Stashes

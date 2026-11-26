@@ -34,6 +34,10 @@ func TestMobileSoundSettings(t *testing.T) {
 	waitApp(app, "id:mobile-settings-sheet", 5*time.Second)
 	app.Press("id:mobile-sound")
 	waitApp(app, "id:mobile-sound-name", 5*time.Second)
+	app.WaitUntil(5*time.Second, func() bool {
+		raw, err := os.ReadFile(filepath.Join(home, "remote.json"))
+		return err == nil && strings.Contains(string(raw), `"sound":true`)
+	})
 
 	raw, err := os.ReadFile(filepath.Join(home, "remote.json"))
 	if err != nil {
@@ -45,6 +49,10 @@ func TestMobileSoundSettings(t *testing.T) {
 
 	// Picking one of the built-ins is kept too.
 	app.Press("id:mobile-sound-name >> nth=2")
+	app.WaitUntil(5*time.Second, func() bool {
+		raw, err := os.ReadFile(filepath.Join(home, "remote.json"))
+		return err == nil && strings.Contains(string(raw), `"soundName":"bell"`)
+	})
 	raw, err = os.ReadFile(filepath.Join(home, "remote.json"))
 	if err != nil {
 		t.Fatal(err)

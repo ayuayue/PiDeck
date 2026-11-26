@@ -717,9 +717,29 @@ func (a *mobileApp) chooseLanguage(code string) {
 // saveLook keeps the connection, the language, the look and the last
 // project in remote.json.
 func (a *mobileApp) saveLook() {
-	saveMobileSaved(a.cx, mobileSaved{Server: a.server.GetUntracked(), Token: a.token.GetUntracked(),
-		Recent: a.recent.GetUntracked(), Language: a.language.GetUntracked(), Appearance: a.appearance.GetUntracked(),
-		Project: a.initProject.GetUntracked(), Sound: a.soundOn.GetUntracked(), SoundName: a.soundName.GetUntracked(), Notify: a.notifyOn.GetUntracked()})
+	saved := mobileSaved{Server: a.server.GetUntracked(), Token: a.token.GetUntracked(),
+		Recent: append([]mobileRecent(nil), a.recent.GetUntracked()...), Language: a.language.GetUntracked(),
+		Appearance: a.appearance.GetUntracked(), Project: a.initProject.GetUntracked(), Sound: a.soundOn.GetUntracked(),
+		SoundName: a.soundName.GetUntracked(), Notify: a.notifyOn.GetUntracked()}
+	generation := a.saveGeneration.Add(1)
+	go func() {
+		err := func() error {
+			a.saveWriteMu.Lock()
+			defer a.saveWriteMu.Unlock()
+			if a.saveGeneration.Load() != generation {
+				return nil
+			}
+			return saveMobileSaved(a.cx, saved)
+		}()
+		if err == nil || a.saveGeneration.Load() != generation {
+			return
+		}
+		a.cx.Post(func() {
+			if a.saveGeneration.Load() == generation {
+				a.flash(apptext.T("保存失败"))
+			}
+		})
+	}()
 }
 
 // projectCollapsed says the project's sessions are folded in the rail.

@@ -36,7 +36,10 @@ func rememberConnection(list []mobileRecent, item mobileRecent) mobileSaved {
 	return mobileSaved{Server: item.Server, Token: item.Token, Recent: out}
 }
 
-func saveMobileSaved(cx *core.Scope, saved mobileSaved) {
-	raw, _ := json.Marshal(saved)
-	_ = writeMobileStore(cx, raw)
+func saveMobileSaved(cx *core.Scope, saved mobileSaved) error {
+	raw, err := json.Marshal(saved)
+	if err != nil {
+		return err
+	}
+	return writeMobileStore(cx, raw)
 }

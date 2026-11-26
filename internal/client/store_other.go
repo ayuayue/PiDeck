@@ -5,6 +5,7 @@ package client
 // The last connection lives beside the app's data on a device with a disk.
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 
@@ -23,12 +24,30 @@ func readMobileStore(cx *core.Scope) ([]byte, error) {
 	return os.ReadFile(mobileStorePath(cx))
 }
 
-func writeMobileStore(cx *core.Scope, raw []byte) error {
+func writeMobileStore(cx *core.Scope, raw []byte) (retErr error) {
 	path := mobileStorePath(cx)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(path, raw, 0o644)
+	tmp, err := os.CreateTemp(dir, ".remote-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer func() {
+		if err := os.Remove(tmpPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			retErr = errors.Join(retErr, err)
+		}
+	}()
+
+	_, writeErr := tmp.Write(raw)
+	syncErr := tmp.Sync()
+	closeErr := tmp.Close()
+	if err := errors.Join(writeErr, syncErr, closeErr); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
 }
 
 // webStart has nothing to say to a native build: no page served it.
