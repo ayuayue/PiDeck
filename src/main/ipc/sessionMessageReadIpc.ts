@@ -5,6 +5,7 @@
 import { ipcMain } from "electron";
 import { ipcChannels } from "../../shared/ipc";
 import { canonicalizeSessionPath, getSessionEnvironment } from "../../shared/sessionIdentity";
+import { insertByOrdinal, JUMP_INJECTED_ANCHOR_META_KEY, pageHasTargetEntry, stripProjectionPrefix } from "../../shared/sessionJumpAnchor";
 import { createSessionModelPreference } from "../../shared/modelDisplayName";
 import type { SessionRecord, SessionBranchTree, SessionMessagePage, SessionModelPreference } from "../../shared/types";
 import { dshUnavailablePageFor } from "../dsh/dshManualStop";
@@ -240,6 +241,59 @@ export function registerSessionMessageReadIpc(deps: SessionMessageReadIpcDeps): 
 		// DSH/生图/生视频会话无 pi 会话文件，无 todo 快照
 		if (!entry?.filePath || entry.backend === "dsh" || entry.backend === "imagegen" || entry.backend === "videogen") return undefined;
 		return agentManager.readSessionTodo(entry.filePath);
+	});
+
+	/**
+	 * 全量条目索引：entryId → 序号 + 角色。实测 5254 条只占 292 KB、0.3 ms，
+	 * 可以整份常驻渲染进程 —— 跳转不再需要「先补页再找」，直接 O(1) 查序号。
+	 *
+	 * 只返回轻字段（不含正文）：正文仍按需分页取，这样「长会话」的内存与首屏
+	 * 都不随总条数线性增长。
+	 */
+	ipcMain.handle(ipcChannels.sessionsCatalogReadEntryIndex, async (_event, rawSessionId: unknown) => {
+		const sessionId = parseSessionId(rawSessionId);
+		const entry = sessionCatalog.get(sessionId);
+		const filePath = entry ? localSessionFilePath(sessionId) : undefined;
+		if (!entry || !filePath) return { entries: [] };
+		return { entries: await agentManager.sessionHistory.readEntryIndex(filePath) };
+	});
+
+	ipcMain.handle(ipcChannels.sessionsCatalogReadPageAroundEntry, async (_event, rawSessionId: unknown, rawEntryId: unknown, rawPageSize?: unknown) => {
+		const sessionId = parseSessionId(rawSessionId);
+		if (typeof rawEntryId !== "string" || !rawEntryId.trim()) throw new Error("INVALID_SESSION_ENTRY_ID");
+		const pageSize = parseSessionPageSize(rawPageSize);
+		const entry = sessionCatalog.get(sessionId);
+		const filePath = entry ? localSessionFilePath(sessionId) : undefined;
+		if (!entry || !filePath) throw new Error("SESSION_FILE_UNAVAILABLE");
+		const page = await agentManager.readSessionDisplayJumpPage(filePath, sessionId, rawEntryId, pageSize, { projectId: entry.projectId });
+		if (page.messages.length === 0) return page;
+		// 页里不含目标 = 目标被 compaction/context_edit 移出活动分支。把它单独读出来插到页首，
+		// 否则用户「跳过去了」却看不到那条 —— 这是 positioned 状态唯一能变成 exact 的地方。
+		// 比之前必须剥投影前缀：查找面板交来的是 _viewer-history-<entryId>，页里是裸 entryId。
+		// 直接比会判「页里没有」→ 注入一份 → 界面上同一条消息出现两份（2026-11-25 真机）。
+		const hasTarget = pageHasTargetEntry(page.messages, rawEntryId);
+		if (hasTarget) return page;
+		const single = await agentManager.readEntryDisplayMessage(filePath, sessionId, rawEntryId, { projectId: entry.projectId }).catch(() => undefined);
+		if (!single) return page;
+		// 注入标记：这条消息**只在这一条路径上存在**（页窗口里没有它），因此它不属于任何
+		// agent-run。渲染层挑锚点必须跳过它，否则窗口匹配不到任何轮、退回会话尾部 ——
+		// 用户点中间条目、画面滚到底部（2026-11-25，12754 条会话实测：19 个条目里 1 条
+		// stopReason=error 只以补读形式存在）。键名与判定收口在 shared/sessionJumpAnchor。
+		// 插回它该在的位置：**按文件序号**，不按 timestamp。
+		//
+		// timestamp 不可靠：pi 写的是「请求开始时刻」，同一轮里会倒退（实测相邻两条差 -25s）。
+		// 按时间排会把目标插到页首 —— 真机表现是点倒数第二条、画面跳到最上面，
+		// 状态行 `{data=109 target=0 page=exact}`（目标在已加载数组第 0 位）。
+		// 序号来自 readEntryIndex（按文件顺序重编），是这套数据里唯一可靠的位置真值。
+		const injected = { ...single, meta: { ...single.meta, [JUMP_INJECTED_ANCHOR_META_KEY]: true } };
+		const targetId = stripProjectionPrefix(rawEntryId);
+		const index = await agentManager.sessionHistory.readEntryIndex(filePath).catch(() => []);
+		const ordinalByEntry = new Map(index.map((row) => [row.entryId, row.ordinal]));
+		const ordinalOf = (message: { meta?: unknown }): number | undefined => {
+			const entryId = message.meta !== null && typeof message.meta === "object" ? (message.meta as { entryId?: unknown }).entryId : undefined;
+			return typeof entryId === "string" ? ordinalByEntry.get(entryId) : undefined;
+		};
+		return { ...page, messages: insertByOrdinal(page.messages, injected, ordinalOf, ordinalByEntry.get(targetId)), total: page.total + 1 };
 	});
 
 	ipcMain.handle(ipcChannels.sessionsCatalogReadMessagePage, async (_event, rawSessionId: unknown, rawBefore?: unknown, rawPageSize?: unknown, rawOptions?: unknown) => {

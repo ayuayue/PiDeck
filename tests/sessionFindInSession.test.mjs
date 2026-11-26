@@ -207,7 +207,9 @@ test("渠道与契约接线：IPC 常量、preload 白名单、主进程 handler
 	assert.match(controller, /resolveJumpMessageIndex\(combinedMessages, pendingJump\.value\.messageId\)/);
 	assert.match(controller, /resolveJumpScrollTarget\(/);
 	const jumpTarget = read("src/renderer/src/components/session/timeline/jumpTarget.ts");
-	assert.match(jumpTarget, /readEntryId\(message\.meta\) === targetId/);
+	// 身份读取必须走共享实现（别名 readEntryId 指向 shared 的 readJumpEntryId）。
+	assert.match(jumpTarget, /readJumpEntryId as readEntryId/);
+	assert.match(jumpTarget, /readEntryId\(message\.meta\)/);
 
 	// 锚点必须是本栏消息区（时间线视口）：锚整栏聊天区会让图标落到窗口关闭键那一行
 	assert.match(pane, /anchorRef=\{sessionTimeline\.timelineRef\}/);

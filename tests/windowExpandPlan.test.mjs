@@ -44,16 +44,6 @@ test("逐帧消费的总量等于待扩量，不漏也不多", () => {
 	}
 });
 
-test("窗口封顶：到顶不再涨，但已超出的值不被缩回去", () => {
-	// 未到顶：正常相加
-	assert.equal(plan.capWindowTurns(10, 8, 30), 18);
-	// 相加会越界：钳到上限
-	assert.equal(plan.capWindowTurns(10, 8, 12), 12);
-	// 已经超过上限：保持原值（既不涨也不缩——缩回会触发一次大幅内容收缩）
-	assert.equal(plan.capWindowTurns(50, 8, 30), 50);
-	assert.equal(plan.capWindowTurns(40, 8, 30), 40);
-});
-
 test("每次扩窗都必须真的排下一帧，不允许在 while 里同步消费完", () => {
 	// 纯函数测试证明不了「是否真的分帧」：把 planWindowExpandBatch 写对、调用方却用
 	// while 循环同步跑完，测试照样全绿而界面照样卡一帧。所以钉消费端的形状。

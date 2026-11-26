@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 716694e3f5b40747d89ce814aa344899b273b5928acab9808a358903fda1134a（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: d25828b83fc4292ebd0cc05917383c23c4e13c9a3696aba51d38ad6b569861cc（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -4968,6 +4968,13 @@ export const zhTW: Record<TranslationKey, string> = {
 	"sessionFind.noResults": "沒有匹配",
 	"sessionFind.unavailable": "暫時讀不到會話內容，稍候再試",
 	"sessionFind.jumpFailed": "未能跳轉到這條命中：它可能在更早的歷史裡，或已被移出當前上下文",
+	"sessionFind.jumpFailed.target-not-mountable": "未能跳轉（H1）：這條在已載入內容裡，但所在輪次的摺疊區沒展開，節點掛不出來",
+	"sessionFind.jumpFailed.no-earlier-pages": "未能跳轉（H2）：這條不在已載入內容裡，而且沒有更早的歷史頁可補（已到檔案頭或游標耗盡）",
+	"sessionFind.jumpFailed.load-attempts-exhausted": "未能跳轉（H3）：補頁 40 次仍未把這條拉進來",
+	"sessionFind.jumpFailed.backfill-not-advancing": "未能跳轉（H4）：補頁請求已發出，但連續兩次資料沒有增長（被 revision 或游標拒絕）",
+	"sessionFind.jumpFailed.target-not-indexed": "未能跳轉（H5）：這一頁已經取到了，但這條沒進可跳轉的訊息集合（id 形狀與投影對不上）",
+	"sessionFind.jumpFailed.not-in-branch": "未能跳轉：這條不在當前會話的活動分支上（可能已被刪除或被上下文編輯移出）",
+	"sessionFind.jumpFailed.positioned-only": "已定位到該時間附近；這一條本身已被上下文壓縮移出，正文可在會話原文裡檢視",
 	"sessionFind.searching": "查詢中…",
 	"sessionFind.prev": "上一條命中",
 	"sessionFind.next": "下一條命中",

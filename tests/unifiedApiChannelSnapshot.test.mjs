@@ -93,9 +93,12 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
  *   每个动作一枚 main 签发、按 (窗口, 项目, 动作, 仓库) 绑定的令牌；helper 未声明能力时不签发，入口缺席。
  */
 // Cmd/Ctrl+W 收窗前汇总运行中终端，只暴露无参数的 terminal:live-count。
-const CHANNEL_TOTAL = 867;
+// 2026-11-25 刷新（+2，867 → 869，前缀数仍 96）：跳转链按 entryId 定位的两条 sessions 通道——
+//   sessionsCatalogReadPageAroundEntry（按条目 id 取目标周围一页，替代「从尾部往前翻」）
+//   sessionsCatalogReadEntryIndex（全量条目索引，跳转 O(1) 定位；正文仍按需取）
+const CHANNEL_TOTAL = 869;
 const PREFIX_COUNT = 96;
-const CHANNEL_DIGEST = "f9984ff89594610f8d619d929671d6bbf78dd1f15bea2418046ee0699a8b681e";
+const CHANNEL_DIGEST = "0b3e133a58cdbff6019e2346823f4f47b34494be1d510f9d88536add51362cbf";
 // agentEventTags：Agent 内部事件标签（emit 的 sourceChannel），不是 IPC 通道，不进 preload。
 const EVENT_TAG_TOTAL = 8;
 const EVENT_TAG_DIGEST = "aab959e88353903d214ac0276ccbdc0c90a31240dabc6469b6174a902c76d44b";

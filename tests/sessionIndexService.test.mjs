@@ -13,7 +13,7 @@ import { PassThrough } from "node:stream";
 import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { SessionIndexService, SESSION_INDEX_PROTOCOL_VERSION } = loadTsCommonJs("src/main/sessions/SessionIndexService.ts");
+const { DEFAULT_IN_SESSION_LIMIT, SessionIndexService, SESSION_INDEX_PROTOCOL_VERSION } = loadTsCommonJs("src/main/sessions/SessionIndexService.ts");
 
 /** 假子进程：stdin 记录指令，stdout 供测试按行注入协议记录。 */
 function createHarness() {
@@ -82,7 +82,10 @@ test("searchInSession：cmd=search-session 只带 path/query/limit（单文件�
 	assert.equal(command.path, "C:/sessions/a.jsonl");
 	assert.equal(command.query, "缓存");
 	// 默认上限 100：会话内查找是「上一条/下一条」导航，需要一次拿到足够多的命中
-	assert.equal(command.limit, 100);
+	// 常量只在一处定义（SessionIndexService），这里断言的是**恒等式**不是字面量：
+	// 两处各写一遍上限（Ax5），改一处另一处就假红/假绿。
+	assert.equal(command.limit, DEFAULT_IN_SESSION_LIMIT);
+	assert.ok(DEFAULT_IN_SESSION_LIMIT >= 1000, `会话内查找要一次拿到足够多的命中，现在是 ${DEFAULT_IN_SESSION_LIMIT}`);
 	harnesses[0].emitLine({ type: "response", id: command.id, ok: true, result: SEARCH_RESULT });
 	const result = await pending;
 	assert.ok(result.ok);

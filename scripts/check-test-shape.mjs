@@ -73,8 +73,22 @@ function hasRuntimeLoad(source) {
 	return false;
 }
 
+// 2026-11-24：路径经过一层包装函数时，上面三条都看不见。
+// 反例（真发生过）：tests/jumpChainIntegrity.test.mjs 开头写
+//   const read = (p) => readFileSync(p, "utf8");
+// 全文零运行时加载，靠 read("src/…") 读源码 —— 是 sourceOnly 文件，
+// 却因为字面量里没有 readFileSync("src/…") 而完全绕过门禁。
+const READER_WRAPPER = /\b(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*\(\s*[^)]*\)\s*=>\s*readFileSync\s*\(/g;
+function readsSourceViaWrapper(source) {
+	for (const match of source.matchAll(READER_WRAPPER)) {
+		const name = match[1];
+		const call = new RegExp("\\b" + name + "\\(\\s*[\"'`]src/");
+		if (call.test(source)) return true;
+	}
+	return false;
+}
 function isSourceOnly(source) {
-	const readsSource = SOURCE_READ.some((re) => re.test(source)) || ((SOURCE_ROOT_DECL.test(source) || SOURCE_ROOT_RESOLVE.test(source)) && /readFileSync\(/.test(source));
+	const readsSource = SOURCE_READ.some((re) => re.test(source)) || ((SOURCE_ROOT_DECL.test(source) || SOURCE_ROOT_RESOLVE.test(source)) && /readFileSync\(/.test(source)) || readsSourceViaWrapper(source);
 	if (!readsSource) return false;
 	return !hasRuntimeLoad(source);
 }
@@ -104,6 +118,52 @@ if (UPDATE) {
 	writeFileSync(BASELINE_FILE, `${JSON.stringify({ capturedAt: new Date().toISOString().slice(0, 10), total: testFiles.length, sourceOnly, sourceOnlyBlocks: allBlocks }, null, "\t")}\n`, "utf8");
 	console.log(`[check-test-shape] 基线已刷新：${sourceOnly.length} / ${testFiles.length} 个测试文件是 sourceOnly，块级存量 ${allBlocks.length}`);
 	process.exit(0);
+}
+
+// 已知绕过登记（scripts/testShapeBypass.json）。
+//
+// 为什么需要：这 34 个文件用包装函数读源码，2026-11-25 补了识别规则才被看见。
+// 批量改成行为断言会把好好的测试改坏，所以先登记理由、逐个改 —— 但登记不是永久豁免：
+// 它们一旦改成行为断言或被删掉，本判据必须提示「从登记里移除」，否则登记会烂在那里。
+// 反例（这是 pr2 提出的）：只把文件名刷进基线，那 34 个就与普通存量并列，
+// 半年后没人知道它们为什么在那儿；改成行为断言或删掉时，数字悄悄变小，没人知道。
+const BYPASS_FILE = join(ROOT, "scripts/testShapeBypass.json");
+const wrapperOnly = testFiles
+	.filter((file) => {
+		const text = readFileSync(file, "utf8");
+		if (!isSourceOnly(text)) return false;
+		// 只算「旧三条规则看不见、全靠包装识别才进 sourceOnly」的那些：
+		// 两路都命中的文件旧规则本来就会算进去，不该混进这张待改清单。
+		const legacy = SOURCE_READ.some((re) => re.test(text)) || ((SOURCE_ROOT_DECL.test(text) || SOURCE_ROOT_RESOLVE.test(text)) && /readFileSync\(/.test(text));
+		return readsSourceViaWrapper(text) && !legacy;
+	})
+	.map(relativePath)
+	.sort();
+
+if (existsSync(BYPASS_FILE)) {
+	const bypass = JSON.parse(readFileSync(BYPASS_FILE, "utf8"));
+	const listed = new Set(bypass.knownBypass ?? []);
+	const scanned = new Set(wrapperOnly);
+	// 双向相等。只判一向是单向门禁：
+	//   regOnly（登记有、扫描没有）= 登记里的文件改好了或被删了 → 该从登记移除
+	//   scanOnly（扫描有、登记没有）= 文件在豁免、却没人记得为什么 → 理由静默消失
+	// 反例（pr2 2026-11-25 实测）：从 knownBypass 删掉 acpBackendSwitch.test.mjs，
+	// 文件仍存在仍是 sourceOnly，rc 依然 0 —— 那条理由就这么无声无息地没了。
+	const regOnly = [...listed].filter((f) => !scanned.has(f));
+	const scanOnly = [...scanned].filter((f) => !listed.has(f));
+	if (regOnly.length > 0) {
+		console.error(`[check-test-shape] 登记里的 ${regOnly.length} 个文件已不再是「仅包装命中」：`);
+		for (const f of regOnly.slice(0, 10)) console.error(`  - ${f}`);
+		console.error("请从 scripts/testShapeBypass.json 的 knownBypass 里删掉它们——那份登记只记当前状态。");
+		process.exit(1);
+	}
+	if (scanOnly.length > 0) {
+		console.error(`[check-test-shape] ${scanOnly.length} 个文件靠包装函数读源码、没跑真模块，但不在登记里：`);
+		for (const f of scanOnly.slice(0, 10)) console.error(`  - ${f}`);
+		console.error("请加进 scripts/testShapeBypass.json 的 knownBypass 并写清 why（或改成行为断言）。");
+		console.error("不写理由的豁免，半年后没人知道它为什么在那儿。");
+		process.exit(1);
+	}
 }
 
 const added = sourceOnly.filter((file) => !known.has(file));

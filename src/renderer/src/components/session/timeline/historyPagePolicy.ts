@@ -39,6 +39,21 @@ export const HISTORY_SCROLL_TURN_PAGE_SIZE = 3;
  *  200 轮 ≈ 6600 条 ≈ 13-26MB，落在渲染层 DISK_HISTORY_MESSAGE_LIMIT(8000) 之内，
  *  所以这一页不会被整页丢弃（真被丢弃就会「点了没反应」）。 */
 export const HISTORY_BACKFILL_TURN_PAGE_SIZE = 200;
+/**
+ * 定位跳转专用页大小（轮）。
+ *
+ * 与 backfill 的 200 分开：backfill 是「向上滚动，一次尽量多拿」，用户会继续往上翻，
+ * 多拿是省一次读盘。跳转不是这样——目标只有一条，渲染层的锚点窗口只挂 1 前 3 后共 5 轮，
+ * 多拿的几十轮既不显示，又要经历投影 + 合并 + 去重。
+ *
+ * 实测代价（2026-11-25，12754 条消息 / 722 轮的会话）：backfill 的 200 轮 = 5565 条，
+ * 每次跳转都要投影 5565 条再合并进缓存 —— 这是「点了要等很久」的直接来源。
+ * 5 轮 ≈ 140 条，够锚点窗口用，少 40 倍。
+ *
+ * 若目标所在的那一页里没有它（被压缩移出 / 空 content），状态机会报 positioned 或
+ * target-not-mountable；不会因为页小而多跳几次——定位是一次性的，不靠翻页逼近。
+ */
+export const HISTORY_JUMP_TURN_PAGE_SIZE = 5;
 
 /**
  * 一次翻页最多把 DOM 窗口开大多少轮。
@@ -51,13 +66,14 @@ export const HISTORY_BACKFILL_TURN_PAGE_SIZE = 200;
  */
 export const HISTORY_MOUNTED_TURN_GROWTH_LIMIT = 10;
 
-export type HistoryLoadSource = "scroll" | "button" | "backfill";
+export type HistoryLoadSource = "button" | "scroll" | "backfill" | "jump";
 
 /** 按来源取页大小。写成函数而不是三处三元表达式：页大小是唯一真值，
  *  调用点只声明「这是哪条路径」，避免以后改常量时漏改某一条链。 */
 export function resolveHistoryPageSize(source: HistoryLoadSource): number {
 	if (source === "button") return HISTORY_TURN_PAGE_SIZE;
 	if (source === "scroll") return HISTORY_SCROLL_TURN_PAGE_SIZE;
+	if (source === "jump") return HISTORY_JUMP_TURN_PAGE_SIZE;
 	return HISTORY_BACKFILL_TURN_PAGE_SIZE;
 }
 

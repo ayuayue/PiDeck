@@ -253,6 +253,9 @@ export const ipcChannels = {
 	sessionsCatalogAnswerDeleteArchivedRemote: "sessions:catalog-answer-delete-archived-remote",
 	sessionsCatalogReadMessages: "sessions:catalog-read-messages",
 	sessionsCatalogReadMessagePage: "sessions:catalog-read-message-page",
+	/** 跳转两条：按 entryId 取一页 + 全量条目索引（O(1) 定位）。 */
+	sessionsCatalogReadPageAroundEntry: "sessions:catalog-read-page-around-entry",
+	sessionsCatalogReadEntryIndex: "sessions:catalog-read-entry-index",
 	/** 会话 JSONL 过程事件（session/model/thinking/custom/compaction），供轨迹复盘，不进聊天时间线。 */
 	sessionsCatalogReadProcessEvents: "sessions:catalog-read-process-events",
 	sessionsCatalogReadOutline: "sessions:catalog-read-outline",
@@ -1466,14 +1469,9 @@ export const ipcChannels = {
 /**
  * Agent 事件标签（**不是 IPC 通道**）。
  *
- * 这些名字是 AgentManager / AcpAgentManager / DshAgentManager 对宿主 `emit()` 的第一个参数：
- * 主进程的 `emitSessionRuntimeEvent(agentId, sourceChannel, payload)` 把它们聚合成唯一一条
- * `ipcChannels.sessionsRuntimeEvent` 再推给渲染层。
- *
- * 为什么不能混进 `ipcChannels`：铁律「新 IPC 三处同步」的口径是「主进程注册 + preload 转发」，
- * 而这 8 个两边都不出现。混放会让任何机械校验要么误报、要么被迫开白名单，规则就退化成靠人记。
- * - 新增 `ipcChannels` 条目 → 必须主进程注册 + preload 转发（`npm run check:ipc-wiring`）；
- * - 新增 `agentEventTags` 条目 → 只在主进程内部流转，preload 不得出现（同一条校验）。
+ * 是三个 AgentManager 对宿主 emit() 的第一个参数，由 emitSessionRuntimeEvent 聚合成唯一一条
+ * ipcChannels.sessionsRuntimeEvent 再推给渲染层。不能混进 ipcChannels：三处同步的口径是
+ * 「主进程注册 + preload 转发」，这 8 个两边都不出现，混放会让机械校验被迫开白名单。
  */
 export const agentEventTags = {
 	/** 运行态快照（底栏状态 / 上下文仪表数据源） */

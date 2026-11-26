@@ -18,6 +18,20 @@
  * - 流式中 / agentRunning（正文已部分落定但仍在活动）→ 保持挂载；
  * - 其余（已 settled）→ 不挂，落回容器内渲染。
  */
+/**
+ * 思考叶子该按哪个 id 查 live 正文。
+ *
+ * 两条 id 通道不同形（主进程 live 段 `msg-thinking-<运行期 uuid>`，渲染层消息 id 可能是
+ * `<agentId>-history-<entryId>`）时，用 group.id 查永远取不到 —— 思考步挂上了也是空行
+ * （2026-11-26 真机）。buildTurnDisplay 把命中的 liveId 交给叶子，这里只判「用哪一个」。
+ *
+ * 顺序有意义：liveId 是**已经命中**的事实，group.id 只是兜底的拼接猜测。
+ */
+export function resolveLiveThinkingKey(input: { liveId?: string; groupId: string }): string {
+	const liveId = input.liveId?.trim();
+	return liveId ? liveId : input.groupId;
+}
+
 export function resolveLiveInterimId(input: {
 	/** 所属会话 id（无会话不挂） */
 	sessionId?: string;

@@ -31,7 +31,8 @@ export interface TimelineScrollAnchorOptions {
 	isSurfaceLoading: boolean;
 	hasEarlierPages: boolean;
 	isLoadingMessagePage: boolean;
-	loadMoreMessages: (source?: "scroll" | "button" | "backfill") => void;
+	/** 返回是否**真的发出了**请求：false = 游标耗尽/无页可翻，调用方不得据此消耗补页预算。 */
+	loadMoreMessages: (source?: "scroll" | "button" | "backfill") => boolean;
 	markProgrammaticScroll: (durationMs?: number) => void;
 	scrollerScrollApiRef: RefObject<MessageScrollerScrollApi | null>;
 	browsePinRef: RefObject<BrowsePin | null>;

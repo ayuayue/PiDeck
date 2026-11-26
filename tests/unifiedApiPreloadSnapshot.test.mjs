@@ -78,7 +78,9 @@ const NS_LIST_SHA256 = "6932e90a8051354deb1e881b5acea04ff47ed41ebe75747e29328b79
 // #520：sessions 新增安全分享 prepare/save/release 三个方法，其他命名空间不变。
 // #546：sessions 新增 gtdState / gtdPatch（GTD 分诊账本），其他命名空间不变。
 // Cmd/Ctrl+W 新增 terminal.liveCount，统计当前工作区实例的存活终端；其余暴露面不变。
-const FULL_METHODS_SHA256 = "aa3252e5167f5b459463b27252d261be49c3633d4ecdc690e0a2671de93a509b";
+// 2026-11-25 刷新：sessions 增 readPageAroundEntry / readEntryIndex（跳转按 entryId 定位），
+// 摘要随之变动；命名空间清单未变（F8-1 摘要不动）。
+const FULL_METHODS_SHA256 = "4477f5e566d9670b31bb27fa6da152ade003520c45d76857867d6418aad14e5e";
 const NAMESPACE_COUNT = 86;
 
 /** 捕获 preload 暴露的 piDesktop；null/undefined/形态不符时显式红并给诊断（F8-6 共用）。 */
@@ -131,8 +133,9 @@ test("F8-2 每命名空间排序方法清单摘要零漂移", () => {
 	assert.equal(sha256(methodLines.join(";")), FULL_METHODS_SHA256, "方法清单摘要漂移：任一命名空间的方法暴露面发生变化（A10 红线）");
 });
 
-test("F8-3 数量锚点：sessions 122 / config 55 / git 71 / app 32", () => {
-	assert.equal(Object.keys(api.sessions).length, 122, "sessions 方法数漂移");
+// 2026-11-25 刷新：sessions 122 → 124（readPageAroundEntry / readEntryIndex，跳转按 entryId 定位）。
+test("F8-3 数量锚点：sessions 124 / config 55 / git 71 / app 32", () => {
+	assert.equal(Object.keys(api.sessions).length, 124, "sessions 方法数漂移");
 	assert.equal(Object.keys(api.config).length, 55, "config 方法数漂移");
 	assert.equal(Object.keys(api.git).length, 71, "git 方法数漂移");
 	assert.equal(Object.keys(api.app).length, 32, "app 方法数漂移");

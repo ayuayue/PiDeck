@@ -13,6 +13,7 @@
  * 修改文件清单同样做内容投影缓存（见 modifiedFilesAtom）：字段全等时复用旧数组引用，
  * 否则 App 根会因每 50ms 一条新消息数组而全量重渲。
  */
+import { mergeHistoryAndWindow } from "../components/session/timeline/mergeHistoryWindow";
 import { atom, type Getter } from "jotai";
 import { atomFamily } from "jotai/utils";
 import { registerSessionFamilyForDisposal } from "./session-family-registry";
@@ -123,7 +124,11 @@ function createOutlineItemsAtom(readEntry: (get: Getter) => OutlineEntrySource |
 			if (cached) return cached;
 		}
 
-		const messages = entry.history ? [...entry.history.messages, ...entry.messages] : entry.messages;
+		// 刻度条的数据源。history 与 messages 会重叠（同一条在两段各有投影：history 里带 entryId，
+		// 刚发出的 live 消息 id 是 requestId）—— 直接 concat 会让同一轮出现两条刻度，
+		// 用户看到搜索面板里 81/82 一模一样（2026-11-26 真机）。
+		// 收口到 mergeHistoryAndWindow：去重（含「缺 entryId 的同一条」）只在那里定义一次。
+		const messages = entry.history ? mergeHistoryAndWindow(entry.history.messages, entry.messages) : entry.messages;
 		const items = buildOutline(messages);
 		if (entry.outlineRevision !== undefined) {
 			setSessionOutlineProjection(sessionId, entry.outlineRevision, items);

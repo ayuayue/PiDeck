@@ -16,7 +16,9 @@ export type { AgentRunItem, ErrorGroupItem, MessageItem, RetryGroupItem, Thinkin
 
 /** 单个执行过程条目：思考步骤、工具步骤、自动重试、错误诊断或扩展输出组。 */
 export type TurnProcessEntry =
-	| { kind: "thinking-entry"; id: string; group: ThinkingGroupItem }
+	/** liveId：主进程 live 思考段的 id。与本条消息 id 不同形时（运行期 uuid vs 投影 id），
+	 *  ThinkingStep 只有靠它才取得到流式正文 —— 否则挂上了也是空行（2026-11-26 真机）。 */
+	| { kind: "thinking-entry"; id: string; group: ThinkingGroupItem; liveId?: string }
 	| { kind: "tool-entry"; id: string; group: ToolGroupItem }
 	| { kind: "retry-entry"; id: string; message: ChatMessage }
 	| { kind: "error-entry"; id: string; message: ChatMessage }

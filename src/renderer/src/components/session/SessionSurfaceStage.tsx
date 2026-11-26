@@ -56,86 +56,16 @@ export function SessionSurfaceStage(props: { sessionId: string; sessionTimeline:
 		[directory, getI18nLocale()],
 	);
 	const railItems = useMemo(() => mergeOutlineRailItems(outlineItems, directoryRailItems), [outlineItems, directoryRailItems]);
-	const [pendingEntryId, setPendingEntryId] = useState<string | undefined>(undefined);
-	const [pendingAttempts, setPendingAttempts] = useState(0);
+	// 灰色的占位刻度不再有「先向上补页再跳」这条循环：目标 entryId 直接交给 controller，
+	// 它按 entryId 一次定位取页（loadPageAroundEntry），向上向下同一条路径。
+	// 旧循环的三个失败形态（补页 in-flight 空转烧预算、补不出新内容时死循环、
+	// 从顶部点最新一条时方向反了）都随这段一起消失。
 	const pendingRailJump = useCallback(
 		(id: string) => {
-			if (!isPendingRailItemId(id)) {
-				sessionTimeline.jumpToMessage(id);
-				return;
-			}
-			// 占位刻度只说明「目录里有、已加载消息里没有」，不含方向：它可能在更早的历史里，
-			// 也可能比已加载区间还新（live 提问的 entryId 与目录还没对上）。只有前者需要
-			// 向上补页；后者一路补到会话开头后只会误报「这条提问还在更早的历史里」
-			// （2026-11 真机：从第一条点最后一条）。方向判断见 planRailJump。
-			const plan = planRailJump(railItems, id);
-			if (plan.kind === "jump") {
-				setPendingEntryId(undefined);
-				sessionTimeline.jumpToMessage(plan.id);
-				return;
-			}
-			setPendingAttempts(0);
-			setPendingEntryId(pendingEntryIdOf(id));
+			sessionTimeline.jumpToMessage(planRailJump(railItems, id).id);
 		},
 		[railItems, sessionTimeline],
 	);
-	// 补页循环：目标刻度还没加载时，一页一页向上补，直到命中 / 没有更早的页 / 保险丝烧断。
-	// 关键在「等上一页落地再发下一页」——旧实现每 60ms 轮询一次，而 loadMoreMessages 在上一页
-	// 仍在飞时直接 return（in-flight 守卫），这些轮询全部空转，10 次预算很快烧完，于是点最上面
-	// 的刻度必弹「继续向上翻一会儿再点」（2026-10 真机反馈：62 轮会话）。
-	// 上一轮补页后已加载条数（用于判定「补不出新内容」）：见下面 noProgress。
-	const railLoadProgressRef = useRef<{ entryId?: string; count: number }>({ count: -1 });
-	useEffect(() => {
-		if (!pendingEntryId) {
-			railLoadProgressRef.current = { count: -1 };
-			return;
-		}
-		const loaded = outlineItems.find((item) => item.entryId === pendingEntryId);
-		const step = planRailPendingStep({
-			targetLoaded: Boolean(loaded),
-			isLoadingMore: sessionTimeline.isLoadingMoreMessages,
-			hasMoreMessages: sessionTimeline.hasMoreMessages,
-			loadFailed: Boolean(sessionTimeline.loadMoreError),
-			attempts: pendingAttempts,
-			maxAttempts: RAIL_PENDING_MAX_ATTEMPTS,
-		});
-		if (step === "jump" && loaded) {
-			setPendingEntryId(undefined);
-			sessionTimeline.jumpToMessage(loaded.id);
-			return;
-		}
-		// 上一页还在飞：原地等，不消耗预算（isLoadingMoreMessages 翻转会让本 effect 重跑）。
-		if (step === "wait") return;
-		// 发过补页、没在加载、条数却没涨：这一页补不出新内容（续页锚点原地踏步或文件已到顶）。
-		// 继续发只会空转到保险丝，而被动 effect 里连发 setState 正是 React #185 的直接成因
-		// （2026-11 真机：点大纲最上面的刻度 →「界面渲染异常」）。
-		const progress = railLoadProgressRef.current;
-		const noProgress = isRailLoadStalled({
-			previousEntryId: progress.entryId,
-			targetEntryId: pendingEntryId,
-			previousCount: progress.count,
-			loadedCount: outlineItems.length,
-			attempts: pendingAttempts,
-			isLoadingMore: sessionTimeline.isLoadingMoreMessages,
-		});
-		railLoadProgressRef.current = { entryId: pendingEntryId, count: outlineItems.length };
-		if (step === "load" && !noProgress) {
-			// 让出一轮再发：同步发下一页会让 effect → setState → effect 连成一条嵌套更新链。
-			const timer = setTimeout(() => {
-				setPendingAttempts((current) => current + 1);
-				sessionTimeline.loadMoreMessages("backfill");
-			}, 0);
-			return () => clearTimeout(timer);
-		}
-		// 到这里说明本轮没补成页（补页失败 / 补不动 / 保险丝烧断）或已经没有更早的页。
-		// 先把 entryId 交给 controller 尽力落位——它能处理「数据里有、只是节点还没挂出」的扩窗场景。
-		setPendingEntryId(undefined);
-		sessionTimeline.jumpToMessage(pendingEntryId);
-		// 只有「真的没有更早的页」才提示跳不到；hasMoreMessages 仍为 true 时 controller 的
-		// pendingJump 会继续补页（JUMP_MAX_LOAD_ATTEMPTS = 40），大概率落位成功——此时弹
-		// 「还在更早的历史里」是误报，用户会看到「说跳不到，人却已经在那条上」。
-		if (!sessionTimeline.hasMoreMessages) showNotice(t("outline.jumpUnreachable"), 6000, "info");
-	}, [pendingEntryId, pendingAttempts, outlineItems, sessionTimeline]);
 	const mutationKind = useAtomValue(sessionHistoryMutationOverlayBySessionIdAtomFamily(sessionId));
 	// 热重载（扩展/技能）不重启进程、也不改会话文件，但它会重建扩展运行时；
 	// 只转小按钮时用户看不出会话侧有任何变化，所以同样落一层「正在重载」遮罩。

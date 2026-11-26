@@ -2,14 +2,50 @@ import { type Dispatch, type RefObject, type SetStateAction, useCallback, useEff
 import type { ChatMessage } from "../../../../../shared/types";
 import type { MessageScrollerScrollApi } from "../../../components/agents/message-scroller";
 import { estimateJumpExpandTurns, resolveJumpFallbackEntry } from "../../../components/session/timeline/jumpWindowPolicy";
-import { planJumpSettleStep } from "../../../components/session/timeline/jumpSettle";
+import { isSettleRowReady, JUMP_SETTLE_EMPTY_GRACE_FRAMES, planJumpSettleStep, shouldAwaitFollowingRow } from "../../../components/session/timeline/jumpSettle";
 import { resolveJumpMessageIndex, resolveJumpScrollTarget } from "../../../components/session/timeline/jumpTarget";
 import { revealInNestedScrollers } from "../../../components/session/timeline/nestedScrollerReveal";
 import type { BrowsePin } from "../../timeline/browsePin";
 import { shouldDeferJumpUntilLoaded } from "../../timeline/timelineRevealChannel";
 
+import { logFromRenderer } from "../../../utils/rendererLog";
 /** 挂起跳转的请求：expandAttempts / loadAttempts 是两套防呆预算，nonce 保证重复点击也重跑 effect。 */
-export type TimelineJumpRequest = { messageId: string; expandAttempts: number; loadAttempts: number; nonce: number };
+/**
+ * 跳转入口的结果。**不用 boolean**：调用方要知道的是「为什么没开始」，
+ * 而不是「有没有成功」——「正在落位」和「被挡掉」都不是成功，但处理方式完全不同。
+ */
+export type JumpStartResult =
+	/** 已接受：落位或挂起由 pendingJump effect 继续 */
+	| "started"
+	/** 时间线还没挂（会话切换首帧） */
+	| "skipped-no-timeline"
+	/** 请求来自另一个会话（ownerKey 不匹配），丢弃 */
+	| "skipped-owner"
+	/** 目标既不在数据里也没有更早的页：已挂起，由 effect 报 H2/H3/H4 */
+	| "pending-unresolved";
+export type TimelineJumpRequest = {
+	messageId: string;
+	/** 点击代数与重试nonce分开：重试不会让旧点击变成新点击。 */
+	requestId: number;
+	expandAttempts: number;
+	loadAttempts: number;
+	/** 已经扩出去的轮数。与 estimateJumpExpandTurns 的估算配对：够了就停，不够就继续，
+	 *  不设固定次数上限（1000 轮会话时指数试探 8 次只能给 141 轮，必然放弃）。 */
+	expandedTurns: number;
+	nonce: number;
+	/** 点击时刻（performance.now()）。状态机据此判硬超时——没有它就无法区分「正在等」和「卡死」。 */
+	startedAt: number;
+	/** 目标在数据里但还没挂载，已经等了多少帧。两帧还不出现就交给扩窗兜底。 */
+	waitFrames: number;
+	/** 上一轮补页后观测到的 combinedMessages 长度（进度基准）。 */
+	observedCount: number;
+	/** 连续「请求发出但数据没长」的次数（进度度量，见 jumpMachine）。 */
+	stalledAttempts: number;
+	/** 本次跳转是否已经发过「定位取页」请求。跳转只取一次页，不随滚动补页重试。 */
+	pageRequested?: boolean;
+	/** 是否已经请求渲染层揭示（展开目标所在轮的执行过程折叠栏）。入口 index≥0 时已请求。 */
+	revealRequested?: boolean;
+};
 export type TaggedTimelineJumpRequest = { ownerKey: string; value: TimelineJumpRequest };
 
 export interface TimelineJumpNavigationOptions {
@@ -32,13 +68,21 @@ export interface TimelineJumpNavigationOptions {
 	highlightMessage: (element: HTMLElement, expectedOwnerKey: string) => void;
 	requestTimelineReveal: (messageId: string) => void;
 	clearTimelineReveal: () => void;
-	expandWindowBatched: (turns?: number) => void;
+	expandWindowBatched: (turns?: number, growJumpWindow?: boolean) => void;
 	setShowScrollToBottom: (show: boolean) => void;
 	setPendingJump: Dispatch<SetStateAction<TaggedTimelineJumpRequest | undefined>>;
+	/** 把「当前跳转锚点」同步给渲染层。ref 不够：useMemo 的依赖不含 ref，写 pin 不会触发重算，
+	 *  窗口就永远停在旧切片上 —— 这就是「点远处刻度没反应」的真正原因。state 才会重算。 */
+	setJumpAnchorMessageId: (id: string | null) => void;
 }
 
 export interface TimelineJumpNavigation {
-	jumpToMessage: (messageId: string) => void;
+	/**
+	 * 跳转入口。返回**为什么没开始**，而不是 void：
+	 * 六个调用方（刻度 / 查找面板 / 插件导航 / 待定 reveal）现在都能区分
+	 * 「已经在落位」与「被 ownerKey 挡掉」「时间线还没挂」，不必靠界面猜。
+	 */
+	jumpToMessage: (messageId: string) => JumpStartResult;
 	/** 落位到目标行（定位 + 交给收敛循环），pendingJump effect 与刻度点击共用。 */
 	scrollJumpTargetIntoView: (timeline: HTMLElement, element: HTMLElement) => void;
 	settleJumpTarget: (timeline: HTMLElement, messageId: string) => void;
@@ -75,6 +119,7 @@ export function useTimelineJumpNavigation(options: TimelineJumpNavigationOptions
 		expandWindowBatched,
 		setShowScrollToBottom,
 		setPendingJump,
+		setJumpAnchorMessageId,
 	} = options;
 
 	/**
@@ -126,6 +171,11 @@ export function useTimelineJumpNavigation(options: TimelineJumpNavigationOptions
 			cancelJumpSettle();
 			const startedAt = performance.now();
 			let frames = 0;
+			let expandAttempts = 0;
+			/** 行已挂载但内容为空的连续帧数（见 row-empty 判据）。 */
+			let emptyFrames = 0;
+			/** 目标行之后还没挂出下文时的等待帧数（见 shouldAwaitFollowingRow）。 */
+			let followingWaitFrames = 0;
 			let frame = 0;
 			// 「人动手了」只认引擎判定过的真实输入（wheel/触摸/键盘），见 setUserScrollIntent。
 			// 不在这里自己挂 wheel/pointer 监听：那是 2026-09 已经拆掉的完结定位取消链的形状，
@@ -151,13 +201,86 @@ export function useTimelineJumpNavigation(options: TimelineJumpNavigationOptions
 				// height <= 0 = 没被布局（折叠区里 display:none、或正在卸载）：它的 rect 全是 0，
 				// 拿去算漂移会得出一个巨大的负数，把视口滚到莫名其妙的位置。当作量不到处理。
 				const rowRect = row?.getBoundingClientRect() ?? null;
-				const driftPx = rowRect && rowRect.height > 0 ? rowRect.top - timeline.getBoundingClientRect().top : null;
+				// 行挂上了但**内容还没长出来**（扩窗刚把这一轮挂进来，VirtualRunList 先写高度、
+				// 后填内容）。此时几何是对的、视觉是空白 —— 真机 13:53 两次 settled 却什么都看不到。
+				// 给它独立宽限：等内容，别把它当「已到」收手，也别立刻判 target-missing。
+				const rowTextLength = row?.innerText?.trim().length ?? 0;
+				if (row && !isSettleRowReady(rowRect, rowTextLength) && emptyFrames < JUMP_SETTLE_EMPTY_GRACE_FRAMES) {
+					emptyFrames += 1;
+					frames += 1;
+					if (emptyFrames === 1) {
+						logFromRenderer("info", "jump", "row-empty", { messageId, frames, rectHeight: rowRect ? Math.round(rowRect.height) : null });
+					}
+					revealInNestedScrollers(row, timeline);
+					frame = requestAnimationFrame(step);
+					return;
+				}
+				const driftPx = rowRect && rowRect.height > 0 && rowTextLength > 0 ? rowRect.top - timeline.getBoundingClientRect().top : null;
+				// 可滚上限：目标在它之外时，写 scrollTop 会被浏览器钳位，漂移永久剩余。
+				const maxScroll = timeline.scrollHeight - timeline.clientHeight;
 				const decision = planJumpSettleStep({
 					driftPx,
 					frames,
 					elapsedMs: performance.now() - startedAt,
 					interrupted: jumpSettleInterruptedRef.current,
+					// 余量 = maxScroll - 目标的文档坐标（= scrollTop + drift）。
+					// 目标在下方远处时该值为负 → expand（滚到底也够不到）：日志里
+					// 「目标绝对 16303 / maxScroll 15826 / drift 恒 400」就是这一类。
+					canScrollPx: driftPx === null ? maxScroll : maxScroll - Math.max(0, timeline.scrollTop + driftPx),
+					expandAttempts,
+					// 滚到底也够不到视口顶时（末条目标），判「看没看见」而不是「差几像素」。
+					viewportHeightPx: timeline.clientHeight,
 				});
+				// 布局宽限：目标行还没量到，等一帧再看（frames 照样自增，宽限有限）。
+				if (decision.kind === "wait") {
+					frames += 1;
+					frame = requestAnimationFrame(step);
+					return;
+				}
+				if (decision.kind === "expand") {
+					expandAttempts += 1;
+					frames += 1;
+					logFromRenderer("info", "jump", "settle-expand", {
+						messageId,
+						frames,
+						expandAttempts,
+						scrollHeight: Math.round(timeline.scrollHeight),
+						clientHeight: Math.round(timeline.clientHeight),
+					});
+					// 节流长半径：每两次尝试长一次。
+					// 全不涨（上一版传 false）会让「目标在锚点窗口之外」永远挂不出来 —— 日志实证
+					// 2026-11-25：8 次 expand 之后 scrollHeight 恒 10393（一轮都没加进去）→
+					// give-up no-scroll-room、drift 恒 501px。每帧都涨则是放大环（6→40，一帧 81 轮）。
+					// 奇数次长 = 既不放大、又真的能把窗口推到目标处。
+					expandWindowBatched(2, expandAttempts % 2 === 1);
+					frame = requestAnimationFrame(step);
+					return;
+				}
+				// 收敛结论：settled = 目标行到了视口顶；give-up 带原因。
+				// 目标行在、但之后没有下文（虚拟范围只覆盖到它）：继续等一帧并扩窗，
+				// 而不是立刻 settled —— 真机表现是「跳过去一片空白」（2026-11-26 14:40）。
+				if (decision.kind === "settled" && row) {
+					const hasFollowingRow = Boolean(row.nextElementSibling) || Boolean(row.parentElement?.nextElementSibling);
+					if (shouldAwaitFollowingRow({ hasFollowingRow, followingWaitFrames })) {
+						if (followingWaitFrames === 0) {
+							logFromRenderer("info", "jump", "row-blank-after", { messageId, frames });
+						}
+						followingWaitFrames += 1;
+						frames += 1;
+						expandWindowBatched(2, followingWaitFrames % 2 === 1);
+						frame = requestAnimationFrame(step);
+						return;
+					}
+				}
+				if (decision.kind !== "scroll" && frames > 0) {
+					logFromRenderer(decision.kind === "settled" ? "info" : "warn", "jump", "settle-end", {
+						messageId,
+						kind: decision.kind,
+						reason: "reason" in decision ? decision.reason : undefined,
+						frames,
+						driftPx: driftPx === null ? null : Math.round(driftPx),
+					});
+				}
 				if (decision.kind !== "scroll") {
 					if (jumpSettleCancelRef.current === stop) jumpSettleCancelRef.current = null;
 					stop();
@@ -182,24 +305,48 @@ export function useTimelineJumpNavigation(options: TimelineJumpNavigationOptions
 				frames += 1;
 				markProgrammaticScroll();
 				const apiAfter = scrollerScrollApiRef.current;
-				const next = Math.max(0, timeline.scrollTop + decision.delta);
+				const scrollBefore = timeline.scrollTop;
+				// 目标可能一次在几千像素之外（日志实测：目标行在视口下方 15247px，
+				// 每帧只补 400px，24 帧共 9600px —— 追不上，漂移恒 400 到 give-up）。
+				// 所以按绝对值落位，不做增量累加；再按实测漂移补一次即可收敛。
+				const next = Math.max(0, scrollBefore + decision.delta);
 				if (apiAfter?.restoreAt) apiAfter.restoreAt(next);
-				else timeline.scrollTop = next;
+				// 直写兜底：引擎 restoreAt 维护自己的基准位置，目标超出它记的基准范围时
+				// 写入会被还原成基准（表现为「写了 24 次、scrollTop 一次都没变」）。
+				timeline.scrollTop = next;
+				const scrollAfter = timeline.scrollTop;
+				if (frames <= 3) {
+					logFromRenderer("info", "jump", "settle-step", {
+						messageId,
+						frames,
+						driftPx: driftPx === null ? null : Math.round(driftPx),
+						delta: Math.round(decision.delta),
+						scrollBefore: Math.round(scrollBefore),
+						requested: Math.round(next),
+						scrollAfter: Math.round(scrollAfter),
+						maxScroll: Math.round(timeline.scrollHeight - timeline.clientHeight),
+					});
+				}
 				frame = requestAnimationFrame(step);
 			};
 			jumpSettleCancelRef.current = stop;
 			frame = requestAnimationFrame(step);
 		},
-		[cancelJumpSettle, markProgrammaticScroll],
+		[cancelJumpSettle, markProgrammaticScroll, expandWindowBatched],
 	);
 	// 切会话/卸载时别让上一段收敛循环继续改写新会话的滚动位置。
 	useEffect(() => cancelJumpSettle, [ownerKey, cancelJumpSettle]);
 
 	const jumpToMessage = useCallback(
-		(messageId: string) => {
+		(messageId: string): JumpStartResult => {
 			const requestOwnerKey = ownerKey;
 			const timeline = timelineRef.current;
-			if (!timeline || ownerKeyRef.current !== requestOwnerKey) return;
+			if (!timeline) return "skipped-no-timeline";
+			if (ownerKeyRef.current !== requestOwnerKey) return "skipped-owner";
+			// 已挂载目标也开启新事务，取消旧取页、等待帧与落位动画。
+			jumpNonceRef.current += 1;
+			cancelJumpSettle();
+			setPendingJump(undefined);
 			// 跟随态点击刻度必须先解锁贴底：目标已在挂载窗口内时（如最新一条）引擎
 			// 会把滚动拽回底部；目标在窗口外时 unlock 也是扩窗生效的前提。
 			escapeAutoScroll();
@@ -210,6 +357,28 @@ export function useTimelineJumpNavigation(options: TimelineJumpNavigationOptions
 			// 先归一到当前消息列表再查 DOM，否则永远查不到节点、点击无任何反应。
 			const index = resolveJumpMessageIndex(combinedMessages, messageId);
 			const targetNodeId = index >= 0 ? combinedMessages[index].id : messageId;
+			// 入口诊断：搜索面板交来的 id 在已加载数据里找不找得到，决定后面走哪条路
+			// （找不到 → 挂起 → 按 entryId 取页）。这条日志是「点了没反应」的第一现场。
+			logFromRenderer("info", "jump", "entry", {
+				requested: messageId,
+				foundIndex: index,
+				nodeId: targetNodeId,
+				messages: combinedMessages.length,
+			});
+			// 立刻把浏览钉钉到目标：锚点窗口（selectTimelineTurnWindow 的 anchorRunIndex）读的就是
+			// 这个钉，所以下一帧窗口就以目标为中心，不需要从尾部扩 350 轮。
+			// 目标还不在已加载数据里时这里也安全 —— findAgentRunIndexByItemId 返回 -1，窗口不动。
+			if (index >= 0) {
+				browsePinRef.current = { messageId: targetNodeId, expectedViewportTop: 0 };
+				browsePinFrozenRef.current = true;
+				// 同时写 state：ref 不触发渲染，锚点窗口的 useMemo 依赖不到它，窗口就不会重算。
+				setJumpAnchorMessageId(targetNodeId);
+			} else {
+				// 目标还没进数据：必须清掉上一次跳转留下的锚点。
+				// 否则窗口仍锚在旧目标上，取页把新目标带进来之后窗口按旧锚选轮，
+				// 目标轮挂不出来 —— 连续点不同刻度时表现为「第一次要等很久、第二次才到」。
+				setJumpAnchorMessageId(null);
+			}
 			const existing = timeline.querySelector(`[data-message-id="${CSS.escape(targetNodeId)}"]`) as HTMLElement | null;
 			if (existing) {
 				skipBrowsePinRef.current = false;
@@ -222,17 +391,19 @@ export function useTimelineJumpNavigation(options: TimelineJumpNavigationOptions
 				// 浏览钉交给 settleJumpTarget：它在收敛后把钉钉到目标行（偏移 0）。
 				// 这里同步建钉会用到上一帧的可见行快照（新挂载的行还没进 IO 集合），
 				// 钉错行反而会在下一次布局增高时把视口拽回跳转前的位置。
-				return;
+				return "started";
 			}
 			// 命中可能在已完成轮的「执行过程」折叠区里：Radix 收起会把中间回答/工具整块卸载，
 			// 扩窗（只多挂轮次）永远挂不出这些节点。先请求包含它的 TurnRow 展开折叠，
 			// 再由下面的 pendingJump 重试循环完成落位。
 			if (index >= 0) requestTimelineReveal(targetNodeId);
 			const hasMorePages = hasEarlierPages;
-			// 冷会话（消息还没上屏 / 首屏仍在加载）里 index<0 不等于「目标不存在」：挂起跳转，
-			// 等数据到达后由 pendingJump effect 落位。旧实现这里直接 return，宿主插件按 entryId
-			// 导航到尚未加载完消息的会话时静默失效（#401 复审 P0）。
-			if (index < 0 && !hasMorePages && !shouldDeferJumpUntilLoaded({ targetIndex: index, messageCount: combinedMessages.length, surfaceLoading: isSurfaceLoading })) return;
+			// 目标不在已加载数据里、也没有更早的页可补时，**不能静默 return**：
+			// 用户点的是查找面板里很靠前的一条，界面上什么都不会发生（2026-11 真机原话：
+			// 「点比较远的跳转，没反应了」）。旧实现在这里 return，连一句提示都没有，
+			// 比弹「未能跳转」更糟——弹窗至少说明系统收到了这次点击。
+			// 现在一律挂起，由 pendingJump effect 按 resolveJumpPendingAction 给出
+			// H1/H2/H3 之一；冷会话（消息还没上屏）也因此自动恢复（#401 复审 P0 同一条路）。
 			// 目标可能在贴底 turn 窗口外（先取消跟随以展开挂载），也可能在尚未加载的
 			// 历史页里：挂起跳转，由 pendingJump effect 按策略补页/扩窗直到完成。
 			setShowScrollToBottom(true);
@@ -241,13 +412,13 @@ export function useTimelineJumpNavigation(options: TimelineJumpNavigationOptions
 				// 批次消费完前 pendingJump effect 挂起等待（见 effect 内 pendingExpandTurnsRef 守卫）。
 				expandWindowBatched(estimateJumpExpandTurns(combinedMessages, index));
 			}
-			jumpNonceRef.current += 1;
 			setPendingJump({
 				ownerKey: requestOwnerKey,
-				value: { messageId, expandAttempts: 0, loadAttempts: 0, nonce: jumpNonceRef.current },
+				value: { messageId, requestId: jumpNonceRef.current, expandAttempts: 0, loadAttempts: 0, expandedTurns: 0, nonce: jumpNonceRef.current, startedAt: performance.now(), waitFrames: 0, observedCount: -1, stalledAttempts: 0, revealRequested: index >= 0 },
 			});
+			return index >= 0 ? "started" : "pending-unresolved";
 		},
-		[clearTimelineReveal, combinedMessages, escapeAutoScroll, expandWindowBatched, hasEarlierPages, highlightMessage, isSurfaceLoading, ownerKey, requestTimelineReveal, scrollJumpTargetIntoView, settleJumpTarget],
+		[cancelJumpSettle, clearTimelineReveal, combinedMessages, escapeAutoScroll, expandWindowBatched, hasEarlierPages, highlightMessage, isSurfaceLoading, ownerKey, requestTimelineReveal, scrollJumpTargetIntoView, settleJumpTarget],
 	);
 
 	/**

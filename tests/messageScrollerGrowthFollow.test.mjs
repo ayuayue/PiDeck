@@ -174,7 +174,11 @@ test("timeline keeps the same turn window through anchor restoration", () => {
 	const controllerSource = sessionTimelineControllerSource;
 	// 保存、恢复和正常历史浏览必须都按同一个 tail-window 裁剪。恢复期若改成全量，
 	// restoreAt 后再收回小窗口会让浏览器把 scrollTop 截断到新的最大值。
-	assert.match(timelineSource, /selectTimelineTurnWindow\(reconciledRuns, turnWindowTurns\)/);
+	// 入口换成 resolveAnchoredTurnWindow（2026-11 锚点窗口重构，见 tests/jumpChainIntegrity.test.mjs ②）：
+	// 判的是「保存/恢复/浏览走同一个窗口构造器」，不是「哪个函数名」。旧断言钉死旧入口，
+	// 重构后一直红，而它要防的事（恢复期改成全量 → scrollTop 被截断）与函数名无关。
+	assert.match(timelineSource, /resolveAnchoredTurnWindow\(reconciledRuns, turnWindowTurns/);
+	assert.doesNotMatch(timelineSource, /selectTimelineTurnWindow\(/);
 	assert.doesNotMatch(timelineSource, /isRestoringScrollAnchor/);
 	assert.doesNotMatch(timelineSource, /jumpNavigationActive/);
 	assert.doesNotMatch(timelineSource, /Number\.MAX_SAFE_INTEGER/);

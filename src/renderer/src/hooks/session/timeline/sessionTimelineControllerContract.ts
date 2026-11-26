@@ -22,7 +22,8 @@ export type SessionTimelineController = {
 	/** 上一次「加载更多」失败原因（原始 IPC 文案）；null = 无错误。时间线在按钮下方出失败行并允许直接重试。 */
 	loadMoreError: string | null;
 	/** 补页后保持当前视口（新历史只出现在上方）。所有入口统一，不再有「新页直接出现」的跳动。 */
-	loadMoreMessages: (source?: "scroll" | "button" | "backfill") => void;
+	/** 返回是否**真的发出了**请求：false = 游标耗尽/无页可翻，调用方不得据此消耗补页预算。 */
+	loadMoreMessages: (source?: "scroll" | "button" | "backfill") => boolean;
 	/** 标记一次程序化滚动（turn 窗口展开补偿等组件内补偿用），抑制历史意图消费。
 	 *  durationMs > 0 时按时间窗口抑制（连续 smooth scroll 会派发多个 scroll 事件）。 */
 	markProgrammaticScroll: (durationMs?: number) => void;
@@ -90,8 +91,13 @@ export type SessionTimelineController = {
 	navBlockingVirtualization: boolean;
 	/** 当前钉住行的 messageId（浏览态）；无钉行时为 null。读 ref，不触发渲染。 */
 	readPinnedMessageId: () => string | null;
+	/** 跳转锚点（state）。与 readPinnedMessageId 同值，但作为 state 暴露：渲染层据此把锚点
+	 *  放进 useMemo 依赖 —— ref 变化不触发重算，那是「点远处刻度没反应」的成因。 */
+	jumpAnchorMessageId: string | null;
 	/** 跳转在途：贴底跟随的窗口压缩要让位，否则流式期间目标轮挂不上。 */
 	jumpPending: boolean;
+	/** 跳转锚点窗口半径（每侧轮数）。扩窗时必须同时长它，否则锚点窗口是固定切片、扩窗无效。 */
+	jumpWindowRuns: number;
 	/** 顶部插入收尾：渲染层做完 pin 补偿后调用，解除整表渲染。 */
 	endPrependSolid: () => void;
 	/** 本栏粘住的空会话：预热写 filePath/dshSessionId 后仍不闪历史骨架。 */

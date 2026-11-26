@@ -17,6 +17,29 @@ import { chatUsageFromPiUsage } from "./messageUsage";
 import { asRecord } from "./agentUtils";
 import { isRoleMessageRole, takeActiveEntryId } from "./sessionEntryIds";
 
+/**
+ * 把 pi 持久化里的 timestamp 统一成毫秒。
+ *
+ * pi 的 JSONL 里 `message.timestamp` 是 **ISO 字符串**，而历史窗口的消息全是它投影出来的。
+ * 旧实现只认 `typeof === "number"`，字符串一律落进 `Date.now()` —— 于是整个历史窗口的
+ * 时间戳都变成「加载那一刻」，而且彼此完全相同。后果不是显示问题，是**顺序判据失效**：
+ *
+ * 日志实证（2026-11-26 08:51，真机）：点刻度最后一条，`jump/settle rectTop=-3113`、
+ * `jump/entry foundIndex=0` —— 目标被渲染到文档最顶部。原因是合并时按 timestamp 校正逆序，
+ * 而窗口里每条都是同一个 `Date.now()`（比目标晚），「目标在前」构不成逆序，排序被跳过，
+ * 补读进来的那一条就留在数组首位。
+ *
+ * 判据：喂 ISO 字符串必须得到 Date.parse 的结果，喂数值原样返回，喂垃圾返回 undefined（由调用方兜底）。
+ */
+export function toMessageEpochMs(value: unknown): number | undefined {
+	if (typeof value === "number") return Number.isFinite(value) && value > 0 ? value : undefined;
+	if (typeof value === "string" && value.length > 0) {
+		const parsed = Date.parse(value);
+		return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+	}
+	return undefined;
+}
+
 export type AgentMessageProjectorDeps = {
 	translate: (key: MainProcessTranslationKey, params?: Record<string, string | number>) => string;
 	isAskAborted: (agentId: string) => boolean;
@@ -112,7 +135,7 @@ export class AgentMessageProjector {
 								agentId,
 								role: "user" as const,
 								text,
-								timestamp: typeof typed.timestamp === "number" ? typed.timestamp : Date.now(),
+								timestamp: toMessageEpochMs(typed.timestamp) ?? Date.now(),
 								meta: {
 									...(currentEntryId ? { entryId: currentEntryId } : {}),
 									// 保留 _piDeckMsgSeq 作为旧版本回退兼容
@@ -191,7 +214,7 @@ export class AgentMessageProjector {
 								agentId,
 								role: "assistant" as const,
 								text,
-								timestamp: typeof typed.timestamp === "number" ? typed.timestamp : Date.now(),
+								timestamp: toMessageEpochMs(typed.timestamp) ?? Date.now(),
 								meta: {
 									...(currentEntryId ? { entryId: currentEntryId } : {}),
 									_piDeckMsgSeq: index,
@@ -277,7 +300,7 @@ export class AgentMessageProjector {
 								agentId,
 								role: "tool" as const,
 								text: `${isError ? "✗" : "✓"} ${toolName}`,
-								timestamp: typeof typed.timestamp === "number" ? typed.timestamp : Date.now(),
+								timestamp: toMessageEpochMs(typed.timestamp) ?? Date.now(),
 								...(resultImages.length > 0 ? { images: resultImages } : {}),
 								meta: {
 									...(currentEntryId ? { entryId: currentEntryId } : {}),
@@ -311,7 +334,7 @@ export class AgentMessageProjector {
 								agentId,
 								role: "system" as const,
 								text: typeof typed.summary === "string" ? typed.summary : isCompaction ? "Session compacted" : "Branch summarized",
-								timestamp: typeof typed.timestamp === "number" ? typed.timestamp : Date.now(),
+								timestamp: toMessageEpochMs(typed.timestamp) ?? Date.now(),
 								meta: {
 									type: isCompaction ? "compaction" : "branchSummary",
 									tokensBefore: typeof typed.tokensBefore === "number" ? typed.tokensBefore : undefined,

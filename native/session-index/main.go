@@ -176,8 +176,17 @@ func main() {
 				writeFrame(responseFrame{Type: "response", ID: frame.ID, OK: false, Error: "empty path"})
 				continue
 			}
+			// 会话内查找的条数上限：**不设业务上限**，只挡非法值。
+			//
+			// 历史（2026-11-25 真机）：这里原本是 `if limit <= 0 || limit > 500 { limit = 100 }`。
+			// 宿主把 limit 从 100 提到 10000 也没用 —— 10000 > 500 直接被打回 100，
+			// 而面板显示的是 hitCount（全量命中）。用户看到「共 724 条」，列表只有 100 条，
+			// 他要跳第 200 / 600 条，在列表里根本滚不到，表现就是「每隔 100 条一次都不行」。
+			//
+			// 现在只做两件事：非正数或非有限值回落到默认；其余照单返回。
+			// 上限交给调用方（它知道 UI 能渲染多少），协议层不再替业务做截断。
 			limit := frame.Limit
-			if limit <= 0 || limit > 500 {
+			if limit <= 0 {
 				limit = 100
 			}
 			result := indexer.SearchInSession(frame.Query, frame.Path, limit)

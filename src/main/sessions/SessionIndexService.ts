@@ -47,8 +47,20 @@ export const MAX_SESSION_INDEX_LINE_CHARS = 4 * 1024 * 1024;
  */
 const DEFAULT_SEARCH_SESSION_LIMIT = 30;
 const DEFAULT_SEARCH_PER_SESSION = 5;
-/** 会话内查找的默认条数上限（单会话、按时间线返回，UI 直接上下跳）。 */
-const DEFAULT_IN_SESSION_LIMIT = 100;
+/**
+ * 会话内查找的默认条数上限。
+ *
+ * 为什么从 100 提到 10000：这是**桌面端搜索框真正走的那条路**（Ctrl/Cmd+Shift+F →
+ * useSessionMessageSearch → searchInSession → 这里）。
+ *
+ * 面板显示的是 hitCount（全量命中），列表渲染的是 matches。上限 100 时，
+ * 面板写着「共 724 条」而列表只有 100 条 —— 用户要跳第 200 / 600 条，在列表里滚不到，
+ * 看起来就是「中间那些跳不过去」（2026-11-25 真机，用户原话「每隔 100 条一次都不行」）。
+ *
+ * 反例（我自己犯过）：先改了 ACP/DSH 那条链的 SESSION_FIND_MAX_MATCHES，
+ * 那不是用户走的路 —— 改了也没用，因为 pi 会话根本不经过 findSessionMatches。
+ */
+export const DEFAULT_IN_SESSION_LIMIT = 10000;
 
 export type SessionIndexLogger = GoSidecarLogger;
 

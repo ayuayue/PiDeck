@@ -7,11 +7,15 @@ import { RAIL_TICK_LIMIT, RAIL_TICK_MIN_SIZE, railBuckets, railCapacity } from "
  * 刻度条数按可用高度自适应（2026-11 真机：85 轮会话点刻度「定位到别的地方」）。
  * 固定 30 段时一根代表好几条提问，只能落到段首；能一条一根时点哪根到哪条。
  */
-test("容量 = 可用高度 / 最小间距，且不低于 30", () => {
-	assert.equal(railCapacity(700), Math.floor(700 / RAIL_TICK_MIN_SIZE));
-	assert.equal(railCapacity(700) >= RAIL_TICK_LIMIT, true);
-	assert.equal(railCapacity(120), Math.floor(120 / RAIL_TICK_MIN_SIZE));
-	assert.equal(railCapacity(0), RAIL_TICK_LIMIT);
+test("容量 = 可用高度 / 可点间距（12），高度 0 时退回下限", () => {
+	// 期望值写字面数，不写 700 / RAIL_TICK_MIN_SIZE。
+	// 后者等于把同一个常量算两遍：常量从 12 改成 6 时两边一起变，测试照样绿
+	// （2026-11-22 变异实测：分母改 6，67 条刻度测试全绿）。
+	assert.equal(RAIL_TICK_MIN_SIZE, 12, "可点间距是 12；6 时 1000px 画 104 根，2px 线 + 4px 空隙连成虚线");
+	assert.equal(railCapacity(700), 58, "floor(700 / 12)");
+	assert.equal(railCapacity(120), 10, "floor(120 / 12)");
+	assert.equal(railCapacity(0), RAIL_TICK_LIMIT, "高度 0 时取条数上限，不返回 0（0 根刻度等于没有导航）");
+	assert.equal(railCapacity(-5), RAIL_TICK_LIMIT, "负高度同上");
 });
 
 test("85 条提问在 1100px 里一条一根，不合并", () => {

@@ -147,3 +147,7 @@ docs-site/guide/host-plugins.md
 # impeccable（设计审阅工具）的产物：critique 里是本机绝对路径与用户名，design.json 是生成快照
 .impeccable/critique/
 .impeccable/design.json
+
+# 本机构建产物 / 本地总闸（不入库，由脚本按平台重新生成）
+native/session-index/session-index.exe
+scripts/gate.mjs

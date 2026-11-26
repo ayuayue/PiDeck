@@ -78,9 +78,10 @@ test("新增 UI 组件里不再有硬编码中文文案", () => {
 	assert.deepEqual(offenders, [], "仍有硬编码中文的 aria/placeholder：" + offenders.join(" | "));
 });
 
-test("源码级：占位项必须从 railCapacity 里扣掉一格，间距必须走 planRailItemSize", () => {
+test("源码级：占位项必须从 railCapacity 里扣掉，间距必须走 planRailItemSize", () => {
 	// 纯函数测试锁不住组件里这两个接线点：把 railLimit 改回 railCapacity(availableHeight)、
 	// 或把 itemSize 改回 plan.itemSize，上面几条纯函数测试照样全绿。
+	// 扣几格随占位项根数变：顶端只有一根（更早 N 条），所以是 1。
 	const source = readFileSync("src/renderer/src/components/session/SurfaceComponents.tsx", "utf8");
 	assert.match(source, /capacity - \(hasHead \? 1 : 0\)/, "占位项必须扣掉一格");
 	assert.match(source, /planRailItemSize\(total, availableHeight, plan\.itemSize\)/, "间距必须走 planRailItemSize");

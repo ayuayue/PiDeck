@@ -198,10 +198,29 @@ export function mergeOutlineRailItems(loaded: readonly OutlineRailItem[], direct
 		}
 		merged.push({ id: `outline-pending:${entry.entryId}`, entryId: entry.entryId, role: "user", title: entry.title, time: entry.time ?? "", pending: true });
 	}
+	// 目录条目按「标题 + 时间」建索引：live 消息常常**没有 meta.entryId**（runtime 投影还没回写），
+	// 它的 id 是 requestId（形如 07e649d7-4b75-...），与目录里的 entryId（7a92d169）不相等。
+	// 旧实现按 id 比对，于是同一轮被追加成第二条：面板里两条一模一样的「继续，我重启了…」，
+	// 点第二条时 foundIndex=-1（requestId 不在数据里）→ 走取页 → 落到别处（用户：「全文结构全乱」）。
+	const directoryByContent = new Map<string, string>();
+	for (const entry of directory) directoryByContent.set(contentKey(entry.title, entry.time), entry.entryId);
 	for (const item of loadedUsers) {
-		if (!usedEntryIds.has(item.entryId ?? item.id)) merged.push(item);
+		const entryId = item.entryId ?? pendingEntryIdOf(item.id);
+		if (entryId && usedEntryIds.has(entryId)) continue;
+		if (item.entryId === undefined) {
+			// 没有 entryId 的 live 项：目录里已有同一轮（标题 + 时间相同）就是它的回写副本，丢掉；
+			// 目录里没有才是「索引还没更新」的新提问，保留（这条是既有行为，不能一起删）。
+			const sameRound = directoryByContent.get(contentKey(item.title, item.time));
+			if (sameRound !== undefined) continue;
+		}
+		merged.push(item);
 	}
 	return merged;
+
+	/** 目录项与 live 项的同一轮判定键：标题 + 时间（agentId/requestId 两侧不可比）。 */
+	function contentKey(title: string | undefined, time: string | undefined): string {
+		return String(title ?? "").trim() + " " + String(time ?? "").trim();
+	}
 }
 
 /** 是否为「目录里有、消息还没加载」的占位刻度。 */
@@ -215,33 +234,25 @@ export function pendingEntryIdOf(id: string): string | undefined {
 }
 
 /**
- * 占位刻度该往哪个方向找（纯函数，可单测）。
+ * 刻度点击的跳转目标（纯函数，可单测）。
  *
- * 占位刻度只说明「目录里有、已加载消息里没有」，它本身不含方向：
- * 可能在对上号之前的老历史里（要向上补页），也可能比已加载的最新区间还新
- * （live 消息的 entryId 还没和目录对上，向上补页永远补不到）。
+ * **一个入口、一个目标**：不管刻度是白的（已加载）还是灰的（目录里有、消息还没加载），
+ * 交出去的永远是**那一条自己的 entryId**。
  *
- * 2026-11 真机：从第一条的位置点最后一条（最新提问），旧实现无条件向上补页，
- * 一路补到会话开头，然后弹「这条提问还在更早的历史里」——方向完全反了。
+ * 旧实现把灰色刻度的目标替换成「已加载的最后一条」，注释理由是「占位项没有投影 id」。
+ * 那句话是错的：OutlineRailItem 带 entryId，id 就是 outline-pending:<entryId>。
+ * 后果是点任何灰色刻度都跳到同一个地方（当前已加载段的末尾）——用户看到的
+ * 「灰色刻度全部跳不了、点了定位到别处」（2026-11-25 真机，右侧刻度轴）。
  *
- * 判据用目录顺序（= 时间顺序）：目标排在"最老的已加载条目"之前才需要补页。
+ * 为什么不需要在这一层分方向：目标不在已加载数据里时，controller 按 entryId
+ * 一次定位取页（loadPageAroundEntry），向上向下同一条路径。方向判断留在这里
+ * 只会多出一条会把目标替换成别处的分支。
  */
-export function planRailJump(items: readonly OutlineRailItem[], targetId: string): { kind: "fill-earlier" } | { kind: "jump"; id: string } {
-	const targetIndex = items.findIndex((item) => item.id === targetId);
-	if (targetIndex < 0) return { kind: "jump", id: targetId };
-	const firstLoadedIndex = items.findIndex((item) => item.pending !== true);
-	// 一条都没加载（冷会话）：只能靠向上补页把数据拉进来
-	if (firstLoadedIndex < 0) return { kind: "fill-earlier" };
-	if (targetIndex < firstLoadedIndex) return { kind: "fill-earlier" };
-	// 目标在已加载区间之内或之后：直接交给 controller 扩窗/落位。
-	// 占位项没有投影 id，落到最接近的已加载项（目录尾部那一条）上。
-	const anchor = items[targetIndex].pending === true ? lastLoadedItem(items) : items[targetIndex];
-	return { kind: "jump", id: anchor?.id ?? targetId };
-}
-
-function lastLoadedItem(items: readonly OutlineRailItem[]): OutlineRailItem | undefined {
-	for (let index = items.length - 1; index >= 0; index -= 1) if (items[index].pending !== true) return items[index];
-	return undefined;
+export function planRailJump(items: readonly OutlineRailItem[], targetId: string): { kind: "jump"; id: string } {
+	const target = items.find((item) => item.id === targetId);
+	if (!target) return { kind: "jump", id: targetId };
+	const entryId = target.entryId ?? pendingEntryIdOf(target.id);
+	return { kind: "jump", id: entryId ?? target.id };
 }
 /**
  * 点击「目录里有、消息还没加载」的刻度后，下一步该做什么（纯函数，可单测）。

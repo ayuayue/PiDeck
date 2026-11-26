@@ -15,6 +15,9 @@ export function createSessionsPreview(): Pick<PiDesktopApi, "sessions" | "usageS
 			searchInSession: async () => null,
 			// 预览模式无 DSH host：空预设目录满足接口契约
 			listDshAgentPresets: async () => [],
+			// 预览模式无会话文件：跳转按「不在这里」处理（空页即真实含义，不是故障）。
+			readPageAroundEntry: async () => ({ messages: [], total: 0, windowStart: 0, nextBefore: null }) as never,
+			readEntryIndex: async () => ({ entries: [] }),
 			getDshDefaultModel: async () => undefined,
 			// 预览模式无主进程配置可解析：无启动默认（底栏不预选，不影响其它功能）
 			resolveLaunchDefaults: async () => ({}),

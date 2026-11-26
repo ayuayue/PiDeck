@@ -19,6 +19,9 @@ const domainPaths = [
 	"src/renderer/src/atoms/session-cache-policy.ts",
 	"src/renderer/src/atoms/session-message-cache-atoms.ts",
 	"src/renderer/src/atoms/session-history-atoms.ts",
+	// 历史页游标（从 session-history-atoms 拆出）：漏一项时 70 条用例在加载阶段整片
+	// MODULE_NOT_FOUND —— 一个清单漏项，表现成「原子层全红」（2026-11-25 实测）。
+	"src/renderer/src/atoms/historyPageCursor.ts",
 	"src/renderer/src/atoms/session-runtime-ui-atoms.ts",
 	"src/renderer/src/atoms/session-state-atoms.ts",
 	"src/renderer/src/atoms/session-timeline-atoms.ts",

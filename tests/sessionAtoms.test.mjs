@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { dirname, resolve } from "node:path";
 import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
@@ -20,7 +21,20 @@ function compileModule(filePath, imports = {}) {
 		fileName: filePath,
 	}).outputText;
 	const module = { exports: {} };
-	const localRequire = (specifier) => imports[specifier] ?? nodeRequire(specifier);
+	// 相对 import 必须按**被编译源文件所在目录**解析，不能用 tests/ 作基准：
+	// 生产代码拆出一个本地模块（如 atoms/historyPageCursor），这里就会整片
+	// MODULE_NOT_FOUND，而报错指向测试文件本身 —— 症状是「原子层全红」，
+	// 病因却在一行 import。根因是解析基准，不是缺一条桩，所以在这里统一修。
+	const localRequire = (specifier) => {
+		const stubbed = imports[specifier];
+		if (stubbed !== undefined) return stubbed;
+		if (specifier.startsWith(".")) {
+			const base = resolve(dirname(filePath), specifier);
+			const candidate = [/\.tsx?$/.test(base) ? base : base + ".ts", base + ".tsx", base].find((item) => existsSync(item));
+			if (candidate) return compileModule(candidate, imports);
+		}
+		return nodeRequire(specifier);
+	};
 	vm.runInNewContext(
 		output,
 		{
@@ -905,7 +919,7 @@ test("history prefix loading and clearing advance the outline revision", () => {
 				nextBefore: null,
 			},
 		}),
-		true,
+		"committed",
 	);
 	const afterPrependOutlineRevision = entry().outlineRevision;
 	assert.ok(afterPrependOutlineRevision > initialOutlineRevision);
@@ -1044,7 +1058,7 @@ test("ACP windowed session accepts the first history page at the window start", 
 			before: 100,
 			page: { messages: [{ id: "old-1", role: "user", text: "older" }], total: 110, nextBefore: 60 },
 		}),
-		true,
+		"committed",
 	);
 	assert.equal(entry().history.messages.length, 1);
 	assert.equal(entry().history.nextBefore, 60);
@@ -1057,7 +1071,7 @@ test("ACP windowed session accepts the first history page at the window start", 
 			before: 999,
 			page: { messages: [{ id: "wrong", role: "user", text: "wrong" }], total: 110, nextBefore: 10 },
 		}),
-		false,
+		"rejected-cursor",
 	);
 	assert.equal(entry().history.messages.length, 1);
 });
@@ -1079,7 +1093,7 @@ test("ACP windowed session rejects a wrong first-page cursor", () => {
 			before: 7,
 			page: { messages: [{ id: "wrong", role: "user", text: "wrong" }], total: 110, nextBefore: 1 },
 		}),
-		false,
+		"rejected-cursor",
 	);
 });
 
@@ -1374,7 +1388,7 @@ test("空历史页到文件头后保留终止游标，不因后续 flush 或回�
 		],
 	});
 	assert.equal(entry().history, undefined);
-	assert.equal(store.set(atoms.prependSessionHistoryPageAtom, { sessionId: "session-a", expectedRevision: entry().revision, before: undefined, page: { messages: [], total: 3, nextBefore: null, indexVersion: "100:2000" } }), true);
+	assert.equal(store.set(atoms.prependSessionHistoryPageAtom, { sessionId: "session-a", expectedRevision: entry().revision, before: undefined, page: { messages: [], total: 3, nextBefore: null, indexVersion: "100:2000" } }), "committed");
 	assert.equal(entry().history?.nextBefore, null, "空页也必须记住已到文件头");
 	assert.equal(entry().history?.messages.length, 0);
 	assert.equal(entry().history?.nextBeforeEntryId, undefined);
@@ -1478,7 +1492,7 @@ test("slideOut-only history keeps an entryId cursor so older pages stay reachabl
 				indexVersion: "100:2000",
 			},
 		}),
-		true,
+		"committed",
 	);
 	assert.deepEqual([...entry().history.messages.map((m) => m.meta.entryId)], ["e1", "e2", "e3", "e4"]);
 	assert.equal(entry().history.nextBefore, 0);
@@ -1523,7 +1537,7 @@ test("prependSessionHistoryPageAtom caps runtime history prefix and advances cur
 				indexVersion: "100:2000",
 			},
 		}),
-		true,
+		"committed",
 	);
 	assert.equal(entry().history.messages.length, LIMIT, "裁剪后不超过上限");
 	assert.equal(entry().history.messages[0].meta.entryId, "h-1", "新页头部两条被丢弃，第三条保留");
@@ -1547,7 +1561,7 @@ test("prependSessionHistoryPageAtom caps runtime history prefix and advances cur
 				indexVersion: "100:2000",
 			},
 		}),
-		true,
+		"committed",
 	);
 	assert.equal(entry().history.messages.length, LIMIT);
 	assert.equal(entry().history.nextBefore, null, "整页丢弃：游标置空，不再重取同一页");
@@ -1644,7 +1658,7 @@ test("prependSessionHistoryPageAtom guards revision and cursor continuity, dedup
 			before: undefined,
 			page: { messages: [{ id: "x", role: "user", text: "x" }], total: 4, nextBefore: 0 },
 		}),
-		false,
+		"rejected-revision",
 	);
 	assert.equal(entry().history, undefined);
 
@@ -1664,7 +1678,7 @@ test("prependSessionHistoryPageAtom guards revision and cursor continuity, dedup
 				indexVersion: "100:2000",
 			},
 		}),
-		true,
+		"committed",
 	);
 	assert.deepEqual([...entry().history.messages.map((m) => m.meta.entryId)], ["e1"]);
 	assert.equal(entry().history.nextBefore, 1);
@@ -1677,7 +1691,7 @@ test("prependSessionHistoryPageAtom guards revision and cursor continuity, dedup
 			before: 0,
 			page: { messages: [{ id: "h0", role: "user", text: "q0" }], total: 4, nextBefore: null },
 		}),
-		false,
+		"rejected-cursor",
 	);
 
 	// 续页：游标连续 → prepend
@@ -1693,7 +1707,7 @@ test("prependSessionHistoryPageAtom guards revision and cursor continuity, dedup
 				indexVersion: "100:2000",
 			},
 		}),
-		true,
+		"committed",
 	);
 	assert.deepEqual([...entry().history.messages.map((m) => m.meta.entryId)], ["e0", "e1"]);
 	assert.equal(entry().history.nextBefore, null);
@@ -1980,7 +1994,7 @@ test("late continuation page after bottom-settle clear is rejected; fresh first 
 			before: 1,
 			page: { messages: [{ id: "h0", role: "user", text: "q0" }], total: 4, nextBefore: null, indexVersion: "100:2000" },
 		}),
-		false,
+		"rejected-cursor",
 	);
 	assert.equal(entry().history, undefined, "late continuation page must not resurrect history");
 
@@ -1997,7 +2011,7 @@ test("late continuation page after bottom-settle clear is rejected; fresh first 
 				indexVersion: "100:2000",
 			},
 		}),
-		true,
+		"committed",
 	);
 	assert.equal(entry().history.messages.length, 1);
 });
@@ -2239,7 +2253,7 @@ test("prependSessionMessagePageAtom trims overflowing oldest messages and advanc
 				nextBefore: LIMIT - 4,
 			},
 		}),
-		true,
+		"committed",
 	);
 	assert.equal(entry().messages.length, LIMIT, "裁剪后不超过上限");
 	assert.equal(entry().messages[0].id, "h-1", "最旧的溢出条被丢弃，第三条保留");
@@ -2260,7 +2274,7 @@ test("prependSessionMessagePageAtom trims overflowing oldest messages and advanc
 				nextBefore: beforeCursor - 2,
 			},
 		}),
-		true,
+		"committed",
 	);
 	assert.equal(entry().messages.length, LIMIT);
 	assert.equal(entry().page.nextBefore, null, "整页丢弃：游标置空，不再重取同一页");
@@ -2299,7 +2313,7 @@ test("prependSessionMessagePageAtom dedupes overlapping pages by entryId", () =>
 				nextBefore: 0,
 			},
 		}),
-		true,
+		"committed",
 	);
 	// vm realm 数组与字面量数组原型不同，需展开为本 realm 数组再比
 	assert.deepEqual([...entry().messages.map((m) => m.meta.entryId)], ["e0", "e1", "e2"], "重叠部分按 entryId 去重，不重复显示");
@@ -2449,7 +2463,7 @@ test("prependSessionMessagePageAtom accepts remote pages and preserves continuat
 				indexVersion: "remote:42:1700000001:950",
 			},
 		}),
-		true,
+		"committed",
 	);
 	assert.deepEqual([...entry().messages.map((message) => message.meta.entryId)], ["e1", "e2"]);
 	assert.equal(entry().page.nextBefore, 1000);
@@ -2482,7 +2496,7 @@ test("prependSessionMessagePageAtom rejects a remote page from another file gene
 					indexVersion: version,
 				},
 			}),
-			false,
+			"rejected-generation",
 			`reject stale remote generation ${version}`,
 		);
 	}
@@ -2509,7 +2523,7 @@ test("remote message-budget trimming never adds message counts to a byte cursor"
 			before: 9000,
 			page: { messages: makeMessages(-2, 2), total: limit + 2, nextBefore: 8000, nextBeforeEntryId: "root", indexVersion: "remote:42:1700000001:11000" },
 		}),
-		true,
+		"committed",
 	);
 	assert.equal(store.get(atoms.sessionMessagesCacheAtom)["session-a"].page.nextBefore, null, "字节游标不可按消息溢出量做算术");
 });

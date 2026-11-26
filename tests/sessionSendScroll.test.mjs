@@ -123,7 +123,12 @@ function sendScrollHarness({ height = 2800, viewportHeight = 600, latestTop = he
 		stubs: {
 			react,
 			jotai: { atom: (value) => value, useAtomValue: (key) => (typeof key === "function" ? key() : store.get(key)), useStore: () => store, useSetAtom: () => noopAtomSetter },
-			"jotai/utils": { selectAtom: (key, select) => () => select(store.get(key)) },
+			"jotai/utils": {
+				selectAtom: (key, select) => () => select(store.get(key)),
+				// 分页与缓存模块用 atomFamily 建按会话的派生 atom：桩里要给它，否则整片
+				// 报「atomFamily is not a function」（2026-11-26 跳转事务接入时撞到）。
+				atomFamily: (factory) => factory,
+			},
 			"../atoms": atoms,
 			"../desktopApi": { desktopApi: { sessions: { readRecordMessagePage: () => new Promise(() => {}), startDshHost: async () => false } } },
 			"../i18n": { t: (key) => key },

@@ -1,6 +1,6 @@
 import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import { Component, useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { assertRangeIndexes, mergePinnedRange, resolveRunHeight, splitVirtualRunsByTail, VIRTUAL_ESTIMATED_RUN_HEIGHT } from "./virtualTimelinePolicy";
+import { assertRangeIndexes, maxScrollTop, mergePinnedRange, resolveRunHeight, splitVirtualRunsByTail, VIRTUAL_ESTIMATED_RUN_HEIGHT } from "./virtualTimelinePolicy";
 
 /**
  * 开发期自证开关。
@@ -70,11 +70,6 @@ function readViewportAnchor(scroller: HTMLElement): ViewportAnchor | null {
 		}
 	}
 	return fallback;
-}
-
-/** 滚动容器的 scrollTop 上限（负值截成 0）。 */
-function maxScrollTop(scroller: HTMLElement): number {
-	return Math.max(0, scroller.scrollHeight - scroller.clientHeight);
 }
 
 /**
