@@ -284,13 +284,13 @@ func (a *app) promptActions(s *session, t func() turn) core.Node {
 				Children: []core.Node{
 					chat.IconAction{Label: apptext.T("复制提问"), Icon: lucide.Copy, TestID: "prompt-copy",
 						OnPress: func() { a.copyText(t().Prompt, "提问") }},
-					chat.IconAction{Label: apptext.T("修改提问"), Icon: lucide.SquarePen, TestID: "prompt-edit",
+					chat.IconAction{Label: apptext.T("修改提问"), Icon: lucide.PencilLine, TestID: "prompt-edit",
 						Disabled: func() bool { return t().Prompt == "" }, OnPress: func() { a.editTurnPrompt(s, t()) }},
 					chat.IconAction{Label: apptext.T("删除这一轮"), Icon: lucide.Trash, TestID: "prompt-delete",
 						Disabled: func() bool { return !canDeleteTurn(s, t()) }, OnPress: func() { a.askDeleteTurn(s, t()) }},
-					chat.IconAction{Label: apptext.T("把提问放回输入框"), Icon: lucide.CornerDownLeft, TestID: "prompt-restore",
+					chat.IconAction{Label: apptext.T("把提问放回输入框"), Icon: lucide.TextCursorInput, TestID: "prompt-restore",
 						Disabled: func() bool { return t().Prompt == "" }, OnPress: func() { a.restoreTurnDraft(s, t()) }},
-					chat.IconAction{Label: apptext.T("从这里分叉"), Icon: lucide.GitBranch, TestID: "prompt-fork",
+					chat.IconAction{Label: apptext.T("从这里分叉"), Icon: lucide.GitFork, TestID: "prompt-fork",
 						Disabled: func() bool { return !canBranchTurn(s, t()) }, OnPress: func() { a.forkSession(s, t().ID) }},
 				}}
 		},
