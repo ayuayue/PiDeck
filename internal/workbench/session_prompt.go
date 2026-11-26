@@ -258,6 +258,11 @@ func (a *app) stop(s *session) {
 
 // compact asks pi to summarize the conversation.
 func (a *app) compact(s *session) {
+	a.compactWithInstructions(s, "")
+}
+
+// compactWithInstructions keeps the user's optional /compact guidance.
+func (a *app) compactWithInstructions(s *session, instructions string) {
 	if s == nil {
 		return
 	}
@@ -266,7 +271,7 @@ func (a *app) compact(s *session) {
 		return
 	}
 	a.ensureEngine(s, func() {
-		if s.status.GetUntracked() == statusRunning {
+		if s.busyNow() || s.status.GetUntracked() == statusRunning || s.status.GetUntracked() == statusWaiting {
 			a.toast(ui.ToastWarning, "先等这一轮结束", "运行中不能压缩上下文。")
 			return
 		}
@@ -278,7 +283,11 @@ func (a *app) compact(s *session) {
 				TokensBefore   int `json:"tokensBefore"`
 				EstimatedAfter int `json:"estimatedTokensAfter"`
 			}
-			err := c.call(map[string]any{"type": "compact"}, &res, 180*time.Second)
+			cmd := map[string]any{"type": "compact"}
+			if instructions != "" {
+				cmd["customInstructions"] = instructions
+			}
+			err := c.call(cmd, &res, 180*time.Second)
 			a.cx.Post(func() {
 				s.notice.Set("")
 				if s.status.GetUntracked() == statusWaiting {

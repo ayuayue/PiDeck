@@ -124,6 +124,20 @@ func (h *remoteHost) sessionPrompt(w http.ResponseWriter, r *http.Request, id st
 			failure = errors.New(apptext.T("这个项目还没有在电脑上被信任"))
 			return
 		}
+		// pi's built-in compact command is a separate RPC, not a prompt.
+		// ACP agents receive their own slash commands unchanged below.
+		if fields := strings.Fields(text); s.backend != "acp" && len(fields) > 0 && fields[0] == "/compact" {
+			if len(images) > 0 {
+				failure = errors.New(apptext.T("移除图片"))
+				return
+			}
+			if s.busyNow() || s.starting || s.status.GetUntracked() == statusWaiting || s.agentStopping || s.historyLoading || s.retryPendingNow() {
+				failure = errors.New(apptext.T("先等这一轮结束"))
+				return
+			}
+			h.app.compactWithInstructions(s, strings.TrimSpace(strings.TrimPrefix(text, "/compact")))
+			return
+		}
 		// Image mode draws the words instead of prompting pi, as the
 		// desktop's composer does.
 		if modeOn(s, modeImage) {
@@ -132,9 +146,12 @@ func (h *remoteHost) sessionPrompt(w http.ResponseWriter, r *http.Request, id st
 			}
 			return
 		}
-		// A message for a turn that is still running steers it, as the
-		// desktop's composer does.
+		// Match the desktop's delivery choice; ACP has no steering channel.
 		if s.busyNow() {
+			if delivery(s) == deliveryFollowUp {
+				h.app.queueFollowUp(s, text, images)
+				return
+			}
 			h.app.steer(s, text, images)
 			return
 		}
