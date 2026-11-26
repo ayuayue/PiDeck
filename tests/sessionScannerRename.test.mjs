@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
 import test from "node:test";
 import { loadSessionScanner as loadProductionSessionScanner } from "./helpers/loadSessionScanner.mjs";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 import ts from "typescript";
 import vm from "node:vm";
 
@@ -301,3 +302,62 @@ test("copy produces a pi-loadable session with the copy name as session_info (#1
 		rmSync(home, { recursive: true, force: true });
 	}
 });
+
+// 通过正常的 SessionScanner 入口强制小阈值，真实文件读写仍走生产实现。
+function createScannerWithSmallLineLimit(home) {
+	const stream = loadTsCommonJs("src/main/sessions/jsonlLineStream.ts");
+	const { SessionScanner } = loadProductionSessionScanner(home, {
+		stubs: {
+			"./jsonlLineStream": {
+				...stream,
+				rewriteJsonlLines: (src, dst, transform, options) => stream.rewriteJsonlLines(src, dst, transform, { ...options, chunkBytes: 4096, maxLineBytes: 1024 }),
+			},
+		},
+	});
+	return new SessionScanner();
+}
+
+for (const operation of ["rename", "copy"]) {
+	test(`${operation} preserves oversized entries and appends the title to the real leaf`, async () => {
+		const home = mkdtempSync(join(tmpdir(), "pideck-oversized-session-"));
+		try {
+			const scanner = createScannerWithSmallLineLimit(home);
+			const file = join(home, "session.jsonl");
+			const message = { role: "assistant", id: "nested-id", content: "内容🪴".repeat(31000) };
+			// id follows the large body (beyond the prefix). CRLF and the final missing LF must keep their byte boundaries.
+			const middle = "  " + JSON.stringify({ type: "message", message, id: "middle", parentId: "aaaa0003" }) + "  ";
+			const small = JSON.stringify({ type: "message", id: "small", parentId: "middle", message: { role: "user", content: "ok" } });
+			const leaf = JSON.stringify({ type: "message", message, parentId: "small", id: "leaf" });
+			const original = healthySession.map((entry) => JSON.stringify(entry)).join("\n") + "\n" + middle + "\r\n" + small + "\n" + leaf;
+			const source = JSON.stringify({ sessionName: "legacy".repeat(500) }) + "\n" + original;
+			writeFileSync(file, source);
+
+			let target = file;
+			if (operation === "copy") target = (await scanner.copy(file)).filePath;
+			else await scanner.rename(file, "Renamed");
+			const result = readFileSync(target, "utf8");
+			assert.ok(result.startsWith(original + "\n"), "all historical records must survive byte-for-byte");
+			const title = JSON.parse(result.slice(original.length + 1));
+			assert.equal(title.type, "session_info");
+			assert.equal(title.parentId, "leaf");
+			if (operation === "copy") assert.equal(readFileSync(file, "utf8"), source);
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	test(`${operation} leaves the source intact and removes partial output on an oversized parse failure`, async () => {
+		const home = mkdtempSync(join(tmpdir(), "pideck-oversized-failure-"));
+		try {
+			const scanner = createScannerWithSmallLineLimit(home);
+			const file = join(home, "session.jsonl");
+			const original = JSON.stringify(healthySession[0]) + '\n{"id":"leaf","body":"' + "x".repeat(2048);
+			writeFileSync(file, original);
+			await assert.rejects(operation === "copy" ? scanner.copy(file) : scanner.rename(file, "Renamed"), /parser|expected/i);
+			assert.equal(readFileSync(file, "utf8"), original);
+			assert.deepEqual(readdirSync(home), ["session.jsonl"]);
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+}
