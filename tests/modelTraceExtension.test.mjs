@@ -98,21 +98,46 @@ test("after_provider_response：按会话配对到请求的 traceId，带上状�
 	assert.ok(Number.isFinite(response.durationMs) && response.durationMs >= 0);
 });
 
-test("重试：同一请求的每次尝试各发一条响应帧（同一 traceId，耗时按上一节点计）", async () => {
+test("重试形态（本机 pi 1.6.1 实测）：每次尝试各一条请求帧 + 各一条响应帧，第 i 条响应配第 i 次尝试", async () => {
+	const { handlers, fetchCalls } = loadExtension();
+	// pi 的重试发生在 stream 之上 → 每次尝试重建 payload（新请求帧），1.6.1 起错误响应也报
+	// 每次尝试之间让一帧发出去（MAX_IN_FLIGHT 上限 4，真实链路上不积压）
+	for (const status of [503, 503, 200]) {
+		handlers.get("before_provider_request")({ payload: { messages: [] } }, makeContext());
+		handlers.get("after_provider_response")({ status, headers: {} }, makeContext());
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	}
+	await new Promise((resolve) => setTimeout(resolve, 0));
+
+	assert.equal(fetchCalls.length, 6, "3 次尝试 = 3 条请求帧 + 3 条响应帧");
+	const frames = fetchCalls.map(parseFrame);
+	const requests = frames.filter((frame) => frame.kind === "request");
+	const responses = frames.filter((frame) => frame.kind === "response");
+	assert.equal(requests.length, 3);
+	assert.deepEqual(
+		responses.map((frame) => frame.status),
+		[503, 503, 200],
+	);
+	assert.ok(
+		responses.every((frame, index) => frame.traceId === requests[index].traceId),
+		"第 i 条响应必须配到第 i 次尝试的 traceId，不能配到首次尝试或错位",
+	);
+	assert.equal(new Set(requests.map((frame) => frame.traceId)).size, 3, "每次尝试都是独立快照");
+});
+
+test("同一请求多条响应（如 Anthropic 线程回退）：每条各发一帧，耗时按上一节点计", async () => {
 	const { handlers, fetchCalls } = loadExtension();
 	handlers.get("before_provider_request")({ payload: { messages: [] } }, makeContext());
 	await new Promise((resolve) => setTimeout(resolve, 120));
-	// pi 1.6.1 起错误响应与每次重试尝试都会触发（一个请求 → 多条响应）
+	// 一次 payload 发两次：先 503（线程不被接受），重发拿到 200
 	handlers.get("after_provider_response")({ status: 503, headers: {} }, makeContext());
 	await new Promise((resolve) => setTimeout(resolve, 5));
 	handlers.get("after_provider_response")({ status: 200, headers: {} }, makeContext());
 	await new Promise((resolve) => setTimeout(resolve, 0));
 
-	assert.equal(fetchCalls.length, 3, "1 条请求帧 + 2 条尝试响应帧");
+	assert.equal(fetchCalls.length, 3, "1 条请求帧 + 2 条响应帧");
 	const [request, firstAttempt, secondAttempt] = fetchCalls.map(parseFrame);
-	assert.equal(firstAttempt.status, 503);
-	assert.equal(secondAttempt.status, 200);
-	assert.equal(firstAttempt.traceId, request.traceId, "重试尝试仍属于同一次请求");
+	assert.equal(firstAttempt.traceId, request.traceId, "两条响应都属于同一条请求");
 	assert.equal(secondAttempt.traceId, request.traceId);
 	assert.ok(firstAttempt.durationMs >= 100, `首次尝试量的是请求发出到响应：${firstAttempt.durationMs}ms`);
 	// 第二次尝试从第一次响应算起（~5ms），不是从请求发出累计（~125ms）

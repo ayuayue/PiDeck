@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "1.0.20",
-  "bundleSha256": "216de0932734f9d45a05c53656d19ff008f72e772383bf1d453d8a2ce4c17ba2",
+  "bundleSha256": "08e256f6dc36314406a20edbaa96477de69b97d5db44717ad4df373e8b8a438e",
   "fileCount": 17,
   "files": [
     {
@@ -21,8 +21,8 @@
     },
     {
       "name": "pi-deck-model-trace.ts",
-      "sha256": "34bc54e228b3ece07dc638a6d87fe416592e2dbc465f8ab2149ff3d153899bf4",
-      "bytes": 9882
+      "sha256": "cc638f469d57d52785bc4a804d32f0019a3c71edd3c8d7482b6783552aa2ca0a",
+      "bytes": 10358
     },
     {
       "name": "pi-deck-nul-redirect-fix.ts",
