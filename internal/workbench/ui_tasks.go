@@ -173,19 +173,21 @@ func (a *app) taskFormDialog() core.Node {
 		if editing != "" {
 			title = apptext.T("编辑定时任务")
 		}
-		fieldStyle := core.Style{Height: core.Pt(30), Padding: core.Symmetric(0, 8), CornerRadius: 6, FontSize: 11.5,
-			Color: colors.Text(), Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder()}
+		fieldStyle := core.Style{Height: core.Pt(30), Padding: core.Symmetric(0, 8), CornerRadius: 6, FontSize: 11.5, Overflow: core.Hidden,
+			Color: colors.Text(), PlaceholderColor: colors.Muted(), Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder()}
 		chip := func(on func() bool, label, testID string, press func()) core.Node {
 			return core.View{OnPress: func(core.PressEvent) { press() }, Role: core.RoleRadio, Label: label, TestID: testID,
 				StyleFunc: func() core.Style {
-					st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Height: core.Pt(24),
+					st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Height: core.Pt(24), MaxWidth: core.Pct(100),
 						Padding: core.Symmetric(0, 9), CornerRadius: 12, Hover: &core.Style{Background: colors.Hover()}}
 					if on() {
 						st.Background = colors.Pressed()
 					}
 					return st
 				},
-				Children: []core.Node{ui.Text(apptext.T(label), 10.5, ui.Medium, colors.Text)}}
+				Children: []core.Node{core.Text{Content: apptext.T(label), MaxLines: 1,
+					Style:     core.Style{FontSize: 10.5, FontWeight: ui.Medium, FlexShrink: 1, MinWidth: core.Pt(0)},
+					StyleFunc: ui.Colored(colors.Text)}}}
 		}
 		cronChip := func(label, expr string) core.Node {
 			return chip(func() bool { return a.taskCron.Get() == expr }, label, "task-cron-"+expr,
@@ -225,65 +227,72 @@ func (a *app) taskFormDialog() core.Node {
 			OnOpenChange: func(open bool, _ base.Reason) { a.taskFormOpen.Set(open) },
 			Title:        title,
 			TestID:       "task-form",
-			Style:        core.Style{Width: a.dialogWidth(), MaxHeight: core.Pt(720)},
-			Children: []core.Node{core.View{Style: core.Style{Gap: 9}, Children: []core.Node{
-				core.View{Style: core.Style{Direction: core.Row, Gap: 6}, Children: []core.Node{
-					core.View{Style: core.Style{Width: core.Pt(250)}, Children: []core.Node{
+			Style:        core.Style{Width: a.dialogWidth(), MaxWidth: core.Pt(760)},
+			Children: []core.Node{core.Scroll{TestID: "task-form-scroll", Style: core.Style{MinHeight: core.Pt(0), FlexShrink: 1}, Children: []core.Node{
+				core.View{Style: core.Style{Gap: 12, Padding: core.Edges{Right: scrollbarGutter, Bottom: 4}}, Children: []core.Node{
+					core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
+						ui.Text(apptext.T("任务名称"), 10.5, ui.Medium, colors.Muted),
 						core.Input{Value: a.taskName.Get, OnChange: a.taskName.Set, Placeholder: apptext.T("例如：每天整理变更"),
 							Label: apptext.T("任务名称"), TestID: "task-field-name", Style: fieldStyle},
 					}},
-					core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
-						core.Input{Value: a.taskCron.Get, OnChange: a.taskCron.Set, Placeholder: "0 9 * * *",
-							Label: apptext.T("cron 表达式"), TestID: "task-field-cron",
-							Style: core.Style{Height: core.Pt(30), Padding: core.Symmetric(0, 8), CornerRadius: 6, FontSize: 11.5,
-								FontFamily: viewkit.MonoFont(), Color: colors.Text(), Background: colors.Field(),
+					core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 10}, Children: []core.Node{
+						core.View{Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(230), MinWidth: core.Pt(0), Gap: 4}, Children: []core.Node{
+							ui.Text(apptext.T("cron 表达式"), 10.5, ui.Medium, colors.Muted),
+							core.Input{Value: a.taskCron.Get, OnChange: a.taskCron.Set, Placeholder: "0 9 * * *",
+								Label: apptext.T("cron 表达式"), TestID: "task-field-cron",
+								Style: fieldStyle.Merge(core.Style{FontFamily: viewkit.MonoFont()})},
+						}},
+						core.View{Style: core.Style{Width: core.Pt(120), Gap: 4}, Children: []core.Node{
+							ui.Text(apptext.T("超时分钟"), 10.5, ui.Medium, colors.Muted),
+							core.Input{Value: a.taskTimeout.Get, OnChange: a.taskTimeout.Set, Placeholder: "30",
+								Label: apptext.T("超时分钟"), TestID: "task-field-timeout", Style: fieldStyle},
+						}},
+					}},
+					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Wrap: core.Wrap, Gap: 4}, Children: []core.Node{
+						ui.Text(apptext.T("常用"), 9.5, ui.Regular, colors.Muted),
+						cronChip("每小时", "0 * * * *"),
+						cronChip("每天 9 点", "0 9 * * *"),
+						cronChip("工作日 9 点", "0 9 * * 1-5"),
+						cronChip("每周一 9 点", "0 9 * * 1"),
+						cronChip("每月 1 号", "0 0 1 * *"),
+					}},
+					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Wrap: core.Wrap, Gap: 4}, Children: append([]core.Node{
+						ui.Text(apptext.T("项目"), 9.5, ui.Regular, colors.Muted)}, projectChips...)},
+					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Wrap: core.Wrap, Gap: 4}, Children: append([]core.Node{
+						ui.Text(apptext.T("后端"), 9.5, ui.Regular, colors.Muted)}, backendChips...)},
+					core.Show{When: func() bool { return a.taskBackend.Get() == "acp" }, Then: func(*core.Scope) core.Node {
+						return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Wrap: core.Wrap, Gap: 4},
+							Children: append([]core.Node{ui.Text(apptext.T("ACP 预设"), 9.5, ui.Regular, colors.Muted)}, presetChips...)}
+					}},
+					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Wrap: core.Wrap, Gap: 4}, Children: append([]core.Node{
+						ui.Text(apptext.T("智能体"), 9.5, ui.Regular, colors.Muted)}, personaChips...)},
+					core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
+						ui.Text(apptext.T("任务提示词"), 10.5, ui.Medium, colors.Muted),
+						core.Input{Value: a.taskPrompt.Get, OnChange: a.taskPrompt.Set, Multiline: true,
+							Placeholder: apptext.T("每次运行时发给会话的提示词。"),
+							Label:       apptext.T("任务提示词"), TestID: "task-field-prompt",
+							Style: core.Style{MinHeight: core.Pt(130), Padding: core.Symmetric(7, 9), CornerRadius: 6, FontSize: 12,
+								LineHeight: 18, Color: colors.Text(), PlaceholderColor: colors.Muted(), Background: colors.Field(),
 								BorderWidth: 1, BorderColor: colors.FieldBorder()}},
 					}},
-					core.View{Style: core.Style{Width: core.Pt(86)}, Children: []core.Node{
-						core.Input{Value: a.taskTimeout.Get, OnChange: a.taskTimeout.Set, Placeholder: "30",
-							Label: apptext.T("超时分钟"), TestID: "task-field-timeout", Style: fieldStyle},
+				}}}}},
+			Footer: []core.Node{core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0), Gap: 10}, Children: []core.Node{
+				core.Show{When: func() bool { return strings.TrimSpace(errText) != "" }, Then: func(*core.Scope) core.Node {
+					return core.Text{Content: a.taskErr.Get(), TestID: "task-form-error", Style: core.Style{FontSize: 10.5},
+						StyleFunc: ui.Colored(colors.Danger)}
+				}},
+				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Wrap: core.Wrap, Gap: 8}, Children: []core.Node{
+					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, FlexGrow: 1, Gap: 8}, Children: []core.Node{
+						ui.Switch{Checked: a.taskEnabled.Get, Label: apptext.T("保存后立即启用"), TestID: "task-field-enabled",
+							OnChange: a.taskEnabled.Set},
+						ui.Text(apptext.T("保存后立即启用"), 10.5, ui.Regular, colors.Muted),
 					}},
-				}},
-				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Wrap: core.Wrap, Gap: 4}, Children: []core.Node{
-					ui.Text(apptext.T("常用"), 9.5, ui.Regular, colors.Faint),
-					cronChip("每小时", "0 * * * *"),
-					cronChip("每天 9 点", "0 9 * * *"),
-					cronChip("工作日 9 点", "0 9 * * 1-5"),
-					cronChip("每周一 9 点", "0 9 * * 1"),
-					cronChip("每月 1 号", "0 0 1 * *"),
-				}},
-				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Wrap: core.Wrap, Gap: 4}, Children: append([]core.Node{
-					ui.Text(apptext.T("项目"), 9.5, ui.Regular, colors.Faint)}, projectChips...)},
-				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Wrap: core.Wrap, Gap: 4}, Children: append([]core.Node{
-					ui.Text(apptext.T("后端"), 9.5, ui.Regular, colors.Faint)}, backendChips...)},
-				core.Show{When: func() bool { return a.taskBackend.Get() == "acp" }, Then: func(*core.Scope) core.Node {
-					return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Wrap: core.Wrap, Gap: 4},
-						Children: append([]core.Node{ui.Text(apptext.T("ACP 预设"), 9.5, ui.Regular, colors.Faint)}, presetChips...)}
-				}},
-				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Wrap: core.Wrap, Gap: 4}, Children: append([]core.Node{
-					ui.Text(apptext.T("智能体"), 9.5, ui.Regular, colors.Faint)}, personaChips...)},
-				core.Input{Value: a.taskPrompt.Get, OnChange: a.taskPrompt.Set, Multiline: true,
-					Placeholder: apptext.T("每次运行时发给会话的提示词。"),
-					Label:       apptext.T("任务提示词"), TestID: "task-field-prompt",
-					Style: core.Style{MinHeight: core.Pt(130), Padding: core.Symmetric(7, 9), CornerRadius: 6, FontSize: 12,
-						LineHeight: 18, Color: colors.Text(), Background: colors.Field(),
-						BorderWidth: 1, BorderColor: colors.FieldBorder()}},
-				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
-					ui.Switch{Checked: a.taskEnabled.Get, Label: apptext.T("保存后立即启用"), TestID: "task-field-enabled",
-						OnChange: a.taskEnabled.Set},
-					core.View{Style: core.Style{FlexGrow: 1}},
-					core.Show{When: func() bool { return strings.TrimSpace(errText) != "" }, Then: func(*core.Scope) core.Node {
-						return core.Text{Content: a.taskErr.Get(), MaxLines: 2, Style: core.Style{FlexShrink: 1, FontSize: 10.5},
-							StyleFunc: ui.Colored(colors.Danger)}
-					}},
+					ui.Button{Text: apptext.T("取消"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+						OnPress: func() { a.taskFormOpen.Set(false) }},
+					ui.Button{Text: apptext.T("保存任务"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "task-save",
+						OnPress: a.saveTaskForm},
 				}},
 			}}},
-			Footer: []core.Node{
-				ui.Button{Text: apptext.T("取消"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
-					OnPress: func() { a.taskFormOpen.Set(false) }},
-				ui.Button{Text: apptext.T("保存任务"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "task-save",
-					OnPress: a.saveTaskForm},
-			},
 		}
 	})
 }
