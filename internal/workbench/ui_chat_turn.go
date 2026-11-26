@@ -9,10 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-v2/assets"
 	"example.com/pideck-v2/internal/apptext"
 	"example.com/pideck-v2/internal/viewkit"
-	"example.com/pideck-v2/internal/viewkit/brands"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -71,45 +69,6 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 			}},
 		}}
 	})
-}
-
-// turnReplyHeader says who answered and when, above the answer itself: pi,
-// with the app's own mark, or the ACP preset that replied.
-func (a *app) turnReplyHeader(s *session, t func() turn) core.Node {
-	return core.Dynamic(func(cx *core.Scope) core.Node {
-		colors := ui.ColorsOf(cx)
-		tt := t()
-		name, mark := a.replyAuthor(cx, s, tt)
-		children := []core.Node{mark, core.Text{Content: name, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-			Style: core.Style{FontSize: 12.5, FontWeight: ui.Medium, MinWidth: core.Pt(0), FlexShrink: 1}, StyleFunc: ui.Colored(colors.Muted)}}
-		if stamp := clockTime(tt.End); stamp != "" {
-			children = append(children,
-				core.Text{Content: "·", Style: core.Style{FontSize: 12.5}, StyleFunc: ui.Colored(colors.Faint)},
-				ui.Tabular(core.Text{Content: stamp, Style: core.Style{FontSize: 12.5, LineHeight: 18}, StyleFunc: ui.Colored(colors.Faint)}))
-		}
-		return core.View{TestID: "chat-reply-header", Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinWidth: core.Pt(0)},
-			Children: children}
-	})
-}
-
-// replyAuthor is who answered a turn, and the mark that stands for them.
-func (a *app) replyAuthor(cx *core.Scope, s *session, t turn) (string, core.Node) {
-	colors := ui.ColorsOf(cx)
-	if backendOf(s) == "acp" {
-		name := "ACP"
-		if preset := a.acpPresetByID(s.acpPreset); preset != nil && preset.Name != "" {
-			name = preset.Name
-		}
-		// The agent's own mark says which CLI replied; one the set does not
-		// know keeps a terminal glyph and its name.
-		if mark := brands.Mark(s.acpPreset, 14, func() core.Color { return colors.Muted() }); mark != nil {
-			return name, mark
-		}
-		return name, ui.Icon(lucide.Terminal, 13, colors.Muted)
-	}
-	_ = t
-	return "pi", core.Image{Source: core.ImageSource{Data: assets.LogoPNG}, Label: "pi",
-		Style: core.Style{Width: core.Pt(16), Height: core.Pt(16), CornerRadius: 4}}
 }
 
 // turnFoldRow is the divider-centered summary of a completed turn: what the

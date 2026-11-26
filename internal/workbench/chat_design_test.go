@@ -43,8 +43,8 @@ func TestChatDesignReadingHierarchy(t *testing.T) {
 			}
 			bubble := screen.Find("id:chat-prompt-bubble").Bounds()
 			stamp := screen.Find("id:chat-prompt-time").Bounds()
-			if stamp.Origin.Y < bubble.Origin.Y+bubble.Size.Height {
-				t.Errorf("prompt timestamp %v should sit below the bubble %v", stamp, bubble)
+			if stamp.Origin.Y+stamp.Size.Height > bubble.Origin.Y {
+				t.Errorf("prompt timestamp %v should sit in the identity row above the bubble %v", stamp, bubble)
 			}
 			if h := screen.Find("id:composer-card").Frame.Size.Height; h < 112 {
 				t.Errorf("composer height = %v, want at least 112", h)
