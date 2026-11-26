@@ -95,6 +95,41 @@ func TestSessionMetaCache(t *testing.T) {
 	}
 }
 
+// TestSessionMetaKeepsCreatedTime checks what a listing leaves for a
+// session's hover card: when the session began, from its own header.
+func TestSessionMetaKeepsCreatedTime(t *testing.T) {
+	dir := t.TempDir()
+	st, err := newStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	folder := filepath.Join(st.sessions, "--C--work--shop--")
+	writeSession(t, folder, "a.jsonl", searchSession("a", "C:/work/shop", "部署手册", "怎么发布到生产环境"))
+
+	metas := st.scanSessions(nil)
+	if len(metas) != 1 {
+		t.Fatalf("scan = %d sessions, want 1", len(metas))
+	}
+	m := metas[0]
+	if want := time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC); !m.Created.Equal(want) {
+		t.Fatalf("created = %v, want the session header's %v", m.Created, want)
+	}
+
+	// A warm start reads the saved listing and keeps the time with it.
+	st.writeMetaCache()
+	again, err := newStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metas = again.scanSessions(nil)
+	if len(metas) != 1 || again.parses != 0 {
+		t.Fatalf("warm scan = %d sessions, %d reads; want 1, 0", len(metas), again.parses)
+	}
+	if want := time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC); !metas[0].Created.Equal(want) {
+		t.Fatalf("cached created = %v, want %v", metas[0].Created, want)
+	}
+}
+
 // writeSession puts one session file in a folder of a store.
 func writeSession(t *testing.T, dir, name, body string) string {
 	t.Helper()

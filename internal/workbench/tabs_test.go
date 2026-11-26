@@ -13,7 +13,7 @@ import (
 )
 
 func TestTabMenuTranslations(t *testing.T) {
-	for _, key := range []string{"关闭标签页", "关闭其他标签", "关闭右侧标签", "关闭全部标签"} {
+	for _, key := range []string{"关闭标签页", "关闭多个标签", "关闭其他标签", "关闭右侧标签", "关闭全部标签"} {
 		if apptext.Catalogs[apptext.LangEnUS][key] == "" || apptext.Catalogs[apptext.LangZhTW][key] == "" {
 			t.Fatalf("%q has no en-US or zh-TW translation", key)
 		}
@@ -29,22 +29,14 @@ func TestTabMenu(t *testing.T) {
 	app.Key("mod+n")
 	app.Key("mod+n")
 	app.WaitUntil(10*time.Second, func() bool { return len(app.Query("id:tab")) == 3 })
-	for i := 0; i < 4; i++ {
-		app.RightClick("id:tab >> nth=0")
-		if waitQuiet(app, "text:关闭其他标签", 2*time.Second) {
-			break
-		}
-	}
-	app.WaitFor("text:关闭其他标签", 15*time.Second)
+	openMenu(t, app, "id:tab >> nth=0", "关闭多个标签")
+	app.Press("id:session-close-tabs-menu")
+	app.WaitFor("text:关闭其他标签", 5*time.Second)
 	app.Press("text:关闭其他标签")
 	app.WaitUntil(10*time.Second, func() bool { return len(app.Query("id:tab")) == 1 })
-	for i := 0; i < 4; i++ {
-		app.RightClick("id:tab >> nth=0")
-		if waitQuiet(app, "text:关闭全部标签", 2*time.Second) {
-			break
-		}
-	}
-	app.WaitFor("text:关闭全部标签", 15*time.Second)
+	openMenu(t, app, "id:tab >> nth=0", "关闭多个标签")
+	app.Press("id:session-close-tabs-menu")
+	app.WaitFor("text:关闭全部标签", 5*time.Second)
 	app.Press("text:关闭全部标签")
 	app.WaitUntil(10*time.Second, func() bool { return len(app.Query("id:tab")) == 0 })
 }

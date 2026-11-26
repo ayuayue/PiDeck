@@ -73,6 +73,8 @@ func (a *app) closeAgent(s *session) {
 }
 
 func (a *app) stopSessionAgent(s *session, restart bool) {
+	s.cancelPrewarm()
+	s.prewarming = false
 	a.logEvent("info", "session", s.ID, "停止会话进程 · restart=%t", restart)
 	s.agentClosed = !restart
 	s.agentStopping = true
@@ -125,6 +127,8 @@ func (a *app) stopSessionAgent(s *session, restart bool) {
 			if s.restarting && !s.deleting && a.byID[s.ID] == s {
 				s.restarting = false
 				a.ensureEngine(s, nil)
+			} else if s.prewarmPending {
+				a.scheduleSessionPrewarm(s)
 			}
 		})
 	}()
@@ -149,6 +153,7 @@ func (a *app) cancelPiTurn(s *session) {
 			}
 			ts[i].Status = chat.Cancelled
 			ts[i].End = a.cx.Now()
+			finishPendingTools(&ts[i], chat.Cancelled)
 			break
 		}
 		return ts

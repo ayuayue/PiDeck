@@ -172,18 +172,6 @@ func (a *app) startACPEngine(s *session, generation uint64, presetID, savedID, c
 	}
 	a.diagf("info", "ACP 就绪 %s：握手 %s，建会话 %s", preset.Name,
 		handshake.Round(time.Millisecond), time.Since(started).Round(time.Millisecond))
-	// The project's default preset stays warm for the next ACP session.
-	a.cx.Post(func() {
-		if s.acpGeneration != generation {
-			return
-		}
-		if s.Target.remote() {
-			return
-		}
-		if ws := a.workspaceFor(s.Target, s.WS); ws != nil && ws.ACPPreset == preset.ID {
-			a.ensureWarmACP(*preset, cwd)
-		}
-	})
 	// The CLI only takes a permission mode at runtime, and a refused call
 	// must not block the session.
 	var notice string
@@ -212,7 +200,9 @@ func (a *app) startACPEngine(s *session, generation uint64, presetID, savedID, c
 		s.acpOptions.Set(modes.Options)
 		s.acpOptionBusy.Set(false)
 		s.readySig.Set(true)
-		s.status.Set(statusIdle)
+		if !s.busyNow() {
+			s.status.Set(statusIdle)
+		}
 		s.notice.Set("")
 		if savedID != "" && !loaded {
 			a.toast(ui.ToastInfo, "ACP 会话未恢复", "Agent 未能恢复原会话，已创建新会话；本地记录仍可浏览，但不会自动成为 Agent 的上下文。")
@@ -258,9 +248,6 @@ func (a *app) onACPExit(s *session, generation uint64, err error) {
 	}
 	if s.acpTurnID != "" {
 		a.acpFinish(s, s.acpTurnID, "cancelled", err)
-	}
-	if err != nil && a.activeID.GetUntracked() == s.ID {
-		a.ensureACPSession(s)
 	}
 }
 

@@ -18,7 +18,8 @@ import (
 )
 
 // projectList is the project column: its heading, then the workspace tree
-// with the pinned projects first and the named groups after.
+// with the pinned projects first and the named groups after, one project
+// told from the next by a hairline.
 func (a *app) projectList() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = a.projectsRev.Get()
@@ -29,17 +30,37 @@ func (a *app) projectList() core.Node {
 		groups := a.projectGroups()
 		out := []core.Node{a.projectHeader()}
 		showHeaders := len(groups) > 1 || (len(groups) == 1 && groups[0].Name != "未分组")
+		first := true
 		for _, g := range groups {
+			// A group's name belongs to the project under it, so the line
+			// above the group keeps the name off the last project's rows.
+			var head []core.Node
 			if showHeaders {
-				out = append(out, a.groupLabel(g.Name))
+				head = append(head, a.groupLabel(g.Name))
 			}
 			for _, w := range g.Projects {
 				ws := w
+				if !first {
+					out = append(out, a.projectDivider())
+				}
+				first = false
+				out = append(out, head...)
+				head = nil
 				out = append(out, a.workspaceBlock(func() *workspace { return ws }))
 			}
 		}
 		return core.View{Style: core.Style{Gap: 2}, Children: out}
 	})
+}
+
+// projectDivider is the hairline between two projects. An open project's
+// sessions end above it, so where one project stops and the next starts
+// reads at a glance instead of only from the folder glyphs.
+func (a *app) projectDivider() core.Node {
+	colors := ui.ColorsOf(a.cx)
+	return core.View{TestID: "project-divider",
+		Style:     core.Style{Height: core.Pt(1), Margin: core.Edges{Top: 5, Right: 8, Bottom: 5, Left: 8}},
+		StyleFunc: ui.Filled(colors.Border)}
 }
 
 // projectHeader is the column's heading: how many projects there are, and
@@ -54,8 +75,37 @@ func (a *app) projectHeader() core.Node {
 			core.Text{ContentFunc: func() string { return fmt.Sprint(a.projectTotal()) }, TestID: "project-total",
 				Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 11}, StyleFunc: ui.Colored(colors.Faint)},
 			a.addProjectMenu(),
+			a.projectHeaderMenu(),
 		}}
 	})
+}
+
+// projectHeaderMenu is the project column's own actions: what is about the
+// list rather than one project, kept beside its count and its plus.
+func (a *app) projectHeaderMenu() core.Node {
+	colors := ui.ColorsOf(a.cx)
+	return ui.Menu{
+		Open:         func() bool { return a.railMenuOpen.Get() == railTabProjects },
+		OnOpenChange: func(open bool, _ base.Reason) { a.setRailMenuOpen(railTabProjects, open) },
+		Placement:    core.PlaceBottom, Align: core.AlignEnd,
+		Trigger: ui.Button{Icon: lucide.Ellipsis, Label: apptext.T("项目操作"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+			Side: 22, IconSize: 12, Tint: func() core.Color { return colors.Faint() }},
+		TestID:   "project-header-menu",
+		Children: a.projectHeaderMenuItems(),
+	}
+}
+
+// setRailMenuOpen opens or closes one column's header menu: one at a time,
+// so opening the other column's closes it.
+func (a *app) setRailMenuOpen(column string, open bool) {
+	if open {
+		a.clearSessionHover()
+		a.railMenuOpen.Set(column)
+		return
+	}
+	if a.railMenuOpen.GetUntracked() == column {
+		a.railMenuOpen.Set("")
+	}
 }
 
 // addProjectMenu adds a project: a folder on this machine by default, or
@@ -63,7 +113,12 @@ func (a *app) projectHeader() core.Node {
 func (a *app) addProjectMenu() core.Node {
 	colors := ui.ColorsOf(a.cx)
 	return ui.Menu{
-		Open: a.addProjectOpen.Get, OnOpenChange: func(open bool, _ base.Reason) { a.addProjectOpen.Set(open) },
+		Open: a.addProjectOpen.Get, OnOpenChange: func(open bool, _ base.Reason) {
+			if open {
+				a.clearSessionHover()
+			}
+			a.addProjectOpen.Set(open)
+		},
 		Placement: core.PlaceBottom, Align: core.AlignEnd,
 		Trigger: ui.Button{Icon: lucide.Plus, Label: apptext.T("添加项目"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
 			Side: 22, IconSize: 12, Tint: func() core.Color { return colors.Faint() }},
@@ -82,7 +137,6 @@ func (a *app) addProjectMenu() core.Node {
 // workspaceBlock is one project and, when open, its sessions.
 func (a *app) workspaceBlock(w func() *workspace) core.Node {
 	colors := ui.ColorsOf(a.cx)
-	hovered := func() bool { return a.hoveredProject.Get() == w().key() }
 	return core.View{Style: core.Style{Gap: 2}, Children: []core.Node{
 		base.ContextMenu{
 			Trigger: core.View{
@@ -92,14 +146,6 @@ func (a *app) workspaceBlock(w func() *workspace) core.Node {
 					// session starts, so a click selects as well as opens.
 					a.activeWS.Set(projectWireKey(w()))
 					w().Expanded.Update(func(v bool) bool { return !v })
-				},
-				// The row's actions follow the pointer: the way to start a
-				// session stays out, the rest of the menu appears on hover.
-				OnMouseEnter: func(core.MouseEvent) { a.hoveredProject.Set(w().key()) },
-				OnMouseLeave: func(core.MouseEvent) {
-					if a.hoveredProject.GetUntracked() == w().key() {
-						a.hoveredProject.Set("")
-					}
 				},
 				Role: core.RoleButton, LabelFunc: func() string { return w().label() }, TestID: "project-row",
 				StyleFunc: func() core.Style {
@@ -135,9 +181,9 @@ func (a *app) workspaceBlock(w func() *workspace) core.Node {
 					}},
 					a.projectCount(w()),
 					a.projectNewSessionButton(w),
-					core.Show{When: func() bool {
-						return hovered() || a.projectMoreOpen.Get() == w().key()
-					}, Then: func(*core.Scope) core.Node { return a.projectMoreMenu(w) }},
+					// Both actions stay on the row: a button that only appears
+					// on hover moves the one beside it as the pointer arrives.
+					a.projectMoreMenu(w),
 				}},
 			Children:   a.projectMenuItems(w),
 			PopupStyle: core.Style{MinWidth: core.Pt(196)},
@@ -217,8 +263,7 @@ func (a *app) projectNewSessionButton(w func() *workspace) core.Node {
 }
 
 // projectMoreMenu is the project's menu on the row, the same as its
-// right-click menu. It stays out while it is open, even with the pointer
-// gone to the popup.
+// right-click menu.
 func (a *app) projectMoreMenu(w func() *workspace) core.Node {
 	colors := ui.ColorsOf(a.cx)
 	key := w().key()
@@ -235,6 +280,7 @@ func (a *app) projectMoreMenu(w func() *workspace) core.Node {
 // setProjectMoreOpen opens or closes one project's row menu.
 func (a *app) setProjectMoreOpen(key string, open bool) {
 	if open {
+		a.clearSessionHover()
 		a.projectMoreOpen.Set(key)
 		return
 	}

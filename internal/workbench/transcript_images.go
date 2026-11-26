@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"example.com/pideck-v2/internal/remotewire"
+	"github.com/nsgo-dev/nsgo/ui/chat"
 )
 
 const transcriptImagesPerMessage = 4
@@ -52,7 +53,11 @@ func piBlockImages(blocks []piContent) []remotewire.Image {
 
 func toolRunFromResult(m piMessage) toolRun {
 	blocks := m.blocks()
+	status := chat.Completed
+	if m.IsError {
+		status = chat.Failed
+	}
 	return toolRun{CallID: m.ToolCallID, Name: m.ToolName, Output: strings.TrimSpace(piBlockText(blocks)),
 		Images: piBlockImages(blocks), Ask: askResultFromDetails(m.ToolName, m.Details), filePaths: toolFileArgs(m.Details),
-		IsError: m.IsError, DurationMs: m.DurationMs}
+		IsError: m.IsError, DurationMs: m.DurationMs, Status: status}
 }

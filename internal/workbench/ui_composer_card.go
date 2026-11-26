@@ -259,12 +259,7 @@ func (a *app) composer(s *session, ref *core.Ref, surface func() core.Points) co
 				}
 			}
 			s.draft.Set(text)
-			// Writing the first words is what engages a blank session: pi boots
-			// while the prompt is still being typed, and its own controls (the
-			// thinking levels, the model list) appear before the send.
-			if strings.TrimSpace(text) != "" && a.lazySession(s) {
-				a.ensureEngine(s, nil)
-			}
+			a.scheduleSessionPrewarm(s)
 		}, Multiline: true, SubmitBehavior: core.SubmitBehaviorSubmit,
 			Label: apptext.T("消息"), PlaceholderFunc: a.composerPlaceholder(s), TestID: "composer", Suggest: suggest,
 			OnSubmit: func(string) { send() },
@@ -457,6 +452,8 @@ func composerPill(cx *core.Scope, testID, label string, disabled func() bool, ba
 // composerPlaceholder is the field's prompt while it is empty.
 func (a *app) composerPlaceholder(s *session) func() string {
 	return func() string {
+		s.uiSeq.Get()
+		status := s.status.Get()
 		mode := s.agentMode.Get()
 		switch {
 		case mode == modeImage:
@@ -465,14 +462,17 @@ func (a *app) composerPlaceholder(s *session) func() string {
 			return apptext.T("运行中：回车排到这一轮结束后")
 		case s.busy():
 			return apptext.T("运行中：回车插入引导，或点停止")
-		case backendOf(s) == "acp" && !s.readySig.Get():
+		case backendOf(s) == "acp" && status == statusStarting && !s.readySig.Get():
 			return apptext.T("正在启动 agent…")
-		case !s.readySig.Get():
+		case status == statusStarting && !s.readySig.Get():
 			return apptext.T("正在启动 pi…")
 		case mode == modePlan:
 			return apptext.T("写下要计划的事…")
 		case mode == modeGoal:
 			return apptext.T("写下目标，它会自己往下做…")
+		}
+		if backendOf(s) == "acp" {
+			return apptext.T("发送消息…")
 		}
 		return apptext.T("给 pi 发消息…")
 	}

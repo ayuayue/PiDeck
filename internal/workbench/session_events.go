@@ -72,37 +72,33 @@ func (a *app) applyEvent(s *session, ev piEvent) {
 		}
 	case "compaction_start":
 		s.status.Set(statusWaiting)
-		s.notice.Set("正在压缩上下文…")
-		a.addNote(s, "compaction", "压缩上下文", "正在压缩上下文…", chat.Waiting)
+		s.notice.Set(apptext.T("正在压缩上下文…"))
+		a.addNote(s, "compaction", apptext.T("压缩上下文"), s.notice.GetUntracked(), chat.Waiting)
 	case "compaction_end":
-		if ev.ErrorMessage != "" {
-			a.addNote(s, "compaction", "压缩失败", ev.ErrorMessage, chat.Failed)
-			s.notice.Set("")
-			s.status.Set(statusIdle)
-			a.toast(ui.ToastError, "压缩失败", ev.ErrorMessage)
-			return
-		}
-		if ev.Aborted {
-			a.addNote(s, "compaction", "压缩已取消", "", chat.Cancelled)
-			s.status.Set(statusIdle)
-			s.notice.Set("")
-			return
-		}
-		title := "上下文已压缩"
-		body := ""
-		var summary piCompaction
-		if len(ev.Result) > 0 && json.Unmarshal(ev.Result, &summary) == nil {
-			if summary.TokensBefore > 0 {
-				title = fmt.Sprintf("上下文已压缩 · %s → %s", viewkit.Tokens(summary.TokensBefore), viewkit.Tokens(summary.EstimatedAfter))
+		title, body, status := apptext.T("上下文已压缩"), "", chat.Completed
+		switch {
+		case ev.ErrorMessage != "":
+			title, body, status = apptext.T("压缩失败"), ev.ErrorMessage, chat.Failed
+			a.toast(ui.ToastError, title, body)
+		case ev.Aborted:
+			title, status = apptext.T("压缩已取消"), chat.Cancelled
+		default:
+			var summary piCompaction
+			if len(ev.Result) > 0 && json.Unmarshal(ev.Result, &summary) == nil {
+				if summary.TokensBefore > 0 {
+					title = apptext.T("上下文已压缩 · %s → %s", viewkit.Tokens(summary.TokensBefore), viewkit.Tokens(summary.EstimatedAfter))
+				}
+				body = summary.Summary
 			}
-			body = summary.Summary
+			a.startStats(s)
 		}
-		a.addNote(s, "compaction", title, body, chat.Completed)
+		a.addNote(s, "compaction", title, body, status)
 		s.notice.Set("")
-		if s.status.GetUntracked() == statusWaiting {
+		if s.busyNow() {
+			s.status.Set(statusRunning)
+		} else {
 			s.status.Set(statusIdle)
 		}
-		a.startStats(s)
 	case "queue_update":
 		s.steering.Update(func(list []string) []string {
 			return append([]string(nil), ev.Steering...)
@@ -133,6 +129,27 @@ func (a *app) ensureTurn(s *session) {
 	s.turns.Update(func(ts []turn) []turn {
 		return append(ts, turn{ID: fmt.Sprintf("t%d-%d", a.cx.Now().UnixNano(), len(ts)), Status: chat.Running, Start: a.cx.Now()})
 	})
+}
+
+// resumePiTurn restores the run reported by get_state after a file/RPC
+// history projection marked its messages completed. The transcript remains
+// authoritative for the run; runningSig only mirrors it for the composer.
+func (a *app) resumePiTurn(s *session) {
+	s.turns.Update(func(ts []turn) []turn {
+		for i := len(ts) - 1; i >= 0; i-- {
+			if !ts[i].System {
+				ts[i].Status, ts[i].End = chat.Running, time.Time{}
+				// Streaming appends to the final turn; trailing system
+				// records must stay separate from the resumed answer.
+				active := ts[i]
+				copy(ts[i:], ts[i+1:])
+				ts[len(ts)-1] = active
+				return ts
+			}
+		}
+		return ts
+	})
+	a.ensureTurn(s)
 }
 
 // messageEnded commits an assistant message once it is authoritative.

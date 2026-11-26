@@ -340,12 +340,19 @@ type app struct {
 	activeID   *core.Signal[string]
 	// railTab is the rail's visible column: activity, chat or projects.
 	railTab *core.Signal[string]
-	// hoveredProject is the project row the pointer rests on, by key, so
-	// its actions can show while it is hovered.
-	hoveredProject *core.Signal[string]
-	// projectMoreOpen is the project whose row menu is open, by key: its
-	// trigger stays out while the menu is, so the pointer can reach it.
+	// projectMoreOpen is the project whose row menu is open, by key: one
+	// row's menu at a time, so a second closes the first.
 	projectMoreOpen *core.Signal[string]
+	// sessionMoreOpen is the session whose row menu is open, by id, for the
+	// same reason.
+	sessionMoreOpen *core.Signal[string]
+	// sessionHover is the session whose preview card the pointer holds open:
+	// one card at a time, so a card never trails behind the pointer to the
+	// next row.
+	sessionHover *core.Signal[sessionHoverState]
+	// railMenuOpen is the rail column whose header menu is open: the
+	// projects' or the chat's, one at a time.
+	railMenuOpen *core.Signal[string]
 	// addProjectOpen is the add-project menu beside the project count.
 	addProjectOpen *core.Signal[bool]
 	// railMoreOpen folds 更多 open and shut.
@@ -594,9 +601,10 @@ type app struct {
 	forkCollapsed   *core.Signal[map[string]bool]
 	// railExpanded holds the sessions whose children the rail shows: a
 	// persisted subagent reads folded under its parent until asked for.
-	railExpanded *core.Signal[map[string]bool]
-	archiveRev   *core.Signal[int]
-	archiveOpen  *core.Signal[bool]
+	railExpanded   *core.Signal[map[string]bool]
+	archiveRev     *core.Signal[int]
+	archiveOpen    *core.Signal[bool]
+	sessionManager *sessionManager
 	// The import dialog: what a scan of the other agents' stores found,
 	// what the user picked, and how far a run has got.
 	impOpen     *core.Signal[bool]

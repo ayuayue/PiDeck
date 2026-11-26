@@ -234,7 +234,7 @@ func (a *app) retryTurn(s *session, t turn) {
 			if !meta.Updated.IsZero() {
 				ns.updated.Set(meta.Updated)
 			}
-			a.openSessionEager(ns)
+			a.openSessionHistory(ns)
 			if strings.TrimSpace(text) != "" || len(images) > 0 {
 				a.submitTurn(ns, text, images, t.Plan)
 			}

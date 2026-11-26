@@ -76,14 +76,14 @@ func TestNativeSessionRenameDialogScreen(t *testing.T) {
 func TestSessionMenuSurvivesEmptyPiRescan(t *testing.T) {
 	built, screen, sess := startNativeSurfaceApp(t)
 	screen.RightClick("id:session-row")
-	screen.WaitFor("role:menuitem 归档", 5*time.Second)
+	screen.WaitFor(`role:menuitem "归档"`, 5*time.Second)
 	// An environment probe can finish while this menu is open. Disabling
 	// external history must not publish another empty list and remount it.
 	onNativeUI(t, screen, built, built.rescanPi)
-	if len(screen.Query("role:menuitem 归档")) != 1 {
+	if len(screen.Query(`role:menuitem "归档"`)) != 1 {
 		t.Fatal("an empty Pi rescan dismissed the session menu")
 	}
-	screen.Press("role:menuitem 归档")
+	screen.Press(`role:menuitem "归档"`)
 	screen.WaitForGone("id:session-row", 5*time.Second)
 	onNativeUI(t, screen, built, func() {
 		if !built.sessionArchived(sess.ID) {
@@ -210,7 +210,7 @@ func TestNativeComposerAndContextMenus(t *testing.T) {
 	screen.Key("escape")
 	screen.Press("id:drawer-toggle")
 	screen.RightClick("id:tab")
-	screen.WaitFor("text:关闭右侧标签", 5*time.Second)
+	screen.WaitFor("id:session-close-tabs-menu", 5*time.Second)
 	screen.WaitFor("text:重命名", 5*time.Second)
 	shot(screen, "comparison/session-tab-menu")
 	screen.Key("escape")

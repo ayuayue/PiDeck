@@ -46,6 +46,9 @@ func (a *app) selectSession(s *session) {
 	if s == nil {
 		return
 	}
+	if previous := a.active(); previous != nil && previous != s {
+		a.retireSessionPrewarm(previous)
+	}
 	a.pendingActive = ""
 	if a.editor != nil {
 		a.editor.open.Set(false)
@@ -62,7 +65,7 @@ func (a *app) selectSession(s *session) {
 	}
 	a.addTab(s.ID)
 	a.revealTab(s.ID)
-	a.openSessionEager(s)
+	a.openSessionHistory(s)
 	if a.drawer.GetUntracked() && a.drawerTab.GetUntracked() == "git" {
 		a.git.attach(a.workspaceFor(s.Target, s.WS))
 	}
@@ -142,6 +145,7 @@ func (a *app) closeTab(id string) {
 		return
 	}
 	next := append(append([]string(nil), tabs[:ix]...), tabs[ix+1:]...)
+	a.retireSessionPrewarm(a.byID[id])
 	a.tabs.Set(next)
 	a.forgetTab(id)
 	if a.byID[id] != nil {

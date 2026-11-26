@@ -26,8 +26,12 @@ type session struct {
 	ID          string
 	WS          string
 	File        string
-	Target      target
-	External    bool // a session in pi's own store, opened in place
+	// Created is when the session began, as its header or a fresh session
+	// says: the card a resting pointer opens reads it. It changes only when
+	// the file is read again, so it is not a signal.
+	Created  time.Time
+	Target   target
+	External bool // a session in pi's own store, opened in place
 	// Parent is the session this one grew out of, as its header says: a
 	// persisted subagent and a fork both name their spawning session.
 	Parent string
@@ -149,6 +153,10 @@ type session struct {
 	agentStopped      <-chan struct{}
 	historyGeneration uint64
 	historyLoading    bool
+	prewarmSeq        uint64 // invalidates delayed starts and unused-process expiry
+	prewarmStop       func() bool
+	prewarmPending    bool // actual input waiting for history or process retirement
+	prewarming        bool // this process has not accepted a prompt or explicit start
 	// warmPi is a prewarmed process this session adopted but has not used
 	// yet: its first message takes it over instead of booting pi.
 	warmPi *warmPi

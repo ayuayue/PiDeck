@@ -31,7 +31,7 @@ func (a *app) settled(s *session, ev piEvent) {
 		s.steering.Set(nil)
 		s.turns.Update(func(ts []turn) []turn {
 			for i := len(ts) - 1; i >= 0; i-- {
-				if !ts[i].running() && !(ts[i].Status == chat.Failed && ts[i].End.IsZero()) {
+				if ts[i].System || (!ts[i].running() && !(ts[i].Status == chat.Failed && ts[i].End.IsZero())) {
 					continue
 				}
 				if ts[i].Status == chat.Waiting {
@@ -45,6 +45,7 @@ func (a *app) settled(s *session, ev piEvent) {
 					ts[i].Status = chat.Completed
 				}
 				ts[i].End = now
+				finishPendingTools(&ts[i], ts[i].Status)
 				break
 			}
 			return ts

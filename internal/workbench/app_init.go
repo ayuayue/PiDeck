@@ -33,8 +33,10 @@ func newApp(cx *core.Scope) *app {
 		tabs:              core.NewSignalFunc(cx, []string{}, nil),
 		activeID:          core.NewSignal(cx, ""),
 		railTab:           core.NewSignal(cx, railTabProjects),
-		hoveredProject:    core.NewSignal(cx, ""),
 		projectMoreOpen:   core.NewSignal(cx, ""),
+		sessionMoreOpen:   core.NewSignal(cx, ""),
+		sessionHover:      core.NewSignal(cx, sessionHoverState{}),
+		railMenuOpen:      core.NewSignal(cx, ""),
 		addProjectOpen:    core.NewSignal(cx, false),
 		railMoreOpen:      core.NewSignal(cx, false),
 		overviewMore:      core.NewSignal(cx, ""),
@@ -196,6 +198,7 @@ func newApp(cx *core.Scope) *app {
 		railExpanded:           core.NewSignalFunc(cx, map[string]bool{}, nil),
 		archiveRev:             core.NewSignal(cx, 0),
 		archiveOpen:            core.NewSignal(cx, false),
+		sessionManager:         newSessionManager(cx),
 		impOpen:                core.NewSignal(cx, false),
 		impRows:                core.NewSignalFunc(cx, []sessionimport.Row(nil), nil),
 		impScanning:            core.NewSignal(cx, false),
@@ -598,7 +601,7 @@ func newApp(cx *core.Scope) *app {
 		if ws := a.workspaceFor(sess.Target, sess.WS); ws != nil {
 			a.activeWS.Set(projectWireKey(ws))
 		}
-		a.openSessionEager(sess)
+		a.openSessionHistory(sess)
 	}
 	if active != "" {
 		// A restored bar can be longer than the window: show the tab it

@@ -69,6 +69,13 @@ func readSessionMeta(path string, prev metaCacheEntry, want func(cwd string) boo
 		if entry.Type == "session" {
 			meta.Cwd, meta.ID = filepath.Clean(entry.Cwd), entry.ID
 			meta.Parent = strings.TrimSpace(entry.ParentSession)
+			// The header's time is when the session began; a file copied or
+			// touched later still keeps it.
+			if meta.Created.IsZero() {
+				if t, err := time.Parse(time.RFC3339Nano, entry.Timestamp); err == nil {
+					meta.Created = t
+				}
+			}
 			if start == 0 && want != nil && meta.ID != "" && !want(meta.Cwd) {
 				// The header is all this folder's files need.
 				partial = true

@@ -111,12 +111,8 @@ func (a *app) touch(s *session) {
 	})
 }
 
-// openSessionEager starts a session's engine when its tab opens, and paints
-// its transcript from the file in the meantime. A session nobody has written
-// to yet starts nothing: its backend is still the user's to pick, so picking
-// ACP must not cost a pi launch, and the first message starts whichever
-// engine it needs.
-func (a *app) openSessionEager(s *session) {
+// openSessionHistory opens the transcript without starting either backend.
+func (a *app) openSessionHistory(s *session) {
 	if s == nil {
 		return
 	}
@@ -124,24 +120,4 @@ func (a *app) openSessionEager(s *session) {
 		a.files.watch(s.WS)
 	}
 	a.loadHistoryFromFile(s)
-	if s.agentClosed || a.lazySession(s) {
-		return
-	}
-	a.ensureEngine(s, nil)
-	// Keep a spare booted for the project the user is working in, so the
-	// next new session's first message does not wait for pi. An ACP session
-	// gets its own agent warm instead of a pi nobody will use.
-	ws := a.workspaceFor(s.Target, s.WS)
-	if s.backend != "acp" {
-		a.ensureWarmPi(ws)
-	}
-	a.ensureWarmACPFor(ws)
-}
-
-// lazySession says a session has nothing to resume: no transcript, no file
-// and no process. Such a session is started by its first message instead of
-// by its tab opening.
-func (a *app) lazySession(s *session) bool {
-	return s != nil && s.backend != "acp" && s.File == "" && !s.starting && s.engine == nil &&
-		len(s.turns.GetUntracked()) == 0
 }

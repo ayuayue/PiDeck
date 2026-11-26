@@ -95,6 +95,20 @@ func (a *app) updateTool(s *session, run toolRun) bool {
 	return found
 }
 
+// finishPendingTools closes calls that a stopped/settled backend did not
+// send a final update for. A detached task's completed dispatch receipt is
+// untouched: its background lifetime is resolved by delegation notices.
+func finishPendingTools(t *turn, status chat.Status) {
+	for i := range t.Steps {
+		for j := range t.Steps[i].Tools {
+			run := &t.Steps[i].Tools[j]
+			if run.Status == chat.Running || run.Status == chat.Waiting {
+				run.Status = status
+			}
+		}
+	}
+}
+
 // mergeRun keeps what is known and takes what the update brings.
 func mergeRun(old, next toolRun) toolRun {
 	if next.Name != "" {

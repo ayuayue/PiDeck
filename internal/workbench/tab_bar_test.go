@@ -73,6 +73,7 @@ func TestTabDotsSayWhatTheSessionIsDoing(t *testing.T) {
 	}
 	states := []state{
 		{"dot-fresh", "没开过的会话", func(*session) {}},
+		{"dot-starting", "启动中", func(s *session) { s.status.Set(statusStarting) }},
 		{"dot-idle", "启动后空闲", func(s *session) { s.readySig.Set(true) }},
 		{"dot-running", "正在运行", func(s *session) { s.readySig.Set(true); s.status.Set(statusRunning) }},
 		{"dot-failed", "启动失败", func(s *session) { s.status.Set(statusFailed) }},
@@ -91,16 +92,21 @@ func TestTabDotsSayWhatTheSessionIsDoing(t *testing.T) {
 		return len(tabTabs(t, screen)) == len(states)
 	})
 
-	// Grey before it starts, blue while up and idle, amber while working,
-	// red when it failed: the rail's row says the same.
+	// Cold tabs have no dot. Startup is grey, ready is blue, work is amber;
+	// a failure without a process stays visible in the rail but has no tab dot.
 	want := map[string]core.Color{
-		"dot-fresh":   ui.ColorsOf(built.cx).Faint(),
-		"dot-idle":    viewkit.Idle,
-		"dot-running": viewkit.Working,
-		"dot-failed":  built.cx.Palette().Danger,
+		"dot-fresh":    ui.ColorsOf(built.cx).Faint(),
+		"dot-starting": ui.ColorsOf(built.cx).Faint(),
+		"dot-idle":     viewkit.Idle,
+		"dot-running":  viewkit.Working,
+		"dot-failed":   built.cx.Palette().Danger,
 	}
 	for _, st := range states {
-		if got := screen.Find("id:tab-status-" + st.id).Style.Background; got != want[st.id] {
+		if st.id == "dot-fresh" || st.id == "dot-failed" {
+			if screen.Exists("id:tab-status-" + st.id) {
+				t.Errorf("cold tab %s has a status dot", st.title)
+			}
+		} else if got := screen.Find("id:tab-status-" + st.id).Style.Background; got != want[st.id] {
 			t.Errorf("tab %s dot = %v, want %v", st.title, got, want[st.id])
 		}
 		if got := screen.Find("id:session-status-" + st.id).Style.Background; got != want[st.id] {

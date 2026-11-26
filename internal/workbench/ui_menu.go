@@ -154,10 +154,8 @@ func (a *app) modelMenu(s *session, open *core.Signal[bool]) core.Node {
 			open.Update(func(v bool) bool { return !v })
 			if open.GetUntracked() {
 				s.modelQuery.Set("")
-				// A blank session starts no process until it is used: the
-				// model list is pi's, so asking for it starts pi and fetches
-				// the list while the menu is open.
-				if a.lazySession(s) {
+				// Asking for pi's live model list explicitly needs its process.
+				if !s.hasAgent() {
 					a.ensureEngine(s, nil)
 				}
 			}
@@ -490,25 +488,41 @@ func (a *app) projectMenu(s *session, open *core.Signal[bool]) core.Node {
 // sessionMenuItems is a session's right-click menu, shared by the sessions
 // the app owns and the ones pi does.
 func (a *app) sessionMenuItems(sess func() *session) []core.Node {
-	colors := ui.ColorsOf(a.cx)
-	// The item's own colors come from the app's scope: menus are built once.
-	_ = colors
-	return append(a.sessionRunMenuItems(sess), []core.Node{
-		a.menuSeparator(a.cx),
-		a.menuRow(a.cx, lucide.Star, pinLabel(a, sess), "", false, func() { a.togglePin(sess()) }),
-		a.menuRow(a.cx, lucide.Star, sessionFavoriteLabel(a, sess), "", false, func() { a.toggleSessionFavorite(sess()) }),
+	project := func() *workspace {
+		if s := sess(); s != nil {
+			return a.workspaceFor(s.Target, s.WS)
+		}
+		return nil
+	}
+	return []core.Node{
 		a.menuRow(a.cx, lucide.Pencil, "重命名", "", false, func() { a.askRename(sess()) }),
-		a.menuRow(a.cx, lucide.FolderInput, apptext.T("移动会话到分组"), "", false, func() { a.openSessionGroup(sess()) }),
-		a.menuRow(a.cx, lucide.Link, apptext.T("选择父会话"), "", false, func() { a.openSessionLink(sess()) }),
-		a.menuRow(a.cx, lucide.MessageSquarePlus, apptext.T("新建子会话"), "", false, func() { a.newLinkedSession(sess()) }),
-		a.menuRow(a.cx, lucide.Copy, "复制会话 ID", "", false, func() { a.copyText(sess().ID, "会话 ID") }),
-		a.menuRow(a.cx, lucide.CopyPlus, "复制会话", "", false, func() { a.duplicateSession(sess()) }),
 		a.menuRow(a.cx, lucide.FileDown, "导出…", "", false, func() { a.openExport(sess()) }),
-		a.menuRow(a.cx, lucide.FolderOpen, "在文件管理器中显示", "", false, func() { a.revealSession(sess()) }),
-		a.menuRow(a.cx, lucide.Copy, "复制工作目录", "", false, func() { a.copyText(sess().WS, "路径") }),
+		ui.Submenu{Text: apptext.T("整理会话"), Icon: lucide.FolderInput, Back: apptext.T("整理会话"), TestID: "session-organize-menu",
+			Children: []core.Node{
+				a.menuRow(a.cx, lucide.Pin, pinLabel(a, sess), "", false, func() { a.togglePin(sess()) }),
+				a.menuRow(a.cx, lucide.Star, sessionFavoriteLabel(a, sess), "", false, func() { a.toggleSessionFavorite(sess()) }),
+				a.menuSeparator(a.cx),
+				a.menuRow(a.cx, lucide.FolderInput, "移动会话到分组", "", false, func() { a.openSessionGroup(sess()) }),
+				a.menuRow(a.cx, lucide.Link, "选择父会话", "", false, func() { a.openSessionLink(sess()) }),
+				a.menuRow(a.cx, lucide.MessageSquarePlus, "新建子会话", "", false, func() { a.newLinkedSession(sess()) }),
+				a.menuRow(a.cx, lucide.CopyPlus, "复制会话", "", false, func() { a.duplicateSession(sess()) }),
+			}},
+		a.menuSeparator(a.cx),
+		ui.Submenu{Text: apptext.T("Agent 控制"), Icon: lucide.Bot, Back: apptext.T("Agent 控制"),
+			TestID: "session-agent-menu", Children: a.sessionRunMenuItems(sess)},
+		ui.Submenu{Text: apptext.T("复制与位置"), Icon: lucide.Copy, Back: apptext.T("复制与位置"), TestID: "session-location-menu",
+			Children: []core.Node{
+				a.menuRow(a.cx, lucide.Copy, "复制会话 ID", "", false, func() { a.copyText(sess().ID, "会话 ID") }),
+				a.menuRow(a.cx, lucide.Copy, "复制工作目录", "", false, func() { a.copyText(sess().WS, "路径") }),
+				a.menuRow(a.cx, lucide.FolderOpen, "在文件管理器中显示", "", false, func() { a.revealSession(sess()) }),
+			}},
+		a.menuSeparator(a.cx),
+		a.menuRow(a.cx, lucide.ListChecks, "会话管理…", "", false, func() { a.openSessionManager(project(), false) }),
+		a.menuRow(a.cx, lucide.Archive, "已归档…", "", false, func() { a.openSessionManager(project(), true) }),
+		a.menuSeparator(a.cx),
 		a.menuRow(a.cx, lucide.Archive, archiveLabel(a, sess), "", false, func() { a.toggleArchive(sess()) }),
 		a.menuRow(a.cx, lucide.Trash, "删除会话", "", true, func() { a.deleteSession(sess()) }),
-	}...)
+	}
 }
 
 // archiveLabel names the archive action for the state a session is in.
@@ -568,29 +582,40 @@ func (a *app) trustMenuItem(w *workspace) string {
 func (a *app) projectMenuItems(w func() *workspace) []core.Node {
 	return []core.Node{
 		a.menuRow(a.cx, lucide.SquarePen, "在此新建会话", "", false, func() { a.newProjectSession(w()) }),
-		a.menuRow(a.cx, lucide.SquareTerminal, "在此打开终端", "", false, func() { a.openTerminalFor(w()) }),
-		a.menuRow(a.cx, lucide.FileInput, apptext.T("导入会话…"), "", false, func() { a.openImportDialogFor(w()) }),
-		a.menuRow(a.cx, lucide.GitBranch, "查看 Git 变更", "", false, func() { a.openGitFor(w()) }),
 		a.menuSeparator(a.cx),
-		a.menuRow(a.cx, lucide.Pin, pinProjectLabel(w()), "", false, func() { a.toggleProjectPin(w()) }),
-		a.menuRow(a.cx, lucide.ShieldCheck, a.trustMenuItem(w()), "", w().Chat, func() { a.toggleProjectTrust(w()) }),
-		a.menuRow(a.cx, lucide.ChevronUp, "上移项目", "", false, func() { a.moveProject(w(), -1) }),
-		a.menuRow(a.cx, lucide.ChevronDown, "下移项目", "", false, func() { a.moveProject(w(), 1) }),
-		a.menuRow(a.cx, lucide.FolderInput, "移动到分组…", "", false, func() { a.askProjectGroup(w()) }),
-		a.menuRow(a.cx, lucide.Pencil, "重命名项目…", "", w().Chat, func() { a.askWorkspaceName(w()) }),
-		a.projectSortMenu(),
-		a.sessionSortMenu(),
+		a.menuRow(a.cx, lucide.ListChecks, "会话管理…", "", false, func() { a.openSessionManager(w(), false) }),
+		a.menuRow(a.cx, lucide.Archive, "已归档…", "", false, func() { a.openSessionManager(w(), true) }),
+		ui.Submenu{Text: apptext.T("会话列表"), Icon: lucide.ListFilter, Back: apptext.T("会话列表"), TestID: "project-session-list-menu",
+			Children: []core.Node{
+				a.menuRow(a.cx, lucide.FileInput, "导入会话…", "", false, func() { a.openImportDialogFor(w()) }),
+				a.menuRow(a.cx, lucide.RefreshCw, "刷新会话", "", false, func() {
+					w().piLoaded = false
+					a.scanProject(w())
+				}),
+				a.menuRow(a.cx, lucide.Archive, showArchivedLabel(a), "", false, func() { a.toggleShowArchived() }),
+			}},
 		a.menuSeparator(a.cx),
-		a.menuRow(a.cx, lucide.RefreshCw, "刷新会话", "", false, func() {
-			w().piLoaded = false
-			a.scanProject(w())
-		}),
-		a.menuRow(a.cx, lucide.Archive, showArchivedLabel(a), "", false, func() { a.toggleShowArchived() }),
-		a.menuRow(a.cx, lucide.Archive, "已归档…", "", false, func() { a.openArchiveDialog() }),
-		a.menuSeparator(a.cx),
-		a.menuRow(a.cx, lucide.Code, "在编辑器中打开项目", "", false, func() { a.openPathInEditor(w().Path) }),
-		a.menuRow(a.cx, lucide.FolderOpen, "在文件管理器中打开", "", false, func() { a.revealProject(w()) }),
-		a.menuRow(a.cx, lucide.Copy, "复制项目路径", "", false, func() { a.copyText(w().Path, "路径") }),
+		ui.Submenu{Text: apptext.T("整理项目"), Icon: lucide.FolderInput, Back: apptext.T("整理项目"), TestID: "project-organize-menu",
+			Children: []core.Node{
+				a.menuRow(a.cx, lucide.Pin, pinProjectLabel(w()), "", false, func() { a.toggleProjectPin(w()) }),
+				a.menuRow(a.cx, lucide.Pencil, "重命名项目…", "", w().Chat, func() { a.askWorkspaceName(w()) }),
+				a.menuRow(a.cx, lucide.FolderInput, "移动到分组…", "", false, func() { a.askProjectGroup(w()) }),
+				a.menuRow(a.cx, lucide.ChevronUp, "上移项目", "", false, func() { a.moveProject(w(), -1) }),
+				a.menuRow(a.cx, lucide.ChevronDown, "下移项目", "", false, func() { a.moveProject(w(), 1) }),
+				a.menuSeparator(a.cx),
+				a.projectSortMenu(),
+				a.sessionSortMenu(),
+				a.menuSeparator(a.cx),
+				a.menuRow(a.cx, lucide.ShieldCheck, a.trustMenuItem(w()), "", w().Chat, func() { a.toggleProjectTrust(w()) }),
+			}},
+		ui.Submenu{Text: apptext.T("打开与复制"), Icon: lucide.FolderOpen, Back: apptext.T("打开与复制"), TestID: "project-location-menu",
+			Children: []core.Node{
+				a.menuRow(a.cx, lucide.SquareTerminal, "在此打开终端", "", false, func() { a.openTerminalFor(w()) }),
+				a.menuRow(a.cx, lucide.GitBranch, "查看 Git 变更", "", false, func() { a.openGitFor(w()) }),
+				a.menuRow(a.cx, lucide.Code, "在编辑器中打开项目", "", false, func() { a.openPathInEditor(w().Path) }),
+				a.menuRow(a.cx, lucide.FolderOpen, "在文件管理器中打开", "", false, func() { a.revealProject(w()) }),
+				a.menuRow(a.cx, lucide.Copy, "复制项目路径", "", false, func() { a.copyText(w().Path, "路径") }),
+			}},
 		a.menuRow(a.cx, lucide.FolderPlus, apptext.T("添加项目…"), "", false, func() { a.pickNative("workspace") }),
 		a.menuSeparator(a.cx),
 		a.menuRow(a.cx, lucide.FolderMinus, "移除项目", "", true, func() { a.removeWorkspace(w()) }),

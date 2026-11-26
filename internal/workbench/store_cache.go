@@ -20,6 +20,7 @@ type sessionMeta struct {
 	Cwd     string    `json:"cwd"`
 	File    string    `json:"-"`
 	Title   string    `json:"title,omitempty"`
+	Created time.Time `json:"created,omitempty"`
 	Updated time.Time `json:"updated"`
 	Count   int       `json:"count,omitempty"`
 	Target  string    `json:"target,omitempty"`
@@ -34,7 +35,7 @@ type sessionMeta struct {
 
 // metaCacheVersion is the shape of session-meta-cache.json. Bump it when a
 // field means something else, and every file is read again once.
-const metaCacheVersion = 3
+const metaCacheVersion = 4
 
 // metaCacheMax bounds the listings kept, as the scan itself is bounded.
 const metaCacheMax = 8000

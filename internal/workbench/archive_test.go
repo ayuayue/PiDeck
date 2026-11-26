@@ -73,7 +73,7 @@ func TestArchiveSession(t *testing.T) {
 	app.WaitUntil(10*time.Second, func() bool { return rowOf() != "" })
 
 	openMenu(t, app, rowOf(), "归档")
-	app.Press("role:menuitem 归档")
+	app.Press(`role:menuitem "归档"`)
 	app.WaitUntil(5*time.Second, func() bool { return rowOf() == "" })
 
 	// The palette still reaches it by name.
@@ -83,17 +83,19 @@ func TestArchiveSession(t *testing.T) {
 	app.Press("role:option 甲会话")
 	app.WaitFor("id:composer", 10*time.Second)
 
-	// The archived dialog lists it and opens it.
+	// The project-scoped archive view lists it and opens it.
 	app.RightClick("id:project-row >> nth=0")
 	app.WaitFor("role:menuitem 已归档…", 5*time.Second)
 	app.Press("role:menuitem 已归档…")
-	app.WaitFor("id:archive-dialog", 5*time.Second)
-	app.WaitFor("id:archived-row", 5*time.Second)
-	app.Press("id:archived-open >> nth=0")
+	app.WaitFor("id:session-manager", 5*time.Second)
+	app.WaitFor("id:managed-session-row", 5*time.Second)
+	app.Press("id:managed-open-a-1")
+	app.WaitForGone("id:session-manager", 5*time.Second)
 	app.WaitFor("id:composer", 10*time.Second)
 
 	// The project menu shows it again.
 	app.RightClick("id:project-row >> nth=0")
+	app.Press("id:project-session-list-menu")
 	app.WaitFor("role:menuitem 显示已归档", 5*time.Second)
 	app.Press("role:menuitem 显示已归档")
 	app.WaitUntil(5*time.Second, func() bool { return rowOf() != "" })

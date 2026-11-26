@@ -56,11 +56,12 @@ func (a *app) tab(cx *core.Scope, id func() string) core.Node {
 	colors := ui.ColorsOf(a.cx)
 	sess := func() *session { return a.byID[id()] }
 	active := func() bool { return a.activeID.Get() == id() && (!a.paneVisible() || a.filePaneVisible()) }
-	return base.ContextMenu{
+	row := base.ContextMenu{
 		Trigger: core.View{
 			TestID: "tab",
 			Ref:    a.tabRef(id()),
 			OnPress: func(core.PressEvent) {
+				a.clearSessionHover()
 				if s := sess(); s != nil {
 					a.selectSession(s)
 				}
@@ -78,9 +79,11 @@ func (a *app) tab(cx *core.Scope, id func() string) core.Node {
 				return st
 			},
 			Children: []core.Node{
-				core.View{TestID: "tab-status-" + id(), StyleFunc: func() core.Style {
-					return core.Style{Width: core.Pt(6), Height: core.Pt(6), CornerRadius: 3,
-						Background: statusDot(colors, sess()), FlexShrink: 0}
+				core.Show{When: func() bool { return sess().hasAgent() }, Then: func(*core.Scope) core.Node {
+					return core.View{TestID: "tab-status-" + id(), StyleFunc: func() core.Style {
+						return core.Style{Width: core.Pt(6), Height: core.Pt(6), CornerRadius: 3,
+							Background: statusDot(colors, sess()), FlexShrink: 0}
+					}}
 				}},
 				core.Text{ContentFunc: func() string { return sess().title.Get() }, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 					Style: core.Style{FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 13, LineHeight: 18}, StyleFunc: ui.Colored(colors.Text)},
@@ -97,20 +100,20 @@ func (a *app) tab(cx *core.Scope, id func() string) core.Node {
 			return a.menuCard(a.cx)
 		},
 	}
+	return a.sessionHoverCard(func() *session { return a.byID[id()] }, sessionHoverTab, core.PlaceBottom, row)
 }
 
 // tabMenuItems is a tab's right-click menu.
 func (a *app) tabMenuItems(id func() string) []core.Node {
-	return append(a.sessionRunMenuItems(func() *session { return a.byID[id()] }), []core.Node{
-		a.menuSeparator(a.cx),
+	sess := func() *session { return a.byID[id()] }
+	return append([]core.Node{
 		a.menuRow(a.cx, lucide.X, "关闭标签页", "", false, func() { a.closeTab(id()) }),
-		a.menuRow(a.cx, lucide.X, "关闭其他标签", "", false, func() { a.closeOtherTabs(id()) }),
-		a.menuRow(a.cx, lucide.X, "关闭右侧标签", "", false, func() { a.closeTabsRight(id()) }),
-		a.menuRow(a.cx, lucide.X, "关闭全部标签", "", false, func() { a.closeAllTabs() }),
+		ui.Submenu{Text: apptext.T("关闭多个标签"), Icon: lucide.PanelsTopLeft, Back: apptext.T("关闭多个标签"), TestID: "session-close-tabs-menu",
+			Children: []core.Node{
+				a.menuRow(a.cx, lucide.X, "关闭其他标签", "", false, func() { a.closeOtherTabs(id()) }),
+				a.menuRow(a.cx, lucide.X, "关闭右侧标签", "", false, func() { a.closeTabsRight(id()) }),
+				a.menuRow(a.cx, lucide.X, "关闭全部标签", "", false, func() { a.closeAllTabs() }),
+			}},
 		a.menuSeparator(a.cx),
-		a.menuRow(a.cx, lucide.Pencil, "重命名", "", false, func() { a.askRename(a.byID[id()]) }),
-		a.menuRow(a.cx, lucide.CopyPlus, "复制会话", "", false, func() { a.duplicateSession(a.byID[id()]) }),
-		a.menuRow(a.cx, lucide.FileDown, "导出…", "", false, func() { a.openExport(a.byID[id()]) }),
-		a.menuRow(a.cx, lucide.Copy, "复制会话 ID", "", false, func() { a.copyText(id(), "会话 ID") }),
-	}...)
+	}, a.sessionMenuItems(sess)...)
 }

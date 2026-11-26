@@ -18,6 +18,8 @@ func (a *app) ensureEngine(s *session, then func()) {
 	if s == nil || s.deleting || s.agentStopping || s.historyLoading || s.retryPendingNow() {
 		return
 	}
+	s.cancelPrewarm()
+	s.prewarming = false
 	s.agentClosed = false
 	if s.backend == "acp" {
 		if s.acp != nil {
@@ -239,7 +241,8 @@ func (a *app) engineReady(s *session, c *piClient, model *modelInfo, thinking, f
 	if streaming {
 		s.status.Set(statusRunning)
 		s.live = true
-	} else {
+		a.resumePiTurn(s)
+	} else if !s.busyNow() {
 		s.status.Set(statusIdle)
 	}
 	// The user's remembered model and thinking level win for a fresh session.
@@ -266,7 +269,7 @@ func (a *app) historyReady(s *session) {
 	s.loaded.Set(true)
 	// A file can paint before the handshake completes. Its history must not
 	// release pending prompts until the process has answered get_state.
-	if s.starting && !s.readySig.GetUntracked() {
+	if !s.readySig.GetUntracked() {
 		return
 	}
 	waiters := s.waiters
@@ -283,6 +286,15 @@ func (a *app) historyReady(s *session) {
 // compacted session (whose file holds more than its context) needs.
 func (a *app) historyFromPi(s *session, history []turn, items []todoItem) {
 	if len(history) > 0 {
+		// A cold send is accepted before get_messages finishes. That prompt
+		// is not in pi yet and must survive replacement by its older history.
+		if len(s.waiters) > 0 {
+			for _, pending := range s.turns.GetUntracked() {
+				if pending.running() {
+					history = append(history, pending)
+				}
+			}
+		}
 		a.fillHistory(s, history, items, true)
 		s.histFile = 0 // the screen is pi's copy now, not the file's
 	}
@@ -323,17 +335,22 @@ func (a *app) fillHistory(s *session, history []turn, items []todoItem, replace 
 		}
 	}
 	s.turns.Set(history)
+	if s.live {
+		a.resumePiTurn(s)
+	}
 	if len(items) > 0 {
 		s.todos.Set(items)
 	}
 }
 
-// loadHistoryFromFile paints a session's transcript from its file, so a tab
-// shows its history while pi is still starting.
+// loadHistoryFromFile reads a cold transcript without requiring an agent.
 func (a *app) loadHistoryFromFile(s *session) {
-	if s == nil || s.File == "" || s.backend == "acp" || s.loaded.GetUntracked() {
+	if s == nil || s.File == "" || s.backend == "acp" || s.loaded.GetUntracked() || s.historyLoading {
 		return
 	}
+	s.historyGeneration++
+	generation := s.historyGeneration
+	s.historyLoading = true
 	file, target := s.File, s.Target
 	go func() {
 		var msgs []piMessage
@@ -343,13 +360,19 @@ func (a *app) loadHistoryFromFile(s *session) {
 		} else {
 			msgs, err = sessionFileMessages(file)
 		}
-		if err != nil || len(msgs) == 0 {
-			return
-		}
 		history, items := turnsFromMessages(msgs), todosFromMessages(msgs)
 		a.cx.Post(func() {
+			if s.historyGeneration != generation || a.byID[s.ID] != s {
+				return
+			}
+			s.historyLoading = false
 			if s.loaded.GetUntracked() || s.File != file {
-				return // pi answered first, or the tab moved on
+				return
+			}
+			if err != nil {
+				s.loaded.Set(true)
+				a.toast(ui.ToastError, "重新读取会话失败", err.Error())
+				return
 			}
 			if a.activeID.GetUntracked() == s.ID {
 				a.animateNextLayout()
@@ -358,6 +381,9 @@ func (a *app) loadHistoryFromFile(s *session) {
 			a.fillHistory(s, history, items, false)
 			s.histFile = len(msgs)
 			a.historyReady(s)
+			if s.prewarmPending {
+				a.scheduleSessionPrewarm(s)
+			}
 		})
 	}()
 }

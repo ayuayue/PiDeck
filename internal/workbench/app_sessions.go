@@ -24,17 +24,28 @@ func (a *app) makeSession(m sessionMeta, t target) *session {
 			if m.Title != "" && m.Title != existing.title.GetUntracked() {
 				existing.title.Set(m.Title)
 			}
-			if m.Parent != "" {
+			if existing.Created.IsZero() && !m.Created.IsZero() {
+				existing.Created = m.Created
+			}
+			if m.Parent != "" && m.Parent != existing.Parent {
 				existing.Parent = m.Parent
+				a.bumpSessionUI(existing)
 			}
 		}
 		return existing
+	}
+	// A file without a header time still began no later than its last
+	// activity, which is the better answer than a zero date on a card.
+	created := m.Created
+	if created.IsZero() {
+		created = m.Updated
 	}
 	s := &session{
 		ID:             m.ID,
 		WS:             m.Cwd,
 		Parent:         m.Parent,
 		File:           m.File,
+		Created:        created,
 		Target:         t,
 		External:       m.External,
 		title:          core.NewSignal(a.cx, m.Title),

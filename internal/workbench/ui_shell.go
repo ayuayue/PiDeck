@@ -55,6 +55,7 @@ func (a *app) view() core.Node {
 		a.gitConflictsDialog(),
 		a.gitUnpushedDialog(),
 		a.archiveDialog(),
+		a.sessionManagerDialog(),
 		a.importDialog(),
 		// The file browser opens on top of the import dialog, which asks for
 		// one more file.

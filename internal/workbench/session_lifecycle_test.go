@@ -267,6 +267,8 @@ func TestTabRunMenuTargetsItsOwnSession(t *testing.T) {
 	})
 	screen.WaitUntil(5*time.Second, func() bool { return len(screen.Query("id:tab")) == 2 })
 	screen.RightClick("id:tab >> nth=1")
+	screen.WaitFor("id:session-agent-menu", 5*time.Second)
+	screen.Press("id:session-agent-menu")
 	screen.WaitFor("text:关闭 Agent", 5*time.Second)
 	screen.Press("text:关闭 Agent")
 	screen.WaitUntil(5*time.Second, func() bool { return background.engine == nil && !background.agentStopping })

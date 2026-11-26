@@ -17,13 +17,13 @@ import (
 )
 
 // started reports whether a session has an agent behind it: one that was
-// opened in this run, so its tab says more than "never started".
+// starting or ready. A prior failure alone does not imply a live process.
 func (s *session) started() bool {
-	return s.engine != nil || s.acp != nil || s.readySig.Get() || s.status.Get() != statusIdle
+	return s.hasAgent()
 }
 
 // statusDot is a session's dot, the same everywhere it is listed: grey
-// before it starts, blue once its agent is up with no turn in flight,
+// during startup, blue once its agent is up with no turn in flight,
 // amber while a turn or an approval is, and red when it failed.
 func statusDot(colors ui.Colors, s *session) core.Color {
 	if s == nil {
@@ -32,7 +32,9 @@ func statusDot(colors ui.Colors, s *session) core.Color {
 	switch s.status.Get() {
 	case statusFailed:
 		return colors.Danger()
-	case statusStarting, statusRunning, statusWaiting:
+	case statusStarting:
+		return colors.Faint()
+	case statusRunning, statusWaiting:
 		return viewkit.Working
 	}
 	if s.started() {
@@ -62,9 +64,9 @@ func (a *app) sessionRowWith(s func() *session, opts sessionRowOpts) core.Node {
 		}
 		return []core.Node{a.sessionToggle(s, opts)}
 	}
-	return base.ContextMenu{
+	row := base.ContextMenu{
 		Trigger: core.View{
-			OnPress: func(core.PressEvent) { a.selectSession(s()) },
+			OnPress: func(core.PressEvent) { a.clearSessionHover(); a.selectSession(s()) },
 			Role:    core.RoleButton, LabelFunc: func() string { return s().title.Get() }, TestID: "session-row",
 			StyleFunc: func() core.Style {
 				st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Height: core.Pt(32), Padding: core.Symmetric(0, 8),
@@ -122,6 +124,9 @@ func (a *app) sessionRowWith(s func() *session, opts sessionRowOpts) core.Node {
 				}},
 				core.Text{ContentFunc: func() string { return viewkit.WhenText(s().updated.Get(), a.cx.Now()) }, MaxLines: 1,
 					Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10.5, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Faint)},
+				// Managing a session never means guessing that a right-click
+				// opens its menu: the row keeps the menu on it.
+				a.sessionMoreMenu(s),
 			}...),
 		},
 		Children:   a.sessionMenuItems(s),
@@ -130,6 +135,7 @@ func (a *app) sessionRowWith(s func() *session, opts sessionRowOpts) core.Node {
 			return a.menuCard(a.cx)
 		},
 	}
+	return a.sessionHoverCard(func() *session { return s() }, sessionHoverRail, core.PlaceRight, row)
 }
 
 // sessionAgentLabel names an ACP session even before its agent starts.
@@ -190,6 +196,33 @@ func (a *app) sessionToggle(s func() *session, opts sessionRowOpts) core.Node {
 			}
 			return lucide.ChevronRight()
 		}, 11, colors.Faint)},
+	}
+}
+
+// sessionMoreMenu is a session row's own actions, the same as its
+// right-click menu.
+func (a *app) sessionMoreMenu(s func() *session) core.Node {
+	colors := ui.ColorsOf(a.cx)
+	key := s().ID
+	return ui.Menu{
+		Open:         func() bool { return a.sessionMoreOpen.Get() == key },
+		OnOpenChange: func(open bool, _ base.Reason) { a.setSessionMoreOpen(key, open) },
+		Placement:    core.PlaceBottom, Align: core.AlignEnd,
+		Trigger: ui.Button{Icon: lucide.Ellipsis, Label: apptext.T("更多会话操作"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+			Side: 20, IconSize: 12, Tint: func() core.Color { return colors.Faint() }},
+		TestID: "session-more-menu", Children: a.sessionMenuItems(s),
+	}
+}
+
+// setSessionMoreOpen opens or closes one session's row menu.
+func (a *app) setSessionMoreOpen(key string, open bool) {
+	if open {
+		a.clearSessionHover()
+		a.sessionMoreOpen.Set(key)
+		return
+	}
+	if a.sessionMoreOpen.GetUntracked() == key {
+		a.sessionMoreOpen.Set("")
 	}
 }
 

@@ -18,6 +18,7 @@ func (a *app) blankSession(id string, ws *workspace, title string) *session {
 	s := &session{
 		ID:          id,
 		WS:          ws.Path,
+		Created:     a.cx.Now(),
 		Target:      ws.Target,
 		title:       core.NewSignal(a.cx, title),
 		status:      core.NewSignal(a.cx, statusIdle),
@@ -137,7 +138,6 @@ func (a *app) newProjectSession(ws *workspace) *session {
 	}
 	ws.Sessions.Update(func(ss []*session) []*session { return append([]*session{s}, ss...) })
 	a.selectSession(s)
-	a.ensureWarmPi(ws)
 	origin := "project"
 	if ws.Chat {
 		origin = "chat"

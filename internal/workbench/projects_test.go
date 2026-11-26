@@ -137,7 +137,9 @@ func TestProjectSortMenusChooseAnOrder(t *testing.T) {
 		t.Helper()
 		for i := 0; i < 4; i++ {
 			app.RightClick("id:project-row")
-			if len(app.Query("id:"+testID)) > 0 {
+			if len(app.Query("id:project-organize-menu")) > 0 {
+				app.Press("id:project-organize-menu")
+				app.WaitFor("id:"+testID, 5*time.Second)
 				return
 			}
 			app.Advance(50 * time.Millisecond)

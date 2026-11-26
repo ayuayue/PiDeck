@@ -93,19 +93,24 @@ func TestRailColumnsAndProjectActions(t *testing.T) {
 	screen.Key("escape")
 	screen.WaitForGone("id:add-project-local", 5*time.Second)
 
-	// A row keeps its new-session action out and shows the rest on hover.
+	// Both row actions stay on the row, so the plus never moves when the
+	// pointer arrives and the menu needs no hover to reach.
 	if got, want := len(screen.Query("id:project-new-session")), 2; got != want {
 		t.Fatalf("rows show %d new-session actions, want %d", got, want)
 	}
-	if got := len(screen.Query("id:project-more-menu")); got != 0 {
-		t.Fatalf("a row shows %d more actions before the pointer is on it", got)
+	if got, want := len(screen.Query("id:project-more-menu")), 2; got != want {
+		t.Fatalf("rows show %d more actions, want %d", got, want)
 	}
+	plus := screen.Find("id:project-new-session >> nth=0").Bounds()
 	screen.Hover("id:project-row >> nth=0")
-	screen.WaitFor("id:project-more-menu", 5*time.Second)
-	screen.Press("id:project-more-menu")
+	screen.Settle()
+	if got := screen.Find("id:project-new-session >> nth=0").Bounds(); got != plus {
+		t.Fatalf("the new-session action moved from %v to %v when the pointer arrived", plus, got)
+	}
+	screen.Press("id:project-more-menu >> nth=0")
 	screen.WaitFor("text:在此新建会话", 5*time.Second)
-	// The pointer goes to the popup, not to stay on the row: the menu and
-	// its trigger stay out for it.
+	// The pointer goes to the popup, not to stay on the row: the menu stays
+	// open for it.
 	screen.HoverOut()
 	screen.WaitFor("text:在此新建会话", 5*time.Second)
 	screen.Key("escape")
@@ -203,4 +208,123 @@ func TestRailHeaderOrderAndMore(t *testing.T) {
 	if ws := built.workspaceOf(built.activeWS.GetUntracked()); ws != nil {
 		t.Fatalf("no session was opened, yet %q is the active project", built.activeWS.GetUntracked())
 	}
+}
+
+// TestProjectListSeparatesProjects checks that one project's open sessions
+// are told from the next project by a hairline, not by counting folder rows.
+func TestProjectListSeparatesProjects(t *testing.T) {
+	first, second := t.TempDir(), t.TempDir()
+	_, screen := railFixture(t, first, second)
+	waitProjects(t, screen, 2)
+	if got, want := len(screen.Query("id:project-divider")), 1; got != want {
+		t.Fatalf("two projects show %d dividers, want %d", got, want)
+	}
+	firstRow := screen.Find("id:project-row >> nth=0").Bounds()
+	secondRow := screen.Find("id:project-row >> nth=1").Bounds()
+	divider := screen.Find("id:project-divider").Bounds()
+	if divider.Origin.Y < firstRow.Origin.Y+firstRow.Size.Height || divider.Origin.Y >= secondRow.Origin.Y {
+		t.Fatalf("the divider sits at y=%v, outside the gap between rows at y=%v and y=%v",
+			divider.Origin.Y, firstRow.Origin.Y, secondRow.Origin.Y)
+	}
+}
+
+// TestSingleProjectHasNoDivider checks that a lone project gets no line:
+// there is no second project for it to divide from.
+func TestSingleProjectHasNoDivider(t *testing.T) {
+	_, screen := railFixture(t, t.TempDir())
+	waitProjects(t, screen, 1)
+	if got := len(screen.Query("id:project-divider")); got != 0 {
+		t.Fatalf("a single project shows %d dividers, want 0", got)
+	}
+}
+
+// TestRailColumnHeaderMenus checks the block above each column's rows:
+// the project list's own actions and the chat list's.
+func TestRailColumnHeaderMenus(t *testing.T) {
+	project := t.TempDir()
+	built, screen := railFixture(t, project)
+	waitProjects(t, screen, 1)
+
+	// 全部收起 folds every project from the column's own menu.
+	screen.Press("id:project-header-menu")
+	screen.WaitFor("text:刷新所有项目", 5*time.Second)
+	screen.Press("text:全部收起")
+	screen.WaitForGone("text:刷新所有项目", 5*time.Second)
+	screen.WaitUntil(5*time.Second, func() bool {
+		expanded := true
+		screen.Post(func() {
+			if list := built.projects(); len(list) == 1 {
+				expanded = list[0].Expanded.GetUntracked()
+			}
+		})
+		screen.Settle()
+		return !expanded
+	})
+
+	// 刷新所有项目 reads the projects again and leaves the rows alone.
+	screen.Press("id:project-header-menu")
+	screen.WaitFor("text:刷新所有项目", 5*time.Second)
+	screen.Press("text:刷新所有项目")
+	screen.WaitForGone("text:刷新所有项目", 5*time.Second)
+	waitProjects(t, screen, 1)
+
+	// 移除所有项目 asks first, then leaves the folder on disk.
+	screen.Press("id:project-header-menu")
+	screen.WaitFor("text:移除所有项目…", 5*time.Second)
+	screen.Press("text:移除所有项目…")
+	screen.WaitFor("id:confirm-ok", 5*time.Second)
+	screen.Press("id:confirm-ok")
+	screen.WaitUntil(5*time.Second, func() bool {
+		screen.Settle()
+		return len(screen.Query("id:project-row")) == 0
+	})
+	if _, err := os.Stat(project); err != nil {
+		t.Fatalf("removing the project touched its folder: %v", err)
+	}
+	// The dialog goes before the next column is pressed: its backdrop would
+	// take the press as its own.
+	screen.WaitForGone("id:confirm", 5*time.Second)
+
+	// The chat column starts the same way, with the chats' own actions.
+	screen.Press("id:rail-tab-chat")
+	screen.WaitFor("id:rail-new-chat", 5*time.Second)
+	if got := screen.Find("id:chat-total").Text; got != "0" {
+		t.Fatalf("the chat count says %q, want 0", got)
+	}
+	screen.Press("id:chat-header-menu")
+	screen.WaitFor("text:刷新对话", 5*time.Second)
+	screen.WaitFor("text:在文件管理器中打开", 5*time.Second)
+	screen.Key("escape")
+	screen.WaitForGone("text:刷新对话", 5*time.Second)
+}
+
+// TestSessionRowKeepsItsMenu checks that a session's own actions sit on its
+// row, so managing one never means guessing that a right-click opens them.
+func TestSessionRowKeepsItsMenu(t *testing.T) {
+	project := t.TempDir()
+	built, screen := railFixture(t, project)
+	// An empty PATH keeps pi from starting: the row and its menu are what
+	// this checks, not the agent.
+	t.Setenv("PATH", t.TempDir())
+	waitProjects(t, screen, 1)
+	screen.Post(func() {
+		ws := built.workspaceOf(project)
+		s := built.blankSession(newSessionID(), ws, "菜单里的会话")
+		ws.Sessions.Update(func(list []*session) []*session { return append([]*session{s}, list...) })
+	})
+	screen.WaitFor("id:session-row", 5*time.Second)
+	if got, want := len(screen.Query("id:session-more-menu")), 1; got != want {
+		t.Fatalf("a session row shows %d menus, want %d", got, want)
+	}
+	screen.Press("id:session-more-menu")
+	// The menu is the row's action, not a second press on the row: it does
+	// not open the session the row stands for.
+	if got := built.activeID.GetUntracked(); got != "" {
+		t.Fatalf("pressing the row's menu opened session %q", got)
+	}
+	screen.WaitFor("text:重命名", 5*time.Second)
+	screen.Press("text:重命名")
+	screen.WaitFor("id:rename", 5*time.Second)
+	screen.Press("id:rename-cancel")
+	screen.WaitForGone("id:rename", 5*time.Second)
 }

@@ -222,3 +222,60 @@ func (a *app) removeWorkspacesNow(keys map[string]bool) {
 		a.remember()
 	})
 }
+
+// refreshAllProjects reads pi's history again for every project in the
+// rail, so a session started elsewhere shows without opening each project.
+func (a *app) refreshAllProjects() {
+	if a.st == nil {
+		return
+	}
+	for _, ws := range a.workspaces.GetUntracked() {
+		if ws.Chat {
+			continue
+		}
+		ws.piLoaded = false
+	}
+	a.rescanPi()
+	for _, ws := range a.workspaces.GetUntracked() {
+		if !ws.Chat && ws.Target.remote() {
+			a.scanProject(ws)
+		}
+	}
+}
+
+// refreshChats reads the built-in chat's folder again.
+func (a *app) refreshChats() {
+	ws := a.chatWorkspace()
+	if ws == nil {
+		return
+	}
+	ws.piLoaded = false
+	a.scanProject(ws)
+}
+
+// setAllProjectsExpanded opens or folds every project in the rail. The
+// built-in chat is not one of them: it has no rows of its own to show.
+func (a *app) setAllProjectsExpanded(open bool) {
+	for _, ws := range a.workspaces.GetUntracked() {
+		if !ws.Chat {
+			ws.Expanded.Set(open)
+		}
+	}
+}
+
+// removeAllProjects takes every project off the rail once the user
+// confirms: their folders and sessions stay on disk.
+func (a *app) removeAllProjects() {
+	list := a.projects()
+	if len(list) == 0 {
+		a.toast(ui.ToastInfo, "没有可移除的项目", "先把一个文件夹加进侧栏。")
+		return
+	}
+	a.askConfirm("移除所有项目", fmt.Sprintf("从侧栏移除全部 %d 个项目？项目文件和会话仍保留在磁盘上。", len(list)), "全部移除", func() {
+		keys := make(map[string]bool, len(list))
+		for _, ws := range a.projects() {
+			keys[trustKey(ws)] = true
+		}
+		a.removeWorkspacesNow(keys)
+	})
+}

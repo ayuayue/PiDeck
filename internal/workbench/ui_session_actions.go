@@ -57,14 +57,8 @@ func (a *app) sessionToolbar() core.Node {
 			hint("重新读取会话", ui.IconButton{Icon: lucide.ListRestart, Label: apptext.T("重新读取会话"), TestID: "session-reload", Size: 28, IconSize: 14,
 				Disabled: func() bool { return !s.canReloadSession() }, OnPress: func() { a.reloadSession(s) }}),
 			ui.Menu{Placement: core.PlaceBottom, Align: core.AlignEnd, TestID: "session-actions",
-				Trigger: ui.Button{Icon: lucide.Ellipsis, Label: apptext.T("更多会话操作"), Variant: ui.ButtonGhost, Side: 28, IconSize: 14},
-				Children: append(a.sessionRunMenuItems(func() *session { return s }),
-					a.menuSeparator(cx),
-					a.menuRow(cx, lucide.Pencil, "重命名", "", false, func() { a.askRename(s) }),
-					a.menuRow(cx, lucide.FileDown, "导出…", "", false, func() { a.openExport(s) }),
-					a.menuSeparator(cx),
-					a.menuRow(cx, lucide.X, "关闭标签页", "", false, func() { a.closeTab(s.ID) })),
-			},
+				Trigger:  ui.Button{Icon: lucide.Ellipsis, Label: apptext.T("更多会话操作"), Variant: ui.ButtonGhost, Side: 28, IconSize: 14},
+				Children: a.tabMenuItems(func() string { return s.ID })},
 		}}
 	})
 }

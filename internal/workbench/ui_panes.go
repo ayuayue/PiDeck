@@ -132,6 +132,9 @@ func (a *app) openPane(id string) {
 	if !ok {
 		return
 	}
+	if !isFilePane(id) {
+		a.retireSessionPrewarm(a.active())
+	}
 	if a.editor != nil {
 		a.editor.open.Set(false)
 	}

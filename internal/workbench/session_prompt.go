@@ -49,6 +49,8 @@ func (a *app) submitTurn(s *session, text string, images []remotewire.Image, pla
 		a.askTrust(ws, func() { a.submitTurn(s, text, images, plan) })
 		return
 	}
+	s.cancelPrewarm()
+	s.prewarming = false
 	original := text
 	if p := a.agentByID(s.personaID); p != nil {
 		text = personaPrompt(p.Prompt, text)

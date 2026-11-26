@@ -468,9 +468,12 @@ func TestProjectMenu(t *testing.T) {
 			break
 		}
 	}
-	for _, item := range []string{"在此新建会话", "刷新会话", "在文件管理器中打开", "复制项目路径", "添加项目…", "移除项目"} {
+	for _, item := range []string{"在此新建会话", "会话列表", "会话管理…", "整理项目", "打开与复制", "添加项目…", "移除项目"} {
 		app.WaitFor(`text:"`+item+`"`, 5*time.Second)
 	}
+	app.Press("id:project-location-menu")
+	app.WaitFor("text:在文件管理器中打开", 5*time.Second)
+	app.WaitFor("text:复制项目路径", 5*time.Second)
 	app.Press("text:复制项目路径")
 	if app.Clipboard != dir {
 		t.Fatalf("copied %q, want %q", app.Clipboard, dir)
@@ -484,12 +487,9 @@ func TestSessionMenuPinAndRename(t *testing.T) {
 	}
 	app := startApp(t, workspaceWith(t), 1320, 860)
 	appReady(app)
-	for i := 0; i < 4; i++ {
-		app.RightClick("id:session-row")
-		if waitQuiet(app, "text:置顶会话", 2*time.Second) {
-			break
-		}
-	}
+	openMenu(t, app, "id:session-row", "整理会话")
+	app.Press("id:session-organize-menu")
+	app.WaitFor("text:置顶会话", 5*time.Second)
 	app.Press("text:置顶会话")
 	app.WaitFor("text:置顶", 10*time.Second)
 	// Pinning moves the row; try the press until its menu is up.

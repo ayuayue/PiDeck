@@ -588,8 +588,8 @@ func (a *app) generateComposerImage(s *session, prompt string) {
 }
 
 // backendLocked says whether a session can still change backend: its first
-// message fixes where the transcript lives. A started process does not
-// count, as a new session starts pi before anyone types.
+// message fixes where the transcript lives. Speculative startup does not
+// lock the choice.
 func (a *app) backendLocked(s *session) bool {
 	if s == nil {
 		return false
@@ -623,6 +623,9 @@ func (a *app) setBackend(s *session, backend, presetID string) {
 		return
 	}
 	s.backendOpen.Set(false)
+	s.cancelPrewarm()
+	s.prewarming = false
+	s.agentClosed = false
 	s.uiSeq.Update(func(v int) int { return v + 1 })
 	switch backend {
 	case "acp":
@@ -630,6 +633,9 @@ func (a *app) setBackend(s *session, backend, presetID string) {
 		if preset == nil {
 			a.toast(ui.ToastError, "没有这个 ACP 预设", presetID)
 			return
+		}
+		if s.acp != nil || s.acpStarting != nil {
+			a.detachACP(s)
 		}
 		if s.engine != nil || s.piStarting != nil {
 			// pi's process is not this session's backend any more: stop it
@@ -649,8 +655,7 @@ func (a *app) setBackend(s *session, backend, presetID string) {
 		}
 		a.releaseWarmPi(s)
 		if ws := a.workspaceFor(s.Target, s.WS); ws != nil && ws.ACPPreset != preset.ID {
-			// The project's next ACP session starts this agent, so its
-			// handshake can run ahead of it.
+			// Remember the choice without starting the agent.
 			ws.ACPPreset = preset.ID
 			a.saveProjects()
 		}
@@ -663,10 +668,13 @@ func (a *app) setBackend(s *session, backend, presetID string) {
 		}
 		s.acpMode.Set("")
 		s.acpModes.Set(nil)
+		s.acpOptions.Set(nil)
 		s.acpCommands.Set(nil)
+		s.acpModeOpen.Set(false)
+		s.acpThinkOpen.Set(false)
+		s.modelOpen.Set(false)
 		s.readySig.Set(false)
 		s.status.Set(statusIdle)
-		a.ensureACPSession(s)
 		a.toast(ui.ToastInfo, "已切到 ACP · "+preset.Name, "agent 的模型、模式和命令会显示在输入框里。")
 	default:
 		if s.acp != nil || s.acpStarting != nil {
@@ -677,10 +685,14 @@ func (a *app) setBackend(s *session, backend, presetID string) {
 		s.acpSID = ""
 		s.acpMode.Set("")
 		s.acpModes.Set(nil)
+		s.acpOptions.Set(nil)
 		s.acpCommands.Set(nil)
+		s.acpModeOpen.Set(false)
+		s.acpThinkOpen.Set(false)
+		s.modelOpen.Set(false)
 		s.readySig.Set(false)
 		s.status.Set(statusIdle)
-		a.ensureEngine(s, nil)
 		a.toast(ui.ToastInfo, "已切回 pi", "")
 	}
+	a.scheduleSessionPrewarm(s)
 }

@@ -8,11 +8,13 @@ package workbench
 // place whichever is picked.
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 
 	"example.com/pideck-v2/internal/apptext"
 	"example.com/pideck-v2/internal/viewkit"
+	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -106,7 +108,7 @@ func (a *app) railTabBar() core.Node {
 			return core.Style{Color: colors.Muted()}
 		}
 		tab := func(id, label string, icon func() *core.SVG) core.Node {
-			return core.View{
+			return base.ContextMenu{Trigger: core.View{
 				OnPress: func(core.PressEvent) { a.openRailTab(id) },
 				Role:    core.RoleTab, Label: apptext.T(label), TestID: "rail-tab-" + id,
 				Selected: func() bool { return on(id) },
@@ -131,7 +133,8 @@ func (a *app) railTabBar() core.Node {
 						Style:     core.Style{FontSize: 12, FontWeight: ui.Medium, FlexShrink: 1, MinWidth: core.Pt(0)},
 						StyleFunc: func() core.Style { return labelColor(id) }},
 				},
-			}
+			}, Children: a.railTabMenuItems(id), PopupStyle: a.menuPopup(cx),
+				PopupStyleFunc: func() core.Style { return a.menuCard(cx) }}
 		}
 		tabStyle := core.Style{FlexGrow: 1, FlexShrink: 1, FlexBasis: core.Pt(0), MinWidth: core.Pt(0)}
 		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2}, Children: []core.Node{
@@ -195,12 +198,14 @@ func (a *app) railActivity() core.Node {
 }
 
 // railChats lists the built-in chat's sessions: conversations that belong
-// to no project.
+// to no project. Its heading is the column's own, as the project column's
+// is, so the chats start with the block that belongs to the list.
 func (a *app) railChats() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
+		ws := a.chatWorkspace()
 		var pinned, rest []*session
-		if ws := a.chatWorkspace(); ws != nil {
+		if ws != nil {
 			// A chat session of pi's own, made outside the app, shows too.
 			a.scanProject(ws)
 			pinned, rest = a.projectSessions(ws)
@@ -221,7 +226,7 @@ func (a *app) railChats() core.Node {
 				rows = append(rows, a.sessionRows(rest, tree)...)
 			}
 		}
-		children := []core.Node{a.newChatRow()}
+		children := []core.Node{a.chatHeader(ws)}
 		if len(rows) > 0 {
 			children = append(children, core.View{Style: core.Style{Gap: 1}, Children: rows})
 		} else {
@@ -232,21 +237,44 @@ func (a *app) railChats() core.Node {
 			children = append(children, core.Text{Content: text,
 				Style: core.Style{FontSize: 12, Padding: core.Edges{Left: 8, Top: 6}}, StyleFunc: ui.Colored(colors.Faint)})
 		}
-		return core.View{Style: core.Style{Gap: 4}, Children: children}
+		return core.View{Style: core.Style{Gap: 2}, Children: children}
 	})
 }
 
-// newChatRow starts a conversation in the built-in chat folder.
-func (a *app) newChatRow() core.Node {
-	colors := ui.ColorsOf(a.cx)
-	return core.View{OnPress: func(core.PressEvent) { a.openChat() }, Role: core.RoleButton,
-		Label: apptext.T("新对话"), TestID: "rail-new-chat",
-		StyleFunc: func() core.Style {
-			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Height: core.Pt(32), Padding: core.Symmetric(0, 8),
-				CornerRadius: 7, Transition: viewkit.PressMotion,
-				Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
-		}, Children: []core.Node{
-			ui.Icon(lucide.Plus, 14, colors.Muted),
-			ui.Text(apptext.T("新对话"), 13.5, ui.Regular, colors.Text),
+// chatHeader is the chat column's heading: how many chats there are, the
+// way to start one, and the list's own actions. It mirrors the project
+// column's heading so both columns begin the same way.
+func (a *app) chatHeader(ws *workspace) core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		colors := ui.ColorsOf(cx)
+		total := 0
+		if ws != nil {
+			total = projectSessionTotal(ws)
+		}
+		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6,
+			Padding: core.Edges{Top: 4, Right: 4, Bottom: 2, Left: 8}}, Children: []core.Node{
+			ui.Text(apptext.T("聊天"), 11, ui.Semibold, colors.Faint),
+			core.View{Style: core.Style{FlexGrow: 1}},
+			core.Text{Content: fmt.Sprint(total), TestID: "chat-total",
+				Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 11}, StyleFunc: ui.Colored(colors.Faint)},
+			hint("新对话", ui.IconButton{Icon: lucide.Plus, Label: apptext.T("新对话"), Size: 22, IconSize: 12,
+				Tint: func() core.Color { return colors.Faint() }, TestID: "rail-new-chat", OnPress: func() { a.openChat() }}),
+			a.chatHeaderMenu(),
 		}}
+	})
+}
+
+// chatHeaderMenu is the chat column's own actions: starting a chat, reading
+// its folder again, and the list's order and archive.
+func (a *app) chatHeaderMenu() core.Node {
+	colors := ui.ColorsOf(a.cx)
+	return ui.Menu{
+		Open:         func() bool { return a.railMenuOpen.Get() == railTabChat },
+		OnOpenChange: func(open bool, _ base.Reason) { a.setRailMenuOpen(railTabChat, open) },
+		Placement:    core.PlaceBottom, Align: core.AlignEnd,
+		Trigger: ui.Button{Icon: lucide.Ellipsis, Label: apptext.T("聊天操作"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+			Side: 22, IconSize: 12, Tint: func() core.Color { return colors.Faint() }},
+		TestID:   "chat-header-menu",
+		Children: a.chatHeaderMenuItems(),
+	}
 }
