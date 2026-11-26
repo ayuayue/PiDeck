@@ -3,6 +3,7 @@
 package workbench
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"os"
@@ -11,15 +12,19 @@ import (
 	"time"
 
 	"example.com/pideck-v2/assets"
+	"github.com/nsgo-dev/nsgo/nsgotest"
 	"github.com/nsgo-dev/nsgo/ui/chat"
 )
 
-func TestToolFilesStayVisibleAndOpenPreviews(t *testing.T) {
+func TestToolImagesStayCompactAndOpenDialog(t *testing.T) {
 	a, screen, s := startNativeSurfaceApp(t)
 	for name, data := range map[string][]byte{
 		"result.png": assets.LogoPNG,
-		"report.md":  []byte("# 工具生成的报告\n\n这份报告可以直接预览。"),
+		"report.md":  []byte("# 工具生成的报告"),
 		"data.csv":   []byte("name,count\npreview,3\n"),
+		"source.go":  []byte("package main"),
+		"notes.txt":  []byte("notes"),
+		"broken.png": []byte("not an image"),
 	} {
 		if err := os.WriteFile(filepath.Join(s.WS, name), data, 0o600); err != nil {
 			t.Fatal(err)
@@ -33,58 +38,80 @@ func TestToolFilesStayVisibleAndOpenPreviews(t *testing.T) {
 		}
 		return b
 	}
-	calls := []piContent{}
-	for _, name := range []string{"result.png", "report.md", "data.csv"} {
-		calls = append(calls, piContent{Type: "toolCall", ID: name, Name: "read", Arguments: marshal(map[string]string{"path": name})})
+	calls := []piContent{
+		{Type: "toolCall", ID: "files", Name: "read", Arguments: marshal(map[string][]string{
+			"paths": {"report.md", "data.csv", "source.go", "notes.txt", "broken.png", "result.png"},
+		})},
+		{Type: "toolCall", ID: "returned-image", Name: "image"},
 	}
-	calls = append(calls, piContent{Type: "toolCall", ID: "returned-image", Name: "image"})
-	messages := []piMessage{{Role: "user", Content: marshal("检查生成的文件")}, {Role: "assistant", Content: marshal(calls)}}
-	for _, call := range calls[:3] {
-		messages = append(messages, piMessage{Role: "toolResult", ToolCallID: call.ID, ToolName: call.Name,
-			Content: marshal([]piContent{{Type: "text", Text: "done"}})})
+	messages := []piMessage{
+		{Role: "user", Content: marshal("检查生成的文件")},
+		{Role: "assistant", Content: marshal(calls)},
+		{Role: "toolResult", ToolCallID: "files", ToolName: "read", Content: marshal([]piContent{{Type: "text", Text: "done"}})},
+		{Role: "toolResult", ToolCallID: "returned-image", ToolName: "image",
+			Content: marshal([]piContent{{Type: "image", Data: base64.StdEncoding.EncodeToString(assets.LogoPNG)}})},
 	}
-	messages = append(messages, piMessage{Role: "toolResult", ToolCallID: "returned-image", ToolName: "image",
-		Content: marshal([]piContent{{Type: "image", Data: base64.StdEncoding.EncodeToString(assets.LogoPNG)}})})
 	onNativeUI(t, screen, a, func() { s.turns.Set(turnsFromMessages(messages)) })
 	screen.WaitFor("text:执行过程", 5*time.Second)
 	screen.Press("text:执行过程")
-	screen.WaitUntil(5*time.Second, func() bool { return len(screen.Query("id:tool-file-card")) == 3 })
 	screen.WaitFor("id:tool-file-thumbnail", 5*time.Second)
 	screen.WaitFor("id:transcript-image-tile", 5*time.Second)
+	if got := len(screen.Query("id:tool-file-card")); got != 1 {
+		t.Fatalf("tool files produced %d cards, want only the valid image", got)
+	}
 	if got := len(screen.Query("id:tool-output")); got != 0 {
 		t.Fatalf("completed tool output should stay folded, got %d open bodies", got)
 	}
-	shot(screen, "tool-files/light")
+	if nsgotest.Target() != "" {
+		shot(screen, "tool-files/compact-light")
+	}
 	onNativeUI(t, screen, a, func() { a.theme.Set("dark"); a.applyTheme() })
 	screen.Resize(900, 760)
-	for _, card := range screen.Query("id:tool-file-card") {
+	for _, card := range append(screen.Query("id:tool-file-card"), screen.Query("id:transcript-image-tile")...) {
 		bounds, column := card.Bounds(), screen.Find("id:transcript-column").Bounds()
+		if bounds.Size.Width > 65 || bounds.Size.Height > 49 {
+			t.Errorf("image thumbnail is too large: %v", bounds)
+		}
 		if bounds.Origin.X < column.Origin.X || bounds.Origin.X+bounds.Size.Width > column.Origin.X+column.Size.Width+1 {
-			t.Errorf("file card %v overflows reading column %v", bounds, column)
+			t.Errorf("image thumbnail %v overflows reading column %v", bounds, column)
 		}
 	}
-	shot(screen, "tool-files/narrow-dark")
-	screen.Press("id:transcript-image-tile")
-	screen.WaitFor("id:transcript-image-picture", 5*time.Second)
-	screen.Press("id:pane-tab-close-transcript-image")
-	screen.WaitForGone("id:transcript-image-picture", 5*time.Second)
-	screen.Press("label:result.png")
-	screen.WaitFor("id:image-preview", 5*time.Second)
-	screen.Press("id:pane-tab-close-preview")
-	screen.WaitForGone("id:file-preview", 5*time.Second)
-	screen.Press("label:data.csv")
-	screen.WaitFor("id:csv-preview-rows", 5*time.Second)
-	screen.WaitFor("text:preview", 5*time.Second)
-	shot(screen, "tool-files/table-preview")
-	screen.Press("id:pane-tab-close-preview")
-	screen.WaitForGone("id:file-preview", 5*time.Second)
-	if got := len(screen.Query("id:tool-output")); got != 0 {
-		t.Fatalf("opening attachments toggled the tool body: %d open bodies", got)
+	if nsgotest.Target() != "" {
+		shot(screen, "tool-files/compact-narrow-dark")
 	}
-	screen.Press("label:report.md")
-	screen.WaitFor("id:file-preview", 5*time.Second)
-	screen.WaitFor("text:这份报告可以直接预览。", 5*time.Second)
-	shot(screen, "tool-files/markdown-preview")
+	for _, tile := range []string{"id:transcript-image-tile", "id:tool-file-card"} {
+		screen.Press(tile)
+		screen.WaitFor("id:attach-image-picture", 5*time.Second)
+		screen.WaitFor("id:attach-image-copy", 5*time.Second)
+		screen.WaitFor("id:attach-image-save", 5*time.Second)
+		if len(screen.Query("id:pane-tab-transcript-image")) != 0 || len(screen.Query("id:file-preview")) != 0 {
+			t.Fatal("an image thumbnail opened a split preview instead of the dialog")
+		}
+		if tile == "id:tool-file-card" {
+			if nsgotest.Target() != "" {
+				shot(screen, "tool-files/image-dialog")
+			}
+			screen.Press("id:attach-image-copy")
+			screen.WaitFor("text:已复制图片", 5*time.Second)
+			if nsgotest.Target() == "" {
+				if !bytes.Equal(screen.ClipboardImage, assets.LogoPNG) {
+					t.Fatal("copy did not put the previewed image on the clipboard")
+				}
+				path := filepath.Join(t.TempDir(), "saved.png")
+				screen.SaveFile = func(nsgotest.FileSave) string { return path }
+				screen.Press("id:attach-image-save")
+				screen.WaitUntil(5*time.Second, func() bool {
+					data, err := os.ReadFile(path)
+					return err == nil && bytes.Equal(data, assets.LogoPNG)
+				})
+			}
+		}
+		screen.Press("text:关闭")
+		screen.WaitForGone("id:attach-image-picture", 5*time.Second)
+	}
+	if got := len(screen.Query("id:tool-output")); got != 0 {
+		t.Fatalf("opening images toggled the tool body: %d open bodies", got)
+	}
 }
 
 func TestToolFilesFollowLiveUpdates(t *testing.T) {
