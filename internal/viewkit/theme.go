@@ -1,7 +1,7 @@
 package viewkit
 
-// PiDeck's palette, rebuilt for NSGo's theme: paper and ink in light, the
-// same paper inverted in dark, color only where it means something.
+// PiDeck's foundation: ink teal on cool paper, with an independently
+// tuned charcoal appearance. Both native hosts share these role colors.
 
 import (
 	"runtime"
@@ -10,36 +10,31 @@ import (
 	"github.com/nsgo-dev/nsgo/core"
 )
 
-// Neutral tones from PiDeck's foundation.css.
-// The three lines a surface is drawn with: hairline rims a control, softLine
-// is the rule inside a block (between two rows of the drawer), and edge is a
-// region's boundary (where the rail ends and the content starts). PiDeck keeps
-// them apart so a boundary reads as a crisp line and never as a shadow, and so
-// a rule inside a block never competes with it.
+// Control rims, internal rules and region edges stay separate so nested
+// panels do not acquire the weight of an outer boundary.
 var (
-	ink      = core.RGB(0x202124)
-	inkDeep  = core.RGB(0x09090b)
-	graphite = core.RGB(0x666666)
-	mist     = core.RGB(0x9a9a9a)
-	railGray = core.RGB(0xf0f0f0)
-	hairline = core.RGBA(0x0d0d0d, 0.13)
-	softLine = core.RGBA(0x0d0d0d, 0.07)
-	edge     = core.RGBA(0x0d0d0d, 0.12)
-	edgeDark = core.RGBA(0xffffff, 0.11)
-	softDark = core.RGBA(0xffffff, 0.07)
-	danger   = core.RGB(0xb42318)
-	success  = core.RGB(0x14703a)
-	warning  = core.RGB(0x854d0e)
+	ink      = core.RGB(0x202c30)
+	inkDeep  = core.RGB(0x193d42)
+	graphite = core.RGB(0x506269)
+	mist     = core.RGB(0x53666c)
+	railGray = core.RGB(0xedf1f2)
+	hairline = core.RGB(0xcbd5d8)
+	softLine = core.RGB(0xe1e7e9)
+	edge     = core.RGBA(0x202c30, 0.16)
+	edgeDark = core.RGBA(0xe6eeef, 0.16)
+	softDark = core.RGB(0x2c3a3f)
+	danger   = core.RGB(0xa33c36)
+	success  = core.RGB(0x35684c)
+	warning  = core.RGB(0x7c5b20)
 
 	// Thinking and Warning are read by both application hosts.
-	Thinking = core.RGB(0x6366f1)
+	Thinking = core.RGB(0x65518a)
 	Warning  = warning
 
-	// Idle and Working are a session's status dot: blue once its agent is
-	// up with no turn in flight, amber while a turn (or an approval) is.
-	// Both hosts read them, as they do Thinking.
-	Idle    = core.RGB(0x6366f1)
-	Working = core.RGB(0xd99524)
+	// Idle and Working are the session status dots: teal when ready,
+	// amber while a turn or an approval is in flight.
+	Idle    = core.RGB(0x2d607b)
+	Working = core.RGB(0xb88732)
 )
 
 // pideckTheme is the app's look in both appearances.
@@ -54,79 +49,79 @@ func Theme() *core.Theme {
 	t := &core.Theme{Radius: 8, Sans: sans, Mono: MonoStack}
 
 	t.Light = core.Palette{
-		Background:     core.RGB(0xffffff),
+		Background:     core.RGB(0xf7f9f9),
 		Surface:        core.RGB(0xffffff),
-		SurfaceHover:   core.RGBA(0x0d0d0d, 0.055),
-		SurfacePressed: core.RGBA(0x0d0d0d, 0.10),
+		SurfaceHover:   core.RGB(0xe6eef0),
+		SurfacePressed: core.RGB(0xd5e2e5),
 		Border:         hairline,
 		Text:           ink,
 		TextMuted:      graphite,
-		Accent:         core.RGB(0x18181b),
-		AccentHover:    core.RGB(0x3f3f46),
+		Accent:         core.RGB(0x285d63),
+		AccentHover:    core.RGB(0x214e53),
 		AccentPressed:  inkDeep,
 		AccentText:     core.RGB(0xffffff),
 		Danger:         danger,
 		Warning:        warning,
 		Success:        success,
-		Selection:      core.RGBA(0x18181b, 0.14),
-		Focus:          core.RGBA(0x18181b, 0.38),
-		Scrollbar:      core.RGBA(0x0d0d0d, 0.22),
+		Selection:      core.RGBA(0x285d63, 0.18),
+		Focus:          core.RGB(0x285d63),
+		Scrollbar:      core.RGBA(0x202c30, 0.48),
 	}
 	t.Dark = core.Palette{
-		Background:     core.RGB(0x121212),
-		Surface:        core.RGB(0x1a1a1a),
-		SurfaceHover:   core.RGBA(0xffffff, 0.06),
-		SurfacePressed: core.RGBA(0xffffff, 0.11),
-		Border:         core.RGBA(0xffffff, 0.13),
-		Text:           core.RGB(0xecece7),
-		TextMuted:      core.RGB(0x9a9a94),
-		Accent:         core.RGB(0xe7e7e7),
-		AccentHover:    core.RGB(0xffffff),
-		AccentPressed:  core.RGB(0xd0d0d0),
-		AccentText:     core.RGB(0x121212),
-		Danger:         core.RGB(0xf0958f),
-		Warning:        core.RGB(0xe6b567),
-		Success:        core.RGB(0x79bea1),
-		Selection:      core.RGBA(0xffffff, 0.18),
-		Focus:          core.RGBA(0xffffff, 0.45),
-		Scrollbar:      core.RGBA(0xffffff, 0.24),
+		Background:     core.RGB(0x151b1d),
+		Surface:        core.RGB(0x1d2528),
+		SurfaceHover:   core.RGB(0x2a383c),
+		SurfacePressed: core.RGB(0x34474b),
+		Border:         core.RGB(0x3d5056),
+		Text:           core.RGB(0xe6eeef),
+		TextMuted:      core.RGB(0xbac9cb),
+		Accent:         core.RGB(0x91c6cd),
+		AccentHover:    core.RGB(0xaed8dc),
+		AccentPressed:  core.RGB(0x7bb2ba),
+		AccentText:     core.RGB(0x102428),
+		Danger:         core.RGB(0xf0aaa3),
+		Warning:        core.RGB(0xe1c382),
+		Success:        core.RGB(0x9ac9aa),
+		Selection:      core.RGBA(0x91c6cd, 0.18),
+		Focus:          core.RGB(0x91c6cd),
+		Scrollbar:      core.RGBA(0xe6eeef, 0.48),
 	}
 
 	light := map[string]core.Color{
 		"inset":       railGray,
 		"raised":      core.RGB(0xffffff),
-		"field":       core.RGB(0xfbfbfb),
-		"fieldBorder": hairline,
+		"field":       core.RGB(0xfbfdfd),
+		"fieldBorder": core.RGBA(0x202c30, 0.56),
 		"line":        softLine,
 		"edge":        edge,
 		"faint":       mist,
-		"accentFill":  core.RGB(0x18181b),
-		"light":       core.RGB(0x18181b),
-		"onLight":     core.RGB(0xffffff),
-		"track":       core.RGBA(0x0d0d0d, 0.16),
+		"accentFill":  core.RGB(0x285d63),
+		"light":       ink,
+		"onLight":     core.RGB(0xf7f9f9),
+		"track":       core.RGBA(0x202c30, 0.48),
 		"knob":        core.RGB(0xffffff),
-		"code":        core.RGB(0x373737),
-		"info":        core.RGB(0x1d4ed8),
+		"code":        core.RGB(0x2c4540),
+		"info":        core.RGB(0x2d607b),
 		"thinking":    Thinking,
 		"down":        danger,
 	}
 	dark := map[string]core.Color{
-		"inset":       core.RGB(0x1b1b1b),
-		"raised":      core.RGB(0x262626),
-		"field":       core.RGB(0x171717),
-		"fieldBorder": core.RGBA(0xffffff, 0.14),
+		"inset":       core.RGB(0x101618),
+		"raised":      core.RGB(0x263135),
+		"field":       core.RGB(0x182023),
+		"fieldBorder": core.RGBA(0xe6eeef, 0.56),
 		"line":        softDark,
 		"edge":        edgeDark,
-		"faint":       core.RGB(0xa0a09a),
-		"accentFill":  core.RGB(0xe7e7e7),
-		"light":       core.RGB(0xe7e7e7),
-		"onLight":     core.RGB(0x121212),
-		"track":       core.RGBA(0xffffff, 0.20),
-		"knob":        core.RGB(0xfafafa),
-		"code":        core.RGB(0xd6d6d6),
-		"info":        core.RGB(0x7aa2ff),
-		"thinking":    core.RGB(0x818cf8),
-		"down":        core.RGB(0xf0958f),
+		"faint":       core.RGB(0xa5b8bb),
+		"accentFill":  core.RGB(0x91c6cd),
+		"light":       core.RGB(0xe6eeef),
+		"onLight":     core.RGB(0x151b1d),
+		"track":       core.RGBA(0xe6eeef, 0.48),
+		"knob":        core.RGB(0x102428),
+		"code":        core.RGB(0xc5dde0),
+		"info":        core.RGB(0x9fc6e1),
+		"thinking":    core.RGB(0xc4b7e1),
+		"down":        core.RGB(0xf0aaa3),
 	}
 	for name, c := range light {
 		t.Light.SetColor(name, c)
