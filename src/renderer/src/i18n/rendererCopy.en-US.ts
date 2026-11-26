@@ -6755,6 +6755,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"tool.loadingFullOutput": "Loading full output…",
 	"tool.fullOutputLoadFailed": "Failed to load full content",
 	"tool.piOutputTruncated": "Output truncated by Pi; full output at: {path}",
+	"tool.piOutputNotSaved": "Output truncated by Pi; the full output could not be saved: {reason}",
 	"tool.copyOutput": "Copy output",
 	"tool.copyPath": "Copy path",
 	"tool.retry": "Retry",

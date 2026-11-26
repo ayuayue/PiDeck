@@ -6728,6 +6728,7 @@ export const zhCN = {
 	"tool.loadingFullOutput": "正在加载完整输出…",
 	"tool.fullOutputLoadFailed": "完整内容读取失败",
 	"tool.piOutputTruncated": "输出已被 Pi 截断，完整输出在：{path}",
+	"tool.piOutputNotSaved": "输出已被 Pi 截断，完整输出未能保存：{reason}",
 	"tool.copyOutput": "复制输出",
 	"tool.copyPath": "复制路径",
 	"tool.retry": "重试",

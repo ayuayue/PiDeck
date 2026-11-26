@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 7262e76b00d34a34b6ddc62a766a8f734692a15dd04bd961d67caddbb183f31f（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: ed0c52d0bf4df04639d07a74842cf6375d7e40c664a58b9b373c8aec6d501e4e（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -6735,6 +6735,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"tool.loadingFullOutput": "正在載入完整輸出…",
 	"tool.fullOutputLoadFailed": "完整內容讀取失敗",
 	"tool.piOutputTruncated": "輸出已被 Pi 截斷，完整輸出在：{path}",
+	"tool.piOutputNotSaved": "輸出已被 Pi 截斷，完整輸出未能儲存：{reason}",
 	"tool.copyOutput": "複製輸出",
 	"tool.copyPath": "複製路徑",
 	"tool.retry": "重試",

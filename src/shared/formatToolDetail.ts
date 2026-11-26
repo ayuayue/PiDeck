@@ -91,6 +91,8 @@ function extractRawCommand(args: unknown): string | undefined {
  * 模型保留尾部窗口）：result.details.truncation（truncatedBy / totalLines /
  * totalBytes）与 result.details.fullOutputPath，模型可见文本尾部也带
  * "[Showing lines X-Y of N ... Full output: <path>]"。
+ * pi 1.6.1 起，完整输出没能落临时文件时改为给 details.fullOutputError（原因，
+ * 如磁盘满/配额/不可写），此时没有 fullOutputPath。
  *
  * PiDeck 把它单独下发（meta.resultTruncation），渲染层给出可操作的完整路径提示，
  * 与自身展示层截断（meta.truncated → 「查看完整输出」读会话文件）区分开：
@@ -101,6 +103,8 @@ export type PiToolTruncation = {
 	totalLines?: number;
 	totalBytes?: number;
 	fullOutputPath?: string;
+	/** 完整输出没能落盘的原因（pi 1.6.1+；与 fullOutputPath 互斥）。 */
+	fullOutputError?: string;
 };
 
 export function extractPiToolTruncation(result: unknown): PiToolTruncation | undefined {
@@ -113,11 +117,14 @@ export function extractPiToolTruncation(result: unknown): PiToolTruncation | und
 	if (!truncation || typeof truncation !== "object") return undefined;
 	const t = truncation as Record<string, unknown>;
 	const fullOutputPath = typeof source.fullOutputPath === "string" && source.fullOutputPath ? source.fullOutputPath : typeof t.fullOutputPath === "string" && t.fullOutputPath ? t.fullOutputPath : undefined;
+	const fullOutputError = typeof source.fullOutputError === "string" && source.fullOutputError ? source.fullOutputError : typeof t.fullOutputError === "string" && t.fullOutputError ? t.fullOutputError : undefined;
 	return {
 		truncatedBy: typeof t.truncatedBy === "string" ? t.truncatedBy : undefined,
 		totalLines: typeof t.totalLines === "number" ? t.totalLines : undefined,
 		totalBytes: typeof t.totalBytes === "number" ? t.totalBytes : undefined,
 		...(fullOutputPath ? { fullOutputPath } : {}),
+		// 有路径时不再提失败原因（pi 只会给其中一个，保底以路径为准）
+		...(fullOutputPath ? {} : fullOutputError ? { fullOutputError } : {}),
 	};
 }
 
