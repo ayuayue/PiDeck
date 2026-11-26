@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { dirname, resolve } from "node:path";
 import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
@@ -20,7 +21,20 @@ function compileModule(filePath, imports = {}) {
 		fileName: filePath,
 	}).outputText;
 	const module = { exports: {} };
-	const localRequire = (specifier) => imports[specifier] ?? nodeRequire(specifier);
+	// 相对 import 必须按**被编译源文件所在目录**解析，不能用 tests/ 作基准：
+	// 生产代码拆出一个本地模块（如 atoms/historyPageCursor），这里就会整片
+	// MODULE_NOT_FOUND，而报错指向测试文件本身 —— 症状是「原子层全红」，
+	// 病因却在一行 import。根因是解析基准，不是缺一条桩，所以在这里统一修。
+	const localRequire = (specifier) => {
+		const stubbed = imports[specifier];
+		if (stubbed !== undefined) return stubbed;
+		if (specifier.startsWith(".")) {
+			const base = resolve(dirname(filePath), specifier);
+			const candidate = [/\.tsx?$/.test(base) ? base : base + ".ts", base + ".tsx", base].find((item) => existsSync(item));
+			if (candidate) return compileModule(candidate, imports);
+		}
+		return nodeRequire(specifier);
+	};
 	vm.runInNewContext(
 		output,
 		{
