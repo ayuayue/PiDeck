@@ -42,6 +42,7 @@ func (a *app) view() core.Node {
 		a.attachPreviewDialog(),
 		a.visionDialog(),
 		a.promptTemplateDialog(),
+		a.translationDialog(),
 		a.replyShortcutSettingsDialog(),
 		a.browserApprovalDialog(),
 		a.settingsSyncDialog(),

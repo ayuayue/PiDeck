@@ -25,7 +25,7 @@ import (
 // resolved fold — repaints the part that shows it instead of rebuilding the
 // row. A turn is folded once it has an answer: the process goes behind one
 // centered summary row, and inside it every process group folds on its own.
-func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
+func (a *app) turnView(s *session, t func() turn, index func() int, selection *chatSelection) core.Node {
 	return core.Func(func(cx *core.Scope) core.Node {
 		// The clock is read inside the labels that show an elapsed time,
 		// never here: rebuilding the turn every second would reset the
@@ -58,7 +58,7 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 					return a.turnWorkingRow(cx, t, now)
 				}},
 				core.Show{When: func() bool { tt := t(); return !tt.running() && tt.Final != "" }, Then: func(cx *core.Scope) core.Node {
-					return a.replyContent(s, t, &reply, a.chatMarkdownLive(func() string { return t().Final }, func() bool { return false }, core.Style{}))
+					return a.replyContent(s, t, &reply, selection, a.chatMarkdownLive(s, func() string { return t().Final }, func() bool { return false }, core.Style{}))
 				}},
 				a.turnFooter(s, t, now),
 				core.Show{When: func() bool { tt := t(); return !tt.running() && tt.Final != "" },
@@ -224,33 +224,60 @@ func recoveredAfter(turns []turn, id string) bool {
 }
 
 // replyContent offers the actions for this answer at the text itself.
-func (a *app) replyContent(s *session, t func() turn, reply *core.Ref, content core.Node) core.Node {
-	return base.ContextMenu{
-		Trigger: core.View{Ref: reply, TestID: "chat-reply", Style: core.Style{MinWidth: core.Pt(0)}, Children: []core.Node{content}},
-		TestID:  "chat-reply-menu", PopupStyleFunc: func() core.Style { return a.menuCard(a.cx) },
-		PopupStyle: a.menuPopup(a.cx),
-		Children: []core.Node{
-			a.menuRow(a.cx, lucide.Copy, "复制回复", "", false, func() { a.copyText(t().Final, "回复") }),
-			a.menuRow(a.cx, lucide.Languages, "翻译回复", "", false, func() { a.openTranslationWith(t().Final) }),
-			a.menuRow(a.cx, lucide.Star, "收藏这条回复", "", false, func() { a.favoriteReply(s, t()) }),
-			a.menuRow(a.cx, lucide.Activity, "查看轨迹", "", false, func() { a.openTrajectory(s, t()) }),
-			a.turnReplyShortcuts(s, t),
-			core.Show{When: func() bool { return t().Plan }, Then: func(*core.Scope) core.Node {
-				return core.Group{
-					a.menuSeparator(a.cx),
-					ui.MenuItem{Text: apptext.T("执行计划"), Icon: lucide.Play,
-						Disabled: func() bool { return t().running() || t().Final == "" },
-						OnSelect: func() { a.executePlan(s, t()) }},
-					ui.MenuItem{Text: apptext.T("逐步执行"), Icon: lucide.ListChecks,
-						Disabled: func() bool { return t().running() || len(planSteps(t().Final)) < 2 },
-						OnSelect: func() { a.executePlanSteps(s, t()) }},
-					ui.MenuItem{Text: apptext.T("修改计划"), Icon: lucide.PencilLine,
-						Disabled: func() bool { return t().Final == "" },
-						OnSelect: func() { a.editPlan(s, t()) }},
-				}
-			}},
-		},
-	}
+func (a *app) replyContent(s *session, t func() turn, reply *core.Ref, selection *chatSelection, content core.Node) core.Node {
+	return core.Func(func(cx *core.Scope) core.Node {
+		selected := core.NewSignalFunc(cx, core.TextSelection{}, sameTextSelection)
+		return base.ContextMenu{
+			OnOpen: func() {
+				selected.Set(selection.value.GetUntracked())
+				selection.menuOpen.Set(true)
+			},
+			OnClose: selection.clear,
+			Trigger: core.View{Ref: reply, TestID: "chat-reply", Style: core.Style{MinWidth: core.Pt(0)},
+				OnMouseDown: func(e core.MouseButtonEvent) {
+					if e.Button == core.MouseButtonRight {
+						selection.menuOpen.Set(true)
+					}
+				}, Children: []core.Node{content}},
+			TestID: "chat-reply-menu", PopupStyleFunc: func() core.Style { return a.menuCard(a.cx) },
+			PopupStyle: a.menuPopup(a.cx),
+			Children: []core.Node{
+				core.Show{When: func() bool { return selected.Get().Text != "" }, Then: func(*core.Scope) core.Node {
+					return core.Group{
+						ui.MenuItem{Text: apptext.T("复制选中文字"), Icon: lucide.Copy, TestID: "chat-selection-copy",
+							OnSelect: func() { cx.SetClipboard(selected.GetUntracked().Text) }},
+						ui.MenuItem{Text: apptext.T("引用选中文字"), Icon: lucide.Quote, TestID: "chat-selection-quote",
+							OnSelect: func() {
+								text := strings.TrimSuffix(selected.GetUntracked().Text, "\n")
+								a.insertShortcut(s, "> "+strings.ReplaceAll(text, "\n", "\n> ")+"\n\n")
+							}},
+						ui.MenuItem{Text: apptext.T("翻译选中文字"), Icon: lucide.Languages, TestID: "chat-selection-translate-menu",
+							OnSelect: func() { a.openTranslationWith(selected.GetUntracked().Text) }},
+						a.menuSeparator(cx),
+					}
+				}},
+				a.menuRow(a.cx, lucide.Copy, "复制回复", "", false, func() { a.copyText(t().Final, "回复") }),
+				a.menuRow(a.cx, lucide.Languages, "翻译回复", "", false, func() { a.openTranslationWith(t().Final) }),
+				a.menuRow(a.cx, lucide.Star, "收藏这条回复", "", false, func() { a.favoriteReply(s, t()) }),
+				a.menuRow(a.cx, lucide.Activity, "查看轨迹", "", false, func() { a.openTrajectory(s, t()) }),
+				a.turnReplyShortcuts(s, t),
+				core.Show{When: func() bool { return t().Plan }, Then: func(*core.Scope) core.Node {
+					return core.Group{
+						a.menuSeparator(a.cx),
+						ui.MenuItem{Text: apptext.T("执行计划"), Icon: lucide.Play,
+							Disabled: func() bool { return t().running() || t().Final == "" },
+							OnSelect: func() { a.executePlan(s, t()) }},
+						ui.MenuItem{Text: apptext.T("逐步执行"), Icon: lucide.ListChecks,
+							Disabled: func() bool { return t().running() || len(planSteps(t().Final)) < 2 },
+							OnSelect: func() { a.executePlanSteps(s, t()) }},
+						ui.MenuItem{Text: apptext.T("修改计划"), Icon: lucide.PencilLine,
+							Disabled: func() bool { return t().Final == "" },
+							OnSelect: func() { a.editPlan(s, t()) }},
+					}
+				}},
+			},
+		}
+	})
 }
 
 // turnActions keeps finished replies to copying and sharing. The copy

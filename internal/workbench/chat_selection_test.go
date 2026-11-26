@@ -54,7 +54,7 @@ func chatSelectionFixture(t *testing.T) (*nsgotest.App, *app, *session, *session
 			core.View{Style: ui.FillRest, Children: []core.Node{
 				core.View{Style: core.Style{Height: core.Pt(52)}}, a.chatPane(),
 			}},
-			a.translationPane(),
+			a.translationDialog(),
 		}}
 	}, nsgotest.Size(1280, 860), nsgotest.Environment(core.Environment{OS: core.OSWindows, Idiom: core.IdiomDesktop}))
 	t.Cleanup(a.closeDiag)
@@ -84,9 +84,8 @@ func TestChatSelectionOpensOnlySelectedText(t *testing.T) {
 	textID := screen.Find("text:" + selectionParagraph).ID
 	box := selectChatParagraph(t, screen)
 	button := screen.Find("id:chat-selection-translate").Bounds()
-	actions := screen.Find("id:turn-copy").Bounds()
-	if button.Origin.X+button.Size.Width > box.Origin.X || button.Origin.X < 180 || button.Origin.Y+button.Size.Height > actions.Origin.Y {
-		t.Fatalf("translation action %v is not in the transcript gutter beside %v or above reply actions %v", button, box, actions)
+	if button.Origin.X < box.Origin.X || button.Origin.Y < box.Origin.Y+box.Size.Height || button.Origin.Y > box.Origin.Y+box.Size.Height+16 {
+		t.Fatalf("translation action %v is not beside the selection endpoint %v", button, box)
 	}
 	if got := screen.Find("id:transcript-column").ID; got != columnID {
 		t.Fatalf("selection rebuilt transcript: got node %v, want %v", got, columnID)

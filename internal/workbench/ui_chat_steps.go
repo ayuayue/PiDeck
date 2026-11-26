@@ -110,7 +110,7 @@ func (a *app) processRow(s *session, t func() turn, node func() processNode) cor
 		src := stepSource{s: s, turn: t, id: func() string { return n.step }}
 		switch n.kind {
 		case processProse:
-			return a.chatMarkdownLive(func() string { return src.text() }, src.live, core.Style{})
+			return a.chatMarkdownLive(s, func() string { return src.text() }, src.live, core.Style{})
 		case processNote:
 			return a.noteBlock(s, func() turnStep { return src.committed() }, func() chat.Status { return src.turn().Status })
 		}
@@ -127,8 +127,8 @@ func processBodyMax(cx *core.Scope) core.Points {
 
 // chatMarkdownLive is prose whose text a binding reads: a streaming answer
 // updates in place instead of being parsed again as a new view.
-func (a *app) chatMarkdownLive(text func() string, live func() bool, tone core.Style) core.Node {
-	return viewkit.MarkdownLive(a.chatSearch, text, live, a.readingFont(), a.readingLine(), tone, a.codeWrap.Get)
+func (a *app) chatMarkdownLive(s *session, text func() string, live func() bool, tone core.Style) core.Node {
+	return viewkit.MarkdownLive(a.chatSearch, text, live, a.readingFont(), a.readingLine(), tone, a.codeWrap.Get, a.chatReferences(s))
 }
 
 // noteBlock is a system note, such as a compaction summary.
@@ -157,9 +157,10 @@ func (a *app) noteBlock(s *session, step func() turnStep, status func() chat.Sta
 			icon, ink = lucide.CircleX, colors.Faint
 		}
 		children := []core.Node{
-			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7}, Children: []core.Node{
+			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, MinWidth: core.Pt(0), Gap: 7}, Children: []core.Node{
 				ui.Icon(icon, 13, ink),
-				core.Text{Content: st.Note, Style: core.Style{FontSize: a.readingRowFont(), FontWeight: ui.Medium},
+				core.Text{Content: st.Note, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+					Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: a.readingRowFont(), FontWeight: ui.Medium},
 					StyleFunc: ui.Colored(colors.Muted)},
 				ui.Text(statusLabel(state), 10, ui.Medium, ink),
 			}},
@@ -177,7 +178,7 @@ func (a *app) noteBlock(s *session, step func() turnStep, status func() chat.Sta
 			}})
 		}
 		return core.View{TestID: "note-card", StyleFunc: func() core.Style {
-			return core.Style{Gap: 8, Padding: core.Symmetric(8, 12), CornerRadius: ui.RadiusControl,
+			return core.Style{MinWidth: core.Pt(0), Gap: 8, Padding: core.Symmetric(8, 12), CornerRadius: ui.RadiusControl,
 				BorderWidth: 1, BorderColor: colors.Border(), Background: colors.Inset()}
 		}, Children: children}
 	})

@@ -38,11 +38,14 @@ func MarkdownWithCodeWrap(search *textview.Search, text string, streaming func()
 	return MarkdownLive(search, func() string { return text }, streaming, size, line, tone, wrapCode)
 }
 
-// MarkdownLive is MarkdownWithCodeWrap over text a binding reads: the
-// document is parsed again as the text it returns changes, without the
-// view around it being rebuilt. A streaming answer uses this so a delta
-// updates the prose instead of remounting it.
-func MarkdownLive(search *textview.Search, text func() string, streaming func() bool, size, line core.Points, tone core.Style, wrapCode func() bool) core.Node {
+// MarkdownBehavior lets a host decorate document references and handle their clicks.
+type MarkdownBehavior struct {
+	Document func(string) textview.Document
+	Span     func(textview.Custom) core.Span
+}
+
+// MarkdownLive reparses changing text without remounting the surrounding view.
+func MarkdownLive(search *textview.Search, text func() string, streaming func() bool, size, line core.Points, tone core.Style, wrapCode func() bool, behavior ...MarkdownBehavior) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		styles := ui.TextViewStyles(cx)
 		font := size
@@ -116,6 +119,12 @@ func MarkdownLive(search *textview.Search, text func() string, streaming func() 
 			RenderDiagram:        renderDiagram,
 			NoCodeBlockScrollbar: true,
 			CodeBlockActions:     []textview.CodeAction{{ID: textview.CopyAction, Label: apptext.T("复制")}},
+		}
+		if len(behavior) > 0 && behavior[0].Document != nil {
+			view.MarkdownFunc = nil
+			view.DocumentFunc = func() textview.Document { return behavior[0].Document(markdown()) }
+			view.CustomSpan = behavior[0].Span
+			view.OpenLinks = false
 		}
 		if wrapCode != nil && wrapCode() {
 			view.RenderCodeBlock = func(cx *core.Scope, code textview.CodeBlock) core.Node {

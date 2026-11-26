@@ -197,6 +197,7 @@ func (a *app) composerStack(s *session, width func() core.Length, height func() 
 func (a *app) transcript(s *session, selection *chatSelection, width func() core.Length) core.Node {
 	return core.View{Style: core.Style{MinWidth: core.Pt(0), FlexShrink: 0, Width: core.Pct(100), AlignItems: core.AlignCenter}, Children: []core.Node{
 		core.View{Selectable: true, Ref: &selection.area, OnTextSelection: selection.changed, TestID: "transcript-column",
+			Focusable: func() bool { return true }, OnMouseMove: selection.moved, OnMouseUp: selection.released,
 			Style:     core.Style{Width: core.Pct(100), MinWidth: core.Pt(0), Gap: 48},
 			StyleFunc: func() core.Style { return core.Style{MaxWidth: width()} }, Children: []core.Node{
 				core.Show{When: func() bool { return len(s.turns.Get()) > s.window.Get() }, Then: func(cx *core.Scope) core.Node {
@@ -225,7 +226,7 @@ func (a *app) transcript(s *session, selection *chatSelection, width func() core
 							s.tops = map[string]float64{}
 						}
 						s.tops[t().ID] = float64(b.Origin.Y)
-					}, Children: []core.Node{a.turnView(s, t, ix)}}
+					}, Children: []core.Node{a.turnView(s, t, ix, selection)}}
 				}),
 			}},
 	}}

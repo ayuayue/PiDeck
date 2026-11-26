@@ -8,24 +8,26 @@ import (
 	"time"
 
 	"example.com/pideck-v2/internal/apptext"
+	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
 type translationDraft struct {
 	source, language, output, message *core.Signal[string]
-	busy                              *core.Signal[bool]
+	busy, visible                     *core.Signal[bool]
 	cancel                            context.CancelFunc
 }
 
 func (a *app) openTranslation() {
-	if a.translation.GetUntracked() != nil {
+	if d := a.translation.GetUntracked(); d != nil {
+		d.visible.Set(true)
 		return
 	}
 	d := &translationDraft{source: core.NewSignal(a.cx, ""), language: core.NewSignal(a.cx, "zh-CN"),
-		output: core.NewSignal(a.cx, ""), message: core.NewSignal(a.cx, ""), busy: core.NewSignal(a.cx, false)}
+		output: core.NewSignal(a.cx, ""), message: core.NewSignal(a.cx, ""), busy: core.NewSignal(a.cx, false),
+		visible: core.NewSignal(a.cx, true)}
 	a.translation.Set(d)
-	a.openPane(paneTranslation)
 }
 
 func (a *app) openTranslationWith(source string) {
@@ -34,6 +36,7 @@ func (a *app) openTranslationWith(source string) {
 	}
 	if d := a.translation.GetUntracked(); d != nil {
 		if d.source.GetUntracked() == source {
+			d.visible.Set(true)
 			return
 		}
 		if d.busy.GetUntracked() || strings.TrimSpace(d.source.GetUntracked()) != "" {
@@ -43,7 +46,6 @@ func (a *app) openTranslationWith(source string) {
 	}
 	a.openTranslation()
 	a.translation.GetUntracked().source.Set(source)
-	a.openPane(paneTranslation)
 }
 
 func (a *app) closeTranslation() {
@@ -91,45 +93,64 @@ func (a *app) translate(d *translationDraft) {
 	}()
 }
 
-// translationPane is where a translation is written and read: the language,
-// the original and the result, in the work area instead of over it.
-func (a *app) translationPane() core.Node {
+// translationDialog keeps the source and result over the current conversation.
+// Hiding it for model setup preserves the draft until it is explicitly closed.
+func (a *app) translationDialog() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		d := a.translation.Get()
 		if d == nil {
-			return core.View{Style: ui.FillRest}
+			return core.Group{}
 		}
 		colors := ui.ColorsOf(cx)
+		missingModel := func() bool {
+			a.toolRev.Get()
+			return a.cfg.ToolModels["translate"].Model == ""
+		}
 		langs := []ui.Option[string]{{Value: "zh-CN", Label: "简体中文"}, {Value: "zh-TW", Label: "繁體中文"}, {Value: "en", Label: "English"},
 			{Value: "ja", Label: "日本語"}, {Value: "ko", Label: "한국어"}, {Value: "fr", Label: "Français"}, {Value: "ru", Label: "Русский"}}
-		return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)},
-			Children: []core.Node{
-				a.paneHeader("翻译文本…", "选中文字或整条回复，翻译成目标语言",
-					ui.Button{Text: apptext.T("复制译文"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "translation-copy",
-						Disabled: func() bool { return d.output.Get() == "" },
-						OnPress:  func() { cx.SetClipboard(d.output.GetUntracked()) }},
-					ui.Button{Text: apptext.T("翻译"), Size: ui.SizeSmall, Variant: ui.ButtonPrimary, TestID: "translation-start",
-						Disabled: func() bool { return d.busy.Get() || strings.TrimSpace(d.source.Get()) == "" },
-						OnPress:  func() { a.translate(d) }}),
-				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Padding: core.Symmetric(10, 0), Gap: 10},
-					Children: []core.Node{
-						core.View{Style: core.Style{Direction: core.Row, Gap: 6, AlignItems: core.AlignCenter}, Children: []core.Node{
-							ui.Select[string]{Options: langs, Value: d.language.Get, OnChange: d.language.Set, Disabled: d.busy.Get, Label: apptext.T("目标语言"), TestID: "translation-language", Style: core.Style{Width: core.Pt(146)}},
-							ui.Button{Text: apptext.T("粘贴原文"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "translation-paste",
-								Disabled: d.busy.Get,
-								OnPress:  func() { cx.ReadClipboard(d.source.Set) }},
-						}},
-						core.Input{Value: d.source.Get, OnChange: d.source.Set, Multiline: true, Disabled: d.busy.Get,
-							Placeholder: apptext.T("输入或粘贴需要翻译的文字"), Label: apptext.T("原文"), TestID: "translation-source",
-							Style: panelFieldStyle(colors).Merge(core.Style{Height: core.Pt(150), Padding: core.All(8)})},
-						core.Show{When: d.busy.Get, Then: func(*core.Scope) core.Node { return ui.Spinner{Size: 15} }},
-						core.Show{When: func() bool { return d.output.Get() != "" }, Then: func(*core.Scope) core.Node {
-							return core.Scroll{Style: ui.FillRest, Children: []core.Node{
-								core.Text{ContentFunc: d.output.Get, Selectable: core.SelectableOn, Style: core.Style{FontSize: 13, LineHeight: 20}, StyleFunc: ui.Colored(colors.Text)},
-							}}
-						}},
-						core.Text{ContentFunc: d.message.Get, Style: core.Style{FontSize: 11}, StyleFunc: ui.Colored(colors.Danger)},
-					}},
-			}}
+		return ui.Dialog{
+			Open: d.visible.Get, OnOpenChange: func(open bool, _ base.Reason) {
+				if !open {
+					a.closeTranslation()
+				}
+			},
+			Title: apptext.T("翻译文本…"), Description: apptext.T("选中文字或整条回复，翻译成目标语言"), TestID: "translate-dialog",
+			Style: core.Style{Width: a.dialogWidth(), MaxWidth: core.Pt(860)},
+			Children: []core.Node{core.View{Style: core.Style{Gap: 10, MinHeight: core.Pt(0), FlexShrink: 1}, Children: []core.Node{
+				core.Show{When: missingModel, Then: func(*core.Scope) core.Node {
+					return core.View{Style: core.Style{Gap: 6, AlignItems: core.AlignStart}, Children: []core.Node{
+						core.Text{Content: apptext.T("请在设置的模型页面选择翻译模型。"), Style: core.Style{FontSize: 12}, StyleFunc: ui.Colored(colors.Muted)},
+						ui.Button{Text: apptext.T("设置翻译模型"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "translation-model-settings",
+							OnPress: func() {
+								d.visible.Set(false)
+								a.openPane(paneSettings)
+								a.openSettingsSection("models")
+							}},
+					}}
+				}},
+				core.View{Style: core.Style{Direction: core.Row, Gap: 6, AlignItems: core.AlignCenter}, Children: []core.Node{
+					ui.Select[string]{Options: langs, Value: d.language.Get, OnChange: d.language.Set, Disabled: d.busy.Get, Label: apptext.T("目标语言"), TestID: "translation-language", Style: core.Style{Width: core.Pt(146)}},
+					ui.Button{Text: apptext.T("粘贴原文"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "translation-paste",
+						Disabled: d.busy.Get, OnPress: func() { cx.ReadClipboard(d.source.Set) }},
+				}},
+				core.Input{Value: d.source.Get, OnChange: d.source.Set, Multiline: true, Disabled: d.busy.Get,
+					Placeholder: apptext.T("输入或粘贴需要翻译的文字"), Label: apptext.T("原文"), TestID: "translation-source",
+					Style: panelFieldStyle(colors).Merge(core.Style{Height: core.Pt(150), Padding: core.All(8)})},
+				core.Show{When: d.busy.Get, Then: func(*core.Scope) core.Node { return ui.Spinner{Size: 15} }},
+				core.Show{When: func() bool { return d.output.Get() != "" }, Then: func(*core.Scope) core.Node {
+					return core.Scroll{Style: core.Style{MaxHeight: core.Pt(280), MinHeight: core.Pt(80), FlexShrink: 1}, Children: []core.Node{
+						core.Text{ContentFunc: d.output.Get, Selectable: core.SelectableOn, Style: core.Style{FontSize: 13, LineHeight: 20}, StyleFunc: ui.Colored(colors.Text)},
+					}}
+				}},
+				core.Text{ContentFunc: d.message.Get, Style: core.Style{FontSize: 11}, StyleFunc: ui.Colored(colors.Danger)},
+			}}},
+			Footer: []core.Node{
+				ui.Button{Text: apptext.T("复制译文"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "translation-copy",
+					Disabled: func() bool { return d.output.Get() == "" }, OnPress: func() { cx.SetClipboard(d.output.GetUntracked()) }},
+				ui.Button{Text: apptext.T("翻译"), Size: ui.SizeSmall, Variant: ui.ButtonPrimary, TestID: "translation-start",
+					Disabled: func() bool { return d.busy.Get() || strings.TrimSpace(d.source.Get()) == "" || missingModel() },
+					OnPress:  func() { a.translate(d) }},
+			},
+		}
 	})
 }

@@ -38,11 +38,10 @@ const (
 	paneBlame       = "blame"
 	paneReviewPatch = "review-patch"
 	// A conversation's own material: a tool result's picture, the turn's
-	// trajectory, the agents it handed work to, and a translation.
+	// trajectory and the agents it handed work to.
 	paneTranscriptImage = "transcript-image"
 	paneTrajectory      = "trajectory"
 	paneDelegation      = "delegation"
-	paneTranslation     = "translation"
 )
 
 // paneDef is one split pane: its tab, whether it is open, and its page.
@@ -114,13 +113,6 @@ func (a *app) panes() []paneDef {
 				}
 			},
 			TestID: "delegate-history", Body: a.delegationPane},
-		{ID: paneTranslation, Label: "翻译", Icon: lucide.Languages, Open: func() bool { return a.translation.Get() != nil },
-			Set: func(open bool) {
-				if !open {
-					a.closeTranslation()
-				}
-			},
-			TestID: "translate-dialog", Body: a.translationPane},
 	}
 }
 
