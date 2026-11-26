@@ -133,10 +133,11 @@ func (a *app) railTabBar() core.Node {
 				},
 			}
 		}
+		tabStyle := core.Style{FlexGrow: 1, FlexShrink: 1, FlexBasis: core.Pt(0), MinWidth: core.Pt(0)}
 		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2}, Children: []core.Node{
-			tab(railTabActivity, "活动", lucide.Activity),
-			tab(railTabChat, "聊天", lucide.MessageCircle),
-			tab(railTabProjects, "项目", lucide.Folder),
+			core.View{Style: tabStyle, Children: []core.Node{tab(railTabActivity, "活动", lucide.Activity)}},
+			core.View{Style: tabStyle, Children: []core.Node{tab(railTabChat, "聊天", lucide.MessageCircle)}},
+			core.View{Style: tabStyle, Children: []core.Node{tab(railTabProjects, "项目", lucide.Folder)}},
 		}}
 	})
 }
