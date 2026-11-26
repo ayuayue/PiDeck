@@ -23,8 +23,9 @@ const (
 	axisBand = 46
 	// axisTickWidth is how long a tick grows to under the pointer, and
 	// axisTickNarrow how long it rests.
-	axisTickWidth  = 18
-	axisTickNarrow = 6
+	axisTickWidth  = 28
+	axisTickNarrow = 12
+	axisTickHeight = 4
 	axisTickHit    = axisTickWidth + 4
 	// axisStep is the most air one mark has above the next, and axisChrome
 	// what the tab bar and padding take above the chat pane.
@@ -32,7 +33,7 @@ const (
 	axisChrome = 56
 	// axisTickGapMin is the tightest pitch that still leaves a mark
 	// pressable; closer than this, the ruler drops turns instead.
-	axisTickGapMin = 4.0
+	axisTickGapMin = 8.0
 )
 
 // axisGrow eases a tick from its resting length to the long mark under the
@@ -47,7 +48,8 @@ func planAxisTicks(turns int, bandHeight float64) []int {
 	if turns <= 0 || bandHeight <= 0 {
 		return nil
 	}
-	fit := int(bandHeight/axisTickGapMin) + 1
+	// Each mark needs a whole hit slot, including the first and last.
+	fit := max(2, int(bandHeight/axisTickGapMin))
 	if fit >= turns {
 		marks := make([]int, turns)
 		for i := range marks {
@@ -55,7 +57,6 @@ func planAxisTicks(turns int, bandHeight float64) []int {
 		}
 		return marks
 	}
-	fit = max(2, fit)
 	marks := make([]int, 0, fit)
 	for slot := 0; slot < fit; slot++ {
 		marks = append(marks, int(math.Round(float64(slot)*float64(turns-1)/float64(fit-1))))
@@ -85,20 +86,19 @@ func (a *app) turnAxis(s *session) core.Node {
 		// together, not four dashes spread over a third of the window. A
 		// crowded ruler tightens the pitch instead of overflowing the band.
 		pitch := math.Min(float64(axisStep), bandHeight/float64(max(1, len(shown))))
-		box := core.Points(math.Max(4, pitch))
+		box := core.Points(pitch)
 		stack := core.Points(pitch * float64(len(shown)))
 		marks := make([]core.Node, 0, len(shown)+1)
 		for pos, turn := range shown {
 			pos, turn := pos, turn
 			bar := core.View{
-				OnPress: func(core.PressEvent) { a.jumpToTurnIndex(s, turn) },
-				Role:    core.RoleButton, LabelFunc: func() string { return a.axisTip(s, turn) },
-				TestID: fmt.Sprintf("axis-tick-%d", pos),
+				TestID:        fmt.Sprintf("axis-tick-%d", pos),
+				PointerEvents: core.PointerEventsNone,
 				StyleFunc: func() core.Style {
 					// A short mark at rest; the one under the pointer grows out
 					// to its full length, so the scale does not read as a picket
 					// fence at rest.
-					st := core.Style{Width: core.Pt(axisTickNarrow), Height: core.Pt(2.5), CornerRadius: 1.25,
+					st := core.Style{Width: core.Pt(axisTickNarrow), Height: core.Pt(axisTickHeight), CornerRadius: axisTickHeight / 2,
 						Background: colors.Faint()}
 					if !a.reduceEffects.Get() && !ui.ReduceMotion(cx) {
 						st.Transition = axisGrow
@@ -111,6 +111,11 @@ func (a *app) turnAxis(s *session) core.Node {
 				},
 			}
 			marks = append(marks, core.View{
+				// The fixed hover slot owns presses; resizing the decorative
+				// bar must not move or shrink the click target.
+				OnPress:      func(core.PressEvent) { a.jumpToTurnIndex(s, turn) },
+				Role:         core.RoleButton,
+				LabelFunc:    func() string { return a.axisTip(s, turn) },
 				OnMouseEnter: func(core.MouseEvent) { a.hoverAxis(pos) },
 				// Leaving the box clears only its own tick, so moving from
 				// one mark to the next keeps pointing at the new one

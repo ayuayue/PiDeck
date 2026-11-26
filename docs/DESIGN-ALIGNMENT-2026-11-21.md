@@ -134,3 +134,27 @@ go tool nsgo test -target windows -run '^TestTrustNotice$' -timeout 2m ./interna
 上的 Windows 原生回归通过两项，覆盖新会话和信任提示。完整短测 657 项通过、108 项
 跳过，`TestGitAbortMerge` 一次超时，定向复测通过。短测仅在测试进程的 PATH 中排除
 了无法启动的 Pi 安装。日志位于 `%TEMP%/pideck-chat-start-short-isolated.log`。
+
+## 2026-11-26 会话刻度的尺寸与点击区域
+
+右缘刻度从默认 6 × 2.5 pt、悬停 18 × 2.5 pt，调整为默认 12 × 4 pt、
+悬停 28 × 4 pt。整块 32 pt 宽的悬停槽位接收点击，线条只负责显示；
+140 ms 的伸缩动画不再改变可点击范围。长会话按至少 8 pt 的槽位高度取样，
+保留首尾轮次，并使各槽位连续、不重叠。
+
+`TestAxisTickHitArea` 直接挂载实际定位轴，覆盖普通与密集会话、无悬停与动画初始帧、
+槽位两角和中心的单击跳转，以及原有刻度选择器。`TestAxisTicksGrowOnHover` 验证
+默认尺寸、悬停伸长及离开后回缩；`TestPlanAxisTicks` 验证取样、最小间距及首尾保留。
+整页会话加载的集成测试与这些组件回归分开验证。
+
+本轮组件回归与 Windows 原生尺寸、悬停和槽位单击回归通过：
+
+```text
+go test ./internal/workbench -run '^(TestPlanAxisTicks|TestAxisTickHitArea|TestAxisTicksGrowOnHover)$' -count=1 -timeout=30s
+go tool nsgo test -target windows -run '^TestAxisTicksGrowOnHover$' -timeout 45s ./internal/workbench
+go tool nsgo test -target windows -run '^TestAxisTickHitArea$' -timeout 45s ./internal/workbench
+```
+
+原生截图位于 `internal/workbench/.nsgo/test/screenshots/windows/57-axis-ticks-rest.png` 和
+`58-axis-ticks-hover.png`，已检查默认刻度、悬停伸长和提示框的位置。
+整页 `TestTurnAxis` 在等待会话输入框加载时超时（20 s），不计入通过项。
