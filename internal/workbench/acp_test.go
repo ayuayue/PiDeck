@@ -27,6 +27,11 @@ func fakeACPConfigTable(changed string, value map[string]any) []map[string]any {
 		{"id": "model", "name": "Model", "category": "model", "type": "select", "currentValue": "sonnet",
 			"options": []map[string]string{{"value": "sonnet", "name": "Sonnet"}, {"value": "opus", "name": "Opus"}}},
 	}
+	if os.Getenv("PIDECK_FAKE_ACP_RICH") == "1" {
+		table = append(table, map[string]any{"id": "thought_level", "name": "Deep Thinking", "category": "thought_level",
+			"type": "select", "currentValue": "low",
+			"options": []map[string]string{{"value": "low", "name": "Low"}, {"value": "high", "name": "High"}}})
+	}
 	for i, option := range table {
 		if changed != "" && option["id"] == changed {
 			table[i] = value
@@ -41,6 +46,8 @@ func TestFakeACPAgent(t *testing.T) {
 	}
 	sc := bufio.NewScanner(os.Stdin)
 	enc := json.NewEncoder(os.Stdout)
+	// A prompt waiting on a permission answer, and the request's id.
+	permissionPrompt, permissionID := 0, 0
 	for sc.Scan() {
 		var msg struct {
 			ID     int             `json:"id"`
@@ -48,6 +55,19 @@ func TestFakeACPAgent(t *testing.T) {
 			Params json.RawMessage `json:"params"`
 		}
 		if json.Unmarshal(sc.Bytes(), &msg) != nil {
+			continue
+		}
+		if msg.Method == "" {
+			// The client answered the permission request: now the prompt
+			// it was holding can finish, as a real agent would.
+			if permissionID != 0 && msg.ID == permissionID {
+				_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": permissionPrompt,
+					"result": map[string]any{"stopReason": "end_turn"}})
+				permissionPrompt, permissionID = 0, 0
+				if os.Getenv("PIDECK_FAKE_ACP_UI") != "1" {
+					os.Exit(0)
+				}
+			}
 			continue
 		}
 		switch msg.Method {
@@ -101,8 +121,7 @@ func TestFakeACPAgent(t *testing.T) {
 				os.Exit(3)
 			}
 			text := strings.Trim(string(req.Value), `"`)
-			switch text {
-			case "true", "false":
+			if text == "true" || text == "false" {
 				// CodeBuddy validates a boolean against the declared type: a
 				// bare value is -32602, exactly what made every session fail.
 				if req.Type != "boolean" {
@@ -111,21 +130,27 @@ func TestFakeACPAgent(t *testing.T) {
 					continue
 				}
 			}
-			var option map[string]any
-			switch req.ConfigID {
-			case "auto_approve":
-				option = map[string]any{"id": "auto_approve", "name": "Auto approve", "type": "boolean",
-					"currentValue": text == "true"}
-			case "mode":
-				option = map[string]any{"id": "mode", "name": "Mode", "category": "mode", "type": "select",
-					"currentValue": text,
-					"options":      []map[string]string{{"value": "auto", "name": "Auto"}, {"value": "fullAccess", "name": "Full access"}}}
-			default:
-				option = map[string]any{"id": req.ConfigID, "name": req.ConfigID, "type": "select",
-					"currentValue": text}
+			// Answer with the agent's own table, only the chosen value
+			// replaced: an option keeps its category and its choices.
+			table := fakeACPConfigTable("", nil)
+			for i, option := range table {
+				if option["id"] != req.ConfigID {
+					continue
+				}
+				next := make(map[string]any, len(option))
+				for k, v := range option {
+					next[k] = v
+				}
+				if req.Type == "boolean" || option["type"] == "boolean" {
+					next["currentValue"] = text == "true"
+				} else {
+					next["currentValue"] = text
+				}
+				table[i] = next
+				break
 			}
 			_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": msg.ID,
-				"result": map[string]any{"configOptions": fakeACPConfigTable(req.ConfigID, option)}})
+				"result": map[string]any{"configOptions": table}})
 		case "session/set_mode":
 			_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": msg.ID, "result": map[string]any{}})
 		case "session/prompt":
@@ -154,10 +179,21 @@ func TestFakeACPAgent(t *testing.T) {
 			_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "method": "session/update",
 				"params": map[string]any{"sessionId": "s1", "update": map[string]any{
 					"sessionUpdate": "agent_message_chunk", "content": map[string]string{"type": "text", "text": "hello"}}}})
-			if !ui {
-				_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": 99, "method": "session/request_permission",
-					"params": map[string]any{"sessionId": "s1", "toolCall": map[string]string{"toolCallId": "t1", "title": "run"},
-						"options": []map[string]string{{"optionId": "allow", "name": "Allow", "kind": "allow_once"}}}})
+			permission := !ui || os.Getenv("PIDECK_FAKE_ACP_PERMISSION") == "1"
+			if permission {
+				toolID, toolTitle := "t1", "run"
+				options := []map[string]string{{"optionId": "allow", "name": "Allow", "kind": "allow_once"}}
+				if os.Getenv("PIDECK_FAKE_ACP_PERMISSION") == "1" {
+					// The UI test's request names no tool: the card has to read
+					// the running tool row (t2, the edit) instead.
+					toolID, toolTitle = "t2", ""
+					options = append(options, map[string]string{"optionId": "reject", "name": "Reject", "kind": "reject_once"})
+				}
+				permissionID, permissionPrompt = 99, msg.ID
+				_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": permissionID, "method": "session/request_permission",
+					"params": map[string]any{"sessionId": "s1", "toolCall": map[string]string{"toolCallId": toolID, "title": toolTitle},
+						"options": options}})
+				continue
 			}
 			_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": msg.ID,
 				"result": map[string]any{"stopReason": "end_turn"}})

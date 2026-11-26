@@ -79,6 +79,7 @@ func (a *app) blankSession(id string, ws *workspace, title string) *session {
 		acpOptions:     core.NewSignalFunc(a.cx, []acpConfigOption(nil), nil),
 		acpOptionBusy:  core.NewSignal(a.cx, false),
 		acpModeOpen:    core.NewSignal(a.cx, false),
+		acpThinkOpen:   core.NewSignal(a.cx, false),
 	}
 	s.conversation = newChatScroll(a.cx)
 	// A blank session starts no process: its chips read the remembered

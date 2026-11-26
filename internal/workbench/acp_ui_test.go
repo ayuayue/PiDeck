@@ -135,6 +135,116 @@ func TestACPPanelSwitch(t *testing.T) {
 	})
 }
 
+// TestACPPermissionCardAnswers checks a permission request shows its
+// options and answers the agent, naming the tool the request is about.
+func TestACPPermissionCardAnswers(t *testing.T) {
+	if testing.Short() || nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	t.Setenv("PIDECK_FAKE_ACP_PERMISSION", "1")
+	app := fakeACPApp(t)
+	newFakeACPSession(t, app)
+	waitApp(app, "id:ask-card", 20*time.Second)
+	waitApp(app, "text:工具权限：编辑 changed.txt", 10*time.Second)
+	waitApp(app, "id:ask-option-allow", 10*time.Second)
+	if len(app.Query("id:ask-option-reject")) == 0 {
+		t.Fatal("the permission card is missing the reject option")
+	}
+	app.Press("id:ask-option-allow")
+	waitApp(app, "text:hello", 20*time.Second)
+	app.WaitForGone("id:ask-card", 10*time.Second)
+}
+
+// TestACPModelChipShowsChoice switches the ACP model from the composer
+// chip and checks the chip carries the new name.
+func TestACPModelChipShowsChoice(t *testing.T) {
+	if testing.Short() || nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	app := fakeACPApp(t)
+	newFakeACPSession(t, app)
+	waitApp(app, "id:acp-model-chip", 60*time.Second)
+	waitApp(app, "text:hello", 20*time.Second)
+	for i := 0; i < 4; i++ {
+		app.Press("id:acp-model-chip")
+		if waitQuiet(app, "id:acp-option-model-opus", 2*time.Second) {
+			break
+		}
+	}
+	app.Press("id:acp-option-model-opus")
+	app.WaitUntil(10*time.Second, func() bool {
+		v := app.Find("id:acp-model-chip")
+		return v != nil && viewHasText(v, "Opus")
+	})
+}
+
+// TestACPThinkingChipShowsChoice switches the ACP thinking level from its
+// chip, against a fake agent that advertises the option.
+func TestACPThinkingChipShowsChoice(t *testing.T) {
+	if testing.Short() || nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	t.Setenv("PIDECK_FAKE_ACP_RICH", "1")
+	app := fakeACPApp(t)
+	newFakeACPSession(t, app)
+	waitApp(app, "id:acp-think-chip", 60*time.Second)
+	waitApp(app, "text:hello", 20*time.Second)
+	for i := 0; i < 4; i++ {
+		app.Press("id:acp-think-chip")
+		if waitQuiet(app, "id:acp-option-thought_level-high", 2*time.Second) {
+			break
+		}
+	}
+	app.Press("id:acp-option-thought_level-high")
+	app.WaitUntil(10*time.Second, func() bool {
+		v := app.Find("id:acp-think-chip")
+		return v != nil && viewHasText(v, "High")
+	})
+}
+
+// TestACPPanelIsBounded checks the agent panel stays a card and leaves the
+// model to its own chip, instead of growing into one screen-tall list.
+func TestACPPanelIsBounded(t *testing.T) {
+	if testing.Short() || nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	app := fakeACPApp(t)
+	newFakeACPSession(t, app)
+	waitApp(app, "id:acp-mode-badge", 60*time.Second)
+	for i := 0; i < 4; i++ {
+		app.Press("id:acp-mode-badge")
+		if waitQuiet(app, "id:acp-info-panel", 2*time.Second) {
+			break
+		}
+	}
+	panel := app.Find("id:acp-info-panel")
+	if panel == nil {
+		t.Fatal("the ACP panel did not open")
+	}
+	if b := panel.Bounds(); b.Size.Width > 360 || b.Size.Height > 470 {
+		t.Fatalf("panel = %vx%v, want a bounded card", b.Size.Width, b.Size.Height)
+	}
+	if len(app.Query("id:acp-option-model-opus")) != 0 {
+		t.Fatal("the model list is still in the agent panel")
+	}
+}
+
+// viewHasText reports whether a view or one of its descendants reads text.
+func viewHasText(v *nsgotest.View, text string) bool {
+	if v == nil {
+		return false
+	}
+	if v.Text == text {
+		return true
+	}
+	for _, child := range v.Children {
+		if viewHasText(child, text) {
+			return true
+		}
+	}
+	return false
+}
+
 // TestResendTurn sends a finished turn's prompt again as a new turn.
 func TestResendTurn(t *testing.T) {
 	if testing.Short() || nsgotest.Target() != "" {

@@ -85,6 +85,45 @@ func TestACPConfigValueWireShapes(t *testing.T) {
 	}
 }
 
+// TestACPOptionMirrorsModes checks a mode config option is hidden only when
+// it carries exactly ACP's own modes.
+func TestACPOptionMirrorsModes(t *testing.T) {
+	modes := []acpMode{{ID: "ask", Name: "Ask"}, {ID: "code", Name: "Code"}}
+	option := acpConfigOption{ID: "mode", Category: "mode", Type: "select",
+		Values: json.RawMessage(`[{"value":"ask","name":"Ask"},{"value":"code","name":"Code"}]`)}
+	if !acpOptionMirrorsModes(option, modes) {
+		t.Fatal("the same values were not seen as ACP's modes")
+	}
+	option.Values = json.RawMessage(`[{"value":"auto","name":"Auto"},{"value":"fullAccess","name":"Full access"}]`)
+	if acpOptionMirrorsModes(option, modes) {
+		t.Fatal("a different mode list was treated as a duplicate")
+	}
+	if acpOptionMirrorsModes(option, nil) {
+		t.Fatal("no ACP modes should never mirror")
+	}
+}
+
+// TestACPConfigOptionClassifies finds the model and thinking options the
+// composer shows as chips, without mistaking a model parameter for a model.
+func TestACPConfigOptionClassifies(t *testing.T) {
+	cases := []struct {
+		option acpConfigOption
+		want   acpOptionKind
+	}{
+		{acpConfigOption{ID: "model", Category: "model"}, acpOptionModel},
+		{acpConfigOption{ID: "reasoning_effort", Category: "thought_level"}, acpOptionThinking},
+		{acpConfigOption{ID: "permission_mode", Category: "mode"}, acpOptionMode},
+		{acpConfigOption{ID: "temperature", Category: "model_config"}, acpOptionOther},
+		{acpConfigOption{ID: "deep_thinking", Name: "Deep Thinking"}, acpOptionThinking},
+		{acpConfigOption{ID: "anything", Name: "Model"}, acpOptionModel},
+	}
+	for _, c := range cases {
+		if got := c.option.kind(); got != c.want {
+			t.Errorf("kind(%+v) = %v, want %v", c.option, got, c.want)
+		}
+	}
+}
+
 // startFakeACP starts the fake agent and opens a session.
 func startFakeACP(t *testing.T) (*acpClient, string, acpModeState) {
 	t.Helper()

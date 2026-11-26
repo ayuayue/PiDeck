@@ -33,19 +33,22 @@ type acpCommand struct {
 
 // acpUpdate is one session/update notification's payload.
 type acpUpdate struct {
-	SessionID string
-	Kind      string // agent_message_chunk, agent_thought_chunk, tool_call, tool_call_update, plan…
-	Text      string
-	ToolID    string
-	Title     string
-	ToolName  string   // the programmatic tool name
-	ToolKind  string   // read, edit, execute…
-	Locations []string // paths the tool touched
-	Status    string
-	Mode      string
-	Commands  []acpCommand
-	Options   []acpConfigOption
-	Raw       json.RawMessage
+	SessionID       string
+	Kind            string // agent_message_chunk, agent_thought_chunk, tool_call, tool_call_update, plan…
+	Text            string
+	ToolID          string
+	Title           string
+	ToolName        string   // the programmatic tool name
+	ToolKind        string   // read, edit, execute…
+	Locations       []string // paths the tool touched
+	Status          string
+	Mode            string
+	Commands        []acpCommand
+	Options         []acpConfigOption
+	UsageUsed       int
+	UsageSize       int
+	SuppressContent bool
+	Raw             json.RawMessage
 }
 
 // acpMode is one operating mode an ACP agent offers.
@@ -86,16 +89,18 @@ type acpClient struct {
 	in     io.WriteCloser
 	stderr *ringBuffer
 
-	mu              sync.Mutex
-	writeMu         sync.Mutex
-	seq             int
-	pending         map[int]chan acpResponse
-	closed          bool
-	loadSupported   bool // immutable after initialize
-	resumeSupported bool
-	imageSupported  bool
-	done            chan struct{}
-	exited          chan struct{}
+	mu                 sync.Mutex
+	writeMu            sync.Mutex
+	seq                int
+	pending            map[int]chan acpResponse
+	closed             bool
+	loadSupported      bool // immutable after initialize
+	resumeSupported    bool
+	imageSupported     bool
+	compacting         atomic.Bool
+	autoCompactPending atomic.Bool
+	done               chan struct{}
+	exited             chan struct{}
 
 	// hooks are the app's callbacks. They are stored atomically because a
 	// prewarmed process starts with none and is handed to a session later.
@@ -389,6 +394,8 @@ func (c *acpClient) dispatchUpdate(raw json.RawMessage) {
 					Hint string `json:"hint"`
 				} `json:"input"`
 			} `json:"availableCommands"`
+			Used int `json:"used"`
+			Size int `json:"size"`
 		} `json:"update"`
 	}
 	if json.Unmarshal(raw, &params) != nil {
@@ -397,7 +404,8 @@ func (c *acpClient) dispatchUpdate(raw json.RawMessage) {
 	u := acpUpdate{SessionID: params.SessionID, Kind: params.Update.SessionUpdate,
 		Text: acpContentText(params.Update.Content), ToolID: params.Update.ToolCallID,
 		Title: params.Update.Title, ToolName: params.Update.Name, ToolKind: params.Update.ToolKind,
-		Status: params.Update.Status, Mode: params.Update.CurrentModeID, Options: params.Update.Options, Raw: raw}
+		Status: params.Update.Status, Mode: params.Update.CurrentModeID, Options: params.Update.Options,
+		UsageUsed: params.Update.Used, UsageSize: params.Update.Size, SuppressContent: c.compacting.Load(), Raw: raw}
 	for _, l := range params.Update.Locations {
 		if l.Path != "" {
 			u.Locations = append(u.Locations, l.Path)

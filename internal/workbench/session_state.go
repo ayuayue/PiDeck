@@ -161,6 +161,7 @@ type session struct {
 	acpOptions     *core.Signal[[]acpConfigOption]
 	acpOptionBusy  *core.Signal[bool]
 	acpModeOpen    *core.Signal[bool]
+	acpThinkOpen   *core.Signal[bool]
 	// acpPerm remembers allow-always and reject-always by tool title.
 	acpPerm   map[string]string
 	acpPermMu sync.Mutex

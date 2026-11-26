@@ -15,8 +15,8 @@ import (
 )
 
 // acpBadge names the ACP preset, its state and its mode, and opens the
-// agent's own panel: the mode list, what it was started with, its commands
-// and the way to reconnect.
+// agent's own panel: the mode list, the options the composer does not show
+// as chips, what it was started with, its commands and the way to reconnect.
 func (a *app) acpBadge(s *session) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
@@ -25,10 +25,9 @@ func (a *app) acpBadge(s *session) core.Node {
 		if preset != nil {
 			name = preset.Name
 		}
-		modes := s.acpModes.Get()
 		label := name
-		if mode := s.acpMode.Get(); mode != "" {
-			label += " · " + acpModeLabel(modes, mode)
+		if _, mode := acpModeInfo(s.acpModes.Get(), s.acpMode.Get(), s.acpOptions.Get()); mode != "" {
+			label += " · " + mode
 		}
 		dot := colors.Faint
 		switch {
@@ -61,108 +60,146 @@ func (a *app) acpBadge(s *session) core.Node {
 			}
 			return apptext.T("ACP · %s（启动中）", name)
 		}, chip)
-		return a.popoverCard(s.acpModeOpen, core.PlaceTop, core.AlignStart, 300, trigger, func(cx *core.Scope) core.Node {
-			colors := ui.ColorsOf(cx)
-			var rows []core.Node
-			changing := s.acpOptionBusy.Get() || s.runningSig.Get() || !s.readySig.Get()
-			if len(modes) > 0 {
-				current := s.acpMode.Get()
-				rows = append(rows, composerPanelTitle(cx, apptext.T("模式")))
-				for _, m := range modes {
-					mode := m
-					title := mode.Name
-					if title == "" {
-						title = mode.ID
-					}
-					row := composerRow(cx, nil, title, mode.Description, mode.ID == current, changing, func() {
-						a.setACPMode(s, mode.ID)
-					})
-					row.TestID = "acp-mode-" + mode.ID
-					rows = append(rows, row)
-				}
-				rows = append(rows, composerDivider(cx))
-			}
-			for _, opt := range s.acpOptions.Get() {
-				option := opt
-				if option.ID == "" {
-					continue
-				}
-				if option.isBool() {
-					rows = append(rows, composerPanelTitle(cx, firstNonEmpty(option.Name, option.ID)),
-						a.acpSwitchRow(cx, s, option, changing), composerDivider(cx))
-					continue
-				}
-				values := option.Choices()
-				if len(values) == 0 {
-					continue
-				}
-				rows = append(rows, composerPanelTitle(cx, firstNonEmpty(option.Name, option.ID)))
-				choices := make([]core.Node, 0, len(values))
-				for _, choice := range values {
-					value := choice.Value
-					row := composerRow(cx, nil, firstNonEmpty(choice.Name, value), choice.Description,
-						value == option.CurrentValue.text(), changing, func() { a.chooseACPOption(s, option.ID, acpTextValue(value)) })
-					row.TestID = "acp-option-" + option.ID + "-" + value
-					choices = append(choices, row)
-				}
-				rows = append(rows, core.Scroll{Style: core.Style{MaxHeight: core.Pt(130)}, Children: choices}, composerDivider(cx))
-			}
-			if s.starting && !s.readySig.Get() {
-				rows = append(rows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6,
-					Padding: core.Symmetric(4, 8)}, Children: []core.Node{
-					ui.Spinner{Size: 11},
-					ui.Text(apptext.T("正在启动 agent…"), 11, ui.Regular, colors.Muted),
-				}})
-			}
-			rows = append(rows, composerPanelTitle(cx, apptext.T("启动参数")))
-			param := func(label, value string) core.Node {
-				return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignStart, Gap: 8, Padding: core.Symmetric(2, 8)},
-					Children: []core.Node{
-						core.Text{Content: label, Style: core.Style{FontSize: 10.5, Width: core.Pt(64), FlexShrink: 0},
-							StyleFunc: ui.Colored(colors.Faint)},
-						core.Text{Content: value, MaxLines: 2, EllipsizeMode: core.EllipsizeMiddle, Selectable: core.SelectableOn,
-							Style:     core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10.5, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
-							StyleFunc: ui.Colored(colors.Muted)},
-					}}
-			}
-			cmd, args := "", ""
-			if preset != nil {
-				cmd, args = preset.Command, strings.Join(preset.Args, " ")
-			}
-			sessionID := s.acpSID
-			if sessionID == "" {
-				sessionID = apptext.T("（还没有建立）")
-			}
-			rows = append(rows,
-				param(apptext.T("命令"), firstNonEmpty(cmd, "—")),
-				param(apptext.T("参数"), firstNonEmpty(args, "—")),
-				param(apptext.T("工作目录"), s.WS),
-				param(apptext.T("会话"), sessionID),
-			)
-			if cmds := s.acpCommands.Get(); len(cmds) > 0 {
-				rows = append(rows, composerDivider(cx), composerPanelTitle(cx, apptext.T("命令（插入输入框）")))
-				for _, c := range cmds {
-					cmd := c
-					rows = append(rows, composerRow(cx, lucide.Command, "/"+cmd.Name, cmd.Description, false, false, func() {
-						draft := s.draft.GetUntracked()
-						if draft != "" && !strings.HasSuffix(draft, " ") && !strings.HasSuffix(draft, "\n") {
-							draft += " "
-						}
-						s.draft.Set(draft + "/" + cmd.Name + " ")
-						s.acpModeOpen.Set(false)
-					}))
-				}
-			}
-			rows = append(rows, composerDivider(cx), core.View{Style: core.Style{Direction: core.Row, Gap: 6, Padding: core.Symmetric(2, 0)},
-				Children: []core.Node{
-					ui.Button{Text: apptext.T("重连"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "acp-reconnect",
-						OnPress: func() { s.acpModeOpen.Set(false); a.reconnectACP(s) }},
-					ui.Button{Text: apptext.T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
-						OnPress: func() { s.acpModeOpen.Set(false) }},
-				}})
-			return core.View{Style: core.Style{Gap: 1}, Children: rows}
+		return a.acpPopover(s.acpModeOpen, 330, trigger, func(cx *core.Scope) core.Node {
+			return a.acpAgentPanel(cx, s, preset)
 		}, "acp-info-menu")
 	})
+}
+
+// acpAgentPanel is the agent's own panel, not the composer's pickers: the
+// permission mode, the switches and selects the chips do not carry, the
+// launch line and the commands. It is one scroll, held to a fixed width, so
+// no list can push it past the window.
+func (a *app) acpAgentPanel(cx *core.Scope, s *session, preset *acpPreset) core.Node {
+	colors := ui.ColorsOf(cx)
+	modes := s.acpModes.Get()
+	options := s.acpOptions.Get()
+	changing := s.acpOptionBusy.Get() || s.runningSig.Get() || !s.readySig.Get()
+	modeOption := acpOptionByKind(options, acpOptionMode)
+	if modeOption != nil && modeOption.isBool() {
+		modeOption = nil
+	}
+	mirrored := modeOption != nil && acpOptionMirrorsModes(*modeOption, modes)
+
+	var rows []core.Node
+	switch {
+	case len(modes) > 0:
+		current := s.acpMode.Get()
+		rows = append(rows, composerPanelTitle(cx, apptext.T("模式")))
+		for _, m := range modes {
+			mode := m
+			title := mode.Name
+			if title == "" {
+				title = mode.ID
+			}
+			row := composerRow(cx, nil, title, mode.Description, mode.ID == current, changing, func() {
+				a.setACPMode(s, mode.ID)
+			})
+			row.TestID = "acp-mode-" + mode.ID
+			rows = append(rows, row)
+		}
+	case modeOption != nil:
+		rows = append(rows, composerPanelTitle(cx, firstNonEmpty(modeOption.Name, apptext.T("模式"))),
+			a.acpChoiceRows(cx, s, *modeOption, func() { s.acpModeOpen.Set(false) }))
+	}
+
+	// Everything the composer does not show as a chip: approval switches,
+	// sandbox, multitask, and a mode option ACP's own modes do not mirror.
+	var others []core.Node
+	for _, opt := range options {
+		option := opt
+		if option.ID == "" {
+			continue
+		}
+		if option.isBool() {
+			others = append(others, a.acpSwitchRow(cx, s, option, changing))
+			continue
+		}
+		switch option.kind() {
+		case acpOptionModel, acpOptionThinking:
+			continue
+		case acpOptionMode:
+			// The mode section above already carries it, or ACP's own modes do.
+			if len(modes) == 0 || mirrored {
+				continue
+			}
+		}
+		if len(option.Choices()) == 0 {
+			continue
+		}
+		if len(others) > 0 {
+			others = append(others, composerDivider(cx))
+		}
+		others = append(others, composerPanelTitle(cx, firstNonEmpty(option.Name, option.ID)),
+			a.acpChoiceRows(cx, s, option, nil))
+	}
+	if len(others) > 0 {
+		if len(rows) > 0 {
+			rows = append(rows, composerDivider(cx))
+		}
+		rows = append(rows, others...)
+	}
+
+	if s.starting && !s.readySig.Get() {
+		rows = append(rows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6,
+			Padding: core.Symmetric(4, 8)}, Children: []core.Node{
+			ui.Spinner{Size: 11},
+			ui.Text(apptext.T("正在启动 agent…"), 11, ui.Regular, colors.Muted),
+		}})
+	}
+
+	if len(rows) > 0 {
+		rows = append(rows, composerDivider(cx))
+	}
+	rows = append(rows, composerPanelTitle(cx, apptext.T("启动参数")))
+	param := func(label, value string) core.Node {
+		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignStart, Gap: 8, Padding: core.Symmetric(2, 8)},
+			Children: []core.Node{
+				core.Text{Content: label, Style: core.Style{FontSize: 10.5, Width: core.Pt(64), FlexShrink: 0},
+					StyleFunc: ui.Colored(colors.Faint)},
+				core.Text{Content: value, MaxLines: 2, EllipsizeMode: core.EllipsizeMiddle, Selectable: core.SelectableOn,
+					Style:     core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10.5, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
+					StyleFunc: ui.Colored(colors.Muted)},
+			}}
+	}
+	cmd, args := "", ""
+	if preset != nil {
+		cmd, args = preset.Command, strings.Join(preset.Args, " ")
+	}
+	sessionID := s.acpSID
+	if sessionID == "" {
+		sessionID = apptext.T("（还没有建立）")
+	}
+	rows = append(rows,
+		param(apptext.T("命令"), firstNonEmpty(cmd, "—")),
+		param(apptext.T("参数"), firstNonEmpty(args, "—")),
+		param(apptext.T("工作目录"), s.WS),
+		param(apptext.T("会话"), sessionID),
+	)
+	if cmds := s.acpCommands.Get(); len(cmds) > 0 {
+		rows = append(rows, composerDivider(cx), composerPanelTitle(cx, apptext.T("命令（插入输入框）")))
+		for _, c := range cmds {
+			cmd := c
+			rows = append(rows, composerRow(cx, lucide.Command, "/"+cmd.Name, cmd.Description, false, false, func() {
+				draft := s.draft.GetUntracked()
+				if draft != "" && !strings.HasSuffix(draft, " ") && !strings.HasSuffix(draft, "\n") {
+					draft += " "
+				}
+				s.draft.Set(draft + "/" + cmd.Name + " ")
+				s.acpModeOpen.Set(false)
+			}))
+		}
+	}
+	rows = append(rows, composerDivider(cx), core.View{Style: core.Style{Direction: core.Row, Gap: 6, Padding: core.Symmetric(2, 0)},
+		Children: []core.Node{
+			ui.Button{Text: apptext.T("重连"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "acp-reconnect",
+				OnPress: func() { s.acpModeOpen.Set(false); a.reconnectACP(s) }},
+			ui.Button{Text: apptext.T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+				OnPress: func() { s.acpModeOpen.Set(false) }},
+		}})
+	return core.View{TestID: "acp-info-panel", Style: core.Style{MinWidth: core.Pt(0), Gap: 1},
+		Children: []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pt(430), MinWidth: core.Pt(0)},
+			Children: []core.Node{core.View{Style: core.Style{Gap: 1, MinWidth: core.Pt(0)}, Children: rows}}}}}
 }
 
 // acpSwitchRow is an on/off option in the ACP panel: some agents keep the
@@ -198,9 +235,6 @@ func acpModeLabel(modes []acpMode, id string) string {
 // acpOpenDialog shows the preset picker.
 func (a *app) acpOpenDialog() {
 	a.acpOpen.Set(true)
-	// The project's default agent starts its handshake now, so picking it
-	// from the list opens a session instead of booting a CLI.
-	a.ensureWarmACPFor(a.activeWorkspace())
 }
 
 // acpDialog lists the presets.

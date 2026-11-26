@@ -276,12 +276,34 @@ func (a *app) acpPrompt(s *session, turnID, text string, images []remotewire.Ima
 		a.acpFinish(s, turnID, "", fmt.Errorf("%s", apptext.T("这个 ACP 工具没有声明支持图片输入。")))
 		return
 	}
+	autoCompact := acpShouldAutoCompact(s.acpPreset, s.stats.GetUntracked(), s.acpCommands.GetUntracked(),
+		c.autoCompactPending.Load())
+	if autoCompact {
+		c.autoCompactPending.Store(false)
+		s.notice.Set(apptext.T("压缩上下文"))
+	}
 	a.saveACPArchive(s)
 	s.status.Set(statusRunning)
 	s.runningSig.Set(true)
 	a.armACPWatchdog(s, c, turnID)
 	go func() {
-		stop, err := c.prompt(sid, text, images...)
+		stop, err, _, _ := c.promptWithAutoCompact(sid, text, images, autoCompact, func(compactErr error, compacted bool) {
+			a.cx.Post(func() {
+				if s.acp == c && s.acpTurnID == turnID {
+					s.notice.Set("")
+					if compacted {
+						a.toast(ui.ToastSuccess, apptext.T("上下文已压缩"), "")
+					}
+					if compactErr != nil {
+						a.toast(ui.ToastWarning, apptext.T("压缩失败"), compactErr.Error())
+						stats := s.stats.GetUntracked()
+						if acpContextAboveThreshold(stats.ContextTokens, stats.ContextWindow) {
+							c.autoCompactPending.Store(true)
+						}
+					}
+				}
+			})
+		})
 		a.cx.Post(func() { a.acpFinish(s, turnID, stop, err) })
 	}()
 }
@@ -379,6 +401,9 @@ func (a *app) applyACPUpdate(s *session, u acpUpdate) {
 	switch u.Kind {
 	case "config_option_update":
 		s.acpOptions.Set(u.Options)
+		if value, ok := acpModeFromOptions(u.Options, s.acpModes.GetUntracked()); ok {
+			s.acpMode.Set(value)
+		}
 		return
 	case "current_mode_update":
 		s.acpMode.Set(u.Mode)
@@ -386,8 +411,26 @@ func (a *app) applyACPUpdate(s *session, u acpUpdate) {
 	case "available_commands_update":
 		s.acpCommands.Set(u.Commands)
 		return
+	case "usage_update":
+		previous := s.stats.GetUntracked()
+		wasHigh := acpContextAboveThreshold(previous.ContextTokens, previous.ContextWindow)
+		next, ok := updateACPContextUsage(previous, u.UsageUsed, u.UsageSize)
+		if !ok {
+			return
+		}
+		s.stats.Set(next)
+		if s.acp != nil {
+			if acpContextAboveThreshold(next.ContextTokens, next.ContextWindow) {
+				if !wasHigh {
+					s.acp.autoCompactPending.Store(true)
+				}
+			} else {
+				s.acp.autoCompactPending.Store(false)
+			}
+		}
+		return
 	}
-	if s.acpTurnID == "" {
+	if u.SuppressContent || s.acpTurnID == "" {
 		return
 	}
 	switch u.Kind {
@@ -559,6 +602,67 @@ func (a *app) setACPMode(s *session, modeID string) {
 	}()
 }
 
+// acpPermissionAsk builds the permission card both hosts read: Options is
+// the label list the phone answers with, Choices is what the desktop draws.
+// A choice's value is the protocol's optionId, the id the agent accepts back.
+func acpPermissionAsk(req acpPermission, id, title string) *extensionAsk {
+	names := make([]string, 0, len(req.Options))
+	choices := make([]askOption, 0, len(req.Options))
+	for _, o := range req.Options {
+		label := firstNonEmpty(o.Name, o.ID)
+		names = append(names, label)
+		choices = append(choices, askOption{Value: o.ID, Label: label})
+	}
+	return &extensionAsk{ID: id, Method: "select",
+		Title: apptext.T("工具权限：%s", title), Message: apptext.T("允许这次工具调用吗？"),
+		Options: names, Choices: choices}
+}
+
+// acpPermissionName names the tool a permission request is about. Agents
+// often leave toolCall.title empty; the running turn's tool row already
+// carries the action and target, which reads far better than a bare id.
+func acpPermissionName(s *session, req acpPermission) string {
+	if title := strings.TrimSpace(req.Title); title != "" {
+		return title
+	}
+	if run, ok := acpToolRunOf(s, req.ToolID); ok {
+		if name := strings.TrimSpace(run.Action + " " + run.Detail); name != "" {
+			return name
+		}
+	}
+	return apptext.T("工具调用")
+}
+
+// acpToolRunOf finds the tool row of the call the agent is asking about.
+// The UI thread owns turns, so callers run it there.
+func acpToolRunOf(s *session, callID string) (toolRun, bool) {
+	if s == nil || callID == "" {
+		return toolRun{}, false
+	}
+	turns := s.turns.GetUntracked()
+	for i := len(turns) - 1; i >= 0; i-- {
+		for j := len(turns[i].Steps) - 1; j >= 0; j-- {
+			for k := range turns[i].Steps[j].Tools {
+				if turns[i].Steps[j].Tools[k].CallID == callID {
+					return turns[i].Steps[j].Tools[k], true
+				}
+			}
+		}
+	}
+	return toolRun{}, false
+}
+
+// acpPermissionReplyOption maps an answer back to the option it means. The
+// desktop replies with the optionId; the phone sends the label it showed.
+func acpPermissionReplyOption(req acpPermission, reply string) (acpPermissionOption, bool) {
+	for _, o := range req.Options {
+		if o.ID == reply || o.Name == reply {
+			return o, true
+		}
+	}
+	return acpPermissionOption{}, false
+}
+
 // askACPPermission turns an agent's permission request into the app's
 // select dialog and waits for the answer, on the agent's reader goroutine.
 func (a *app) askACPPermission(s *session, generation uint64, req acpPermission) string {
@@ -574,24 +678,21 @@ func (a *app) askACPPermission(s *session, generation uint64, req acpPermission)
 			return id
 		}
 	}
-	names := make([]string, 0, len(req.Options))
-	for _, o := range req.Options {
-		names = append(names, o.Name)
-	}
 	answer := make(chan string, 1)
-	ask := &extensionAsk{ID: fmt.Sprintf("acp-%d-%d", generation, req.ID), Method: "select",
-		Title: apptext.T("工具权限：") + req.Title, Message: apptext.T("允许这次工具调用吗？"), Options: names,
-		ACPReply: func(name string) {
-			select {
-			case answer <- name:
-			default:
-			}
-		}}
+	ask := acpPermissionAsk(req, fmt.Sprintf("acp-%d-%d", generation, req.ID),
+		firstNonEmpty(req.Title, apptext.T("工具调用")))
+	ask.ACPReply = func(name string) {
+		select {
+		case answer <- name:
+		default:
+		}
+	}
 	a.cx.Post(func() {
 		if s.acpGeneration != generation || s.acpTurnID == "" || (req.SessionID != "" && req.SessionID != s.acpSID) {
 			ask.ACPReply("")
 			return
 		}
+		ask.Title = apptext.T("工具权限：%s", acpPermissionName(s, req))
 		a.enqueueAsk(s, ask)
 	})
 	defer a.cx.Post(func() { a.dropAsk(s, ask) })
@@ -599,14 +700,12 @@ func (a *app) askACPPermission(s *session, generation uint64, req acpPermission)
 	defer timer.Stop()
 	select {
 	case name := <-answer:
-		for _, o := range req.Options {
-			if o.Name == name {
-				if decision := acpOptionDecision(o.Kind); decision != "" {
-					s.acpRememberPermission(key, decision)
-					a.cx.Post(func() { a.saveACPArchive(s) })
-				}
-				return o.ID
+		if o, ok := acpPermissionReplyOption(req, name); ok {
+			if decision := acpOptionDecision(o.Kind); decision != "" {
+				s.acpRememberPermission(key, decision)
+				a.cx.Post(func() { a.saveACPArchive(s) })
 			}
+			return o.ID
 		}
 		return ""
 	case <-timer.C:

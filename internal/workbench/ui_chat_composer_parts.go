@@ -51,7 +51,7 @@ func (a *app) composerModelControls(s *session) chat.View {
 			case modeOn(s, modeImage):
 				controls = append(controls, a.composerImageOptions(s))
 			case backendOf(s) == "acp":
-				controls = append(controls, a.acpBadge(s))
+				controls = append(controls, a.acpBadge(s), a.acpModelChip(s), a.acpThinkChip(s))
 			default:
 				controls = append(controls, a.modelMenu(s, s.modelOpen), a.effortPicker(s))
 			}

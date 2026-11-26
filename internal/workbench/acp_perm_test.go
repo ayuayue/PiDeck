@@ -38,6 +38,35 @@ func TestACPOptionDecision(t *testing.T) {
 	}
 }
 
+// TestACPPermissionAskChoices checks the card carries the options the
+// desktop draws and the values the agent accepts back.
+func TestACPPermissionAskChoices(t *testing.T) {
+	req := acpPermission{Title: "Run tests", ToolID: "t1", Options: []acpPermissionOption{
+		{ID: "a1", Name: "Allow once", Kind: "allow_once"},
+		{ID: "r1", Name: "Reject once", Kind: "reject_once"},
+	}}
+	ask := acpPermissionAsk(req, "acp-1-9", "Run tests")
+	if ask.Method != "select" || ask.ID != "acp-1-9" {
+		t.Fatalf("ask = %+v", ask)
+	}
+	if len(ask.Options) != 2 || ask.Options[0] != "Allow once" {
+		t.Fatalf("phone options = %+v", ask.Options)
+	}
+	if len(ask.Choices) != 2 || ask.Choices[0].Value != "a1" || ask.Choices[0].Label != "Allow once" {
+		t.Fatalf("desktop choices = %+v", ask.Choices)
+	}
+	// The desktop answers with the id; the phone answers with the label.
+	for _, reply := range []string{"a1", "Allow once"} {
+		option, ok := acpPermissionReplyOption(req, reply)
+		if !ok || option.ID != "a1" {
+			t.Fatalf("reply %q = %+v, %v", reply, option, ok)
+		}
+	}
+	if _, ok := acpPermissionReplyOption(req, ""); ok {
+		t.Fatal("a cancelled reply matched an option")
+	}
+}
+
 // TestACPPermissionMemory checks remember and clear.
 func TestACPPermissionMemory(t *testing.T) {
 	s := &session{}

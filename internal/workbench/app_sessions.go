@@ -95,6 +95,7 @@ func (a *app) makeSession(m sessionMeta, t target) *session {
 		acpOptions:     core.NewSignalFunc(a.cx, []acpConfigOption(nil), nil),
 		acpOptionBusy:  core.NewSignal(a.cx, false),
 		acpModeOpen:    core.NewSignal(a.cx, false),
+		acpThinkOpen:   core.NewSignal(a.cx, false),
 	}
 	if id := a.cfg.SessionPersonas[m.ID]; id != "" {
 		s.personaID = id

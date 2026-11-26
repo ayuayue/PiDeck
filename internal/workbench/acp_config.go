@@ -140,6 +140,99 @@ func (l *acpConfigOptions) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// acpOptionKind is the composer control an option belongs to. ACP declares
+// the category for the options agents know (mode, model, thought level);
+// older agents only name the id, so the id and then the name fall back.
+type acpOptionKind uint8
+
+const (
+	acpOptionOther acpOptionKind = iota
+	acpOptionMode
+	acpOptionModel
+	acpOptionThinking
+)
+
+// acpOptionKey normalizes a category or id for comparison: agents spell the
+// same thing "thought_level", "thoughtLevel" and "Thinking".
+func acpOptionKey(text string) string {
+	return strings.Map(func(r rune) rune {
+		switch r {
+		case '_', '-', ' ', '.':
+			return -1
+		}
+		return r
+	}, strings.ToLower(strings.TrimSpace(text)))
+}
+
+// kind classifies an option for the composer. A model's own parameters
+// ("model_config") stay in the panel with the rest: they are not the model.
+func (o acpConfigOption) kind() acpOptionKind {
+	switch acpOptionKey(o.Category) {
+	case "mode":
+		return acpOptionMode
+	case "model":
+		return acpOptionModel
+	case "thoughtlevel", "thinking", "reasoning", "reasoningeffort":
+		return acpOptionThinking
+	}
+	switch acpOptionKey(o.ID) {
+	case "mode", "permissionmode":
+		return acpOptionMode
+	case "model":
+		return acpOptionModel
+	case "thoughtlevel", "thinking", "reasoning", "reasoningeffort", "effort":
+		return acpOptionThinking
+	}
+	name := strings.ToLower(strings.TrimSpace(o.Name))
+	switch {
+	case strings.Contains(name, "thinking"), strings.Contains(name, "reasoning"),
+		strings.Contains(o.Name, "思考"), strings.Contains(o.Name, "思考等级"):
+		return acpOptionThinking
+	case name == "model", name == "模型":
+		return acpOptionModel
+	case name == "permission mode", name == "权限模式":
+		return acpOptionMode
+	}
+	return acpOptionOther
+}
+
+// acpOptionByKind finds the first option of a kind, nil when the agent
+// offers none.
+func acpOptionByKind(options []acpConfigOption, kind acpOptionKind) *acpConfigOption {
+	for i := range options {
+		if options[i].kind() == kind {
+			return &options[i]
+		}
+	}
+	return nil
+}
+
+// acpOptionByID finds the live copy of an option, which an agent may
+// replace with a different value after a choice.
+func acpOptionByID(options []acpConfigOption, id string) *acpConfigOption {
+	for i := range options {
+		if options[i].ID == id {
+			return &options[i]
+		}
+	}
+	return nil
+}
+
+// currentChoiceLabel names the choice the option holds now, so a chip can
+// show what is in force; an unknown value stays as the agent sent it.
+func (o acpConfigOption) currentChoiceLabel() string {
+	value := o.CurrentValue.text()
+	if value == "" {
+		return ""
+	}
+	for _, choice := range o.Choices() {
+		if choice.Value == value {
+			return firstNonEmpty(choice.Name, value)
+		}
+	}
+	return value
+}
+
 // isBool reports whether the option is an on/off switch. Agents that send
 // a boolean without declaring it are handled too.
 func (o acpConfigOption) isBool() bool {
@@ -289,6 +382,54 @@ func acpModeOptionIndex(options []acpConfigOption) int {
 	return -1
 }
 
+// acpOptionMirrorsModes reports whether a config option carries exactly the
+// session modes: CodeBuddy exposes the permission modes both as ACP's
+// "modes" and as a config option, and drawing both is one list twice.
+func acpOptionMirrorsModes(option acpConfigOption, modes []acpMode) bool {
+	if len(modes) == 0 || option.isBool() {
+		return false
+	}
+	choices := option.Choices()
+	if len(choices) != len(modes) {
+		return false
+	}
+	ids := make(map[string]bool, len(modes))
+	for _, mode := range modes {
+		ids[mode.ID] = true
+	}
+	for _, choice := range choices {
+		if !ids[choice.Value] {
+			return false
+		}
+	}
+	return true
+}
+
+// acpModeInfo names the mode in force: ACP's own modes when the agent has
+// them, else the mode config option.
+func acpModeInfo(modes []acpMode, modeID string, options []acpConfigOption) (string, string) {
+	if len(modes) > 0 {
+		return modeID, acpModeLabel(modes, modeID)
+	}
+	if option := acpOptionByKind(options, acpOptionMode); option != nil && !option.isBool() {
+		value := option.CurrentValue.text()
+		return value, firstNonEmpty(option.currentChoiceLabel(), value)
+	}
+	return "", ""
+}
+
+// acpModeFromOptions reads the mode a config table carries, when it can be
+// trusted: with no ACP modes it is the only source, with modes beside it
+// only a table that mirrors them (an agent's own mode update then wins).
+func acpModeFromOptions(options []acpConfigOption, modes []acpMode) (string, bool) {
+	option := acpOptionByKind(options, acpOptionMode)
+	if option == nil || option.isBool() || (len(modes) > 0 && !acpOptionMirrorsModes(*option, modes)) {
+		return "", false
+	}
+	value := option.CurrentValue.text()
+	return value, value != ""
+}
+
 // acpNoBypassNotice tells the user a preset's bypass switch cannot apply:
 // the agent offers no such mode, so its sessions keep asking.
 const acpNoBypassNotice = "这个 ACP 没有旁路权限档，预设里的旁路权限不会生效。"
@@ -323,6 +464,14 @@ func (a *app) restoreACPChoices(c *acpClient, preset, sid string, state acpModeS
 		slices.ContainsFunc(state.AvailableModes, func(m acpMode) bool { return m.ID == pref.Mode }) {
 		if err := c.setMode(sid, pref.Mode); err == nil {
 			state.CurrentModeID = pref.Mode
+			// Keep the duplicate config option in step: an agent that
+			// mirrors its modes there would otherwise replay the old one.
+			if idx := acpModeOptionIndex(state.Options); idx >= 0 {
+				option := state.Options[idx]
+				if acpOptionMirrorsModes(option, state.AvailableModes) && option.hasValue(acpTextValue(pref.Mode)) {
+					state.Options[idx].CurrentValue = acpTextValue(pref.Mode)
+				}
+			}
 		}
 	}
 	// A model change can change the available reasoning settings, so every
@@ -385,6 +534,11 @@ func (a *app) applyACPAccess(c *acpClient, preset acpPreset, sid string, state a
 			state.Options = options
 		} else {
 			state.Options[idx].CurrentValue = bypass
+		}
+		// The badge reads the ACP mode; when the config option is the same
+		// list, the bypass is the mode in force.
+		if acpOptionMirrorsModes(option, state.AvailableModes) {
+			state.CurrentModeID = bypass.text()
 		}
 		return state, ""
 	}
@@ -457,6 +611,13 @@ func (a *app) chooseACPOption(s *session, id string, value acpConfigValue) {
 			}
 			if options != nil {
 				s.acpOptions.Set(options)
+			}
+			// The agent keeps the permission mode here when it exposes no
+			// ACP modes; the badge reads s.acpMode, so write it too.
+			if option.kind() == acpOptionMode && len(s.acpModes.GetUntracked()) == 0 {
+				if text := value.text(); text != "" {
+					s.acpMode.Set(text)
+				}
 			}
 			if option.remembered() && option.hasValue(value) {
 				text := acpPreferenceText(value)
