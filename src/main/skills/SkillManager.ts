@@ -9,11 +9,12 @@ import { openSystemPath } from "../fs/openPath";
 import type { AppSettings, CreatePiSkillInput, PiSkillListResult, PiSkillLocation, PiSkillSummary } from "../../shared/types";
 import type { WslEnvironment } from "../wsl/WslPaths";
 import { pideckBundledSkillsDir } from "./pideckSkillsPath";
-import { RETIRED_BUNDLED_SKILLS } from "./bundledSkills";
+import { BUNDLED_SKILLS } from "./bundledSkills";
 import { installBundledSkillTemplate, retireBundledSkillDirs } from "./bundledSkillInstaller";
 import type { MainProcessTranslationKey } from "../../shared/i18n/mainProcessCopy";
 
 const SKILL_FILE = "SKILL.md";
+const ELECTRON_BUNDLED_SKILL_NAMES = new Set(BUNDLED_SKILLS.filter((skill) => skill.location === "pideck-global").map((skill) => skill.name));
 const IMPORT_MAX_FILE_BYTES = 10 * 1024 * 1024;
 const IMPORT_MAX_TREE_BYTES = 50 * 1024 * 1024;
 const IMPORT_MAX_DEPTH = 32;
@@ -117,13 +118,10 @@ export class SkillManager {
 	}
 
 	/**
-	 * 本次 spawn 应通过 `--skill` 注入的内置技能目录（按开关过滤）。
-	 *
-	 * 过滤读的是 pi settings.json 的投影（与技能列表开关同源）：`--skill` 注入不受
-	 * pi 自己的自动发现/过滤规则约束，停用的内置技能必须在拼命令行时剔除。
-	 * 已退役的旧入口也在这里跳过：它们可能还没被回收站清掉（或清理失败），但仍不能注入，
-	 * 否则四个旧技能的名字与描述会继续常驻系统提示词。
-	 * 目录很小（≤ 内置技能数），不做缓存，避免开关后拿到旧值。
+	 * 按 Electron 随包清单及启用状态返回本次 spawn 的 `--skill` 目录。
+	 * 共享目录可能还有 Lite / V2 的技能，不能按目录内容全量注入。
+	 * 显式 `--skill` 不受 pi 自动发现的过滤约束，必须在这里检查原生开关。
+	 * 不缓存，确保开关立即生效。
 	 */
 	getBundledSkillLoadPaths(): string[] {
 		const location = this.locations.find((item) => item.id === "pideck-global");
@@ -136,7 +134,7 @@ export class SkillManager {
 		}
 		const paths: string[] = [];
 		for (const entry of entries) {
-			if (!entry.isDirectory() || entry.name.startsWith(".") || RETIRED_BUNDLED_SKILLS.includes(entry.name)) continue;
+			if (!entry.isDirectory() || !ELECTRON_BUNDLED_SKILL_NAMES.has(entry.name)) continue;
 			const dir = join(location.path, entry.name);
 			const skillFile = join(dir, SKILL_FILE);
 			if (!existsSync(skillFile)) continue;
@@ -453,6 +451,8 @@ export class SkillManager {
 		const canonicalLocation = await realpath(location.path).catch(() => null);
 		if (canonicalLocation) ancestors.add(canonicalLocation);
 		for (const entry of entries) {
+			// 与 spawn 使用同一清单，其他桌面版本的技能不展示为 Electron 内置技能。
+			if (location.id === "pideck-global" && !ELECTRON_BUNDLED_SKILL_NAMES.has(entry.name)) continue;
 			const fullPath = join(location.path, entry.name);
 			const kind = await this.getEntryKind(fullPath, entry);
 			if (kind === "directory") {

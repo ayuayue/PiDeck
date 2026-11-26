@@ -149,6 +149,11 @@
 - **非模型的主进程出网也用同一层**：pi CLI 更新日志（jsDelivr / unpkg / GitHub raw 三个**境外** CDN，`PiChangelogService` 构造参数 `deps.fetchImpl`，缺省 `modelHttpFetch`）、扩展目录页（`piPackageCatalog.getPiPackageCatalog` 的 `fetchImpl` 是**必填参数**，靠编译期强制调用方注入，不保留全局兜底）。两处旧实现都是全局 `fetch`：代理环境下 changelog 会静默降级成「在浏览器查看」，目录页直接挂到超时并报「商店加载失败」。
 - **守卫**：`tests/modelHttp.test.mjs` 锁分流/超时/取消/截断/代理三态，并静态断言生图、生视频、语音转写、火山 ASR、pi 更新日志的缺省实现是 `modelHttpFetch`（防退回全局 `fetch`），断言目录页 `fetchImpl` 必填且无 `?? fetch` 兜底，同时断言 whisper 本地链路不经统一层。
 
+## 内置技能的版本隔离
+
+- `~/.pi/agent/pideck-skills` 可能由 Electron、Lite 和 V2 共用。Electron 的 `SkillManager.getBundledSkillLoadPaths()` 与技能列表必须共同按 `BUNDLED_SKILLS` 中 `location: "pideck-global"` 的清单过滤，不能把目录下所有技能视为 Electron 内置技能；只排除退役名单也会串载其他版本。
+- 其他版本的技能目录原样保留；用户主动放进 `~/.pi/agent/skills` 或 `~/.agents/skills` 的技能仍按通用目录规则发现。共存、禁用、列表来源及文件保留回归见 `tests/bundledSkillIsolation.test.mjs`。
+
 ## 技能商店安装链路（net.fetch 搜索 + spawn 进度 + 代理 env 注入）
 - **主进程联网一律走注入的 `fetchImpl`（= Electron `net.fetch`）**：裸全局 `fetch` 是 undici，既不读系统代理也不读 Electron 桌面 session 代理，代理环境下境外 API 挂到超时且只抛含糊 `AbortError`。`storeIpc.ts` 四个商店 handler（`skillHubSearch` / `skillStoreSearch` / `promptStoreSearch` / `promptStoreGet`）全部经 `deps.fetchImpl`；测试用 `createStoreIpc({ fetchImpl })` 注桩，未注入时才回退全局 fetch（测试沙箱无 fetch，故必须惰性取值）。
 - **搜索入参契约（preload ↔ 主进程）**：`skill-hub:search` 两侧共用 `shared/types` 的 `SkillHubSearchOptions`（`{ query, limit }`，limit 缺省 50）。preload 曾透传 api.skillhub.cn 时代的 `page/pageSize/sortBy/order`，主进程只读 `limit`——面板传的第二个参数落到 `page` 上被静默丢弃；`tests/skillHubSearchContract.test.mjs` 用「preload 捕获真实 payload → 主进程 handler」端到端锁住契约。
