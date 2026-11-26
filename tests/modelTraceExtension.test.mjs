@@ -98,6 +98,42 @@ test("after_provider_response：按会话配对到请求的 traceId，带上状�
 	assert.ok(Number.isFinite(response.durationMs) && response.durationMs >= 0);
 });
 
+test("重试：同一请求的每次尝试各发一条响应帧（同一 traceId，耗时按上一节点计）", async () => {
+	const { handlers, fetchCalls } = loadExtension();
+	handlers.get("before_provider_request")({ payload: { messages: [] } }, makeContext());
+	await new Promise((resolve) => setTimeout(resolve, 120));
+	// pi 1.6.1 起错误响应与每次重试尝试都会触发（一个请求 → 多条响应）
+	handlers.get("after_provider_response")({ status: 503, headers: {} }, makeContext());
+	await new Promise((resolve) => setTimeout(resolve, 5));
+	handlers.get("after_provider_response")({ status: 200, headers: {} }, makeContext());
+	await new Promise((resolve) => setTimeout(resolve, 0));
+
+	assert.equal(fetchCalls.length, 3, "1 条请求帧 + 2 条尝试响应帧");
+	const [request, firstAttempt, secondAttempt] = fetchCalls.map(parseFrame);
+	assert.equal(firstAttempt.status, 503);
+	assert.equal(secondAttempt.status, 200);
+	assert.equal(firstAttempt.traceId, request.traceId, "重试尝试仍属于同一次请求");
+	assert.equal(secondAttempt.traceId, request.traceId);
+	assert.ok(firstAttempt.durationMs >= 100, `首次尝试量的是请求发出到响应：${firstAttempt.durationMs}ms`);
+	// 第二次尝试从第一次响应算起（~5ms），不是从请求发出累计（~125ms）
+	assert.ok(secondAttempt.durationMs < 80, `durationMs 必须是本次尝试的耗时，不得是累计值：${secondAttempt.durationMs}ms`);
+});
+
+test("终态失败留下的请求不会把下一条响应错配给别人", async () => {
+	const { handlers, fetchCalls } = loadExtension();
+	// 请求 A（例如网络错误）只有请求帧，没有响应帧
+	handlers.get("before_provider_request")({ payload: { messages: [{ role: "user", content: "a" }] } }, makeContext());
+	// 请求 B 随即开始
+	handlers.get("before_provider_request")({ payload: { messages: [{ role: "user", content: "b" }] } }, makeContext());
+	handlers.get("after_provider_response")({ status: 200, headers: {} }, makeContext());
+	await new Promise((resolve) => setTimeout(resolve, 0));
+
+	const [first, second, response] = fetchCalls.map(parseFrame);
+	assert.equal(fetchCalls.length, 3);
+	assert.notEqual(first.traceId, second.traceId);
+	assert.equal(response.traceId, second.traceId, "响应必须归给最近一次请求，不跟随失败的孤儿请求");
+});
+
 test("会话隔离：没有配对请求的响应不发孤儿帧", async () => {
 	const { handlers, fetchCalls } = loadExtension();
 	handlers.get("after_provider_response")({ status: 200, headers: {} }, makeContext({ sessionId: "other-session" }));

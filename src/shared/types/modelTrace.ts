@@ -29,7 +29,13 @@ export type ModelTraceRequestInput = {
 	toolCount?: number;
 };
 
-/** provider 响应（只记状态码与耗时，响应体与响应头都不采集）。 */
+/**
+ * provider 响应（只记状态码与耗时，响应体与响应头都不采集）。
+ *
+ * pi 1.6.1 起 `after_provider_response` 对**每个 HTTP 响应**都触发（错误响应、每次重试
+ * 尝试各一条），因此同一次请求可能对应多条响应帧；`durationMs` 是这一次尝试到响应头
+ * 到达的耗时（不含流式消费），不是整次请求的累计。
+ */
 export type ModelTraceResponseInput = {
 	kind: "response";
 	traceId: string;

@@ -24,10 +24,15 @@
  * 4. payload 超 1.5MB（UTF-8 字节）按**头部**截断：桥端点 body 上限 4MB，而 JSON
  *    转义（引号/换行）会让体积再膨胀，留足余量。截断后 `payloadJson` 不是合法 JSON
  *    （面板按原文展示并标注 truncated）；`payloadBytes` 始终是截断前的真实大小。
- * 5. `after_provider_response` 只在**重试结束后的最终响应**触发一次，`durationMs` 是
- *    到响应头到达的耗时（不含流式消费）；终态失败（重试耗尽/网络错误）**没有该事件**
- *    —— 时间线上只有请求行、没有响应行本身就是「这次调用失败了」的信号
- *    （错误详情看 RPC 日志 recv 侧）。
+ * 5. `after_provider_response` 从 pi 1.6.1 起**每个 provider HTTP 响应**都触发：包括
+ *    4xx/5xx 错误响应与每次重试尝试，因此一次 `before_provider_request`（重试不重建
+ *    payload，只在 Anthropic 的 strict-tools 降级等路径重跑）可能配到多条响应。
+ *    配对口径是「同会话最近一次请求」——pi 的 agent 循环一次只发一个请求，串行；
+ *    新的 `before_provider_request` 直接替换未完成的旧项，避免终态失败留下的孤儿
+ *    请求把下一条响应的 traceId 错配。`durationMs` 是**本次尝试**的耗时（到响应头
+ *    到达为止，不含流式消费；多次尝试时按上一节点计），不是整个请求的累计。
+ *    终态失败（重试耗尽/网络错误/SSE 内报错）可能仍然没有响应行——时间线上只有
+ *    请求行本身就是「没有拿到响应」的信号，错误详情看 RPC 日志 recv 侧。
  * 6. 关闭 RPC 日志（主进程 rpcLoggingAgents）时宿主会丢弃快照：本扩展不做开关同步，
  *    照常采集 —— 一次 stringify + 回环 POST 的代价远小于引入一条状态查询通道。
  */
@@ -47,15 +52,15 @@ const REQUEST_TIMEOUT_MS = 2_000;
  * 此时丢弃快照（诊断数据不值得拖慢 pi）。
  */
 const MAX_IN_FLIGHT = 4;
-/** 每会话未配对请求的排队上限（响应事件不带 traceId，只能按到达顺序配对）。 */
-const MAX_PENDING_PER_SESSION = 8;
 
 type PendingRequest = {
 	traceId: string;
-	/** 请求发出时刻（compute durationMs 用）。 */
+	/** 请求发出时刻。 */
 	startedAt: number;
 	/** 请求帧是否真的发出去了：没发出去就不要再补一条孤儿响应行。 */
 	sent: boolean;
+	/** 上一条响应（本次请求的重试尝试）到达时刻：下一次尝试的 durationMs 从它算起。 */
+	lastResponseAt?: number;
 };
 
 /**
@@ -106,7 +111,9 @@ export default function piDeckModelTrace(pi: ExtensionAPI): void {
 	if (!url || !token) return;
 	const endpoint = url.replace(/\/+$/, "");
 
-	const pendingBySession = new Map<string, PendingRequest[]>();
+	// 每会话「当前请求」单槽：pi 的 agent 循环串行发请求，响应事件不带 traceId，
+	// 只能按「最近一次请求」归属；新请求替换未完成的旧项。
+	const currentBySession = new Map<string, PendingRequest>();
 	let inFlight = 0;
 	let droppedCount = 0;
 
@@ -151,11 +158,8 @@ export default function piDeckModelTrace(pi: ExtensionAPI): void {
 			const model = ctx.model;
 			const pending: PendingRequest = { traceId: makeTraceId(), startedAt: Date.now(), sent: false };
 
-			// 先入队再发送：响应事件一定晚于本 handler 返回，入队顺序即配对顺序
-			const queue = pendingBySession.get(sessionKey) ?? [];
-			if (queue.length >= MAX_PENDING_PER_SESSION) queue.shift();
-			queue.push(pending);
-			pendingBySession.set(sessionKey, queue);
+			// 先登记再发送：响应事件一定晚于本 handler 返回
+			currentBySession.set(sessionKey, pending);
 
 			pending.sent = post({
 				kind: "request",
@@ -180,17 +184,19 @@ export default function piDeckModelTrace(pi: ExtensionAPI): void {
 	pi.on("after_provider_response", (event, ctx) => {
 		try {
 			const sessionKey = resolveSessionKey(ctx);
-			const queue = pendingBySession.get(sessionKey);
-			const pending = queue?.shift();
-			if (queue && queue.length === 0) pendingBySession.delete(sessionKey);
+			const pending = currentBySession.get(sessionKey);
 			if (!pending?.sent) return undefined;
+			// 每个响应都发（含错误与重试尝试）：同一个 traceId 会因此出现多行响应，
+			// durationMs 是本次尝试的耗时，不是整次请求的累计。
+			const now = Date.now();
 			post({
 				kind: "response",
 				traceId: pending.traceId,
-				ts: Date.now(),
+				ts: now,
 				status: event.status,
-				durationMs: Date.now() - pending.startedAt,
+				durationMs: now - (pending.lastResponseAt ?? pending.startedAt),
 			});
+			pending.lastResponseAt = now;
 		} catch {
 			// 同上：单条缺席
 		}
