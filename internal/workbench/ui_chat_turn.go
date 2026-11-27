@@ -31,6 +31,8 @@ func (a *app) turnView(s *session, t func() turn, index func() int, selection *c
 		// never here: rebuilding the turn every second would reset the
 		// disclosures inside it.
 		var reply core.Ref
+		image := core.NewSignal[*replyImageRequest](cx, nil)
+		exportImage := func(process, share bool) { a.openReplyImage(s, t(), process, share, image) }
 		now := func() time.Time { return a.clock.Get() }
 		foldKey := s.ID + "/fold/" + t().ID
 		auto := func() bool { return t().running() }
@@ -53,20 +55,21 @@ func (a *app) turnView(s *session, t func() turn, index func() int, selection *c
 					return !tt.System && (tt.Final != "" || tt.running() || tt.Err != "")
 				}, Then: func(*core.Scope) core.Node { return a.turnReplyHeader(s, t) }},
 				core.Show{When: foldable, Then: func(cx *core.Scope) core.Node { return a.turnFoldRow(cx, t, open, toggle) }},
-				core.Show{When: showProcess, Then: func(cx *core.Scope) core.Node { return a.turnProcess(s, t) }},
+				a.turnProcess(s, t, showProcess, selection),
 				core.Show{When: func() bool { return t().running() }, Then: func(cx *core.Scope) core.Node {
 					return a.turnWorkingRow(cx, t, now)
 				}},
-				core.Show{When: func() bool { tt := t(); return !tt.running() && tt.Final != "" }, Then: func(cx *core.Scope) core.Node {
-					return a.replyContent(s, t, &reply, selection, a.chatMarkdownLive(s, func() string { return t().Final }, func() bool { return false }, core.Style{}))
+				core.Show{When: func() bool { tt := t(); return !tt.running() && exportFinal(tt) != "" }, Then: func(cx *core.Scope) core.Node {
+					return a.replyContent(s, t, &reply, selection, a.chatMarkdownLive(s, func() string { return exportFinal(t()) }, func() bool { return false }, core.Style{}))
 				}},
 				a.turnFooter(s, t, now),
 				core.Show{When: func() bool { tt := t(); return !tt.running() && tt.Final != "" },
 					Then: func(cx *core.Scope) core.Node {
 						return core.View{TestID: "reply-actions", Style: core.Style{Direction: core.Row, Wrap: core.Wrap, AlignItems: core.AlignCenter, Gap: 4},
-							Children: []core.Node{a.turnActions(s, t, &reply, now)}}
+							Children: []core.Node{a.turnActions(s, t, exportImage, now)}}
 					}},
 			}},
+			a.replyImageDialog(image),
 		}}
 	})
 }
@@ -256,7 +259,10 @@ func (a *app) replyContent(s *session, t func() turn, reply *core.Ref, selection
 						a.menuSeparator(cx),
 					}
 				}},
-				a.menuRow(a.cx, lucide.Copy, "复制回复", "", false, func() { a.copyText(t().Final, "回复") }),
+				ui.MenuItem{Text: apptext.T("复制回复"), Icon: lucide.Copy, TestID: "chat-copy-reply",
+					OnSelect: func() { a.copyText(replyText(t()), "回复") }},
+				ui.MenuItem{Text: apptext.T("复制全部（含过程）"), Icon: lucide.Copy, TestID: "chat-copy-all",
+					OnSelect: func() { a.copyText(replyMarkdown(t(), true), "回复") }},
 				a.menuRow(a.cx, lucide.Languages, "翻译回复", "", false, func() { a.openTranslationWith(t().Final) }),
 				a.menuRow(a.cx, lucide.Star, "收藏这条回复", "", false, func() { a.favoriteReply(s, t()) }),
 				a.menuRow(a.cx, lucide.Activity, "查看轨迹", "", false, func() { a.openTrajectory(s, t()) }),
@@ -280,10 +286,9 @@ func (a *app) replyContent(s *session, t func() turn, reply *core.Ref, selection
 	})
 }
 
-// turnActions keeps finished replies to copying and sharing. The copy
-// button uses Markdown by default; its adjacent menu offers image capture.
-func (a *app) turnActions(s *session, t func() turn, reply *core.Ref, now func() time.Time) core.Node {
-	copyMarkdown := func() { a.copyText(t().Final, "回复") }
+// turnActions offers the full answer or the answer with its process.
+func (a *app) turnActions(s *session, t func() turn, image func(bool, bool), now func() time.Time) core.Node {
+	copyMarkdown := func() { a.copyText(replyText(t()), "回复") }
 	return core.Group{
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter}, Children: []core.Node{
 			chat.IconAction{Label: apptext.T("复制回复"), Icon: lucide.Copy, TestID: "turn-copy", OnPress: copyMarkdown},
@@ -292,11 +297,24 @@ func (a *app) turnActions(s *session, t func() turn, reply *core.Ref, now func()
 					Style: core.Style{Width: core.Pt(22), Height: core.Pt(26)}},
 				Children: []core.Node{
 					ui.MenuItem{Text: apptext.T("复制 Markdown"), Icon: lucide.FileText, TestID: "turn-copy-markdown", OnSelect: copyMarkdown},
-					ui.MenuItem{Text: apptext.T("复制图片"), Icon: lucide.Image, TestID: "turn-copy-image",
-						OnSelect: func() { a.cx.Post(func() { a.copyReplyImage(reply) }) }},
+					ui.MenuItem{Text: apptext.T("复制全部（含过程）"), Icon: lucide.Copy, TestID: "turn-copy-all",
+						OnSelect: func() { a.copyText(replyMarkdown(t(), true), "回复") }},
+					ui.MenuItem{Text: apptext.T("复制图片"), Icon: lucide.Image, TestID: "turn-copy-image", OnSelect: func() { image(false, false) }},
+					ui.MenuItem{Text: apptext.T("复制图片（含过程）"), Icon: lucide.Image, TestID: "turn-copy-image-all", OnSelect: func() { image(true, false) }},
 				}},
 		}},
-		chat.IconAction{Label: apptext.T("分享"), Icon: lucide.Share2, TestID: "turn-share", OnPress: func() { a.shareReply(s, t()) }},
+		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter}, Children: []core.Node{
+			chat.IconAction{Label: apptext.T("分享"), Icon: lucide.Share2, TestID: "turn-share", OnPress: func() { a.shareReply(s, t(), false) }},
+			ui.Menu{Label: apptext.T("分享"), TestID: "turn-share-menu", Placement: core.PlaceBottom,
+				Trigger: ui.Button{Icon: lucide.ChevronDown, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+					Style: core.Style{Width: core.Pt(22), Height: core.Pt(26)}},
+				Children: []core.Node{
+					ui.MenuItem{Text: apptext.T("分享"), Icon: lucide.FileText, TestID: "turn-share-text", OnSelect: func() { a.shareReply(s, t(), false) }},
+					ui.MenuItem{Text: apptext.T("分享全部（含过程）"), Icon: lucide.FileText, TestID: "turn-share-all", OnSelect: func() { a.shareReply(s, t(), true) }},
+					ui.MenuItem{Text: apptext.T("分享图片"), Icon: lucide.Image, TestID: "turn-share-image", OnSelect: func() { image(false, true) }},
+					ui.MenuItem{Text: apptext.T("分享图片（含过程）"), Icon: lucide.Image, TestID: "turn-share-image-all", OnSelect: func() { image(true, true) }},
+				}},
+		}},
 		a.turnMeta(t, now),
 	}
 }

@@ -690,8 +690,8 @@ func (a *app) copyLastReply() {
 	}
 	ts := s.turns.Get()
 	for i := len(ts) - 1; i >= 0; i-- {
-		if ts[i].Final != "" {
-			a.copyText(ts[i].Final, "回复")
+		if answer := replyText(ts[i]); answer != "" {
+			a.copyText(answer, "回复")
 			return
 		}
 	}

@@ -134,7 +134,7 @@ func TestReplyShareOnlySelectedAnswer(t *testing.T) {
 	screen.Press("id:turn-share")
 	screen.WaitUntil(5*time.Second, func() bool { return len(screen.Shares) == 1 })
 	shared := screen.Shares[0]
-	if shared.Text != answer+" API_KEY="+shareRedacted || len(shared.Files) != 0 {
+	if shared.Text != "intermediate reply\n\n"+answer+" API_KEY="+shareRedacted || len(shared.Files) != 0 {
 		t.Fatalf("shared reply = %+v", shared)
 	}
 	if s.turns.GetUntracked()[1].Final != answer+" API_KEY=private-value-1234567890" {

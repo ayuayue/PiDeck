@@ -77,20 +77,19 @@ func (r stepSource) textAt() int {
 	return min(max(st.TextAt, 0), len(st.Tools))
 }
 
-// turnProcess is a turn's process in the order pi wrote it: what it
-// thought and the calls it made, in one group per run of work, split only
-// where the turn said something in between.
-func (a *app) turnProcess(s *session, t func() turn) core.Node {
+// turnProcess keeps prose visible when the thinking and tool groups fold.
+func (a *app) turnProcess(s *session, t func() turn, expanded func() bool, selection *chatSelection) core.Node {
 	return core.Each(func() []processNode {
 		return processNodes(a.processItems(s, t))
 	}, func(n processNode) string { return n.id }, func(cx *core.Scope, node func() processNode, _ func() int) core.Node {
-		return a.processRow(s, t, node)
+		return core.Show{When: func() bool { return node().kind == processProse || expanded() },
+			Then: func(*core.Scope) core.Node { return a.processRow(s, t, node, selection) }}
 	})
 }
 
 // processRow is one row of a turn's process: a group of rows behind its
 // disclosure, something pi said, or a note.
-func (a *app) processRow(s *session, t func() turn, node func() processNode) core.Node {
+func (a *app) processRow(s *session, t func() turn, node func() processNode, selection *chatSelection) core.Node {
 	return core.Func(func(cx *core.Scope) core.Node {
 		n := node()
 		// The turn's newest group is the one it is working in: it stays open
@@ -110,7 +109,16 @@ func (a *app) processRow(s *session, t func() turn, node func() processNode) cor
 		src := stepSource{s: s, turn: t, id: func() string { return n.step }}
 		switch n.kind {
 		case processProse:
-			return a.chatMarkdownLive(s, func() string { return src.text() }, src.live, core.Style{})
+			mirroredFinal := func() bool {
+				tt := t()
+				return !tt.running() && tt.Final != "" && len(tt.Steps) > 0 && exportFinal(tt) == "" && tt.Steps[len(tt.Steps)-1].ID == n.step
+			}
+			body := func() core.Node { return a.chatMarkdownLive(s, src.text, src.live, core.Style{}) }
+			var reply core.Ref
+			return core.Group{
+				core.Show{When: mirroredFinal, Then: func(*core.Scope) core.Node { return a.replyContent(s, t, &reply, selection, body()) }},
+				core.Show{When: func() bool { return !mirroredFinal() }, Then: func(*core.Scope) core.Node { return body() }},
+			}
 		case processNote:
 			return a.noteBlock(s, func() turnStep { return src.committed() }, func() chat.Status { return src.turn().Status })
 		}
