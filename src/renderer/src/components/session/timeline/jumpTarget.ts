@@ -70,10 +70,41 @@ export function runIndexOfMessage(runs: ReadonlyArray<{ kind: string; items?: Re
  *
  * 判据：tests/jumpWindowAnchorResolve.test.mjs。
  */
-export function resolveAnchorStartRun(runs: ReadonlyArray<{ kind: string; items?: ReadonlyArray<{ id: string; meta?: unknown }> }>, anchoredRunId: string | undefined): number | undefined {
-	if (!anchoredRunId) return undefined;
-	const runIndex = runIndexOfMessage(runs, { messageId: anchoredRunId });
-	return runIndex >= 0 ? runIndex : undefined;
+export function resolveAnchorStartRun(runs: ReadonlyArray<{ kind: string; id?: string; items?: ReadonlyArray<{ id: string; meta?: unknown }> }>, anchor: { runId?: string; entryId?: string; messageId?: string }): number | undefined {
+	// 输入空间必须与名字对齐（组 2 的第 9 件）。
+	//
+	// 旧签名收一个字符串叫 anchoredRunId，实际却只喂 runIndexOfMessage({ messageId }) ——
+	// 它扫的是 run.items 里的消息 id 与 meta.entryId，**不看 run 自己的 id**。
+	// 于是传 run 自己的 id 时恒返回 undefined -> 每次跳转都退回尾窗，
+	// 而「接了线但恒不生效」比报错难查得多：不报错、跳到末尾，看起来像「跳转没生效」。
+	//
+	// 三个空间分开认，优先级：runId（扫 runs[].id）> entryId（重投影后仍稳定的那个）
+	// > messageId（投影 id，重投影会变）。
+	// 同时给了多个且指向不同轮时**返回 undefined 不猜** —— 宁可退回尾窗。
+	const byRunId = (id: string): number | undefined => {
+		let runIndex = -1;
+		for (const run of runs) {
+			if (run.kind === "agent-run") runIndex += 1;
+			if (run.id === id) return runIndex < 0 ? 0 : runIndex;
+		}
+		return undefined;
+	};
+
+	const resolved: Array<number | undefined> = [];
+	if (anchor.runId) resolved.push(byRunId(anchor.runId));
+	if (anchor.entryId) {
+		const index = runIndexOfMessage(runs, { entryId: anchor.entryId });
+		resolved.push(index >= 0 ? index : undefined);
+	}
+	if (anchor.messageId) {
+		const index = runIndexOfMessage(runs, { messageId: anchor.messageId });
+		resolved.push(index >= 0 ? index : undefined);
+	}
+	const found = resolved.filter((value) => typeof value === "number") as number[];
+	if (found.length === 0) return undefined;
+	// 多个空间都命中但指向不同轮：不猜（返回 undefined = 退回尾窗）
+	if (new Set(found).size > 1) return undefined;
+	return found[0];
 }
 
 export function resolveJumpMessageIndex(messages: ReadonlyArray<{ id: string; meta?: unknown }>, target: { messageId?: string; entryId?: string }): number {
