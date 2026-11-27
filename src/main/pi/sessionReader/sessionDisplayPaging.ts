@@ -3,7 +3,9 @@ import type { SessionArchiveData, SessionDisplayEntry, SessionDisplayIndex } fro
 import type { SessionCardProjector } from "./sessionCardProjection";
 import type { SessionDisplayReadOptions } from "./sessionEntryParsing";
 import { applySessionContextEdits, collectSessionContextEdits, roleMessageEntryIds } from "./sessionMessageProjection";
-import { boundTurnWindowStart, clampTurnWindowStart, resolveTurnPageBefore } from "./sessionTurnWindow";
+import { boundTurnWindowStart, clampTurnWindowStart, resolveTurnPageBefore, resolveJumpPageBefore } from "./sessionTurnWindow";
+import { stripProjectionPrefix } from "../../../shared/sessionJumpAnchor";
+import { pickAnchorOrdinal } from "./sessionEntryLookup";
 
 /**
  * 三个「显示读」入口与轮次页预取：整分支读取、加载窗口、轮次分页。
@@ -235,6 +237,25 @@ export class SessionDisplayPaging {
 		return page;
 	}
 
+	/** 目标定位与取页共用同一活动分支快照；文件序号不能用作活动分支游标。 */
+	async readSessionDisplayJumpPage(sessionPath: string, agentId: string, entryId: string, turnCount: number, options?: SessionDisplayReadOptions): Promise<SessionMessagePage> {
+		const index = await this.host.getDisplayIndex(sessionPath);
+		const rawId = stripProjectionPrefix(entryId);
+		const target = index.entries.get(rawId);
+		if (!target) return { messages: [], total: index.activeMessageEntries.length, nextBefore: null, indexVersion: `${index.mtimeMs}:${index.size}` };
+		const direct = index.activeMessageEntries.findIndex((entry) => entry.id === rawId);
+		const position = direct >= 0 ? direct : pickAnchorOrdinal(index.activeMessageEntries, target.offset);
+		const count = Number.isFinite(turnCount) ? Math.min(7, Math.max(1, Math.floor(turnCount)), this.host.maxTurnPageSize) : 3;
+		// 后文仅在预算允许时携带，不能为了多取两轮把真正的目标挤出页。
+		let following = Math.min(2, count - 1);
+		let before = resolveJumpPageBefore(index.activeMessageEntries, position, following);
+		while (following > 0 && boundTurnWindowStart(index.activeMessageEntries, before, count, this.host.maxPageWindowEntries) > position) {
+			following -= 1;
+			before = resolveJumpPageBefore(index.activeMessageEntries, position, following);
+		}
+		const page = await this.readTurnPageCore(index, agentId, before, count, options?.entryRendererTypes ?? []);
+		return { ...page, entryOrder: [...index.entries.keys()] };
+	}
 	/**
 	 * 读单页核心实现（无缓存、不触发预取）：预取调用本方法而非公共分页方法，
 	 * 保证「预取不再触发预取」，避免连锁递归读盘。

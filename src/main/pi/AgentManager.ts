@@ -1814,8 +1814,17 @@ export class AgentManager {
 	async readSessionOutline(sessionPath: string, limit?: number): Promise<SessionOutlineSnapshot> {
 		return this.sessionHistoryReader.readSessionOutline(sessionPath, limit);
 	}
-
-	/** 轮次维度显示分页：pageSize 复用为轮次数（readSessionDisplayTurnPage 内部夹紧上限） */
+	get sessionHistory(): SessionHistoryReader {
+		return this.sessionHistoryReader;
+	}
+	/** 跳转页沿用普通分页的投影器与下发裁剪，不创建第二套显示模型。 */
+	async readSessionDisplayJumpPage(sessionPath: string, agentId: string, entryId: string, turnCount?: number, options?: { projectId?: string }): Promise<SessionMessagePage> {
+		const page = await this.sessionHistoryReader.readSessionDisplayJumpPage(sessionPath, agentId, entryId, turnCount, { entryRendererTypes: this.resolveEntryRendererTypesForProject(options?.projectId) });
+		return { ...page, messages: stripToolResultForDelivery(page.messages) };
+	}
+	async readEntryDisplayMessage(sessionPath: string, agentId: string, entryId: string, options?: { projectId?: string }): Promise<import("../../shared/types").ChatMessage | undefined> {
+		return this.sessionHistoryReader.readEntryDisplayMessage(sessionPath, agentId, entryId, { entryRendererTypes: this.resolveEntryRendererTypesForProject(options?.projectId) });
+	}
 	async readSessionDisplayTurnPage(sessionPath: string, agentId = "_viewer", before?: number, turnCount?: number, beforeEntryId?: string, options?: { projectId?: string }): Promise<SessionMessagePage> {
 		const page = await this.sessionHistoryReader.readSessionDisplayTurnPage(sessionPath, agentId, before, turnCount, beforeEntryId, { entryRendererTypes: this.resolveEntryRendererTypesForProject(options?.projectId) });
 		return { ...page, messages: stripToolResultForDelivery(page.messages) };
@@ -2900,15 +2909,10 @@ export class AgentManager {
 	/**
 	 * 热重载 pi 资源（扩展/技能/提示词/主题/上下文文件）。
 	 *
-	 * 为什么直接发 RPC prompt：pi 的 builtin `/reload` 只在 TUI 中执行，RPC 没有原生
-	 * reload 命令；PiDeck 内部扩展 `pi-deck-runtime.ts` 把它注册成扩展命令。这里直接
-	 * 走 `prompt`，不能复用 `sendPrompt`——后者会先写一条乐观用户消息，`/reload` 会
-	 * 污染会话时间线。
-	 *
-	 * 为什么先查命令表：若扩展未加载（`piRpcNoExtensions`、旧覆盖层、异常回退），把
-	 * `/reload` 当普通 prompt 发下去会让模型把命令文本当问题回答。按 `sourceInfo.path`
-	 * 的 basename 确认命令来自本扩展，并用 pi 实际分配的 invocationName 发送（重名时
-	 * pi 会给后缀，避免误执行用户扩展的同名命令）。
+	 * 直接发 RPC prompt：pi 的 builtin /reload 只在 TUI 执行；本扩展把它注册成命令。
+	 * 不能复用 sendPrompt——它会先写乐观用户消息，/reload 会污染时间线。
+	 * 先查命令表并按 sourceInfo.path 的 basename + 实际 invocationName 发送：扩展未加载时
+	 * 把 /reload 当普通 prompt 发下去，模型会把命令文本当问题回答。
 	 */
 	async reloadResources(agentId: string): Promise<PiCommand[]> {
 		const runtime = this.requireRuntime(agentId);
@@ -4532,15 +4536,10 @@ export class AgentManager {
 	}
 
 	/**
-	 * pi 侧「可能仍在流式」的本地证据（Issue #371）。
-	 *
-	 * 本地 tab.status 是乐观状态：abort RPC 超时/升级未收敛时它已被复位 idle，而 pi 的
-	 * isStreaming 仍为 true。此时发 prompt 不带 streamingBehavior 会被 pi 直接拒收
-	 * （"Agent is already processing..."）。这里汇总同步可取的权威信号：
-	 * - streamingAgents：本地收到的流式事件仍在进行；
-	 * - recentlyAborted：abort 已发出但还未等来 agent_settled；
-	 * - abortGate.isEscalationPending：升级链已确认 pi 仍未停稳。
-	 * 宁可多带一次 streamingBehavior（pi 侧空闲时 steer 与直发等价），也不要被拒收。
+	 * pi 侧「可能仍在流式」的本地证据（Issue #371）：tab.status 是乐观状态，abort 超时后
+	 * 它已复位 idle 而 pi 的 isStreaming 仍为 true，此时不带 streamingBehavior 会被拒收。
+	 * 汇总 streamingAgents / recentlyAborted / abortGate.isEscalationPending 三路信号；
+	 * 宁可多带一次（空闲时 steer 与直发等价），也不要被拒收。
 	 */
 	private piMightStillBeStreaming(agentId: string): boolean {
 		return this.streamingAgents.has(agentId) || this.recentlyAborted.has(agentId) || this.abortGate.isEscalationPending(agentId);

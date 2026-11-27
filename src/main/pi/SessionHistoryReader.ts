@@ -17,6 +17,8 @@ import { boundTurnWindowStart, clampTurnWindowStart, findTurnPageStart, resolveT
 import { SessionSubagentProjection } from "./sessionReader/sessionSubagentProjection";
 import { SessionCardProjector } from "./sessionReader/sessionCardProjection";
 import { SessionDisplayPaging } from "./sessionReader/sessionDisplayPaging";
+import { stripProjectionPrefix } from "../../shared/sessionJumpAnchor";
+import { pickAnchorOrdinal, SessionEntryLookup } from "./sessionReader/sessionEntryLookup";
 
 export {
 	applySessionContextEdits,
@@ -264,16 +266,9 @@ export class SessionHistoryReader {
 	/**
 	 * 单页轮数上限。
 	 *
-	 * 曾经是 10：那时唯一的翻页路径是滚动（一次一屏），10 轮够用。
-	 * 现在多了「点刻度从底部跳到顶部」：两次点击之间可能隔着上百轮，逐页 10 轮要补十几次，
-	 * 每次一次 IPC + 一次文件解析（本机实测约 0.5s），用户看到的是「一直在加载」
-	 * （2026-11 真机，156 轮会话）。
-	 *
-	 * 取值 200 的来历（可复算）：本机一份 156 轮会话 = 5156 条消息条目，即每轮约 33 条；
-	 * 200 轮 ≈ 6600 条 ≈ 13-26MB 单页负载，落在渲染层 DISK_HISTORY_MESSAGE_LIMIT(8000)
-	 * 之内，所以「一次读满一整份 156 轮会话」是可能的 —— 这正是用户要的「点一次就到位」。
-	 * 再大的意义在于覆盖更长的会话，但单页负载会超过渲染层预算（超了就被整页丢弃，
-	 * 反而跳不到），所以上限停在 200 轮 / PAGE_WINDOW_ENTRIES 条。
+	 * 曾为 10 轮（滚动一屏够用）；「点刻度从底部跳到顶部」中间能隔上百轮，逐页补十几次、
+	 * 每次约 0.5s，用户看到「一直在加载」（2026-11 真机，156 轮）。取 200 的复算与
+	 * 上限推导见 docs/session-jump.md「页大小」。
 	 */
 	private static readonly MAX_TURN_PAGE_SIZE = 200;
 	/** 单页轮次上限（AgentManager 缓存优先路径复用，避免翻页超预算） */
@@ -312,12 +307,18 @@ export class SessionHistoryReader {
 	private readonly cards: SessionCardProjector;
 	/** 三个显示读入口（整分支/窗口/轮次页）与轮次页预取。 */
 	private readonly paging: SessionDisplayPaging;
+	private readonly entryLookup: SessionEntryLookup;
 
 	constructor(private readonly deps: SessionHistoryReaderDeps) {
 		this.cards = new SessionCardProjector({
 			readRawLines: (hostPath, entries) => this.readIndexedRawLines(hostPath, entries),
 			convertMessages: (agentId, rawMessages, activeEntryIds) => this.deps.convertMessages(agentId, rawMessages, activeEntryIds),
 			translate: (key, params) => this.deps.translate(key, params),
+		});
+		this.entryLookup = new SessionEntryLookup({
+			readIndex: (sessionPath) => this.getSessionDisplayIndex(sessionPath),
+			readFactLines: (sessionPath, entries) => this.readSessionFactLines(sessionPath, entries as never),
+			readDisplayMessages: (sessionPath, agentId, line, options) => this.readSessionDisplayMessages(sessionPath, agentId, line, options),
 		});
 		this.paging = new SessionDisplayPaging({
 			getDisplayIndex: (sessionPath) => this.getSessionDisplayIndex(sessionPath),
@@ -403,7 +404,11 @@ export class SessionHistoryReader {
 		return { entries: [all[0], ...all.slice(all.length - (limit - 1))], total: all.length, truncated: true };
 	}
 
-	/** 读指定条目正文（复用索引读取的并发/字节预算与 fork 来源配对）。 */
+	/** 按 entryId 读单条显示消息（含被压缩移出活动分支的条目）：见 SessionEntryLookup。 */
+	async readEntryDisplayMessage(sessionPath: string, agentId: string, entryId: string, options?: SessionDisplayReadOptions): Promise<ChatMessage | undefined> {
+		return this.entryLookup.readDisplayMessage(sessionPath, agentId, entryId, options);
+	}
+
 	async readSessionFactLines(sessionPath: string, entries: SessionFactEntry[]): Promise<string[]> {
 		const index = await this.getSessionDisplayIndex(sessionPath);
 		return this.readIndexedLines(
@@ -468,15 +473,24 @@ export class SessionHistoryReader {
 		return this.paging.readSessionDisplayTurnPage(sessionPath, agentId, before, turnCount, beforeEntryId, options);
 	}
 
-	/** entryId → 活动分支消息条目的绝对下标（文件下标空间）；不存在返回 undefined。 */
+	/** 跳转只读一份活动分支索引，完整保留目标所属回合。 */
+	async readSessionDisplayJumpPage(sessionPath: string, agentId: string, entryId: string, turnCount = 3, options?: SessionDisplayReadOptions): Promise<SessionMessagePage> {
+		return this.paging.readSessionDisplayJumpPage(sessionPath, agentId, entryId, turnCount, options);
+	}
+	/**
+	 * entryId → 活动分支下标；目标被移出活动分支时按字节偏移退到锚（文件序号不能当活动下标用）。
+	 */
 	async resolveEntryPosition(sessionPath: string, entryId: string): Promise<number | undefined> {
 		if (!entryId) return undefined;
 		const index = await this.getSessionDisplayIndex(sessionPath);
-		const position = index.activeMessageEntries.findIndex((entry) => entry.id === entryId);
-		return position >= 0 ? position : undefined;
+		entryId = stripProjectionPrefix(entryId);
+		const direct = index.activeMessageEntries.findIndex((entry) => entry.id === entryId);
+		if (direct >= 0) return direct;
+		// 目标不在活动分支（compaction / context_edit 移出）：按字节偏移找锚（见 sessionEntryLookup）。
+		const target = index.entries.get(entryId);
+		if (!target) return undefined;
+		return pickAnchorOrdinal(index.activeMessageEntries, target.offset);
 	}
-
-	/** 绝对下标（文件下标空间）→ entryId；越界/无条目返回 undefined。 */
 	async resolveEntryIdAtPosition(sessionPath: string, position: number): Promise<string | undefined> {
 		const index = await this.getSessionDisplayIndex(sessionPath);
 		const entry = index.activeMessageEntries[position];
@@ -514,12 +528,9 @@ export class SessionHistoryReader {
 	/**
 	 * 会话分支树（右侧抽屉「分支」面板数据源）。
 	 *
-	 * 为什么不用 pi get_tree RPC：pi 会把整棵树打成单行 JSON，PiRpcClient 在 stdout
-	 * data 回调里同步 JSON.parse 会冻窗（与 loadMessages 禁用 get_messages 同因）；
+	 * 不用 pi get_tree RPC：整棵树打成单行 JSON，stdout 回调里同步 parse 会冻窗。
 	 * 这里复用 JSONL 索引（含 fork 链合并），只读条目行补预览文本，天然流式有界。
-	 *
-	 * leafId 取文件活动分支末端：与 getActiveLeafId 同口径。若用户在 TUI 里 /tree
-	 * 移动了 leaf 而未追加新条目，此处不会反映（PiDeck 内的 fork/重发都靠追加，不受影响）。
+	 * leafId 取文件活动分支末端；在 TUI 里 /tree 移动 leaf 而不追加条目不反映（PiDeck 内不受影响）。
 	 */
 	async readBranchTree(sessionPath: string): Promise<SessionBranchTree> {
 		// 这条链路此前全无日志：面板卡在 loading 时无法区分「main 卡住」「IPC 没注册」
@@ -563,17 +574,10 @@ export class SessionHistoryReader {
 	}
 
 	/**
-	 * 取活动分支末尾 `messageCount` 条**消费 entryId 槽位的角色消息**的 entryId
-	 * （与 JSONL 尾部窗口一一对应）。
-	 * loadMessages 用它代替 get_entries：pi 会把整棵 entry 树打成单行 JSON，同步 parse 会冻窗。
+	 * 取活动分支末尾 messageCount 条**消费 entryId 槽位的角色消息**的 id（对应 JSONL 尾部窗口）。
 	 *
-	 * 为什么必须按角色过滤：activeMessageEntries 只按 `type === "message"` 收集，而 pi 0.86
-	 * 起系统提示与工具清单变更也会落成 `type:"message"` + `role:"system"` 的条目
-	 * （transcript-backed prompt/tool 更新，首个请求一条完整 sections、之后按 name 打补丁）。
-	 * AgentMessageProjector 只给 user/assistant/toolResult 分配槽位；若这里直接对
-	 * activeMessageEntries 尾部切片，窗口内夹着 system 条目时返回的 id 会整体错位
-	 * （u1→a1、a1→u2 …），而 SessionFileEditor 按 id 定位，编辑/删除/重发将落到相邻条目上
-	 * （重发另有 assertResendRootEntry 文本校验兜底，编辑/删除没有）。2026-09 适配 0.86。
+	 * 必须按角色过滤：pi 0.86 起 system 条目也落成 type:"message"，而投影器不给它槽位，
+	 * 直接尾部切片会整体错位，编辑/删除就落到相邻条目上（2026-09 适配 0.86）。
 	 */
 	async getRecentActiveEntryIds(sessionPath: string, messageCount: number): Promise<string[]> {
 		const index = await this.getSessionDisplayIndex(sessionPath);
@@ -697,6 +701,10 @@ export class SessionHistoryReader {
 		return page;
 	}
 
+	/** 全量条目索引（entryId -> 序号）：见 SessionEntryLookup。 */
+	async readEntryIndex(sessionPath: string): Promise<Array<{ entryId: string; ordinal: number; role: string }>> {
+		return this.entryLookup.readEntryIndex(sessionPath);
+	}
 	private async getSessionDisplayIndex(sessionPath: string, source?: { value: DisplayIndexSource }): Promise<SessionDisplayIndex> {
 		// toHostPath 只在 inner 解析一次：调用次数是可观测契约（诊断测试按调用序断言）
 		return this.getSessionDisplayIndexInner(sessionPath, 0, new Set(), undefined, source);
@@ -924,12 +932,8 @@ export class SessionHistoryReader {
 	}
 
 	/**
-	 * 超长行的降级索引条目：只从行首前缀里抢 id/parentId/type。
-	 *
-	 * 前缀用正则而不是 JSON.parse（正文根本没进内存）；pi 的 JSONL 由固定序列化器写出，
-	 * 条目对象以 `{"type":…,"id":…,"parentId":…` 开头，所以**第一个** `"id"` 匹配即条目自身 id。
-	 * 抢不到 id 时返回 null：此时无法维持 parentId 链，宁可丢这一条（已记日志），
-	 * 也不编造一个会污染分支回溯的假 id。
+	 * 超长行的降级索引条目：只从行首前缀抢 id/parentId/type（正文没进内存）。
+	 * 抢不到 id 返回 null：宁可丢这一条（已记日志），也不编造会污染分支回溯的假 id。
 	 */
 	private parseOversizedIndexLine(info: { offset: number; byteLength: number; prefix: string }): SessionDisplayEntry | null {
 		const id = /"id"\s*:\s*"([^"\\]{1,64})"/.exec(info.prefix)?.[1];
@@ -1166,12 +1170,8 @@ export class SessionHistoryReader {
 	}
 
 	/**
-	 * 定向读盘的并发上限。
-	 *
-	 * 一页最多 600~1600 个条目，`Promise.all(entries.map(read))` 会同时申请同等数量的
-	 * Buffer（单条工具结果可达数 MB），并把 libuv 线程池与文件句柄压满——大会话翻页时
-	 * 表现为「内存尖峰 + 主进程 IO 队列打满」。改为固定 worker 池后，峰值内存
-	 * = 并发数 × 单条大小，与页大小解耦。
+	 * 定向读盘的并发上限：一页最多 600~1600 条，Promise.all 会压满线程池与句柄
+	 * （内存尖峰 + IO 队列打满）。固定 worker 池让峰值 = 并发数 × 单条大小，与页大小解耦。
 	 */
 	private static readonly INDEXED_READ_CONCURRENCY = 8;
 

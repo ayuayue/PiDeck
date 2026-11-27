@@ -228,6 +228,10 @@ export const sessionsApi = {
 		answerDeleteArchivedRemoteRecord: (requestId: string, choice: "approve" | "deny") => ipcRenderer.invoke(ipcChannels.sessionsCatalogAnswerDeleteArchivedRemote, requestId, choice) as Promise<import("../../shared/types").RemoteArchivedSessionDeleteAnswerResult>,
 		readRecordMessages: (sessionId: string) => ipcRenderer.invoke(ipcChannels.sessionsCatalogReadMessages, sessionId) as Promise<import("../../shared/types").ChatMessage[]>,
 		readRecordMessagePage: (sessionId: string, before?: number, pageSize?: number, options?: { beforeEntryId?: string }) => ipcRenderer.invoke(ipcChannels.sessionsCatalogReadMessagePage, sessionId, before, pageSize, options) as Promise<import("../../shared/types").SessionMessagePage>,
+		/** 一次性取包含该 entryId 的一页（跳转专用：600 轮会话不必逐页往前补）。 */
+		readPageAroundEntry: (sessionId: string, entryId: string, pageSize?: number) => ipcRenderer.invoke(ipcChannels.sessionsCatalogReadPageAroundEntry, sessionId, entryId, pageSize) as Promise<import("../../shared/types").SessionMessagePage>,
+		/** 全量条目索引（entryId → 序号 + 角色）：跳转 O(1) 定位，正文仍按需取。 */
+		readEntryIndex: (sessionId: string) => ipcRenderer.invoke(ipcChannels.sessionsCatalogReadEntryIndex, sessionId) as Promise<{ entries: Array<{ entryId: string; ordinal: number; role: string }> }>,
 		/** 无 runtime 时直接改 JSONL（编辑）。运行中必须先停 Agent。 */
 		editCatalogMessage: (sessionId: string, messageId: string, newText: string, entryId?: string) => ipcRenderer.invoke(ipcChannels.sessionsCatalogEditMessage, sessionId, messageId, newText, entryId) as Promise<SessionCommandResult<void>>,
 		/** 原地移除单图：只传快照，main 在文件锁内校验目标；运行中必须先停。 */

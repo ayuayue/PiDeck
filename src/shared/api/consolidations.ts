@@ -44,6 +44,10 @@ export const SESSIONS_SUBDOMAINS = {
 		"listCatalog",
 		"onCatalogRefreshed",
 		"prepareCatalogResend",
+		// 全量条目索引与按 entryId 一次取页（eab9f58b6「跳转 O(1) 定位」）：跳转要落位的那一条
+		// 可能在任何一页里，翻页逼近是 O(页数)；这两条把它变成一次读。
+		"readEntryIndex",
+		"readPageAroundEntry",
 		"readRecordMessagePage",
 		"readRecordMessages",
 		"removeCatalogMessageImage",

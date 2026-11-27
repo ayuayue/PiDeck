@@ -31,4 +31,6 @@ export type SessionMessagePage = {
 	nextBeforeEntryId?: string;
 	/** 会话文件版本标识：本机为 `mtime:size`，远端为 `remote:<inode>:<mtime>:<size>`，用于跨页拒绝异代历史。 */
 	indexVersion?: string;
+	/** 跳转页同快照的轻量条目顺序（仅ID，无正文），用于合并不相邻的已加载页。 */
+	entryOrder?: string[];
 };
