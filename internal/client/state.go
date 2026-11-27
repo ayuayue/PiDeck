@@ -92,6 +92,8 @@ type mobileApp struct {
 	askKey   string
 
 	// git is one project's repository, read-only.
+	gitSeq          int
+	gitDiffSeq      int
 	gitOpen         *core.Signal[bool]
 	gitProject      *core.Signal[string]
 	gitName         *core.Signal[string]
@@ -108,6 +110,10 @@ type mobileApp struct {
 	gitBranchesOpen *core.Signal[bool]
 
 	// review is a project's pull requests and issues.
+	reviewSeq        int
+	reviewListSeq    int
+	reviewDetailSeq  int
+	reviewPatchSeq   int
 	reviewOpen       *core.Signal[bool]
 	reviewProject    *core.Signal[string]
 	reviewName       *core.Signal[string]

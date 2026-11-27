@@ -487,6 +487,9 @@ func (a *mobileApp) disconnectWith(message string) {
 	a.client.close()
 	a.client = nil
 	a.disconnectLists()
+	a.closeGit()
+	a.gitMsg.Set("")
+	a.closeReview()
 	a.busy.Set(false)
 	a.creating.Set(false)
 	a.stateLoading = false

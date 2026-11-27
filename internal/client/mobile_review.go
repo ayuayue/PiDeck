@@ -48,6 +48,7 @@ func (a *mobileApp) openReview() {
 		return
 	}
 	a.openDrawer(false)
+	a.closeReview()
 	a.reviewProject.Set(path)
 	a.reviewName.Set(name)
 	a.reviewKind.Set("pr")
@@ -61,19 +62,56 @@ func (a *mobileApp) openReview() {
 	a.loadReview()
 }
 
+// Closing a project also invalidates its detail actions and patch reads.
+func (a *mobileApp) closeReview() {
+	a.reviewSeq++
+	a.closeReviewDetail()
+	a.reviewOpen.Set(false)
+	a.reviewProject.Set("")
+	a.reviewName.Set("")
+	a.reviewItems.Set(nil)
+	a.reviewBusy.Set(false)
+	a.reviewErr.Set("")
+	a.reviewMissing.Set(false)
+}
+
+func (a *mobileApp) closeReviewDetail() {
+	a.reviewDetailSeq++
+	a.reviewDetailOpen.Set(false)
+	a.reviewDetail.Set(remotewire.ReviewDetail{})
+	a.reviewDetailBusy.Set(false)
+	a.reviewDetailErr.Set("")
+	a.reviewComment.Set("")
+	a.reviewPending.Set("")
+	a.reviewSending.Set(false)
+	a.reviewPatchOpen.Set(false)
+	a.reviewPatch.Set("")
+	a.reviewPatchErr.Set("")
+	a.reviewPatchBusy.Set(false)
+}
+
+func (a *mobileApp) reviewDetailCurrent(client *remoteClient, visit int) bool {
+	return a.client == client && a.reviewDetailSeq == visit && a.reviewDetailOpen.GetUntracked()
+}
+
 // loadReview reads the list the screen is showing.
 func (a *mobileApp) loadReview() {
 	client := a.client
 	project := a.reviewProject.GetUntracked()
-	if client == nil || project == "" || a.reviewBusy.GetUntracked() {
+	if client == nil || project == "" {
 		return
 	}
 	kind, filter, query := a.reviewKind.GetUntracked(), a.reviewFilter.GetUntracked(), strings.TrimSpace(a.reviewQuery.GetUntracked())
 	a.reviewBusy.Set(true)
 	a.reviewErr.Set("")
+	a.reviewListSeq++
+	visit, request := a.reviewSeq, a.reviewListSeq
 	go func() {
 		list, err := client.review(project, kind, filter, query)
 		a.cx.Post(func() {
+			if a.client != client || a.reviewSeq != visit || a.reviewListSeq != request || !a.reviewOpen.GetUntracked() {
+				return
+			}
 			a.reviewBusy.Set(false)
 			if err != nil {
 				a.reviewErr.Set(remoteErrorText(err))
@@ -113,6 +151,7 @@ func (a *mobileApp) openReviewDetail(item remotewire.ReviewItem) {
 	if client == nil || project == "" {
 		return
 	}
+	a.closeReviewDetail()
 	a.reviewDetail.Set(remotewire.ReviewDetail{Item: item})
 	a.reviewDetailErr.Set("")
 	a.reviewComment.Set("")
@@ -120,9 +159,13 @@ func (a *mobileApp) openReviewDetail(item remotewire.ReviewItem) {
 	a.reviewDetailOpen.Set(true)
 	a.reviewDetailBusy.Set(true)
 	kind, number := item.Kind, item.Number
+	visit := a.reviewDetailSeq
 	go func() {
 		detail, err := client.reviewDetail(project, kind, number)
 		a.cx.Post(func() {
+			if !a.reviewDetailCurrent(client, visit) {
+				return
+			}
 			a.reviewDetailBusy.Set(false)
 			if err != nil {
 				a.reviewDetailErr.Set(remoteErrorText(err))
@@ -153,9 +196,13 @@ func (a *mobileApp) sendReviewComment() {
 	}
 	a.reviewSending.Set(true)
 	number, kind := detail.Item.Number, detail.Item.Kind
+	visit := a.reviewDetailSeq
 	go func() {
 		err := client.reviewWrite(project, kind, number, "comment", body, "")
 		a.cx.Post(func() {
+			if !a.reviewDetailCurrent(client, visit) {
+				return
+			}
 			a.reviewSending.Set(false)
 			if err != nil {
 				a.flash(remoteErrorText(err))
@@ -193,9 +240,13 @@ func (a *mobileApp) runReviewPending() {
 	a.reviewPending.Set("")
 	a.reviewSending.Set(true)
 	number, kind := detail.Item.Number, detail.Item.Kind
+	visit := a.reviewDetailSeq
 	go func() {
 		err := client.reviewWrite(project, kind, number, action, body, method)
 		a.cx.Post(func() {
+			if !a.reviewDetailCurrent(client, visit) {
+				return
+			}
 			a.reviewSending.Set(false)
 			if err != nil {
 				a.flash(remoteErrorText(err))
@@ -229,16 +280,19 @@ func (a *mobileApp) evaluateReview() {
 	}
 	a.reviewSending.Set(true)
 	number, kind, title := detail.Item.Number, detail.Item.Kind, detail.Item.Title
+	visit := a.reviewDetailSeq
 	go func() {
 		id, err := client.reviewEvaluate(project, kind, number)
 		a.cx.Post(func() {
+			if !a.reviewDetailCurrent(client, visit) {
+				return
+			}
 			a.reviewSending.Set(false)
 			if err != nil {
 				a.flash(remoteErrorText(err))
 				return
 			}
-			a.reviewDetailOpen.Set(false)
-			a.reviewOpen.Set(false)
+			a.closeReview()
 			a.openSession(id, fmt.Sprintf("#%d %s", number, title))
 			a.refreshState()
 		})
@@ -258,9 +312,14 @@ func (a *mobileApp) openReviewPatch() {
 	a.reviewPatchBusy.Set(true)
 	a.reviewPatchOpen.Set(true)
 	number := detail.Item.Number
+	a.reviewPatchSeq++
+	visit, patchVisit := a.reviewDetailSeq, a.reviewPatchSeq
 	go func() {
 		patch, err := client.reviewDiff(project, number)
 		a.cx.Post(func() {
+			if !a.reviewDetailCurrent(client, visit) || a.reviewPatchSeq != patchVisit || !a.reviewPatchOpen.GetUntracked() {
+				return
+			}
 			a.reviewPatchBusy.Set(false)
 			if err != nil {
 				a.reviewPatchErr.Set(remoteErrorText(err))
@@ -332,7 +391,7 @@ func (a *mobileApp) reviewSheet() core.Node {
 		}
 		return sheetFrame(cx, sheetSpec{
 			title: apptext.T("评审") + " · " + a.reviewName.Get(), testID: "mobile-review", width: 560,
-			open: a.reviewOpen.Get, close: func() { a.reviewOpen.Set(false) },
+			open: a.reviewOpen.Get, close: a.closeReview,
 			body: []core.Node{core.View{Style: core.Style{Gap: 8}, Children: []core.Node{
 				core.View{Style: core.Style{Direction: core.Row, Gap: 6, Wrap: core.Wrap}, Children: []core.Node{
 					a.reviewChip(colors, "pr", "拉取请求", kind == "pr", func() { a.setReviewKind("pr") }, "mobile-review-kind-pr"),
@@ -355,7 +414,7 @@ func (a *mobileApp) reviewSheet() core.Node {
 			}}},
 			footer: []core.Node{
 				ui.Button{Text: apptext.T("刷新"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: a.loadReview},
-				ui.Button{Text: apptext.T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.reviewOpen.Set(false) }},
+				ui.Button{Text: apptext.T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: a.closeReview},
 			},
 		})
 	})
@@ -411,13 +470,17 @@ func (a *mobileApp) reviewDetailSheet() core.Node {
 			body = append(body, a.reviewDetailBody(colors, detail)...)
 		}
 		return ui.Dialog{
-			Open:         a.reviewDetailOpen.Get,
-			OnOpenChange: func(open bool, _ base.Reason) { a.reviewDetailOpen.Set(open) },
-			Title:        fmt.Sprintf("#%d", item.Number),
-			TestID:       "mobile-review-detail",
-			Style:        core.Style{Width: core.Pct(100), MaxWidth: core.Pt(620)},
-			Children:     []core.Node{core.View{Style: core.Style{Gap: 8}, Children: body}},
-			Footer:       a.reviewDetailFooter(colors, detail),
+			Open: a.reviewDetailOpen.Get,
+			OnOpenChange: func(open bool, _ base.Reason) {
+				if !open {
+					a.closeReviewDetail()
+				}
+			},
+			Title:    fmt.Sprintf("#%d", item.Number),
+			TestID:   "mobile-review-detail",
+			Style:    core.Style{Width: core.Pct(100), MaxWidth: core.Pt(620)},
+			Children: []core.Node{core.View{Style: core.Style{Gap: 8}, Children: body}},
+			Footer:   a.reviewDetailFooter(colors, detail),
 		}
 	})
 }

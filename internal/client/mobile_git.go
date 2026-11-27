@@ -18,12 +18,31 @@ import (
 
 // openGit shows a project's repository, read-only.
 func (a *mobileApp) openGit(project, name string) {
+	a.closeGit()
 	a.gitProject.Set(project)
 	a.gitName.Set(name)
 	a.gitState.Set(remotewire.Git{})
 	a.gitErr.Set("")
 	a.gitOpen.Set(true)
 	a.loadGit()
+}
+
+// closeGit invalidates pending reads and writes before another visit opens.
+func (a *mobileApp) closeGit() {
+	a.gitSeq++
+	a.gitOpen.Set(false)
+	a.gitProject.Set("")
+	a.gitName.Set("")
+	a.gitState.Set(remotewire.Git{})
+	a.gitBusy.Set(false)
+	a.gitErr.Set("")
+	a.gitSending.Set(false)
+	a.gitBranchesOpen.Set(false)
+	a.gitDiffOpen.Set(false)
+	a.gitDiffTitle.Set("")
+	a.gitDiffText.Set("")
+	a.gitDiffErr.Set("")
+	a.gitDiffBusy.Set(false)
 }
 
 func (a *mobileApp) loadGit() {
@@ -34,9 +53,13 @@ func (a *mobileApp) loadGit() {
 	}
 	a.gitBusy.Set(true)
 	a.gitErr.Set("")
+	visit := a.gitSeq
 	go func() {
 		st, err := client.git(project)
 		a.cx.Post(func() {
+			if a.client != client || a.gitSeq != visit || !a.gitOpen.GetUntracked() {
+				return
+			}
 			a.gitBusy.Set(false)
 			if err != nil {
 				a.gitErr.Set(remoteErrorText(err))
@@ -59,9 +82,14 @@ func (a *mobileApp) openGitDiff(path string) {
 	a.gitDiffErr.Set("")
 	a.gitDiffBusy.Set(true)
 	a.gitDiffOpen.Set(true)
+	a.gitDiffSeq++
+	visit, diff := a.gitSeq, a.gitDiffSeq
 	go func() {
 		patch, err := client.gitDiff(project, path)
 		a.cx.Post(func() {
+			if a.client != client || a.gitSeq != visit || a.gitDiffSeq != diff || !a.gitDiffOpen.GetUntracked() {
+				return
+			}
 			a.gitDiffBusy.Set(false)
 			if err != nil {
 				a.gitDiffErr.Set(remoteErrorText(err))
@@ -215,11 +243,11 @@ func (a *mobileApp) gitSheet() core.Node {
 		}
 		return sheetFrame(cx, sheetSpec{
 			title: "Git · " + a.gitName.Get(), testID: "mobile-git", width: 520,
-			open: a.gitOpen.Get, close: func() { a.gitOpen.Set(false) },
+			open: a.gitOpen.Get, close: a.closeGit,
 			body: []core.Node{core.View{Style: core.Style{Gap: 6}, Children: children}},
 			footer: []core.Node{
 				ui.Button{Text: apptext.T("刷新"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: a.loadGit},
-				ui.Button{Text: apptext.T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.gitOpen.Set(false) }},
+				ui.Button{Text: apptext.T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: a.closeGit},
 			},
 		})
 	})
@@ -233,9 +261,13 @@ func (a *mobileApp) gitStage(path string, stage bool) {
 		return
 	}
 	a.gitSending.Set(true)
+	visit := a.gitSeq
 	go func() {
 		err := client.gitStage(project, path, stage)
 		a.cx.Post(func() {
+			if a.client != client || a.gitSeq != visit || !a.gitOpen.GetUntracked() {
+				return
+			}
 			a.gitSending.Set(false)
 			if err != nil {
 				a.flash(remoteErrorText(err))
@@ -256,9 +288,13 @@ func (a *mobileApp) commitGit() {
 		return
 	}
 	a.gitSending.Set(true)
+	visit := a.gitSeq
 	go func() {
 		err := client.gitCommit(project, msg)
 		a.cx.Post(func() {
+			if a.client != client || a.gitSeq != visit || !a.gitOpen.GetUntracked() {
+				return
+			}
 			a.gitSending.Set(false)
 			if err != nil {
 				a.flash(remoteErrorText(err))
@@ -283,9 +319,13 @@ func (a *mobileApp) gitCheckout(branch string) {
 		return
 	}
 	a.gitSending.Set(true)
+	visit := a.gitSeq
 	go func() {
 		err := client.gitCheckout(project, branch)
 		a.cx.Post(func() {
+			if a.client != client || a.gitSeq != visit || !a.gitOpen.GetUntracked() {
+				return
+			}
 			a.gitSending.Set(false)
 			if err != nil {
 				a.flash(remoteErrorText(err))
@@ -309,9 +349,13 @@ func (a *mobileApp) gitSync(action string) {
 		return
 	}
 	a.gitSending.Set(true)
+	visit := a.gitSeq
 	go func() {
 		err := client.gitSync(project, action)
 		a.cx.Post(func() {
+			if a.client != client || a.gitSeq != visit || !a.gitOpen.GetUntracked() {
+				return
+			}
 			a.gitSending.Set(false)
 			if err != nil {
 				a.flash(remoteErrorText(err))
