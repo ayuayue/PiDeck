@@ -11,7 +11,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-43.8.7-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.14.0-blue)
+![Version](https://img.shields.io/badge/version-0.14.1-blue)
 
 国内 AtomGit 托管：https://atomgit.com/ayuayue/PiDeck
 <!-- 预留 AtomGit G-Star 徽章位（替换占位链接后启用）
@@ -50,7 +50,7 @@
   - [📑 目录](#-目录)
   - [✨ 核心亮点](#-核心亮点)
   - [📋 更新日志](#-更新日志)
-    - [v0.13.2 更新亮点](#v0132-更新亮点)
+    - [v0.14.1 更新亮点](#v0141-更新亮点)
   - [🧩 功能总览](#-功能总览)
     - [工作区与项目](#工作区与项目)
     - [会话与对话](#会话与对话)
@@ -92,17 +92,13 @@
 
 ## 📋 更新日志
 
-> **最新版本 v0.14.0**（2026-11-23）
+> **最新版本 v0.14.1**（2026-11-27）
 
-### v0.14.0 更新亮点
-- 🚀 **远端文件读写走 SFTP，上传提交按版本替换**
-- 🚀 **远端会话历史在远端就地维护**
-- 🚀 **远端设置与 MCP 复用本地表单**
-- 🚀 **Markdown 预览的目录可以点击跳转**
-- ✨ **WSL 会话列表不再卡死（#588）**
-- ✨ **Windows 沙箱下命令不再 0xC0000142（#591、#582）**
-- ✨ **远端 Git 图谱恢复可用**
-- ✨ **归档会话恢复的回归修正（#581、#579）**
+### v0.14.1 更新亮点
+- ✨ **超大会话重命名和复制保留完整消息（#615）**
+- ✨ **收藏与会话分组读取失败不再覆盖原数据（#617）**
+- ✨ **Kimi Code 与 Codex 会话导入更完整**
+- ✨ **导入操作跟随当前项目和筛选结果**
 
 [查看完整更新日志 →](CHANGELOG.zh-CN.md)
 

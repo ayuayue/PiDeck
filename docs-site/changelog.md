@@ -10,6 +10,15 @@ description: PiDeck 每个版本的发布记录：新功能、问题修复与体
 - [中文 CHANGELOG](https://github.com/ayuayue/PiDeck/blob/main/CHANGELOG.zh-CN.md)
 - [English CHANGELOG](https://github.com/ayuayue/PiDeck/blob/main/CHANGELOG.md)
 
+## v0.14.1
+
+发布时间：2026-11-27
+
+- ✨ **超大会话重命名和复制保留完整消息（#615）**
+- ✨ **收藏与会话分组读取失败不再覆盖原数据（#617）**
+- ✨ **Kimi Code 与 Codex 会话导入更完整**
+- ✨ **导入操作跟随当前项目和筛选结果**
+
 ## v0.14.0
 
 发布时间：2026-11-23
