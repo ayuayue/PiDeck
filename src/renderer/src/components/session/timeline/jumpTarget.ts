@@ -18,6 +18,31 @@ function readEntryId(meta: unknown): string | undefined {
 	return typeof entryId === "string" && entryId.length > 0 ? entryId : undefined;
 }
 
+/**
+ * 消息下标 → agent-run 序号（第几条 turn）。窗口锚点只要这一个换算。
+ *
+ * 为什么单独成一个函数（组 2 列的「两套下标要对同一个数组算」）：
+ * `resolveJumpMessageIndex` 给的是 messages 下标，`sliceByRunStarts` 吃的是 run 序号。
+ * 换算若散落在调用点，错一位的症状是「跳到上一轮」——看不出是 bug，看着像落位不准。
+ * 只留这一处，它可以单测。
+ *
+ * 返回 -1 表示：目标在该数组里没有（未加载／已被 context_edit 移出展示）。
+ * 判据：tests/jumpRunIndex.test.mjs。
+ */
+export function runIndexOfMessage(runs: ReadonlyArray<{ kind: string; items?: ReadonlyArray<{ id: string; meta?: unknown }> }>, targetId: string): number {
+	if (!targetId) return -1;
+	let runIndex = -1;
+	for (const run of runs) {
+		if (run.kind === "agent-run") runIndex += 1;
+		const items = run.items ?? [];
+		for (const item of items) {
+			if (item.id === targetId || readEntryId(item.meta) === targetId) {
+				return runIndex < 0 ? 0 : runIndex;
+			}
+		}
+	}
+	return -1;
+}
 export function resolveJumpMessageIndex(messages: ReadonlyArray<{ id: string; meta?: unknown }>, targetId: string): number {
 	if (!targetId) return -1;
 	const direct = messages.findIndex((message) => message.id === targetId);
