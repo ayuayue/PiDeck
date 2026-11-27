@@ -198,6 +198,16 @@ export function sessionTurnCountOf(loaded: readonly OutlineRailItem[], directory
 		directoryEntryIds.map((entryId) => ({ entryId, title: "", time: "" })),
 	).length;
 }
+/**
+ * 导轨去重键：**entryId 与 messageId 是两个空间，不能混成一个键。**
+ *
+ * 反例（真的会发生）：某条已加载项的 entryId 恰好等于另一条的 messageId ——
+ * 用 `entryId ?? id` 当键时两条被判同一条，少一条刻度。少比多难发现：多了看得见，少要数。
+ * 加空间前缀后两个空间永不相等。判据：tests/outlineRailDuplicate.test.mjs。
+ */
+function railKeyOf(item: { entryId?: string; id: string }): string {
+	return item.entryId ? "e:" + item.entryId : "m:" + item.id;
+}
 export function mergeOutlineRailItems(loaded: readonly OutlineRailItem[], directory: readonly { entryId: string; title: string; time?: string }[]): OutlineRailItem[] {
 	const loadedUsers = loaded.filter((item) => item.role === "user");
 	if (directory.length === 0) {
@@ -206,7 +216,7 @@ export function mergeOutlineRailItems(loaded: readonly OutlineRailItem[], direct
 		const seen = new Set<string>();
 		const unique: OutlineRailItem[] = [];
 		for (const item of loadedUsers) {
-			const key = item.entryId ?? item.id;
+			const key = railKeyOf(item);
 			if (seen.has(key)) continue;
 			seen.add(key);
 			unique.push(item);
@@ -224,14 +234,15 @@ export function mergeOutlineRailItems(loaded: readonly OutlineRailItem[], direct
 	for (const entry of directory) {
 		// 目录里同一 entryId 出现两次时只留第一条：重复的刻度点下去落同一处，
 		// 用户看到的是「两条一样的」，而它们不是两条消息。
-		if (usedEntryIds.has(entry.entryId)) continue;
+		const key = "e:" + entry.entryId;
+		if (usedEntryIds.has(key)) continue;
 		const loadedItem = loadedByEntryId.get(entry.entryId);
 		if (loadedItem) {
 			merged.push(loadedItem);
-			usedEntryIds.add(entry.entryId);
+			usedEntryIds.add(key);
 			continue;
 		}
-		usedEntryIds.add(entry.entryId);
+		usedEntryIds.add(key);
 		merged.push({ id: `outline-pending:${entry.entryId}`, entryId: entry.entryId, role: "user", title: entry.title, time: entry.time ?? "", pending: true });
 	}
 	for (const item of loadedUsers) {
@@ -243,7 +254,7 @@ export function mergeOutlineRailItems(loaded: readonly OutlineRailItem[], direct
 		// 「已加载项匹配到目录项」时才写入），若 loadedUsers 里出现两条同键（同 entryId，
 		// 或都没 entryId 于是都用 messageId），两条都不在 Set 里，于是都被追加 → 末尾两条一样的。
 		// 同一个 Set 既管「目录命中」又管「追加去重」，一次判定只有一个答案。
-		const key = item.entryId ?? item.id;
+		const key = railKeyOf(item);
 		if (usedEntryIds.has(key)) continue;
 		usedEntryIds.add(key);
 		merged.push(item);

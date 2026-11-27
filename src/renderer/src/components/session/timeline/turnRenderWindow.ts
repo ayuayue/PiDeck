@@ -53,6 +53,37 @@ export function countUserTurns(messages: ReadonlyArray<{ role?: string }>): numb
  * 用户看历史就是要看完整一轮；折叠 unmount 从源头控制 DOM 量，不需要条目兜底）。
  * 不足上限时原样返回（引用不变，便于 memo）。
  */
+/**
+ * 从第 startRun 个 agent-run 起保留 maxTurns 轮（含 run 之间的附属条目）。
+ *
+ * 为什么需要它：sliceLastAgentRuns 是**尾窗**——只保留最后 N 轮。跳转时目标可能在很前面，
+ * 尾窗要覆盖它就必须把窗口扩到「目标到末尾」的全部轮数，挂载量随距离线性增长：
+ * 实测 700 轮 / 每轮 18 条，跳到第 100 轮要挂 10,818 条（≈5.8MB），跳到第 0 轮要挂 12,600 条（≈6.8MB）
+ * —— 这就是用户说的「很卡」。
+ *
+ * 锚点窗口把「窗口从哪开始」变成独立参数：跳转只改 startRun，挂载轮数恒为 maxTurns，
+ * 与目标距离无关（O(1) 挂载量）。尾窗等价于 startRun = 总轮数 - maxTurns。
+ *
+ * 判据：tests/jumpWindowAnchor.test.mjs。
+ */
+export function sliceAgentRunWindowFrom<T extends { kind: string } & { items?: readonly unknown[] }>(items: readonly T[], startRun: number, maxTurns: number): T[] {
+	if (maxTurns <= 0 || items.length === 0) return [];
+	let runIndex = -1;
+	let start = -1;
+	let end = -1;
+	for (let index = 0; index < items.length; index += 1) {
+		if (items[index]?.kind !== "agent-run") continue;
+		runIndex += 1;
+		if (runIndex === startRun) start = index;
+		if (runIndex === startRun + maxTurns) {
+			end = index;
+			break;
+		}
+	}
+	// startRun 超出总轮数：没有可挂的轮，返回空（调用方应先把锚点夹到合法区间）
+	if (start < 0) return [];
+	return (end < 0 ? items.slice(start) : items.slice(start, end)) as T[];
+}
 export function sliceLastAgentRuns<T extends { kind: string } & { items?: readonly unknown[] }>(items: readonly T[], maxTurns: number): T[] {
 	if (maxTurns <= 0 || items.length === 0) return items as T[];
 	let runs = 0;
@@ -80,7 +111,19 @@ export function shouldWindowTimelineTurns(agentRunCount: number, windowTurns: nu
 }
 
 /** 按窗口轮数决定展示列表；未裁剪时返回原数组引用。 */
-export function selectTimelineTurnWindow<T extends { kind: string } & { items?: readonly unknown[] }>(items: readonly T[], windowTurns: number): T[] {
+export function selectTimelineTurnWindow<T extends { kind: string } & { items?: readonly unknown[] }>(
+	items: readonly T[],
+	windowTurns: number,
+	/**
+	 * 窗口锚点：从第几个 agent-run 开始挂载。省略 = 尾窗（只挂最后 windowTurns 轮，现状）。
+	 * 跳转用锚点把窗口直接移到目标处，挂载轮数恒为 windowTurns，不随目标距离增长。
+	 */
+	windowStartRun?: number,
+): T[] {
+	if (typeof windowStartRun === "number" && Number.isFinite(windowStartRun)) {
+		if (windowTurns <= 0) return items as T[];
+		return sliceAgentRunWindowFrom(items, Math.max(0, Math.trunc(windowStartRun)), windowTurns);
+	}
 	if (!shouldWindowTimelineTurns(countAgentRunItems(items), windowTurns)) {
 		return items as T[];
 	}

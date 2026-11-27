@@ -56,6 +56,16 @@ test("已加载项与目录项重叠时，不额外追加（原行为不变）",
 	assert.equal(merged[0].title, "已加载的标题", "重叠时用已加载项的标题");
 });
 
+test("entryId 与 messageId 字面相同：两个空间，不许判成同一条", () => {
+	const { mergeOutlineRailItems } = rail();
+	// 一条已加载项的 entryId 恰好等于另一条的 messageId —— 这正是两个空间撞车的形态。
+	const loaded = [
+		{ id: "m1", entryId: "X", role: "user", title: "有 entryId 的那条", time: "" },
+		{ id: "X", role: "user", title: "只有 messageId 的那条", time: "" },
+	];
+	const merged = mergeOutlineRailItems(loaded, []);
+	assert.equal(merged.length, 2, "两条不同来源 -> " + merged.length + " 条（应为 2）");
+});
 test("目录里没有的 live 项仍要追加（否则刚发的提问从刻度上消失）", () => {
 	const { mergeOutlineRailItems } = rail();
 	const loaded = [{ id: "m2", entryId: "e2", role: "user", title: "刚发的", time: "" }];
