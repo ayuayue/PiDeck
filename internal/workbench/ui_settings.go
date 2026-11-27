@@ -185,6 +185,7 @@ func (a *app) loadSettingsSection(id string) {
 		a.tdRefresh()
 	case "credentials":
 		a.loadAuth()
+		a.loadAuthMethods()
 	case "usage":
 		a.loadUsage(false)
 	case "resources":

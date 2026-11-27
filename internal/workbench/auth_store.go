@@ -4,8 +4,8 @@ package workbench
 
 // pi's own credentials file, as the settings page shows it: each provider,
 // the kind of credential, where its value comes from, and how long an
-// OAuth token still lasts. Only an api_key's key is written from the app;
-// every other field is kept as it was.
+// OAuth token still lasts. API key updates preserve unrelated metadata and
+// remove obsolete OAuth tokens; OAuth persistence belongs to the pi SDK.
 
 import (
 	"encoding/json"
@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"example.com/pideck-v2/internal/apptext"
@@ -190,6 +191,9 @@ func writeAuthFile(doc map[string]json.RawMessage) error {
 	if path == "" {
 		return fmt.Errorf("找不到 pi 的配置目录")
 	}
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		path = real
+	}
 	raw, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		return err
@@ -197,8 +201,52 @@ func writeAuthFile(doc map[string]json.RawMessage) error {
 	return writeFileAtomic(path, append(raw, '\n'), 0o600)
 }
 
-// replaceAuthKey sets one provider's api key, keeping every other field.
+var authWriteMu sync.Mutex
+
+// withAuthWrite serializes read-modify-write and honors pi's proper-lockfile
+// lock directory, so a concurrent token refresh cannot lose another entry.
+func withAuthWrite(change func() error) error {
+	authWriteMu.Lock()
+	defer authWriteMu.Unlock()
+	path := authPath()
+	if path == "" {
+		return errors.New(apptext.T("找不到 pi 的配置目录"))
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		path = real
+	}
+	lock := path + ".lock"
+	deadline := time.NewTimer(3 * time.Second)
+	defer deadline.Stop()
+	tick := time.NewTicker(25 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		err := os.Mkdir(lock, 0o700)
+		if err == nil {
+			break
+		}
+		if !os.IsExist(err) {
+			return err
+		}
+		select {
+		case <-deadline.C:
+			return errors.New(apptext.T("凭据正在由其他进程更新，请稍后重试。"))
+		case <-tick.C:
+		}
+	}
+	defer os.Remove(lock)
+	return change()
+}
+
+// replaceAuthKey sets one provider's API key without retaining OAuth tokens.
 func replaceAuthKey(provider, key string) error {
+	return withAuthWrite(func() error { return replaceAuthKeyLocked(provider, key) })
+}
+
+func replaceAuthKeyLocked(provider, key string) error {
 	provider, key = strings.TrimSpace(provider), strings.TrimSpace(key)
 	if provider == "" || key == "" {
 		return fmt.Errorf("供应商和密钥都要填")
@@ -216,8 +264,9 @@ func replaceAuthKey(provider, key string) error {
 		fields = map[string]any{"type": "api_key"}
 	}
 	fields["key"] = key
-	if _, ok := fields["type"]; !ok {
-		fields["type"] = "api_key"
+	fields["type"] = "api_key"
+	for _, field := range []string{"access", "refresh", "expires"} {
+		delete(fields, field)
 	}
 	raw, err := json.Marshal(fields)
 	if err != nil {
@@ -229,12 +278,14 @@ func replaceAuthKey(provider, key string) error {
 
 // removeAuthEntry drops one provider from auth.json.
 func removeAuthEntry(provider string) error {
-	doc, err := readAuthDoc()
-	if err != nil {
-		return err
-	}
-	delete(doc, provider)
-	return writeAuthFile(doc)
+	return withAuthWrite(func() error {
+		doc, err := readAuthDoc()
+		if err != nil {
+			return err
+		}
+		delete(doc, provider)
+		return writeAuthFile(doc)
+	})
 }
 
 // readAuthDoc reads auth.json as raw per-provider JSON.

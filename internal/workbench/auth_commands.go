@@ -62,7 +62,9 @@ func checkAuth(piPath, provider string, refresh bool) (authCheckResult, error) {
 	if !refresh {
 		args = append(args, "--no-refresh")
 	}
-	out, _ := piCommand(ctx, piPath, args...).Output()
+	cmd := piCommand(ctx, piPath, args...)
+	cmd.Env = piAuthEnvironment(os.Environ(), piConfigDir())
+	out, _ := cmd.Output()
 	var res authCheckResult
 	if json.Unmarshal(out, &res) == nil && res.Status != "" {
 		return res, nil
@@ -83,7 +85,9 @@ func logoutAuth(piPath, provider string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	out, err := piCommand(ctx, piPath, "auth", "logout", provider).CombinedOutput()
+	cmd := piCommand(ctx, piPath, "auth", "logout", provider)
+	cmd.Env = piAuthEnvironment(os.Environ(), piConfigDir())
+	out, err := cmd.CombinedOutput()
 	text := strings.TrimSpace(string(out))
 	if err != nil {
 		if text == "" {

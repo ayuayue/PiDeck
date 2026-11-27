@@ -91,6 +91,10 @@ func findPiAIProvidersModule(piPath string) (string, error) {
 		}
 		seenPaths[path] = true
 		paths = append(paths, path)
+		if resolved, err := filepath.EvalSymlinks(path); err == nil && !seenPaths[resolved] {
+			seenPaths[resolved] = true
+			paths = append(paths, resolved)
+		}
 	}
 	addPath(piPath)
 	if path, err := exec.LookPath(piPath); err == nil {

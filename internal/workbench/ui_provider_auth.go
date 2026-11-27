@@ -87,7 +87,7 @@ func (a *app) providerAuthBlock() core.Node {
 		var controls []core.Node
 		controls = append(controls,
 			ui.Button{Text: apptext.T("登录…"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall,
-				TestID: "provider-dialog-login", OnPress: func() { a.authLogin(id) }},
+				TestID: "provider-dialog-login", OnPress: func() { a.openProviderAuth(id) }},
 			ui.Button{Text: apptext.T("检测"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
 				TestID: "provider-dialog-check", OnPress: func() { a.authCheck(id) }})
 		if stored {

@@ -643,6 +643,7 @@ type app struct {
 	drawerSeq           int
 	winSeq              int
 	outlineOpen         *core.Signal[bool]
+	authUI              *authUIState
 	authEntries         *core.Signal[[]authEntry]
 	authErr             *core.Signal[string]
 	authKeyOpen         *core.Signal[bool]

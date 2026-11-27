@@ -213,6 +213,7 @@ func newApp(cx *core.Scope) *app {
 		railWidth:              core.NewSignal(cx, core.Points(0)),
 		drawerWidth:            core.NewSignal(cx, core.Points(0)),
 		outlineOpen:            core.NewSignal(cx, false),
+		authUI:                 newAuthUIState(cx),
 		authEntries:            core.NewSignalFunc(cx, []authEntry(nil), nil),
 		authErr:                core.NewSignal(cx, ""),
 		authKeyOpen:            core.NewSignal(cx, false),

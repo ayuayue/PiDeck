@@ -100,7 +100,7 @@ func TestAuthAddMethodsAndCustomKey(t *testing.T) {
 	built, screen := startNativeSettingsApp(t)
 	onNativeUI(t, screen, built, func() {
 		built.authMethods.Set([]piAuthProvider{
-			{ID: "key", Name: "Key Provider", APIKey: &piAPIKey{}},
+			{ID: "key", Name: "Key Provider", APIKey: &piAPIKey{Login: true}},
 			{ID: "oauth", Name: "OAuth Provider", OAuth: &piOAuthAuth{}},
 		})
 		built.authMethodsProvider.Set("key")
@@ -109,16 +109,19 @@ func TestAuthAddMethodsAndCustomKey(t *testing.T) {
 	})
 	screen.Press("id:auth-add")
 	screen.WaitFor("id:auth-methods-dialog", 5*time.Second)
+	screen.Press("id:auth-methods-provider")
+	screen.Press("role:option Key Provider · key")
+	screen.WaitFor("id:auth-key-input", 5*time.Second)
+	screen.Type("id:auth-key-input", "test-provider-key")
 	screen.Press("id:auth-method-login-key")
-	screen.WaitFor("id:auth-key", 5*time.Second)
 	screen.WaitForGone("id:auth-methods-dialog", 5*time.Second)
+	screen.WaitFor("id:auth-replace-key", 5*time.Second)
 	onNativeUI(t, screen, built, func() {
 		if got := built.authKeyProvider.GetUntracked(); got != "key" {
 			t.Errorf("manual key provider = %q, want key", got)
 		}
 	})
-	screen.Press("id:auth-key >> role:button 取消")
-	screen.Press("id:auth-add")
+	screen.Press("id:auth-add-oauth")
 	screen.WaitFor("id:auth-methods-dialog", 5*time.Second)
 	screen.Press("id:auth-methods-provider")
 	screen.Press("role:option OAuth Provider · oauth")

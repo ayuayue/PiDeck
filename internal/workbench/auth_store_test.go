@@ -94,41 +94,23 @@ func TestAuthKeyDialog(t *testing.T) {
 	app.Press("label:设置")
 	app.WaitFor("id:settings-tab-credentials", 5*time.Second)
 	app.Press("id:settings-tab-credentials")
-	for i := 0; i < 3; i++ {
-		if len(app.Query("id:auth-replace-anthropic")) > 0 {
-			break
-		}
-		app.Press("id:settings-tab-credentials")
-		app.Settle()
-		time.Sleep(100 * time.Millisecond)
-	}
 	app.WaitFor("id:auth-replace-anthropic", 20*time.Second)
 	app.Press("id:auth-replace-anthropic")
 	app.WaitFor("id:auth-key", 5*time.Second)
 	typeAll(t, app, "id:auth-key-input", "sk-new-2222")
 	app.Press("id:auth-key-save")
 
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		raw, err := os.ReadFile(path)
-		if err == nil && len(raw) > 0 {
-			var doc map[string]map[string]any
-			if json.Unmarshal(raw, &doc) == nil && doc["anthropic"]["key"] == "sk-new-2222" {
-				if doc["openai"]["access"] != "tok" {
-					t.Fatalf("oauth entry lost: %+v", doc["openai"])
-				}
-				break
-			}
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("auth.json = %s", raw)
-		}
-		time.Sleep(50 * time.Millisecond)
+	app.WaitForGone("id:auth-key", 5*time.Second)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
 	}
-	// The dialog stays open after saving so another provider's key can be
-	// typed without reopening it.
-	app.Settle()
-	if len(app.Query("id:auth-key")) == 0 {
-		t.Error("saving closed the key dialog")
+	var doc map[string]map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
 	}
+	if doc["anthropic"]["key"] != "sk-new-2222" || doc["openai"]["access"] != "tok" {
+		t.Fatal("save failed or changed another provider")
+	}
+	app.WaitFor("id:auth-replace-anthropic", 5*time.Second)
 }
