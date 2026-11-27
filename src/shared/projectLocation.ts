@@ -160,3 +160,17 @@ export function readSshSessionLocator(value: unknown): SshSessionLocator | undef
 		...(remotePathAliases ? { remotePathAliases } : {}),
 	};
 }
+
+/**
+ * 项目是否可能有项目级资源目录（`.pi` / `.agents`）。
+ *
+ * chat 项目（会话工作区）没有。**写**要拒绝（`requireProject` 抛错），**读**要空集 ——
+ * 判定在这里，调用点自己决定拒绝还是返回空列表。
+ *
+ * 反例（2026-11-26 真机）：`prompts:list-by-project` 走写路径守卫 `getProjectRoot()`，
+ * chat 项目上每次调用都抛 `mainProjectResource.chatUnsupported`，配置页一打开 Prompts
+ * 标签，主进程日志就刷满同样的堆栈。
+ */
+export function projectAllowsResources(project: { kind?: unknown } | undefined): boolean {
+	return project !== undefined && project.kind !== "chat";
+}
