@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -119,6 +120,7 @@ func (a *app) welcome() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
 		height := core.NewSignal(cx, core.Points(0))
+		width := core.NewSignal(cx, core.Points(0))
 		var projects []*workspace
 		var selected *workspace
 		for _, ws := range a.workspaces.Get() {
@@ -140,23 +142,20 @@ func (a *app) welcome() core.Node {
 			start = func() { a.newProjectSession(selected) }
 		}
 		children := []core.Node{
-			core.View{Style: core.Style{Gap: 24}, Children: []core.Node{
-				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 12}, Children: []core.Node{
-					a.brandMark(32, "welcome-logo"),
-					ui.Text("PiDeck V2", 17, ui.Medium, colors.Text),
+			core.View{Style: core.Style{Gap: 16}, Children: []core.Node{
+				core.View{TestID: "welcome-header", Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 16}, Children: []core.Node{
+					a.brandMark(40, "welcome-logo"),
+					core.Text{Content: "PiDeck V2", Role: core.RoleHeader, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+						Style: core.Style{FontSize: 28, LineHeight: 40, FontWeight: ui.Medium, FlexShrink: 1, MinWidth: core.Pt(0)}, StyleFunc: ui.Colored(colors.Text)},
 				}},
-				core.View{Style: core.Style{Gap: 12}, Children: []core.Node{
-					core.Text{Content: apptext.T("开始新的会话"), MaxLines: 2,
-						Style: core.Style{FontSize: 36, LineHeight: 44, FontWeight: ui.Medium}, StyleFunc: ui.Colored(colors.Text)},
-					core.Text{Content: sub, Style: core.Style{FontSize: 16, LineHeight: 26}, StyleFunc: ui.Colored(colors.Muted)},
-				}},
-				core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 12}, Children: []core.Node{
+				core.Text{Content: sub, Style: core.Style{FontSize: 14, LineHeight: 22}, StyleFunc: ui.Colored(colors.Muted)},
+				core.View{TestID: "welcome-actions", Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4}, Children: []core.Node{
 					ui.Button{Text: primary, Variant: ui.ButtonPrimary, TestID: "welcome-primary", OnPress: start,
-						Style: core.Style{Height: core.Pt(44), Padding: core.Symmetric(0, 20)}, TextStyle: core.Style{FontSize: 15}},
-					ui.Button{Text: apptext.T("直接对话"), Variant: ui.ButtonSecondary, TestID: "welcome-chat", OnPress: func() { a.openChat() },
-						Style: core.Style{Height: core.Pt(44), Padding: core.Symmetric(0, 16)}, TextStyle: core.Style{FontSize: 15}},
+						Style: core.Style{Height: core.Pt(viewkit.PanelControlSize), MaxWidth: core.Pct(100), CornerRadius: 8}, TextStyle: core.Style{FontSize: 14, LineHeight: viewkit.PanelLineHeight}},
+					ui.Button{Text: apptext.T("直接对话"), Variant: ui.ButtonGhost, TestID: "welcome-chat", OnPress: func() { a.openChat() },
+						Style: core.Style{Height: core.Pt(viewkit.PanelControlSize), MaxWidth: core.Pct(100), CornerRadius: 8}, TextStyle: core.Style{FontSize: 14, LineHeight: viewkit.PanelLineHeight}},
 					ui.Button{Text: apptext.T("导入会话"), Variant: ui.ButtonGhost, TestID: "welcome-secondary", OnPress: func() { a.openImportDialog() },
-						Style: core.Style{Height: core.Pt(44), Padding: core.Symmetric(0, 16)}, TextStyle: core.Style{FontSize: 15}},
+						Style: core.Style{Height: core.Pt(viewkit.PanelControlSize), MaxWidth: core.Pct(100), CornerRadius: 8}, TextStyle: core.Style{FontSize: 14, LineHeight: viewkit.PanelLineHeight}},
 				}},
 			}},
 		}
@@ -165,22 +164,26 @@ func (a *app) welcome() core.Node {
 			for _, ws := range projects {
 				rows = append(rows, a.welcomeProject(ws))
 			}
-			children = append(children, core.View{TestID: "welcome-projects", Style: core.Style{Gap: 12}, Children: []core.Node{
-				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 12}, Children: []core.Node{
-					core.Text{Content: apptext.T("项目"), Style: core.Style{FontSize: 18, FontWeight: ui.Medium, FlexGrow: 1}, StyleFunc: ui.Colored(colors.Text)},
+			children = append(children, core.View{TestID: "welcome-projects", Style: core.Style{Gap: 8}, Children: []core.Node{
+				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
+					core.Text{Content: apptext.T("项目"), Style: core.Style{FontSize: viewkit.PanelCaptionSize, LineHeight: viewkit.PanelLineHeight, FontWeight: ui.Medium, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, StyleFunc: ui.Colored(colors.Muted)},
 					ui.Button{Text: apptext.T("添加工作区"), Icon: lucide.FolderPlus, Variant: ui.ButtonGhost,
-						TestID: "welcome-add-project", Style: core.Style{Height: core.Pt(44)}, OnPress: func() { a.pickNative("workspace") }},
+						TestID: "welcome-add-project", Style: core.Style{Height: core.Pt(viewkit.PanelControlSize), CornerRadius: 8},
+						TextStyle: core.Style{FontSize: 14, LineHeight: viewkit.PanelLineHeight}, OnPress: func() { a.pickNative("workspace") }},
 				}},
-				core.View{Style: core.Style{Gap: 4, Padding: core.All(8), BorderWidth: 1, CornerRadius: 12},
-					StyleFunc: func() core.Style { return core.Style{Background: colors.Surface(), BorderColor: colors.Border()} }, Children: rows},
+				core.View{Style: core.Style{Gap: 4}, Children: rows},
 			}})
 		}
-		return core.Scroll{TestID: "welcome", OnLayout: func(b core.Bounds) { height.Set(b.Size.Height) },
+		return core.Scroll{TestID: "welcome", OnLayout: func(b core.Bounds) {
+			height.Set(b.Size.Height)
+			width.Set(b.Size.Width)
+		},
 			Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)},
-			StyleFunc: func() core.Style { return core.Style{Background: colors.Background()} }, Children: []core.Node{
-				core.View{Style: core.Style{AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Padding: core.Symmetric(40, 24)},
+			StyleFunc: func() core.Style { return core.Style{Background: ui.Mix(colors.Surface(), colors.Inset(), 0.45)} }, Children: []core.Node{
+				core.View{Style: core.Style{AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Padding: core.Symmetric(24, chatSidePadding)},
 					StyleFunc: func() core.Style { return core.Style{MinHeight: core.Pt(height.Get())} }, Children: []core.Node{
-						core.View{Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pt(760), MinWidth: core.Pt(0), Gap: 36}, Children: children},
+						core.View{TestID: "welcome-column", Style: core.Style{Width: core.Pct(100), MinWidth: core.Pt(0), Gap: 32},
+							StyleFunc: func() core.Style { return core.Style{MaxWidth: a.chatColumnWidth(width.Get())} }, Children: children},
 					}},
 			}}
 	})
@@ -191,19 +194,19 @@ func (a *app) welcomeProject(ws *workspace) core.Node {
 		colors := ui.ColorsOf(cx)
 		return base.Button{TestID: "welcome-project-" + ws.key(), Label: apptext.T("新建会话") + ": " + ws.label(),
 			OnPress: func(core.PressEvent) { a.newProjectSession(ws) },
-			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 16, MinHeight: core.Pt(72),
-				Padding: core.Symmetric(12, 16), CornerRadius: 8},
+			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 12, MinHeight: core.Pt(56),
+				Padding: core.Symmetric(8, 12), CornerRadius: 8},
 			StyleFunc: func() core.Style {
 				return core.Style{Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}, FocusVisible: ui.FocusRing(cx, 2)}
 			}, Children: []core.Node{
-				ui.Icon(lucide.Folder, 17, colors.Muted),
-				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 4}, Children: []core.Node{
+				ui.Icon(lucide.Folder, viewkit.PanelIconSize, colors.Muted),
+				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 2}, Children: []core.Node{
 					core.Text{Content: ws.label(), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-						Style: core.Style{FontSize: 16, LineHeight: 24, FontWeight: ui.Medium}, StyleFunc: ui.Colored(colors.Text)},
+						Style: core.Style{FontSize: 14, LineHeight: viewkit.PanelLineHeight, FontWeight: ui.Medium}, StyleFunc: ui.Colored(colors.Text)},
 					core.Text{Content: ws.Path, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-						Style: core.Style{FontSize: 12, LineHeight: 20}, StyleFunc: ui.Colored(colors.Muted)},
+						Style: core.Style{FontSize: viewkit.PanelCaptionSize, LineHeight: 18}, StyleFunc: ui.Colored(colors.Muted)},
 				}},
-				ui.Icon(lucide.ArrowUpRight, 16, colors.Muted),
+				ui.Icon(lucide.ArrowUpRight, viewkit.PanelDetailIconSize, colors.Muted),
 			}}
 	})
 }
