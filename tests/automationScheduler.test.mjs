@@ -123,3 +123,58 @@ test("AutomationScheduler performs latest-only catch-up when waking up after dow
 		await rm(dir, { recursive: true, force: true });
 	}
 });
+
+const firstMonday = new Date(2026, 5, 1, 9).getTime();
+const nextMonday = new Date(2026, 5, 8, 9).getTime();
+
+async function createWeeklyScheduler(t) {
+	const dir = await mkdtemp(join(tmpdir(), "pideck-sched-weekly-"));
+	t.after(() => rm(dir, { recursive: true, force: true }));
+	const store = new AutomationStore(join(dir, "automation.json"));
+	await store.load(firstMonday - 60_000);
+	const task = await store.createTask({ name: "Weekly", projectId: "p1", prompt: "Weekly check", schedule: { type: "cron", expression: "0 9 * * 1" } }, firstMonday - 60_000);
+	const scheduler = new AutomationScheduler(store);
+	const triggered = [];
+	scheduler.setTriggerHandler(async (_task, scheduledFor, trigger) => {
+		triggered.push({ scheduledFor, trigger });
+	});
+	await scheduler.tick(firstMonday + 250);
+	assert.deepEqual(triggered, [{ scheduledFor: firstMonday, trigger: "schedule" }]);
+	return { scheduler, store, task, triggered };
+}
+
+for (const [delay, trigger] of [
+	[250, "schedule"],
+	[65_000, "catch-up"],
+]) {
+	test(`AutomationScheduler dispatches the next weekly occurrence once as ${trigger} after a recent poll`, async (t) => {
+		const { scheduler, store, task, triggered } = await createWeeklyScheduler(t);
+		await scheduler.tick(nextMonday - 750);
+		await scheduler.tick(nextMonday + delay);
+		await scheduler.tick(nextMonday + delay + 1_000);
+		assert.deepEqual(triggered.slice(1), [{ scheduledFor: nextMonday, trigger }]);
+		assert.equal(store.getTask(task.id).lastScheduledAt, nextMonday);
+	});
+}
+
+test("AutomationScheduler skips backfill after more than seven days without a poll, then resumes normal scheduling", async (t) => {
+	const { scheduler, store, task, triggered } = await createWeeklyScheduler(t);
+	const wake = nextMonday + 2 * 60_000;
+	await scheduler.tick(wake);
+	assert.equal(triggered.length, 1);
+	assert.equal(store.getTask(task.id).lastScheduledAt, wake);
+
+	const followingMonday = new Date(2026, 5, 15, 9).getTime();
+	await scheduler.tick(followingMonday + 250);
+	assert.deepEqual(triggered.slice(1), [{ scheduledFor: followingMonday, trigger: "schedule" }]);
+});
+
+test("AutomationScheduler respects a task re-enabled after its due time between two polls", async (t) => {
+	const { scheduler, store, task, triggered } = await createWeeklyScheduler(t);
+	await store.updateTask(task.id, { enabled: false }, nextMonday - 60_000);
+	await scheduler.tick(nextMonday - 750);
+	await store.updateTask(task.id, { enabled: true }, nextMonday + 100);
+	await scheduler.tick(nextMonday + 250);
+	assert.equal(triggered.length, 1);
+	assert.equal(store.getTask(task.id).lastScheduledAt, nextMonday + 100);
+});

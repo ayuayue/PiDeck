@@ -1,5 +1,5 @@
 import type { AutomationTask } from "../../shared/types";
-import { missedAutomationCronOccurrences, nextAutomationCronOccurrence } from "./automationCron";
+import { missedAutomationCronOccurrences } from "./automationCron";
 import { hasActiveAutomationRun } from "./automationPolicy";
 import type { AutomationStore } from "./AutomationStore";
 import { getAppLogger } from "../logging/sharedLogger";
@@ -18,6 +18,7 @@ export type AutomationSchedulerTriggerHandler = (task: AutomationTask, scheduled
 export class AutomationScheduler {
 	private timer: NodeJS.Timeout | null = null;
 	private ticking = false;
+	private lastCompletedTickAt?: number;
 	private onTrigger: AutomationSchedulerTriggerHandler | null = null;
 
 	constructor(private readonly store: AutomationStore) {}
@@ -55,6 +56,7 @@ export class AutomationScheduler {
 				if (!task.enabled || task.schedule.type !== "cron") continue;
 				await this.evaluateTask(task, runs, now);
 			}
+			this.lastCompletedTickAt = now;
 		} catch (error) {
 			// 单个任务求值失败（如 cron 表达式损坏）不得炸掉调度器：记日志后等下个 tick 重试，
 			// 否则 void tick() 会变成每分钟一次的 unhandledRejection 噪音。
@@ -72,17 +74,18 @@ export class AutomationScheduler {
 		if (task.schedule.type !== "cron") return;
 
 		const lastScheduled = task.lastScheduledAt ?? task.createdAt;
-		// Only check if at least one minute has passed since last schedule
-		if (now - lastScheduled > MAX_CATCH_UP_WINDOW_MS) {
+		// A weekly task can go seven days without firing even while we poll every second.
+		// On startup only the persisted task cursor is available.
+		const checkedThrough = Math.max(lastScheduled, this.lastCompletedTickAt ?? lastScheduled);
+		if (now - checkedThrough > MAX_CATCH_UP_WINDOW_MS) {
 			// Beyond maximum catch-up window, reset baseline to now to avoid huge backfill
 			await this.store.acknowledgeSchedule(task.id, now);
 			return;
 		}
 
-		// Find missed occurrences between lastScheduled and now
 		const missed = missedAutomationCronOccurrences(
 			task.schedule.expression,
-			new Date(lastScheduled),
+			new Date(checkedThrough),
 			new Date(now),
 			1, // Latest-only catch-up policy
 		);
