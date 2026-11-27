@@ -18,9 +18,12 @@ import (
 
 // fileEntry is one directory entry, read off the UI thread.
 type fileEntry struct {
-	Name string
-	Path string
-	Dir  bool
+	Name     string
+	Path     string
+	Dir      bool
+	Modified time.Time
+	Size     int64
+	Known    bool
 }
 
 // fileNode is one visible row of the tree.
@@ -40,6 +43,7 @@ type fileTree struct {
 	nodes  *core.Signal[[]fileNode]
 	hidden *core.Signal[bool]
 	scope  *core.Signal[string]
+	order  *core.Signal[fileSort]
 	busy   *core.Signal[bool]
 
 	dirs       map[string][]fileEntry
@@ -54,6 +58,7 @@ func newFileTree(cx *core.Scope) *fileTree {
 		nodes:    core.NewSignalFunc(cx, []fileNode(nil), nil),
 		hidden:   core.NewSignal(cx, false),
 		scope:    core.NewSignal(cx, "all"),
+		order:    core.NewSignal(cx, fileSortName),
 		busy:     core.NewSignal(cx, false),
 		dirs:     map[string][]fileEntry{},
 		expanded: map[string]bool{},
@@ -137,20 +142,13 @@ func (t *fileTree) load(path string, gen int, done func()) {
 					out = append(out, fileEntry{Name: "…", Path: path, Dir: false})
 					break
 				}
-				name := e.Name()
-				if e.IsDir() {
-					out = append(out, fileEntry{Name: name, Path: filepath.Join(path, name), Dir: true})
-				} else {
-					out = append(out, fileEntry{Name: name, Path: filepath.Join(path, name)})
+				entry := fileEntry{Name: e.Name(), Path: filepath.Join(path, e.Name()), Dir: e.IsDir()}
+				if info, err := e.Info(); err == nil {
+					entry.Modified, entry.Size, entry.Known = info.ModTime(), info.Size(), true
 				}
+				out = append(out, entry)
 			}
 		}
-		sort.SliceStable(out, func(i, j int) bool {
-			if out[i].Dir != out[j].Dir {
-				return out[i].Dir
-			}
-			return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
-		})
 		t.cx.Post(func() {
 			if gen != t.generation {
 				return
@@ -174,7 +172,7 @@ func (t *fileTree) rebuild() {
 	var out []fileNode
 	var walk func(path string, depth int)
 	walk = func(path string, depth int) {
-		for _, e := range t.dirs[path] {
+		for _, e := range sortedFileEntries(t.dirs[path], t.order.GetUntracked()) {
 			if !hidden && strings.HasPrefix(e.Name, ".") {
 				continue
 			}
@@ -216,6 +214,7 @@ type fileIndexCache struct {
 	root    string
 	at      time.Time
 	files   []string
+	entries map[string]fileEntry
 	loading bool
 }
 
@@ -232,6 +231,7 @@ func (a *app) workspaceFiles(root string) []string {
 	if a.fileIdx.root != root {
 		a.fileIdx.root = root
 		a.fileIdx.files = nil
+		a.fileIdx.entries = nil
 		a.fileIdx.at = time.Time{}
 		a.fileIdx.loading = false
 	}
@@ -287,9 +287,11 @@ func walkWorkspaceFiles(root string) []string {
 func (a *app) scanWorkspaceFiles(root string) {
 	files := walkWorkspaceFiles(root)
 	sort.Strings(files)
+	entries := readFileSortEntries(root, files)
 	a.fileIdx.mu.Lock()
 	if a.fileIdx.root == root {
 		a.fileIdx.files = files
+		a.fileIdx.entries = entries
 		a.fileIdx.at = time.Now()
 	}
 	a.fileIdx.loading = false

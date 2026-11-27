@@ -57,13 +57,20 @@ func (a *app) sessionFiles(cx *core.Scope, s *session, root string) core.Node {
 			filter := strings.ToLower(strings.TrimSpace(a.filesQuery.Get()))
 			var rows []core.Node
 			entries := sessionFileEntries(root, changes)
+			byPath := make(map[string][]sessionFileEntry, len(entries))
+			paths := make([]string, 0, len(entries))
+			for _, entry := range entries {
+				byPath[entry.Rel] = append(byPath[entry.Rel], entry)
+				paths = append(paths, entry.Rel)
+			}
 			rows = append(rows, core.Text{Content: fmt.Sprintf(apptext.T("修改 %d 个文件"), len(entries)),
 				Style: core.Style{FontSize: 12, Padding: core.Edges{Bottom: 8}}, StyleFunc: ui.Colored(colors.Muted)})
-			for _, entry := range entries {
+			for _, rel := range a.sortedWorkspacePaths(root, paths) {
+				entry := byPath[rel][0]
+				byPath[rel] = byPath[rel][1:]
 				if !containsQuery(entry.Rel, filter) {
 					continue
 				}
-				entry := entry
 				rows = append(rows, hintOf(func() string { return entry.Change.Path }, core.View{
 					TestID: "file-session-row", Role: core.RoleButton, Label: entry.Rel,
 					OnPress: func(core.PressEvent) { a.openChangedFile(s, entry.Change.Path) },

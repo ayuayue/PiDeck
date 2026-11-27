@@ -40,7 +40,8 @@ func (a *app) drawerFiles() core.Node {
 			ui.Icon(lucide.Folder, 16, colors.Muted),
 			core.Text{Content: filepath.Base(root), MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
 				Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 14, FontWeight: ui.Semibold}, StyleFunc: ui.Colored(colors.Text)},
-			ui.IconButton{Icon: lucide.RefreshCw, Label: apptext.T("刷新文件"), Size: 28, IconSize: 14, TestID: "files-refresh", OnPress: a.files.reload},
+			hint(apptext.T("在文件管理器中打开工作区"), ui.IconButton{Icon: lucide.FolderOpen, Label: apptext.T("在文件管理器中打开工作区"), Size: 28, IconSize: 14, TestID: "files-open-folder", OnPress: func() { a.revealFileBrowserRoot(root) }}),
+			ui.IconButton{Icon: lucide.RefreshCw, Label: apptext.T("刷新文件"), Size: 28, IconSize: 14, TestID: "files-refresh", OnPress: a.refreshFileBrowser},
 			ui.IconButton{Icon: func() *core.SVG {
 				if a.files.hidden.Get() {
 					return lucide.Eye()
@@ -156,7 +157,7 @@ func (a *app) drawerFiles() core.Node {
 			filter := strings.ToLower(strings.TrimSpace(a.filesQuery.Get()))
 			_ = a.filesRev.Get()
 			var rows []core.Node
-			for _, rel := range a.workspaceFiles(root) {
+			for _, rel := range a.sortedWorkspacePaths(root, a.workspaceFiles(root)) {
 				if !containsQuery(rel, filter) {
 					continue
 				}
@@ -188,7 +189,7 @@ func (a *app) drawerFiles() core.Node {
 		}
 		return core.View{Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Gap: 12, Padding: core.Edges{Bottom: 12}}, Children: []core.Node{
-				hintOf(func() string { return root }, head), search, a.fileScopeTabs(),
+				hintOf(func() string { return root }, head), search, a.fileScopeTabs(), a.fileSortControl(),
 			}},
 			core.Show{When: func() bool { return a.files.scope.Get() == "session" }, Then: func(cx *core.Scope) core.Node { return a.sessionFiles(cx, s, root) }},
 			core.Show{When: func() bool { return a.files.scope.Get() != "session" }, Then: func(cx *core.Scope) core.Node {
