@@ -31,6 +31,7 @@ func queuePanelFixture(t *testing.T) (*app, *session, *nsgotest.App) {
 	var s *session
 	screen := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		a = &app{cx: cx, byID: map[string]*session{}, toaster: ui.NewToaster(cx),
+			askSeq:        core.NewSignal(cx, 0),
 			workspaces:    core.NewSignalFunc(cx, []*workspace(nil), nil),
 			attachPreview: core.NewSignalFunc(cx, remotewire.Image{}, nil)}
 		s = a.blankSession("queue-fixture", &workspace{}, "Queue")
@@ -342,6 +343,58 @@ func TestQueueNewSendDuringRecallKeepsImages(t *testing.T) {
 	got := s.steering.GetUntracked()
 	if len(got) != 2 || len(got[0].Images) != 1 || len(got[1].Images) != 1 || got[0].Images[0].Name != "remaining.png" || got[1].Images[0].Name != "new.png" {
 		t.Fatalf("new send during recall lost or mixed attachments: %+v", got)
+	}
+}
+
+func TestQueueStopDuringSwitchClearsFollowUps(t *testing.T) {
+	a, s, screen := queuePanelFixture(t)
+	entered, release := make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	clears := 0
+	commands := queueRPCFixture(t, a, s, func(cmd map[string]any) {
+		if cmd["type"] == "clear_queue" {
+			clears++
+			if clears == 1 {
+				close(entered)
+				<-release
+			}
+		}
+	}, nil)
+	t.Cleanup(func() { releaseOnce.Do(func() { close(release) }) })
+	onNativeUI(t, screen, a, func() {
+		s.turns.Set([]turn{{ID: "running", Status: chat.Running}})
+		a.steer(s, "切换后也应停止", []remotewire.Image{{Name: "stop.png", Data: queueTestPNG(t)}})
+		a.queueFollowUp(s, "已经排队的消息", nil)
+	})
+	screen.WaitUntil(5*time.Second, func() bool { return !s.queueWorking() })
+	screen.Press("id:queue-steer >> id:queue-switch")
+	screen.WaitUntil(5*time.Second, func() bool {
+		select {
+		case <-entered:
+			return true
+		default:
+			return false
+		}
+	})
+	onNativeUI(t, screen, a, func() { a.stop(s) })
+	releaseOnce.Do(func() { close(release) })
+	screen.WaitUntil(5*time.Second, func() bool { return !s.queueWorking() })
+	if got := s.sending.GetUntracked(); len(got) != 0 {
+		t.Fatalf("stop retained follow-ups restored by the pending switch: %+v", got)
+	}
+	if got := s.steering.GetUntracked(); len(got) != 0 {
+		t.Fatalf("stop retained steering messages: %+v", got)
+	}
+	onNativeUI(t, screen, a, func() {
+		s.runningSig.Set(false)
+		a.flushFollowUps(s)
+	})
+	if s.busyNow() || len(s.turns.GetUntracked()) != 1 {
+		t.Fatal("stopped session automatically started another turn")
+	}
+	got := commands()
+	if len(got) != 4 || got[0]["type"] != "steer" || got[1]["type"] != "clear_queue" || got[2]["type"] != "clear_queue" || got[3]["type"] != "abort" {
+		t.Fatalf("unexpected commands after stopping a pending switch: %+v", got)
 	}
 }
 

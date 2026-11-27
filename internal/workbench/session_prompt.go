@@ -244,6 +244,8 @@ func (a *app) stop(s *session) {
 			if err != nil {
 				a.toast(ui.ToastError, "停止失败", err.Error())
 			}
+			// An earlier queue edit can restore a follow-up after stop began.
+			s.sending.Set(nil)
 			s.steering.Set(nil)
 		}
 	})
