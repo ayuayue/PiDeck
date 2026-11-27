@@ -3,7 +3,7 @@ import test from "node:test";
 import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
 
 const load = createTsSandbox();
-const { mergeHistorySegments, reanchorWindow } = load("src/renderer/src/components/session/timeline/historyPageMerge.ts");
+const { mergeHistorySegments } = load("src/renderer/src/components/session/timeline/historyPageMerge.ts");
 
 const msg = (entryId) => ({ id: "id-" + entryId, meta: { entryId } });
 const keyOf = (item) => "e:" + item.meta.entryId;
@@ -64,30 +64,4 @@ test("文件头页（nextBefore 为 null）接在最前", () => {
 test("空输入返回空结果", () => {
 	const merged = mergeHistorySegments([], keyOf);
 	same(merged, { messages: [], gaps: [], dropped: 0, reordered: false });
-});
-
-test("窗口锚点随合并移动：补一页后仍看原来那批", () => {
-	const before = [msg("c"), msg("d")];
-	const merged = [msg("a"), msg("b"), msg("c"), msg("d")].slice(0, 4);
-	const result = reanchorWindow({ window: before, merged, keyOf });
-	same(ids(result.window), ["c", "d"]);
-	assert.equal(result.kept, true);
-});
-
-test("锚点消息消失时退回尾部切片，并如实报 kept=false", () => {
-	const window = [msg("gone")];
-	const merged = [msg("a"), msg("b"), msg("c")];
-	const result = reanchorWindow({ window, merged, keyOf });
-	assert.equal(result.kept, false);
-	same(ids(result.window), ["c"]);
-});
-
-test("坏样本：旧实现（尾部 N 条）在补页后会跳到最新", () => {
-	// 旧实现：窗口 = merged.slice(-2)
-	const merged = [msg("a"), msg("b"), msg("c"), msg("d")];
-	same(ids(merged.slice(-2)), ["c", "d"]);
-	// 新实现保住锚点后是同一批；两者相同时说明这条用例没造出差异，必须用更长的页
-	const result = reanchorWindow({ window: [msg("b"), msg("c")], merged, keyOf });
-	same(ids(result.window), ["b", "c"]);
-	assert.notEqual(JSON.stringify(ids(result.window)), JSON.stringify(ids(merged.slice(-2))));
 });

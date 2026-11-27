@@ -75,19 +75,3 @@ export function mergeHistorySegments<T>(segments: readonly HistorySegment<T>[], 
 
 	return { messages, gaps, dropped, reordered };
 }
-
-/**
- * 合并后保持渲染窗口不动。
- *
- * 窗口是「尾部 N 条」切片：历史页接在前头之后，同样的 N 会整体滑向最新，
- * 用户正在看的那批被顶出屏幕——表现是「补一页，视图自己跳了一下」。
- * 这里按窗口首条的身份重新定位，命中了就保住原内容，只有它确实消失才退回尾部切片。
- */
-export function reanchorWindow<T>(input: { window: readonly T[]; merged: readonly T[]; keyOf: (item: T) => string }): { window: T[]; kept: boolean } {
-	const { window, merged, keyOf } = input;
-	if (window.length === 0) return { window: merged.slice(Math.max(0, merged.length - window.length)), kept: true };
-	const anchorKey = keyOf(window[0]);
-	const found = merged.findIndex((item) => keyOf(item) === anchorKey);
-	if (found < 0) return { window: merged.slice(Math.max(0, merged.length - window.length)), kept: false };
-	return { window: merged.slice(found, found + window.length), kept: true };
-}
