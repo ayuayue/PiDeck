@@ -321,7 +321,7 @@ export const TurnRow = memo(function TurnRow(props: TurnRowProps) {
 			.map((item) => visibleAssistantText(item.message.text))
 			.filter(Boolean)
 			.join("\n\n");
-		// 复制按钮要的纯文本**不在这里算**：`stripMarkdown` 是多趟正则、代价正比于整轮正文，
+		// 复制按钮要的纯文本**不在这里算**：`stripMarkdown` 需要解析整轮正文，
 		// 而流式期间 run.items 每 50ms 变一次——挂在 useMemo 里等于每帧对整轮正文跑一遍正则。
 		// 改成把 replyText 交给 CopyMenu，点「复制为文本」那一刻才算（见 CopyMenu 的 resolveText）。
 		// 本轮模型名：取最后一条带 model 的 assistant 消息（同轮内一般同源），显示在底部耗时行。
@@ -341,7 +341,7 @@ export const TurnRow = memo(function TurnRow(props: TurnRowProps) {
 	}, [run.items]);
 	// 复制/收藏口径：有最终回答就只给最终回答（#601），否则回退整轮聚合。
 	const replyText = finalText || mergedText;
-	// 复制为文本用的纯文本：`stripMarkdown` 是多趟正则、代价正比于正文，而它只在用户点
+	// 复制为文本需要 `stripMarkdown` 解析完整正文，只在用户点
 	// 「复制为文本」那一刻才需要。走 useLazyValue 推迟到点击时算，流式期间不再每 50ms 跑一遍。
 	const resolvePlainText = useLazyValue(() => (replyText ? stripMarkdown(replyText) : ""), [replyText]);
 	// 收藏身份与右键菜单同源（会话 + 消息 id）：星标显示实心即表示这条回复已在收藏里，再点即取消。

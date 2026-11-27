@@ -64,7 +64,7 @@ export function useReusedList<T>(factory: () => T[], deps: readonly unknown[], i
 /**
  * 惰性求值：返回一个**引用稳定**的取值函数，首次调用时才执行 `factory`。
  *
- * 为什么需要：`stripMarkdown` 这类多趟正则的代价正比于整轮正文长度，而它的结果只在
+ * 为什么需要：`stripMarkdown` 这类转换需要处理整轮正文，而它的结果只在
  * 用户点「复制为文本」那一刻才用得上。挂在 `useMemo` 上等于流式期间每 50ms 对整轮正文
  * 跑一遍正则——测不出来（不报错、不掉帧那么明显），但确实是白烧的。
  *
