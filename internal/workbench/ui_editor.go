@@ -109,8 +109,8 @@ func (a *app) editorActions() core.Node {
 			Selected: a.editorWrap.Get, OnPress: a.toggleEditorWrap}),
 		hintOf(func() string { return apptext.T("保存所有文件") }, ui.IconButton{Icon: lucide.SaveAll, Label: apptext.T("保存所有文件"), Size: 28, IconSize: 14, TestID: "editor-save-all",
 			Disabled: func() bool {
-				for _, f := range a.editor.files.GetUntracked() {
-					if f != nil && f.Dirty.GetUntracked() {
+				for _, f := range a.editor.files.Get() {
+					if f != nil && f.Dirty.Get() {
 						return false
 					}
 				}
