@@ -26,15 +26,6 @@ const domainPaths = [
 	"src/renderer/src/atoms/vanished-session-runtimes.ts",
 ];
 
-/**
- * shared 底座清单：atoms 域允许依赖它（方向正确：两层都依赖共同底座）。
- * 域模块 import 它的写法是相对路径（../../../shared/xxx），与域内 ./xxx 不是同一种键，
- * 所以下面按「文件名」建键，两种写法都能命中。
- */
-// 空：曾经有过 src/shared/sessionLimits.ts，已删（常量回到 atoms 本文件，hook 走 ports 注入）。
-// 留着这个数组是为了让 shared 清单有一个地方可写，不要重建那个文件。
-const sharedPaths = [];
-
 export const sessionAtomsSourceFiles = [entryPath, ...domainPaths];
 
 export const sessionAtomsSources = sessionAtomsSourceFiles.map((path) => ({ path, source: readFileSync(path, "utf8") }));
@@ -59,7 +50,7 @@ export const sessionAtomsSource = sessionAtomsSources.map(({ path, source }) => 
 export function sessionAtomsLoaderImports({ compileModule, imports, entrySpecifier = "./session-atoms" }) {
 	// 按文件名建键：域内写 ./xxx、跨层写 ../../../shared/xxx，两种都落到同一张表。
 	const baseNameOf = (path) => path.slice(path.lastIndexOf("/") + 1).replace(/\.ts$/, "");
-	const pathBySpecifier = new Map([...domainPaths, ...sharedPaths].map((path) => ["./" + baseNameOf(path), path]));
+	const pathBySpecifier = new Map(domainPaths.map((path) => ["./" + baseNameOf(path), path]));
 	const loaded = new Map();
 	// 入口模块exports：域模块（如 vanished-session-runtimes）会反查它的 atom。
 	const entryExports = {};
