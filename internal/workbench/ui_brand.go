@@ -106,80 +106,64 @@ func (a *app) openBrandSettings() {
 	a.forgetScrolls("settings")
 }
 
-// brandingGroup subscribes only the preview to brandRev. Typing a name
-// updates the rail and popover without rebuilding the focused input.
+// brandingGroup keeps name editing and image loading local to this group.
 func (a *app) brandingGroup(colors ui.Colors) core.Node {
 	nameDirty := false
 	saveName := func() {
-		if !nameDirty {
-			return
+		if nameDirty {
+			nameDirty = false
+			a.saveConfigAsync()
 		}
-		nameDirty = false
-		a.saveConfigAsync()
 	}
 	var options []core.Node
 	for _, choice := range []struct{ style, label string }{
 		{logoStyleTUI, "pi TUI 彩色"}, {logoStyleClassic, "pi 经典"}, {logoStyleCustom, "自定义图片"},
 	} {
 		style, label := choice.style, choice.label
-		options = append(options, core.View{
-			Role: core.RoleRadio, Label: apptext.T(label), TestID: "brand-logo-" + style,
-			Checked: func() bool { _ = a.brandRev.Get(); return resolveLogoStyle(a.cfg.LogoStyle) == style },
-			OnPress: func(core.PressEvent) { a.setLogoStyle(style) },
-			Style:   core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7, Height: core.Pt(34), Padding: core.Symmetric(4, 9), CornerRadius: 6, BorderWidth: 1},
-			StyleFunc: func() core.Style {
-				_ = a.brandRev.Get()
-				st := core.Style{BorderColor: colors.Border(), Hover: &core.Style{Background: colors.Hover()}, Focus: &core.Style{BorderColor: colors.Text()}}
-				if resolveLogoStyle(a.cfg.LogoStyle) == style {
-					st.Background, st.BorderColor = colors.Pressed(), colors.Text()
-				}
-				return st
-			}, Children: []core.Node{
+		options = append(options, ui.Radio{
+			Label: apptext.T(label), TestID: "brand-logo-" + style,
+			Checked:  func() bool { _ = a.brandRev.Get(); return resolveLogoStyle(a.cfg.LogoStyle) == style },
+			OnChange: func(bool) { a.setLogoStyle(style) },
+			Style:    core.Style{MinHeight: core.Pt(30), Gap: 8},
+			Children: []core.Node{
 				core.Dynamic(func(*core.Scope) core.Node {
 					_ = a.brandRev.Get()
 					if style == logoStyleCustom && a.cfg.LogoCustomImage == "" {
 						return ui.Icon(lucide.ImagePlus, 20, colors.Muted)
 					}
 					return logoMark(style, a.customBrand, 20, "")
-				}),
-				ui.Text(apptext.T(label), 11, ui.Regular, colors.Text),
+				}), ui.Text(apptext.T(label), 11.5, ui.Regular, colors.Text),
 			}})
 	}
-	return setGroup("品牌",
-		core.View{Style: core.Style{Gap: 6, Padding: core.Symmetric(6, 2)}, Children: []core.Node{
-			ui.Text(apptext.T("Logo 风格"), 12.5, ui.Regular, colors.Text),
-			ui.Text(apptext.T("内置 pi 官方的 TUI 三色与经典标，均为白色圆角底板，也可选择自己的图片。"), 11, ui.Regular, colors.Muted),
-			core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 7}, Children: options},
-		}},
+	return setGroup("应用标识",
+		setRow("Logo 风格", "用于侧栏左上角；自定义图片可在下方选择。", ui.RadioGroup{
+			Label: apptext.T("Logo 风格"), Style: core.Style{Width: core.Pt(230), MaxWidth: core.Pct(100)}, Children: options}),
 		setDivider(),
-		core.View{Style: core.Style{Gap: 7, Padding: core.Symmetric(6, 2)}, Children: []core.Node{
-			ui.Text(apptext.T("应用显示名称"), 12.5, ui.Regular, colors.Text),
-			ui.Text(apptext.T("左上角与品牌信息面板共用；最多 24 个字符，留空使用 PiDeck。"), 11, ui.Regular, colors.Muted),
-			core.Input{Value: func() string { _ = a.brandInputRev.Get(); return a.cfg.AppDisplayName },
-				OnChange: func(value string) { nameDirty = true; a.setBrandName(value) },
-				OnSubmit: func(string) { saveName() }, OnBlur: saveName,
-				MaxLength: brandNameMax, Label: apptext.T("应用显示名称"), Placeholder: brandNameDefault,
-				TestID: "brand-display-name", Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pt(280), Height: core.Pt(30),
-					Padding: core.Symmetric(0, 9), FontSize: 12, CornerRadius: 6, BorderWidth: 1,
-					BorderColor: colors.FieldBorder(), Color: colors.Text(), Background: colors.Field(),
-					CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}},
-		}},
+		setRow("应用显示名称", "最多 24 个字符；留空使用 PiDeck，结束编辑后保存。", core.Input{
+			Value:    func() string { _ = a.brandInputRev.Get(); return a.cfg.AppDisplayName },
+			OnChange: func(value string) { nameDirty = true; a.setBrandName(value) },
+			OnSubmit: func(string) { saveName() }, OnBlur: saveName,
+			MaxLength: brandNameMax, Label: apptext.T("应用显示名称"), Placeholder: brandNameDefault, TestID: "brand-display-name",
+			Style: core.Style{Width: core.Pt(230), MaxWidth: core.Pct(100), Height: core.Pt(28), Padding: core.Symmetric(0, 8), FontSize: 11.5,
+				CornerRadius: 6, BorderWidth: 1, BorderColor: colors.FieldBorder(), Color: colors.Text(), Background: colors.Field(),
+				CaretColor: colors.Text(), SelectionColor: colors.Now().Selection, FocusVisible: ui.FocusRing(a.cx, 2)}}),
 		core.Dynamic(func(*core.Scope) core.Node {
 			_ = a.brandRev.Get()
 			if resolveLogoStyle(a.cfg.LogoStyle) != logoStyleCustom {
 				return nil
 			}
-			return core.View{Style: core.Style{Gap: 6, Padding: core.Symmetric(6, 2)}, Children: []core.Node{
-				ui.Text(apptext.T("自定义 Logo"), 12.5, ui.Regular, colors.Text),
-				ui.Text(apptext.T("PNG、JPEG、WebP、GIF 或 SVG；图片随设置保存，保留透明背景和比例。"), 11, ui.Regular, colors.Muted),
-				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Wrap: core.Wrap, Gap: 8}, Children: []core.Node{
-					logoMark(logoStyleCustom, a.customBrand, 40, "brand-custom-preview"),
-					ui.Button{Text: apptext.T("选择图片"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "brand-image-choose",
-						Disabled: a.brandBusy.Get, OnPress: a.pickBrandImage},
-					core.Show{When: func() bool { return a.cfg.LogoCustomImage != "" }, Then: func(*core.Scope) core.Node {
-						return ui.Button{Text: apptext.T("清除"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "brand-image-clear", OnPress: a.clearBrandImage}
-					}},
-				}},
+			return core.View{Children: []core.Node{
+				setDivider(),
+				setRow("自定义 Logo", "PNG、JPEG、WebP、GIF 或 SVG；图片随设置保存，保留透明背景和比例。",
+					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Wrap: core.Wrap, Gap: 8,
+						Width: core.Pt(230), MaxWidth: core.Pct(100), JustifyContent: core.JustifyEnd}, Children: []core.Node{
+						logoMark(logoStyleCustom, a.customBrand, 32, "brand-custom-preview"),
+						ui.Button{Text: apptext.T("选择图片"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "brand-image-choose",
+							Disabled: a.brandBusy.Get, OnPress: a.pickBrandImage},
+						core.Show{When: func() bool { return a.cfg.LogoCustomImage != "" }, Then: func(*core.Scope) core.Node {
+							return ui.Button{Text: apptext.T("清除"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "brand-image-clear", OnPress: a.clearBrandImage}
+						}},
+					}}),
 				core.Show{When: func() bool { return a.cfg.LogoCustomImage == "" }, Then: func(*core.Scope) core.Node {
 					return ui.Text(apptext.T("未选择图片时使用 TUI 彩色 Logo。"), 11, ui.Regular, colors.Muted)
 				}},
@@ -189,15 +173,13 @@ func (a *app) brandingGroup(colors ui.Colors) core.Node {
 			return ui.Text(apptext.T("正在读取 Logo…"), 11, ui.Regular, colors.Muted)
 		}},
 		core.Show{When: func() bool { return a.brandError.Get() != "" }, Then: func(*core.Scope) core.Node {
-			return core.Text{ContentFunc: a.brandError.Get, TestID: "brand-image-error",
-				Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: ui.Colored(colors.Danger)}
+			return core.Text{ContentFunc: a.brandError.Get, TestID: "brand-image-error", Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: ui.Colored(colors.Danger)}
 		}},
 		setDivider(),
-		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Padding: core.Symmetric(6, 2)}, Children: []core.Node{
+		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, AlignItems: core.AlignCenter, Gap: 8, Padding: core.Symmetric(6, 2)}, Children: []core.Node{
 			a.brandMark(28, "brand-preview"),
 			core.Text{ContentFunc: func() string { _ = a.brandNameRev.Get(); return resolveBrandName(a.cfg.AppDisplayName) },
-				MaxLines: 1, EllipsizeMode: core.EllipsizeTail, Style: core.Style{FontSize: 12, FontFamily: viewkit.MonoFont(), MinWidth: core.Pt(0), FlexShrink: 1, FlexGrow: 1},
-				StyleFunc: ui.Colored(colors.Text)},
+				MaxLines: 1, EllipsizeMode: core.EllipsizeTail, Style: core.Style{FontSize: 12, FontFamily: viewkit.MonoFont(), MinWidth: core.Pt(0), FlexShrink: 1, FlexGrow: 1}, StyleFunc: ui.Colored(colors.Text)},
 			ui.Button{Text: apptext.T("恢复默认品牌"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "brand-reset", OnPress: a.resetBrand},
 		}},
 	)

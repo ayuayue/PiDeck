@@ -72,8 +72,9 @@ func TestChatFontSetting(t *testing.T) {
 	app.Type("id:settings-search", "聊天字号")
 	app.WaitFor("id:settings-hit-look-0", 5*time.Second)
 	app.Press("id:settings-hit-look-0")
-	app.WaitFor("text:特大", 5*time.Second)
-	app.Press("text:特大")
+	app.WaitFor("id:chat-font-select", 5*time.Second)
+	app.Press("id:chat-font-select")
+	app.Press("id:chat-font-select-3")
 	app.WaitUntil(5*time.Second, func() bool {
 		raw, err := os.ReadFile(filepath.Join(home, "config.json"))
 		if err != nil {

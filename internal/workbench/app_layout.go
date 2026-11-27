@@ -15,10 +15,11 @@ import (
 // empty side lets the theme's own side or the system decide.
 func (a *app) setLook(theme, side string) {
 	a.theme.Set(theme)
-	a.cfg.Appearance = side
+	a.cfg.Theme, a.cfg.Appearance = theme, side
 	a.applyTheme()
 	if a.st != nil {
-		a.st.edit(func(c *config) { c.Theme, c.Appearance = theme, side })
+		a.st.change(func(c *config) { c.Theme, c.Appearance = theme, side })
+		a.saveConfigAsync()
 	}
 	a.emit(eventThemeChanged, appEvent{Data: map[string]string{"theme": theme}})
 }
@@ -49,7 +50,8 @@ func (a *app) setTerminalFont(size float64) {
 	}
 	a.cfg.TerminalFont = stored
 	if a.st != nil {
-		a.st.edit(func(c *config) { c.TerminalFont = stored })
+		a.st.change(func(c *config) { c.TerminalFont = stored })
+		a.saveConfigAsync()
 	}
 }
 
@@ -68,7 +70,8 @@ func (a *app) setEditorFont(size float64) {
 	}
 	a.cfg.EditorFont = stored
 	if a.st != nil {
-		a.st.edit(func(c *config) { c.EditorFont = stored })
+		a.st.change(func(c *config) { c.EditorFont = stored })
+		a.saveConfigAsync()
 	}
 }
 

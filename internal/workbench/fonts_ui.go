@@ -94,7 +94,8 @@ func (a *app) setChatFont(v float64) {
 	a.cfg.ChatFont = v
 	a.chatFont.Set(v)
 	if a.st != nil {
-		a.st.edit(func(c *config) { c.ChatFont = v })
+		a.st.change(func(c *config) { c.ChatFont = v })
+		a.saveConfigAsync()
 	}
 }
 
@@ -106,7 +107,8 @@ func (a *app) setChatLine(v float64) {
 	a.cfg.ChatLine = v
 	a.chatLine.Set(v)
 	if a.st != nil {
-		a.st.edit(func(c *config) { c.ChatLine = v })
+		a.st.change(func(c *config) { c.ChatLine = v })
+		a.saveConfigAsync()
 	}
 }
 
@@ -118,6 +120,7 @@ func (a *app) setInputFont(v float64) {
 	a.cfg.InputFont = v
 	a.inputFont.Set(v)
 	if a.st != nil {
-		a.st.edit(func(c *config) { c.InputFont = v })
+		a.st.change(func(c *config) { c.InputFont = v })
+		a.saveConfigAsync()
 	}
 }

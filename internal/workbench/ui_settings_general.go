@@ -63,12 +63,12 @@ func (a *app) defaultModelSettings() core.Node {
 					}
 					a.setDefaultModel(choice)
 				},
-				Style: generalSelectStyle()},
+				Style: settingsSelectStyle()},
 			ui.Select[string]{Options: modelOptions, Value: func() string { return a.defaultModel.ID },
 				Placeholder: apptext.T("选择模型"), Label: apptext.T("模型"), TestID: "default-model-select",
 				Disabled: func() bool { return a.defaultModel.Provider == "" },
 				OnChange: func(model string) { a.setDefaultModel(modelChoice{Provider: a.defaultModel.Provider, ID: model}) },
-				Style:    generalSelectStyle()},
+				Style:    settingsSelectStyle()},
 		}}
 	})
 }
@@ -99,7 +99,7 @@ func (a *app) settingsGeneral() core.Node {
 							{Value: "standard", Label: apptext.T("标准")},
 							{Value: "strict", Label: apptext.T("严格")},
 						}, Value: a.securityLevelID, OnChange: a.setSecurityLevel,
-							Label: apptext.T("工具安全门"), TestID: "security-level", Style: generalSelectStyle()}),
+							Label: apptext.T("工具安全门"), TestID: "security-level", Style: settingsSelectStyle()}),
 					setDivider(),
 					setRow("匿名使用统计", "启动时每天最多发一次心跳，带上版本、平台、功能开关与数量统计；不含项目路径、会话内容、文件名或凭据。",
 						ui.Switch{Checked: func() bool { return telemetryEnabled(a.cfg) }, Label: apptext.T("匿名使用统计"), TestID: "telemetry-enabled",

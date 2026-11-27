@@ -25,6 +25,7 @@ func lookFixture(t *testing.T, theme, side string) (*app, *nsgotest.App, string)
 	t.Setenv("PIDECK_V2_HOME", home)
 	t.Setenv("PIDECK_V2_PI_CONFIG", t.TempDir())
 	t.Setenv("PIDECK_V2_LANG", "zh-CN")
+	t.Cleanup(configWrites.Wait)
 	cfg := config{Version: configVersion, Theme: theme, Appearance: side,
 		ScanPi: false, AutoModelCatalog: false, SidebarOpen: true}
 	raw, err := json.Marshal(cfg)
@@ -91,6 +92,7 @@ func TestLookButtonKeepsPalette(t *testing.T) {
 	assertSide("light")
 	screen.Press("label:切换外观")
 	assertSide("dark")
+	configWrites.Wait()
 	raw, err := os.ReadFile(filepath.Join(home, "config.json"))
 	if err != nil {
 		t.Fatal(err)

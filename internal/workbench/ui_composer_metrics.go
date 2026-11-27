@@ -106,7 +106,8 @@ func (a *app) setComposerMetrics(spec string) {
 	a.footerMetrics.Set(spec)
 	a.cfg.FooterMetrics = spec
 	if a.st != nil {
-		a.st.edit(func(c *config) { c.FooterMetrics = spec })
+		a.st.change(func(c *config) { c.FooterMetrics = spec })
+		a.saveConfigAsync()
 	}
 }
 
@@ -249,34 +250,26 @@ func liveReplyRate(s *session, now time.Time) float64 {
 	return tokens / seconds
 }
 
-// composerMetricChips is 外观's row of the same choices: one chip per
-// group, lit while the footer shows it.
+// composerMetricChips exposes the footer choices as native checkboxes.
 func (a *app) composerMetricChips() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
-		on := parseComposerMetrics(a.footerMetrics.Get())
-		var chips []core.Node
-		for _, m := range composerMetrics {
-			metric := m
-			off := func() bool { return !on[metric.ID] }
-			chips = append(chips, core.View{
-				OnPress: func(core.PressEvent) { a.toggleComposerMetricGroup(metric.ID) },
-				Role:    core.RoleCheckbox, Label: apptext.T(metric.Label), Checked: func() bool { return !off() },
-				TestID: "footer-metric-" + metric.ID,
-				StyleFunc: func() core.Style {
-					st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, Height: core.Pt(24),
-						Padding: core.Symmetric(0, 9), CornerRadius: 12, BorderWidth: 1, BorderColor: colors.Border(),
-						Hover: &core.Style{Background: colors.Hover()}}
-					if !off() {
-						st.Background = colors.Pressed()
-						st.BorderColor = colors.Text()
-					}
-					return st
-				},
-				Children: []core.Node{ui.Text(apptext.T(metric.Label), 11.5, ui.Regular, colors.Text)},
+		var checks []core.Node
+		for _, metric := range composerMetrics {
+			m := metric
+			checks = append(checks, ui.Checkbox{
+				Label: apptext.T(m.Label), Hint: apptext.T(m.Note), TestID: "footer-metric-" + m.ID,
+				Checked:  func() bool { return parseComposerMetrics(a.footerMetrics.Get())[m.ID] },
+				OnChange: func(bool) { a.toggleComposerMetricGroup(m.ID) },
+				Style: core.Style{Width: core.Pt(220), MaxWidth: core.Pct(100), MinWidth: core.Pt(0),
+					AlignItems: core.AlignStart, Padding: core.Symmetric(5, 0)},
+				Children: []core.Node{core.View{Style: core.Style{MinWidth: core.Pt(0), FlexShrink: 1, Gap: 2}, Children: []core.Node{
+					ui.Text(apptext.T(m.Label), 11.5, ui.Regular, colors.Text),
+					ui.Text(apptext.T(m.Note), 10.5, ui.Regular, colors.Muted),
+				}}},
 			})
 		}
-		return core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 5, MaxWidth: core.Pt(340),
-			JustifyContent: core.JustifyEnd}, Children: chips}
+		return core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, ColumnGap: 12, RowGap: 4,
+			Padding: core.Symmetric(6, 2)}, Children: checks}
 	})
 }

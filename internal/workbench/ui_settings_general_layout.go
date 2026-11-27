@@ -20,29 +20,6 @@ func (a *app) updateGeneralSettings(change func(*config)) {
 	a.bumpSettings()
 }
 
-func generalSelectStyle() core.Style {
-	return core.Style{Width: core.Pt(230), MaxWidth: core.Pct(100), Height: core.Pt(28), FontSize: 11.5}
-}
-
-// generalSlider gives each slider the same track, readout and endpoint columns.
-func generalSlider(slider ui.Slider, value func() string, low, high string) core.Node {
-	return core.Dynamic(func(cx *core.Scope) core.Node {
-		colors := ui.ColorsOf(cx)
-		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignStart, Gap: 8, Width: core.Pt(230), MaxWidth: core.Pct(100)}, Children: []core.Node{
-			core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0), Gap: 2}, Children: []core.Node{
-				slider,
-				core.View{Style: core.Style{Direction: core.Row, JustifyContent: core.JustifySpaceBetween}, Children: []core.Node{
-					ui.Text(apptext.T(low), 10, ui.Regular, colors.Muted),
-					ui.Text(apptext.T(high), 10, ui.Regular, colors.Muted),
-				}},
-			}},
-			core.Text{ContentFunc: value, TestID: slider.TestID + "-value",
-				Style:     core.Style{Width: core.Pt(76), FlexShrink: 0, TextAlign: core.TextAlignRight, FontSize: 11, LineHeight: 20},
-				StyleFunc: ui.Colored(colors.Text)},
-		}}
-	})
-}
-
 // tabWidthLabel describes the existing fine-grained range without exposing
 // the implementation's percentage of the entire window.
 func tabWidthLabel(pct int) string {
@@ -64,17 +41,17 @@ func (a *app) generalLayoutSettings() core.Node {
 	return setGroup("语言与布局",
 		setRow("语言", "界面文案；切换后立即生效，未翻译的条目保留中文。",
 			ui.Select[string]{Options: languageOptions(), Value: func() string { return a.cfg.Language }, OnChange: a.setLanguage,
-				Label: apptext.T("语言"), TestID: "language-select", Style: generalSelectStyle()}),
+				Label: apptext.T("语言"), TestID: "language-select", Style: settingsSelectStyle()}),
 		setDivider(),
 		setRow("内容宽度", "对话正文与输入框共用宽度。50% 最窄，100% 铺满聊天区。",
-			generalSlider(ui.Slider{Min: chatWidthPctMin, Max: chatWidthPctMax, Step: 2,
+			settingsSlider(ui.Slider{Min: chatWidthPctMin, Max: chatWidthPctMax, Step: 2,
 				Value: func() float64 { return float64(a.chatWidthPct()) }, Label: apptext.T("对话内容宽度"), TestID: "chat-width",
 				ValueText: func(v float64) string { return fmt.Sprintf("%.0f%%", v) },
 				OnChange:  func(v float64) { a.setChatWidthPct(int(v)) }},
 				func() string { return fmt.Sprintf("%d%%", a.chatWidthPct()) }, "50%", "100%")),
 		setDivider(),
 		setRow("标签页宽度", "调整单个会话标签的最大宽度。紧凑可容纳更多标签，宽松可显示更长标题。",
-			generalSlider(ui.Slider{Min: tabWidthPctMin, Max: tabWidthPctMax, Step: 1,
+			settingsSlider(ui.Slider{Min: tabWidthPctMin, Max: tabWidthPctMax, Step: 1,
 				Value: func() float64 { return float64(a.tabWidthPct()) }, Label: apptext.T("标签页宽度"), TestID: "tab-width",
 				ValueText: func(v float64) string { return tabWidthLabel(int(v)) },
 				OnChange:  func(v float64) { a.setTabWidthPct(int(v)) }},
@@ -96,7 +73,7 @@ func (a *app) generalSessionSettings() core.Node {
 		setDivider(),
 		setRow("新会话默认思考等级", "新建本地 pi 会话的推理投入；可用等级由模型决定。",
 			ui.Select[string]{Options: options, Value: func() string { return a.defaultThinking },
-				Label: apptext.T("新会话默认思考等级"), TestID: "default-thinking", Style: generalSelectStyle(),
+				Label: apptext.T("新会话默认思考等级"), TestID: "default-thinking", Style: settingsSelectStyle(),
 				OnChange: func(level string) {
 					a.defaultThinking = level
 					a.updateGeneralSettings(func(c *config) { c.Thinking = level })
@@ -111,13 +88,13 @@ func (a *app) generalSidebarSettings() core.Node {
 				{Value: "recent", Label: apptext.T("最近活动")}, {Value: "created", Label: apptext.T("创建时间")},
 				{Value: "title", Label: apptext.T("名称")}, {Value: "manual", Label: apptext.T("手动")},
 			}, Value: a.projectSortMode, OnChange: a.setProjectSort,
-				Label: apptext.T("项目排序"), TestID: "general-project-sort", Style: generalSelectStyle()}),
+				Label: apptext.T("项目排序"), TestID: "general-project-sort", Style: settingsSelectStyle()}),
 		setDivider(),
 		setRow("会话排序", "项目内的会话按最近活动或名称排列；置顶会话始终在最前。",
 			ui.Select[string]{Options: []ui.Option[string]{
 				{Value: "updated", Label: apptext.T("最近活动")}, {Value: "name", Label: apptext.T("名称")},
 			}, Value: a.sessionSortMode, OnChange: a.setSessionSort,
-				Label: apptext.T("会话排序"), TestID: "general-session-sort", Style: generalSelectStyle()}),
+				Label: apptext.T("会话排序"), TestID: "general-session-sort", Style: settingsSelectStyle()}),
 		setDivider(),
 		setRow("列出 pi 本地会话", "在侧栏列出终端 pi 的历史会话，可点击继续；不会移动原始文件。",
 			ui.Switch{Checked: func() bool { return a.cfg.ScanPi }, Label: apptext.T("列出 pi 本地会话"), TestID: "scan-pi",

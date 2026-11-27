@@ -94,3 +94,26 @@ func setDivider() core.Node {
 		return core.View{Style: core.Style{Height: core.Pt(1), Margin: core.Edges{Left: 2}}, StyleFunc: ui.Filled(ui.ColorsOf(cx).Line)}
 	})
 }
+
+func settingsSelectStyle() core.Style {
+	return core.Style{Width: core.Pt(230), MaxWidth: core.Pct(100), Height: core.Pt(28), FontSize: 11.5}
+}
+
+// settingsSlider gives each slider the same track, readout and endpoint columns.
+func settingsSlider(slider ui.Slider, value func() string, low, high string) core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		colors := ui.ColorsOf(cx)
+		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignStart, Gap: 8, Width: core.Pt(230), MaxWidth: core.Pct(100)}, Children: []core.Node{
+			core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0), Gap: 2}, Children: []core.Node{
+				slider,
+				core.View{Style: core.Style{Direction: core.Row, JustifyContent: core.JustifySpaceBetween}, Children: []core.Node{
+					ui.Text(apptext.T(low), 10, ui.Regular, colors.Muted),
+					ui.Text(apptext.T(high), 10, ui.Regular, colors.Muted),
+				}},
+			}},
+			core.Text{ContentFunc: value, TestID: slider.TestID + "-value",
+				Style:     core.Style{Width: core.Pt(76), FlexShrink: 0, TextAlign: core.TextAlignRight, FontSize: 11, LineHeight: 20},
+				StyleFunc: ui.Colored(colors.Text)},
+		}}
+	})
+}

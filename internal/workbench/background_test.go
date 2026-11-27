@@ -58,21 +58,21 @@ func TestBackgroundImageAndOpacity(t *testing.T) {
 // TestBackgroundOpacityDrag drags the opacity slider and checks the value
 // follows the whole drag: a page rebuilt under the finger would drop it.
 func TestBackgroundOpacityDrag(t *testing.T) {
-	if testing.Short() || nsgotest.Target() != "" {
-		t.Skip("driven headless; a platform run is for pixels")
+	if testing.Short() {
+		t.Skip("continuous drag coverage")
 	}
-	home := t.TempDir()
-	t.Setenv("PIDECK_V2_HOME", home)
-	var built *app
-	root := func(cx *core.Scope) core.Node { built = newApp(cx); return built.view() }
-	app := nsgotest.Start(t, root, nsgotest.Size(1280, 860))
-	app.Press("label:设置")
-	app.Press("id:settings-tab-look")
-	app.WaitFor("id:bg-opacity-thumb", 5*time.Second)
-	before := built.backgroundOpacity()
-	app.Drag("id:bg-opacity-thumb", core.Point{X: -40}, core.Point{X: -80}, core.Point{X: -120})
-	after := built.backgroundOpacity()
-	if after >= before-0.1 {
+	built, screen := startNativeSettingsApp(t)
+	onNativeUI(t, screen, built, func() {
+		built.setBackgroundImage("wallpaper.png")
+		built.openSettingsPane()
+		built.openSettingsSection("look")
+	})
+	revealLookControl(screen, "bg-opacity")
+	var before, after float64
+	onNativeUI(t, screen, built, func() { before = built.backgroundOpacity() })
+	screen.Drag("id:bg-opacity-thumb", core.Point{X: -20}, core.Point{X: -40}, core.Point{X: -60})
+	onNativeUI(t, screen, built, func() { after = built.backgroundOpacity() })
+	if after >= before-0.25 {
 		t.Fatalf("the drag moved opacity %v -> %v: it stopped under the finger", before, after)
 	}
 }

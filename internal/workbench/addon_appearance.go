@@ -153,6 +153,7 @@ func withAlpha(c core.Color, alpha float32) core.Color {
 // setBackgroundImage stores the picture behind the app and applies its
 // transparency.
 func (a *app) setBackgroundImage(path string) {
+	a.bgOpacitySeq++ // discard a pending drag when the wallpaper is replaced or cleared
 	path = strings.TrimSpace(path)
 	if wallpaperVideo(path) {
 		a.cfg.BackgroundVideo, a.cfg.BackgroundImage = path, ""
@@ -170,7 +171,7 @@ func (a *app) setBackgroundImage(path string) {
 	a.bumpSettings()
 	if a.st != nil {
 		image, video, opacity := a.cfg.BackgroundImage, a.cfg.BackgroundVideo, a.cfg.BackgroundOpacity
-		a.st.edit(func(c *config) {
+		a.st.change(func(c *config) {
 			c.BackgroundImage, c.BackgroundVideo = image, video
 			if opacity == nil {
 				c.BackgroundOpacity = nil
@@ -179,6 +180,7 @@ func (a *app) setBackgroundImage(path string) {
 				c.BackgroundOpacity = &v
 			}
 		})
+		a.saveConfigAsync()
 	}
 	a.applyTheme()
 }
@@ -190,16 +192,19 @@ func (a *app) setBackgroundOpacity(v float64) {
 	v = min(1, max(0, v))
 	a.cfg.BackgroundOpacity = &v
 	a.bgOpacity.Set(v)
+	if a.st != nil {
+		a.st.change(func(c *config) {
+			vv := v
+			c.BackgroundOpacity = &vv
+		})
+	}
 	a.bgOpacitySeq++
 	seq := a.bgOpacitySeq
 	a.cx.AfterFunc(300*time.Millisecond, func() {
 		if a.bgOpacitySeq != seq || a.st == nil {
 			return // still moving: the last value will be kept
 		}
-		a.st.edit(func(c *config) {
-			vv := v
-			c.BackgroundOpacity = &vv
-		})
+		a.saveConfigAsync()
 	})
 }
 

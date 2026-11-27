@@ -79,7 +79,7 @@ func (a *app) generalSoundSettings() core.Node {
 				OnChange: func(on bool) { a.updateGeneralSettings(func(c *config) { c.SoundOnlyHidden = on }) }}),
 		setDivider(),
 		setRow("音量", "0% 为静音。试听使用当前音量，不受提示音开关和窗口状态限制。",
-			generalSlider(ui.Slider{Min: 0, Max: 100, Step: 1,
+			settingsSlider(ui.Slider{Min: 0, Max: 100, Step: 1,
 				Value: func() float64 { return float64(a.alertVolumePct()) }, Label: apptext.T("提示音音量"), TestID: "sound-volume",
 				ValueText: func(v float64) string { return fmt.Sprintf("%.0f%%", v) },
 				OnChange:  func(v float64) { a.setAlertVolume(int(v)) }},

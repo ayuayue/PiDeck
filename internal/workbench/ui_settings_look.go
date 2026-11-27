@@ -2,10 +2,6 @@
 
 package workbench
 
-// The settings window: a rail of sections beside the section's rows. Each
-// row says what it is in a line and why in a quieter one, and the control
-// sits at its end, so a section reads top to bottom.
-
 import (
 	"fmt"
 	"strings"
@@ -13,252 +9,166 @@ import (
 	"example.com/pideck-v2/internal/apptext"
 	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
-	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// settingsLook picks the palette.
-//
-// The palette list has its own subscription: themes load a moment after the
-// window opens, and rebuilding the whole page then would take the focus out
-// of a field the user has begun typing in.
 func (a *app) settingsLook() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		// Redrawn when any setting changes: their values live in the config.
 		a.settingsTick()
 		colors := ui.ColorsOf(cx)
-		fontControl := func(value func() string, set func(string), label, testID, placeholder string) core.Node {
-			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
-				core.Input{Value: value, OnChange: set, OnSubmit: func(string) { a.applyFonts() }, OnBlur: func() { a.applyFonts() },
-					Placeholder: placeholder, Label: label, TestID: testID,
-					Style: core.Style{Width: core.Pt(160), Height: core.Pt(28), Padding: core.Symmetric(0, 8), FontSize: 11,
-						Color: colors.Text(), Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6}},
-				ui.Button{Text: apptext.T("应用"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: a.applyFonts},
-			}}
-		}
-		palette := core.Dynamic(func(cx *core.Scope) core.Node {
-			colors := ui.ColorsOf(cx)
-			var rows []core.Node
-			visible := make([]themeSpec, 0, len(a.themes.Get()))
-			for _, spec := range a.themes.Get() {
-				// 纸白/炭黑 只是默认配色的明暗两半；不选它们时收起来，避免和跟随系统重复。
-				if (spec.ID == "light" || spec.ID == "dark") && a.theme.Get() != spec.ID {
-					continue
-				}
-				visible = append(visible, spec)
-			}
-			for i, spec := range visible {
-				s := spec
-				on := func() bool { return a.theme.Get() == s.ID }
-				var note string
-				switch {
-				case s.Error != "":
-					note = "读取失败"
-				case s.Author != "":
-					note = s.Author
-				}
-				rows = append(rows, core.View{
-					OnPress: func(core.PressEvent) { a.setTheme(s.ID) },
-					Role:    core.RoleRadio, Label: s.Name, TestID: "theme-" + s.ID,
-					StyleFunc: func() core.Style {
-						return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10, Height: core.Pt(34),
-							Padding: core.Symmetric(2, 2), CornerRadius: 6, Hover: &core.Style{Background: colors.Hover()}}
-					},
-					Children: []core.Node{
-						themePreview(s),
-						core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
-							ui.Text(s.Name, 12.5, ui.Regular, colors.Text),
-							core.Show{When: func() bool { return note != "" }, Then: func(*core.Scope) core.Node {
-								return core.Text{Content: note, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-									Style: core.Style{FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)}
-							}},
-						}},
-						core.Show{When: func() bool { return s.Appearance == "light" || s.Appearance == "dark" },
-							Then: func(*core.Scope) core.Node {
-								label := "仅浅色"
-								if s.Appearance == "dark" {
-									label = "仅深色"
-								}
-								return ui.Text(label, 9.5, ui.Regular, colors.Faint)
-							}},
-						core.Show{When: func() bool { return !s.Builtin && s.Source != "" }, Then: func(*core.Scope) core.Node {
-							return core.View{OnPress: func(core.PressEvent) { a.deleteTheme(s) }, Role: core.RoleButton,
-								Label: apptext.T("删除主题") + " " + s.Name, TestID: "theme-delete-" + strings.ReplaceAll(s.ID, ":", "-"),
-								StyleFunc: func() core.Style {
-									return core.Style{Width: core.Pt(22), Height: core.Pt(22), CornerRadius: 5, AlignItems: core.AlignCenter,
-										JustifyContent: core.JustifyCenter, Hover: &core.Style{Background: colors.Pressed()}}
-								}, Children: []core.Node{ui.Icon(lucide.Trash, 11, colors.Faint)}}
-						}},
-						core.Show{When: on, Then: func(*core.Scope) core.Node { return ui.Icon(lucide.Check, 13, colors.Text) }},
-						core.Show{When: func() bool { return !s.Builtin }, Then: func(*core.Scope) core.Node {
-							return ui.Text(apptext.T("用户主题"), 9.5, ui.Regular, colors.Faint)
-						}},
-					},
-				})
-				if i < len(visible)-1 {
-					rows = append(rows, setDivider())
-				}
-			}
-			return setGroup("配色", rows...)
-		})
 		return a.scrollStashFor("settingsLook:1").Bind(cx, core.Scroll{TestID: "settings-page", Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: scrollbarGutter}, Gap: 4}, Children: []core.Node{
-				palette,
-				setGroup("阅读与输入",
-					setRow("代码块自动换行", "长代码行按聊天栏宽度折行。", ui.Switch{
-						Checked: a.codeWrap.Get, Label: apptext.T("代码块自动换行"), TestID: "chat-code-wrap",
-						OnChange: func(on bool) {
-							a.codeWrap.Set(on)
-							a.cfg.CodeWrap = on
-							a.st.edit(func(c *config) { c.CodeWrap = on })
-						},
-					}),
-					setDivider(),
-					setRow("聊天字号", "会话正文与提问的字号；标题、代码和列表按同一比例放大。",
-						choiceChips([]choice[float64]{
-							{14, apptext.T("紧凑")}, {viewkit.ChatFontDefault, apptext.T("标准")}, {18, apptext.T("大")}, {20, apptext.T("特大")},
-						}, func() float64 { return a.chatFont.Get() }, a.setChatFont)),
-					setDivider(),
-					setRow("聊天行高", "正文的行距；宽松一些更好读。",
-						choiceChips([]choice[float64]{
-							{1.45, apptext.T("紧凑")}, {viewkit.ChatLineDefault, apptext.T("标准")}, {1.8, apptext.T("宽松")}, {2.0, apptext.T("舒展")},
-						}, func() float64 { return a.chatLine.Get() }, a.setChatLine)),
-					setDivider(),
-					setRow("输入框字号", "输入框里的文字大小；「跟随聊天」与聊天字号一致。",
-						choiceChips([]choice[float64]{
-							{0, apptext.T("跟随聊天")}, {14, apptext.T("紧凑")}, {viewkit.ChatFontDefault, apptext.T("标准")}, {18, apptext.T("大")},
-						}, func() float64 { return a.inputFont.Get() }, a.setInputFont)),
-					setDivider(),
-					setRow("输入框底部指标", "输入框下方那一行显示哪些数字；关掉也不会影响统计，只是不显示。",
-						a.composerMetricChips()),
-				),
-				setGroup("界面与工具",
-					setRow("减弱动效", "关闭工作台布局和对话定位的动画。", ui.Switch{
-						Checked: a.reduceEffects.Get, Label: apptext.T("减弱动效"), TestID: "reduce-effects",
-						OnChange: func(on bool) {
-							a.reduceEffects.Set(on)
-							a.cfg.ReduceEffects = on
-							a.st.edit(func(c *config) { c.ReduceEffects = on })
-						},
-					}),
-					setDivider(),
-					setRow("终端字号", "底部终端面板的文字大小，8–20 pt；改完立即重绘。",
-						core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Width: core.Pt(200)}, Children: []core.Node{
-							core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
-								ui.Slider{Min: 8, Max: 20, Step: 1, Value: func() float64 { return a.termFont.Get() },
-									Label: apptext.T("终端字号"), ValueText: func(v float64) string { return fmt.Sprintf("%.0f pt", v) },
-									TestID: "term-font", OnChange: a.setTerminalFont},
-							}},
-							core.Text{ContentFunc: func() string { return fmt.Sprintf("%.0f pt", a.termFont.Get()) },
-								Style:     core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10.5, MinWidth: core.Pt(38), TextAlign: core.TextAlignRight},
-								StyleFunc: ui.Colored(colors.Muted)},
-						}}),
-					setDivider(),
-					setRow("编辑器字号", "中间编辑器的文字大小，11–20 pt；改完立即重绘。",
-						core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Width: core.Pt(200)}, Children: []core.Node{
-							core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
-								ui.Slider{Min: 11, Max: 20, Step: 1, Value: func() float64 { return a.editorFont.Get() },
-									Label: apptext.T("编辑器字号"), ValueText: func(v float64) string { return fmt.Sprintf("%.0f pt", v) },
-									TestID: "editor-font", OnChange: a.setEditorFont},
-							}},
-							core.Text{ContentFunc: func() string { return fmt.Sprintf("%.0f pt", a.editorFont.Get()) },
-								Style:     core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10.5, MinWidth: core.Pt(38), TextAlign: core.TextAlignRight},
-								StyleFunc: ui.Colored(colors.Muted)},
-						}}),
-				),
-				setGroup("字体",
-					setRow("界面字体", "整个界面的字体（代码与等宽处除外）；系统已安装的字体名，如 Georgia。留空跟随主题，回车、失焦或点「应用」生效。",
-						fontControl(func() string { return a.cfg.UIFont }, func(v string) {
-							a.cfg.UIFont = strings.TrimSpace(v)
-							if a.st != nil {
-								a.st.edit(func(c *config) { c.UIFont = a.cfg.UIFont })
-							}
-						}, apptext.T("界面字体"), "ui-font", apptext.T("留空跟随主题"))),
-					setDivider(),
-					setRow("等宽字体", "代码、工具输出、编辑器与终端的字体；如 JetBrains Mono。留空用系统等宽字体。",
-						fontControl(func() string { return a.cfg.MonoFont }, func(v string) {
-							a.cfg.MonoFont = strings.TrimSpace(v)
-							if a.st != nil {
-								a.st.edit(func(c *config) { c.MonoFont = a.cfg.MonoFont })
-							}
-						}, apptext.T("等宽字体"), "mono-font", apptext.T("留空用系统等宽字体"))),
-				),
-				setGroup("主题文件",
-					setRow("导出当前主题", "把当前配色、字体和圆角等外观样式保存为主题文件，方便备份或分享。",
-						ui.Button{Text: apptext.T("导出"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "theme-export",
-							OnPress: a.exportTheme}),
-					setDivider(),
-					setRow("导入主题", "选择 JSON 或 YAML 主题文件；导入后在「配色」中选择，或点击提示中的「应用」生效。",
-						ui.Button{Text: apptext.T("导入"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "theme-import",
-							OnPress: a.importTheme}),
-					setDivider(),
-					setRow("主题文件", "主题文件保存在数据目录的 themes 文件夹，支持 JSON、YAML 和 shadcn/ui 主题格式。",
-						ui.Button{Text: apptext.T("打开目录"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: a.openThemesDir}),
-				),
-				a.brandingGroup(colors),
+				a.lookThemeSettings(),
+				a.lookTypographySettings(),
+				a.lookFontSettings(cx, colors),
+				setGroup("输入框指标",
+					setRow("显示哪些指标", "选择输入框下方显示的信息；取消勾选只隐藏显示，不影响统计。", nil),
+					a.composerMetricChips()),
 				a.backgroundGroup(colors),
+				a.brandingGroup(colors),
+				a.lookThemeFiles(),
 			}},
 		}})
 	})
 }
 
-// backgroundGroup edits the picture behind the app and how much of it
-// shows.
-func (a *app) backgroundGroup(colors ui.Colors) core.Node {
-	path := a.cfg.wallpaper()
-	var preview core.Node
-	if wallpaperVideo(path) {
-		preview = ui.Icon(lucide.Film, 20, colors.Muted)
-	} else if path != "" {
-		preview = core.Image{Source: core.ImageSource{URI: path}, ResizeMode: core.Cover,
-			Style: core.Style{Width: core.Pt(80), Height: core.Pt(46), CornerRadius: 6, BorderWidth: 1, BorderColor: colors.Border()}}
-	} else {
-		preview = core.View{Style: core.Style{Width: core.Pt(80), Height: core.Pt(46), CornerRadius: 6,
-			BorderWidth: 1, BorderColor: colors.Border(), AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
-			Children: []core.Node{ui.Text("—", 12, ui.Regular, colors.Faint)}}
+// lookSizeOptions retains a valid custom value that does not match a preset.
+func lookSizeOptions(current float64, options []ui.Option[float64], unit string) []ui.Option[float64] {
+	for _, option := range options {
+		if option.Value == current {
+			return options
+		}
 	}
-	choose := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
-		preview,
-		ui.Button{Text: apptext.T("选择图片"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "bg-image-choose",
-			OnPress: func() {
-				a.cx.PickFiles(core.PickFilesOptions{Types: []string{".png", ".jpg", ".jpeg", ".webp", ".gif"}, Limit: 1},
-					func(files []core.File, err error) {
-						if err != nil {
-							a.toast(ui.ToastError, apptext.T("选择图片失败"), err.Error())
-							return
-						}
-						if len(files) > 0 {
-							a.setBackgroundImage(files[0].Path)
-						}
-					})
-			}},
-		core.Show{When: func() bool { return a.bgImage.Get() != "" }, Then: func(*core.Scope) core.Node {
-			return ui.Button{Text: apptext.T("清除"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "bg-image-clear",
-				OnPress: func() { a.setBackgroundImage("") }}
-		}},
-	}}
-	opacity := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Width: core.Pt(200)}, Children: []core.Node{
-		core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
-			ui.Slider{Min: 0, Max: 100, Step: 1, Value: func() float64 { return a.backgroundOpacity() * 100 },
-				Label: apptext.T("背景透明度"), ValueText: func(v float64) string { return fmt.Sprintf("%.0f%%", v) },
-				TestID: "bg-opacity", OnChange: func(v float64) {
-					// The row redraws itself from the opacity signal; the page is
-					// bumped once the drag ends, or it would not drag at all.
-					a.setBackgroundOpacity(v / 100)
-				}},
-		}},
-		core.Dynamic(func(*core.Scope) core.Node {
-			return core.Text{Content: fmt.Sprintf("%.0f%%", a.bgOpacity.Get()*100),
-				Style:     core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10.5, MinWidth: core.Pt(38), TextAlign: core.TextAlignRight},
-				StyleFunc: ui.Colored(colors.Muted)}
-		}),
-	}}
-	return setGroup("背景",
-		setRow("背景图片", "从本机选一张图片铺满窗口，只保存路径。", choose),
-		setRow("视频壁纸", "选择本机视频或 Wallpaper Engine 视频项目的 project.json。", ui.Button{
-			Text: apptext.T("选择视频壁纸"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "video-wallpaper-choose", OnPress: a.pickVideoWallpaper,
+	return append(options, ui.Option[float64]{Value: current, Label: fmt.Sprintf("%g %s", current, unit)})
+}
+
+func (a *app) lookTypographySettings() core.Node {
+	fontOptions := func(current float64, input bool) []ui.Option[float64] {
+		options := []ui.Option[float64]{}
+		if input {
+			options = append(options, ui.Option[float64]{Value: 0, Label: fmt.Sprintf("%s · %g pt", apptext.T("跟随聊天"), float64(a.readingFont()))})
+		}
+		for _, v := range []struct {
+			size float64
+			name string
+		}{{14, "紧凑"}, {viewkit.ChatFontDefault, "标准"}, {18, "大"}, {20, "特大"}} {
+			options = append(options, ui.Option[float64]{Value: v.size, Label: fmt.Sprintf("%g pt · %s", v.size, apptext.T(v.name))})
+		}
+		return lookSizeOptions(current, options, "pt")
+	}
+	return setGroup("字号与排版",
+		setRow("聊天字号", "对话正文和提问的文字大小；标题与代码按比例调整。", ui.Select[float64]{
+			OptionsFunc: func() []ui.Option[float64] { return fontOptions(float64(a.readingFont()), false) },
+			Value:       func() float64 { return float64(a.readingFont()) }, OnChange: a.setChatFont,
+			Label: apptext.T("聊天字号"), TestID: "chat-font-select", Style: settingsSelectStyle()}),
+		setDivider(),
+		setRow("聊天行高", "以字号为基准的行距倍数，数值越大，行间越宽松。", ui.Select[float64]{
+			OptionsFunc: func() []ui.Option[float64] {
+				var options []ui.Option[float64]
+				for _, v := range []struct {
+					value float64
+					name  string
+				}{{1.45, "紧凑"}, {viewkit.ChatLineDefault, "标准"}, {1.8, "宽松"}, {2, "舒展"}} {
+					options = append(options, ui.Option[float64]{Value: v.value, Label: fmt.Sprintf("%g × · %s", v.value, apptext.T(v.name))})
+				}
+				return lookSizeOptions(a.readingRatio(), options, "×")
+			}, Value: func() float64 { return a.readingRatio() }, OnChange: a.setChatLine,
+			Label: apptext.T("聊天行高"), TestID: "chat-line-select", Style: settingsSelectStyle()}),
+		setDivider(),
+		setRow("输入框字号", "可单独设置，也可随聊天字号一起调整。", ui.Select[float64]{
+			OptionsFunc: func() []ui.Option[float64] { return fontOptions(a.inputFont.Get(), true) },
+			Value:       a.inputFont.Get, OnChange: a.setInputFont,
+			Label: apptext.T("输入框字号"), TestID: "input-font-select", Style: settingsSelectStyle()}),
+		setDivider(),
+		setRow("编辑器字号", "文件编辑区的文字大小。", settingsSlider(ui.Slider{
+			Min: 11, Max: 20, Step: 1, Value: a.editorFont.Get, OnChange: a.setEditorFont,
+			Label: apptext.T("编辑器字号"), TestID: "editor-font", ValueText: func(v float64) string { return fmt.Sprintf("%g pt", v) }},
+			func() string { return fmt.Sprintf("%g pt", a.editorFont.Get()) }, "11 pt", "20 pt")),
+		setDivider(),
+		setRow("终端字号", "终端面板的文字大小；支持半点微调。", settingsSlider(ui.Slider{
+			Min: 8, Max: 20, Step: 0.5, Value: a.termFont.Get, OnChange: a.setTerminalFont,
+			Label: apptext.T("终端字号"), TestID: "term-font", ValueText: func(v float64) string { return fmt.Sprintf("%g pt", v) }},
+			func() string { return fmt.Sprintf("%g pt", a.termFont.Get()) }, "8 pt", "20 pt")),
+		setDivider(),
+		setRow("代码块自动换行", "长代码行按对话内容宽度折行；关闭后可横向滚动。", ui.Switch{
+			Checked: a.codeWrap.Get, Label: apptext.T("代码块自动换行"), TestID: "chat-code-wrap",
+			OnChange: func(on bool) {
+				a.codeWrap.Set(on)
+				a.cfg.CodeWrap = on
+				if a.st != nil {
+					a.st.change(func(c *config) { c.CodeWrap = on })
+					a.saveConfigAsync()
+				}
+			}}),
+		setDivider(),
+		core.Dynamic(func(cx *core.Scope) core.Node {
+			font := core.Points(float64(a.readingFont()))
+			return core.Text{Content: apptext.T("这是一段对话正文示例。\n调整字号与行距，预览会同步更新。"), TestID: "look-reading-preview",
+				Style:     core.Style{FontSize: font, LineHeight: font * core.Points(a.readingRatio()), Padding: core.Symmetric(10, 2)},
+				StyleFunc: ui.Colored(ui.ColorsOf(cx).Text)}
 		}),
 		setDivider(),
-		setRow("背景透明度", "0% 完全遮住图片，100% 完全显示；面板会一起变透明。", opacity),
+		setRow("恢复字号与行距", "恢复聊天、输入框、编辑器和终端的默认字号，以及默认行距。", ui.Button{
+			Text: apptext.T("恢复默认"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "look-typography-reset", OnPress: a.resetLookTypography}),
+	)
+}
+
+func (a *app) lookFontSettings(cx *core.Scope, colors ui.Colors) core.Node {
+	uiDraft, monoDraft := core.NewSignal(cx, a.cfg.UIFont), core.NewSignal(cx, a.cfg.MonoFont)
+	commit := func() {
+		uiDraft.Set(strings.TrimSpace(uiDraft.GetUntracked()))
+		monoDraft.Set(strings.TrimSpace(monoDraft.GetUntracked()))
+		a.setCustomFonts(uiDraft.GetUntracked(), monoDraft.GetUntracked())
+	}
+	field := func(draft *core.Signal[string], label, id string) core.Node {
+		return core.Input{Value: draft.Get, OnChange: draft.Set, OnSubmit: func(string) { commit() }, OnBlur: commit,
+			Placeholder: apptext.T("留空跟随主题"), Label: apptext.T(label), TestID: id,
+			Style: core.Style{Width: core.Pt(230), MaxWidth: core.Pct(100), Height: core.Pt(28), Padding: core.Symmetric(0, 8), FontSize: 11.5,
+				Color: colors.Text(), Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6,
+				CaretColor: colors.Text(), SelectionColor: colors.Now().Selection, FocusVisible: ui.FocusRing(cx, 2)}}
+	}
+	return setGroup("字体",
+		setRow("界面字体", "填写已安装的字体名称；留空跟随主题。回车或移开焦点后应用并保存。", field(uiDraft, "界面字体", "ui-font")),
+		setDivider(),
+		setRow("等宽字体", "用于代码、工具输出、编辑器和终端；留空跟随主题。", field(monoDraft, "等宽字体", "mono-font")),
+	)
+}
+
+func (a *app) setCustomFonts(uiName, monoName string) {
+	uiName, monoName = strings.TrimSpace(uiName), strings.TrimSpace(monoName)
+	if a.cfg.UIFont == uiName && a.cfg.MonoFont == monoName {
+		return
+	}
+	a.cfg.UIFont, a.cfg.MonoFont = uiName, monoName
+	if a.st != nil {
+		a.st.change(func(c *config) { c.UIFont, c.MonoFont = uiName, monoName })
+		a.saveConfigAsync()
+	}
+	a.applyFonts()
+}
+
+func (a *app) resetLookTypography() {
+	a.cfg.ChatFont, a.cfg.ChatLine, a.cfg.InputFont, a.cfg.TerminalFont, a.cfg.EditorFont = 0, 0, 0, 0, 0
+	a.chatFont.Set(viewkit.ChatFontDefault)
+	a.chatLine.Set(viewkit.ChatLineDefault)
+	a.inputFont.Set(0)
+	a.termFont.Set(12.5)
+	a.editorFont.Set(13)
+	if a.st != nil {
+		a.st.change(func(c *config) { c.ChatFont, c.ChatLine, c.InputFont, c.TerminalFont, c.EditorFont = 0, 0, 0, 0, 0 })
+		a.saveConfigAsync()
+	}
+}
+
+func (a *app) lookThemeFiles() core.Node {
+	return setGroup("主题文件",
+		setRow("导入主题", "选择 JSON 或 YAML 主题文件；导入后在配色列表中选择。", ui.Button{
+			Text: apptext.T("导入"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "theme-import", OnPress: a.importTheme}),
+		setDivider(),
+		setRow("导出当前主题", "导出主题的配色、字体与圆角，保存为主题目录中的 JSON 文件。", ui.Button{
+			Text: apptext.T("导出"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "theme-export", OnPress: a.exportTheme}),
+		setDivider(),
+		setRow("主题文件", "在数据目录的 themes 文件夹管理主题文件。", ui.Button{
+			Text: apptext.T("打开目录"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "theme-open-dir", OnPress: a.openThemesDir}),
 	)
 }

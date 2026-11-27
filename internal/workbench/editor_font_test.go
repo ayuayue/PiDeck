@@ -32,8 +32,9 @@ func TestNormalizeEditorFont(t *testing.T) {
 func TestEditorFontSetting(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("PIDECK_V2_HOME", home)
+	t.Cleanup(configWrites.Wait)
 	var built *app
-	nsgotest.Start(t, func(cx *core.Scope) core.Node {
+	screen := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		built = newApp(cx)
 		return built.view()
 	}, nsgotest.Size(1200, 800))
@@ -41,28 +42,30 @@ func TestEditorFontSetting(t *testing.T) {
 		t.Fatal("the app did not build")
 	}
 
-	built.setEditorFont(16)
-	if got := built.editorFont.GetUntracked(); got != 16 {
-		t.Fatalf("editorFont = %v, want 16", got)
-	}
+	onNativeUI(t, screen, built, func() {
+		built.setEditorFont(16)
+		if got := built.editorFont.GetUntracked(); got != 16 {
+			t.Fatalf("editorFont = %v, want 16", got)
+		}
+	})
 	read := func() string {
 		raw, _ := os.ReadFile(filepath.Join(home, "config.json"))
 		return string(raw)
 	}
-	deadline := time.Now().Add(5 * time.Second)
-	for !strings.Contains(read(), `"editorFont": 16`) {
-		if time.Now().After(deadline) {
-			t.Fatalf("config = %s", read())
-		}
-		time.Sleep(50 * time.Millisecond)
+	configWrites.Wait()
+	if !strings.Contains(read(), `"editorFont": 16`) {
+		t.Fatalf("config = %s", read())
 	}
 
 	// The bounds hold, and the default is not stored.
-	built.setEditorFont(99)
-	if got := built.editorFont.GetUntracked(); got != 20 {
-		t.Fatalf("clamped = %v, want 20", got)
-	}
-	built.setEditorFont(13)
+	onNativeUI(t, screen, built, func() {
+		built.setEditorFont(99)
+		if got := built.editorFont.GetUntracked(); got != 20 {
+			t.Fatalf("clamped = %v, want 20", got)
+		}
+		built.setEditorFont(13)
+	})
+	configWrites.Wait()
 	if strings.Contains(read(), "editorFont") {
 		t.Fatalf("default size was stored: %s", read())
 	}
