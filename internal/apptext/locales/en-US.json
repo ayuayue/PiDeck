@@ -1,4 +1,10 @@
 {
+  "新建分组项目…": "New grouped project…",
+  "新建分组项目": "New grouped project",
+  "选择已有项目，或添加多个目录；会话仍保留在原目录。": "Select existing projects or add multiple folders. Sessions stay in their original folders.",
+  "添加目录…": "Add folders…",
+  "创建分组": "Create group",
+  "撤销分组": "Ungroup",
   "应用内 HTTP 请求（如供应商检测、余额与飞书）使用此代理；留空直连。Git 留空时仍继承启动环境。": "Routes the app's HTTP requests (such as provider checks, balances, and Feishu). Leave empty for a direct connection. Git still inherits its launch environment when empty.",
   "为之后启动的本机 pi 与 ACP 设置代理；留空继承启动环境，不会清除已有代理。": "Sets the proxy for local pi and ACP processes started afterward. Leaving it empty inherits the launch environment and does not remove an existing proxy.",
   "NO_PROXY：逗号分隔域名、IP 或网段；配置代理时应用此名单，应用与本机 Agent 共用。": "NO_PROXY: comma-separated domains, IP addresses, or networks. Used when a proxy is configured; shared by the app and local agents.",

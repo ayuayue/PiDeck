@@ -14,7 +14,23 @@ import (
 // projectGroup is a named run of projects.
 type projectGroup struct {
 	Name     string
+	Named    bool
 	Projects []*workspace
+}
+
+// projectGroupDirectory is a draft choice, not a workspace until saved.
+type projectGroupDirectory struct {
+	target target
+	path   string
+	label  string
+}
+
+func (d projectGroupDirectory) key() string {
+	path := d.path
+	if !d.target.remote() {
+		path = pathKey(path)
+	}
+	return d.target.key() + "|" + path
 }
 
 // projectGroups returns the rail's groups in display order. The built-in
@@ -29,7 +45,7 @@ func (a *app) projectGroups() []projectGroup {
 	a.sortProjects(list)
 	var pinned, rest []*workspace
 	for _, w := range list {
-		if w.Pinned {
+		if w.Pinned && strings.TrimSpace(w.Group) == "" {
 			pinned = append(pinned, w)
 		} else {
 			rest = append(rest, w)
@@ -41,13 +57,13 @@ func (a *app) projectGroups() []projectGroup {
 	}
 	index := map[string]int{}
 	for _, w := range rest {
-		name := firstNonEmpty(strings.TrimSpace(w.Group), "未分组")
-		if i, ok := index[name]; ok {
+		group := strings.TrimSpace(w.Group)
+		if i, ok := index[group]; ok {
 			groups[i].Projects = append(groups[i].Projects, w)
 			continue
 		}
-		index[name] = len(groups)
-		groups = append(groups, projectGroup{Name: name, Projects: []*workspace{w}})
+		index[group] = len(groups)
+		groups = append(groups, projectGroup{Name: firstNonEmpty(group, "未分组"), Named: group != "", Projects: []*workspace{w}})
 	}
 	return groups
 }
@@ -168,6 +184,55 @@ func (a *app) setProjectGroup(w *workspace, group string) {
 	}
 	w.Group = strings.TrimSpace(group)
 	a.saveProjects()
+}
+
+// createProjectGroup reuses each directory's workspace, keeping sessions and
+// per-project state in place. A cancelled draft never calls this method.
+func (a *app) createProjectGroup(name string, directories []projectGroupDirectory) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return
+	}
+	a.cx.Batch(func() {
+		changed := false
+		for _, dir := range directories {
+			path := cleanTargetPath(dir.target, dir.path)
+			if path == "" {
+				continue
+			}
+			ws := a.workspaceFor(dir.target, path)
+			if ws == nil {
+				a.addWorkspaceFor(dir.target, path, "")
+				ws = a.workspaceFor(dir.target, path)
+			}
+			if ws != nil && !ws.Chat {
+				ws.Group = name
+				changed = true
+			}
+		}
+		if changed {
+			a.saveProjects()
+		}
+	})
+}
+
+// dissolveProjectGroup restores the member projects without removing folders,
+// sessions, pinning, custom names, or their original order.
+func (a *app) dissolveProjectGroup(name string) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return
+	}
+	changed := false
+	for _, ws := range a.workspaces.GetUntracked() {
+		if ws != nil && !ws.Chat && strings.TrimSpace(ws.Group) == name {
+			ws.Group = ""
+			changed = true
+		}
+	}
+	if changed {
+		a.saveProjects()
+	}
 }
 
 // setProjectSort changes how the rail orders projects.

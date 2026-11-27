@@ -29,14 +29,14 @@ func (a *app) projectList() core.Node {
 		_ = a.workspaces.Get()
 		groups := a.projectGroups()
 		out := []core.Node{a.projectHeader()}
-		showHeaders := len(groups) > 1 || (len(groups) == 1 && groups[0].Name != "未分组")
+		showHeaders := len(groups) > 1 || (len(groups) == 1 && (groups[0].Named || groups[0].Name != "未分组"))
 		first := true
 		for _, g := range groups {
 			// A group's name belongs to the project under it, so the line
 			// above the group keeps the name off the last project's rows.
 			var head []core.Node
 			if showHeaders {
-				head = append(head, a.groupLabel(g.Name))
+				head = append(head, a.projectGroupHeading(g))
 			}
 			for _, w := range g.Projects {
 				ws := w
@@ -74,7 +74,7 @@ func (a *app) projectHeader() core.Node {
 			core.View{Style: core.Style{FlexGrow: 1}},
 			core.Text{ContentFunc: func() string { return fmt.Sprint(a.projectTotal()) }, TestID: "project-total",
 				Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 11}, StyleFunc: ui.Colored(colors.Faint)},
-			a.addProjectMenu(),
+			a.addProjectMenu(cx),
 			a.projectHeaderMenu(),
 		}}
 	})
@@ -108,11 +108,11 @@ func (a *app) setRailMenuOpen(column string, open bool) {
 	}
 }
 
-// addProjectMenu adds a project: a folder on this machine by default, or
-// one on an SSH host or in a WSL distribution.
-func (a *app) addProjectMenu() core.Node {
-	colors := ui.ColorsOf(a.cx)
-	return ui.Menu{
+// addProjectMenu adds a local or remote project, or groups several folders.
+func (a *app) addProjectMenu(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	groupOpen := core.NewSignal(cx, false)
+	menu := ui.Menu{
 		Open: a.addProjectOpen.Get, OnOpenChange: func(open bool, _ base.Reason) {
 			if open {
 				a.clearSessionHover()
@@ -130,8 +130,11 @@ func (a *app) addProjectMenu() core.Node {
 				OnSelect: func() { a.openTargetDialog(targetSSH) }},
 			ui.MenuItem{Text: apptext.T("WSL 里的目录…"), Icon: lucide.Terminal, TestID: "add-project-wsl",
 				OnSelect: func() { a.openTargetDialog(targetWSL) }},
+			ui.MenuItem{Text: apptext.T("新建分组项目…"), Icon: lucide.FolderPlus, TestID: "add-project-group",
+				OnSelect: func() { groupOpen.Set(true) }},
 		},
 	}
+	return core.View{Children: []core.Node{menu, a.projectGroupCreateDialog(groupOpen)}}
 }
 
 // workspaceBlock is one project and, when open, its sessions.
