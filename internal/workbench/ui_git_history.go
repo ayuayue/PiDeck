@@ -28,27 +28,32 @@ func (a *app) fileHistoryPane() core.Node {
 				OnPress: func(core.PressEvent) { a.gitShowCommit(c) },
 				Role:    core.RoleButton, Label: c.Short + " " + c.Subject, TestID: "git-history-row",
 				StyleFunc: func() core.Style {
-					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(32),
-						Padding: core.Symmetric(0, 6), CornerRadius: 6, Transition: viewkit.PressMotion,
-						Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
+					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(48),
+						Padding: core.Symmetric(4, 8), CornerRadius: 6, Transition: viewkit.PressMotion,
+						Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()},
+						FocusVisible: ui.FocusRing(cx, 2)}
 				},
 				Children: []core.Node{
-					ui.Icon(lucide.GitCommitHorizontal, 12, colors.Muted),
-					core.Text{Content: c.Short, Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
-					core.Text{Content: c.Subject, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-						Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11.5},
-						StyleFunc: ui.Colored(colors.Text)},
-					core.Text{Content: c.Author, MaxLines: 1, Style: core.Style{FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
-					core.Text{Content: c.Date.Format("2006-01-02"), Style: core.Style{FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
+					ui.Icon(lucide.GitCommitHorizontal, viewkit.PanelDetailIconSize, colors.Muted),
+					core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 2}, Children: []core.Node{
+						core.Text{Content: c.Subject, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+							Style: core.Style{FontSize: viewkit.PanelTextSize, LineHeight: viewkit.PanelLineHeight}, StyleFunc: ui.Colored(colors.Text)},
+						core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinWidth: core.Pt(0)}, Children: []core.Node{
+							core.Text{Content: c.Short, Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: viewkit.PanelCaptionSize}, StyleFunc: ui.Colored(colors.Muted)},
+							core.Text{Content: c.Author, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+								Style: core.Style{FontSize: viewkit.PanelCaptionSize, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, StyleFunc: ui.Colored(colors.Muted)},
+							core.Text{Content: c.Date.Format("2006-01-02"), Style: core.Style{FontSize: viewkit.PanelCaptionSize}, StyleFunc: ui.Colored(colors.Muted)},
+						}},
+					}},
 				}})
 		}
 		var body core.Node
 		switch {
 		case errText != "":
-			body = core.Text{Content: errText, Style: core.Style{FontSize: 11.5, Padding: core.All(8)}, StyleFunc: ui.Colored(colors.Danger)}
+			body = core.Text{Content: errText, Style: core.Style{FontSize: viewkit.PanelCaptionSize, LineHeight: viewkit.PanelLineHeight, Padding: core.All(8)}, StyleFunc: ui.Colored(colors.Danger)}
 		case len(rows) == 0:
-			body = core.Text{Content: apptext.T("还没有改过这个文件。"), Style: core.Style{FontSize: 11, Padding: core.All(8)},
-				StyleFunc: ui.Colored(colors.Faint)}
+			body = core.Text{Content: apptext.T("还没有改过这个文件。"), Style: core.Style{FontSize: viewkit.PanelCaptionSize, LineHeight: viewkit.PanelLineHeight, Padding: core.All(8)},
+				StyleFunc: ui.Colored(colors.Muted)}
 		default:
 			body = a.scrollStashFor("fileHistoryPane:1").Bind(cx, core.Scroll{Style: ui.FillRest, Children: []core.Node{
 				core.View{Style: core.Style{Gap: 1}, Children: rows}}})

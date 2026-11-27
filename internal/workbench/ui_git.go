@@ -21,7 +21,7 @@ import (
 // content. Status polling updates their values without replacing the inputs.
 func (a *app) drawerGit() core.Node {
 	isRepo := func() bool { return a.git.state.Get().IsRepo }
-	return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), MinWidth: core.Pt(0), Gap: 8},
+	return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), MinWidth: core.Pt(0), Gap: viewkit.PanelGap},
 		Children: []core.Node{
 			core.Show{When: isRepo, Then: func(cx *core.Scope) core.Node { return a.gitHeader(cx) }},
 			core.Show{When: func() bool { return a.git.err.Get() != "" }, Then: func(cx *core.Scope) core.Node { return a.gitError(cx) }},
@@ -30,7 +30,7 @@ func (a *app) drawerGit() core.Node {
 			}},
 			core.Show{When: isRepo, Then: func(cx *core.Scope) core.Node {
 				return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Gap: 12}, Children: []core.Node{
-					ui.Tabs[string]{Variant: ui.TabsSegmented, Equal: true, Size: ui.SizeSmall, Label: "Git", TestID: "git-sections",
+					ui.Tabs[string]{Variant: ui.TabsSegmented, Equal: true, Size: ui.SizeDefault, Label: "Git", TestID: "git-sections",
 						Value: a.git.panel.Get, OnChange: a.git.panel.Set,
 						OptionsFunc: func() []ui.Option[string] {
 							st := a.git.state.Get()
@@ -70,14 +70,14 @@ func (a *app) gitStateNote(cx *core.Scope) core.Node {
 		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Padding: core.Edges{Top: 8}},
 			Children: []core.Node{
 				ui.Spinner{Size: 14, Label: apptext.T("读取 Git 仓库")},
-				ui.Text(apptext.T("正在读取仓库…"), 12, ui.Regular, colors.Muted),
+				ui.Text(apptext.T("正在读取仓库…"), viewkit.PanelTextSize, ui.Regular, colors.Muted),
 			}}
 	case st.NotRepo:
 		return a.gitNotRepo(cx, st)
 	case st.Error != "":
 		return core.View{Style: core.Style{Gap: 10, Padding: core.Edges{Top: 8}}, Children: []core.Node{
-			ui.Text(apptext.T("无法读取 Git 仓库"), 13, ui.Semibold, colors.Danger),
-			core.Text{Content: st.Error, Style: core.Style{FontSize: 12, LineHeight: 18}, StyleFunc: ui.Colored(colors.Muted)},
+			ui.Text(apptext.T("无法读取 Git 仓库"), viewkit.PanelTextSize, ui.Medium, colors.Danger),
+			core.Text{Content: st.Error, Style: core.Style{FontSize: viewkit.PanelCaptionSize, LineHeight: viewkit.PanelLineHeight}, StyleFunc: ui.Colored(colors.Muted)},
 			core.View{Style: core.Style{Direction: core.Row}, Children: []core.Node{
 				ui.Button{Text: apptext.T("重试"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.git.refreshAll() }},
 			}},
@@ -89,8 +89,8 @@ func (a *app) gitStateNote(cx *core.Scope) core.Node {
 // gitEmpty is the drawer's empty state.
 func gitEmpty(colors ui.Colors, title, note string) core.Node {
 	return core.View{Style: core.Style{Padding: core.Edges{Top: 10}, Gap: 6}, Children: []core.Node{
-		ui.Text(title, 13.5, ui.Semibold, colors.Text),
-		core.Text{Content: note, Style: core.Style{FontSize: 12, LineHeight: 18}, StyleFunc: ui.Colored(colors.Muted)},
+		ui.Text(title, viewkit.PanelTitleSize, ui.Medium, colors.Text),
+		core.Text{Content: note, Style: core.Style{FontSize: viewkit.PanelTextSize, LineHeight: viewkit.PanelLineHeight}, StyleFunc: ui.Colored(colors.Muted)},
 	}}
 }
 
@@ -99,7 +99,7 @@ func (a *app) gitNotRepo(cx *core.Scope, st gitState) core.Node {
 	colors := ui.ColorsOf(cx)
 	return core.View{Style: core.Style{Padding: core.Edges{Top: 10}, Gap: 9, AlignItems: core.AlignStart}, Children: []core.Node{
 		ui.Icon(lucide.FolderGit, 22, colors.Faint),
-		ui.Text(apptext.T("这个项目还不是 Git 仓库"), 13, ui.Semibold, colors.Text),
+		ui.Text(apptext.T("这个项目还不是 Git 仓库"), viewkit.PanelTitleSize, ui.Medium, colors.Text),
 		core.Text{ContentFunc: a.gitPath, MaxLines: 3, EllipsizeMode: core.EllipsizeMiddle,
 			Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10.5}, StyleFunc: ui.Colored(colors.Faint)},
 		ui.Button{Text: apptext.T("初始化 Git 仓库"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, OnPress: a.gitInit},
@@ -113,12 +113,12 @@ func (a *app) gitNotRepo(cx *core.Scope, st gitState) core.Node {
 // drawer's other tabs use.
 func gitSectionTitle(colors ui.Colors, title string) core.Node {
 	return core.Text{Content: title, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-		Style:     core.Style{FontSize: 13, FontWeight: ui.Semibold},
+		Style:     core.Style{FontSize: viewkit.PanelTextSize, FontWeight: ui.Semibold, LineHeight: viewkit.PanelLineHeight},
 		StyleFunc: ui.Colored(colors.Text)}
 }
 
 // gitCount is the quiet number beside a section's heading.
 func gitCount(colors ui.Colors, count func() string) core.Node {
-	return core.Text{ContentFunc: count, Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 12},
+	return core.Text{ContentFunc: count, Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: viewkit.PanelCaptionSize},
 		StyleFunc: ui.Colored(colors.Muted)}
 }

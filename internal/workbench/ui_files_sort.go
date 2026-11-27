@@ -4,6 +4,7 @@ package workbench
 
 import (
 	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -20,9 +21,9 @@ func (a *app) fileSortControl() core.Node {
 		{Value: fileSortSmallest, Label: apptext.T("大小") + " ↑"},
 	}
 	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
-		ui.Text(apptext.T("排序"), 12, ui.Regular, ui.ColorsOf(a.cx).Muted),
+		ui.Text(apptext.T("排序"), viewkit.PanelCaptionSize, ui.Regular, ui.ColorsOf(a.cx).Muted),
 		ui.Select[fileSort]{Label: apptext.T("排序"), TestID: "files-sort", Options: options,
 			Value: a.files.order.Get, OnChange: a.files.setOrder,
-			Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Width: core.Pt(0), Height: core.Pt(32), FontSize: 12}},
+			Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Width: core.Pt(0), Height: core.Pt(viewkit.PanelControlSize), FontSize: viewkit.PanelTextSize}},
 	}}
 }

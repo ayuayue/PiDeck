@@ -23,15 +23,14 @@ func (a *app) gitHistory(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	search := core.Input{Value: a.git.logQuery.Get, OnChange: a.setGitLogQuery,
 		Placeholder: apptext.T("搜索提交（标题、作者或哈希）…"), Label: apptext.T("搜索提交"), TestID: "git-log-search",
-		Style: core.Style{Height: core.Pt(30), Padding: core.Symmetric(0, 9), CornerRadius: 7,
-			Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(),
-			Color: colors.Text(), FontSize: 11.5},
+		Style: core.Style{Height: core.Pt(viewkit.PanelFieldHeight), Padding: core.Symmetric(0, 12), CornerRadius: 8,
+			FontSize: viewkit.PanelTextSize, LineHeight: viewkit.PanelLineHeight},
 		StyleFunc: func() core.Style {
-			return core.Style{PlaceholderColor: colors.Faint(), Background: colors.Field(),
-				BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 7,
-				CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}
+			return core.Style{Color: colors.Text(), PlaceholderColor: colors.Muted(), Background: colors.Field(),
+				BorderWidth: 1, BorderColor: colors.FieldBorder(),
+				CaretColor: colors.Text(), SelectionColor: colors.Now().Selection, FocusVisible: ui.FocusRing(cx, 2)}
 		}}
-	return core.View{Style: core.Style{Gap: 5}, Children: []core.Node{
+	return core.View{Style: core.Style{Gap: viewkit.PanelGap}, Children: []core.Node{
 		a.gitHistoryBar(cx),
 		search,
 		core.Dynamic(func(cx *core.Scope) core.Node { return a.gitHistoryRows(cx) }),
@@ -41,11 +40,11 @@ func (a *app) gitHistory(cx *core.Scope) core.Node {
 // gitHistoryBar is the section's heading.
 func (a *app) gitHistoryBar(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
-	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, MinHeight: core.Pt(24)}, Children: []core.Node{
+	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(viewkit.PanelControlSize)}, Children: []core.Node{
 		gitSectionTitle(colors, apptext.T("历史")),
 		gitCount(colors, func() string { return fmt.Sprint(a.git.state.Get().historyCount()) }),
 		core.View{Style: core.Style{FlexGrow: 1}},
-		hint("刷新历史", a.pressIcon(lucide.RefreshCw, apptext.T("刷新历史"), 22, 12.5,
+		hint("刷新历史", a.pressIcon(lucide.RefreshCw, apptext.T("刷新历史"), viewkit.PanelControlSize, viewkit.PanelIconSize,
 			func() bool { return a.git.busy.Get() != "" }, func() { a.git.refreshAll() }, "git-log-refresh")),
 	}}
 }
@@ -110,7 +109,7 @@ func (a *app) gitHistoryHits(cx *core.Scope, query string) core.Node {
 
 // gitNotice is one quiet line standing in for rows.
 func (a *app) gitNotice(text string, color func() core.Color) core.Node {
-	return core.Text{Content: text, Style: core.Style{FontSize: 11.5, Padding: core.Symmetric(3, 6)}, StyleFunc: ui.Colored(color)}
+	return core.Text{Content: text, Style: core.Style{FontSize: viewkit.PanelCaptionSize, LineHeight: viewkit.PanelLineHeight, Padding: core.Symmetric(8, 6)}, StyleFunc: ui.Colored(color)}
 }
 
 // gitCommitRow is one commit: its graph lane, subject and line of facts,
@@ -122,28 +121,29 @@ func (a *app) gitCommitRow(cx *core.Scope, i int, commit gitCommit, graph bool) 
 			OnPress: func(core.PressEvent) { a.gitShowCommit(commit) },
 			Role:    core.RoleButton, Label: commit.Subject, TestID: "git-commit-row",
 			StyleFunc: func() core.Style {
-				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinHeight: core.Pt(40),
-					Padding: core.Edges{Left: 4, Right: 2}, CornerRadius: 6, Transition: viewkit.PressMotion,
-					Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
+				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Height: core.Pt(48),
+					Padding: core.Edges{Left: 4, Right: 4}, CornerRadius: 6, Transition: viewkit.PressMotion,
+					Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()},
+					FocusVisible: ui.FocusRing(cx, 2)}
 			},
 			Children: []core.Node{
 				core.Show{When: func() bool { return graph }, Then: func(*core.Scope) core.Node {
 					return commitgraph.Graph{History: a.git.history, Item: func() commitgraph.Item { return a.git.history.At(i) },
-						Height: 40, Lane: 10, Color: func(line int) core.Color {
+						Height: 48, Lane: 12, Color: func(line int) core.Color {
 							palette := []core.Color{colors.Muted(), colors.Up(), colors.Warn(), colors.Danger(), colors.Faint()}
 							return palette[max(0, line)%len(palette)]
 						}}
 				}},
 				core.Show{When: func() bool { return !graph }, Then: func(*core.Scope) core.Node {
-					return ui.Icon(lucide.GitCommitHorizontal, 12, colors.Faint)
+					return ui.Icon(lucide.GitCommitHorizontal, viewkit.PanelDetailIconSize, colors.Muted)
 				}},
 				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 1}, Children: []core.Node{
 					core.Text{Content: commit.Subject, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-						Style: core.Style{FontSize: 12.5, LineHeight: 17}, StyleFunc: ui.Colored(colors.Text)},
+						Style: core.Style{FontSize: viewkit.PanelTextSize, LineHeight: viewkit.PanelLineHeight}, StyleFunc: ui.Colored(colors.Text)},
 					core.Text{Content: commitLine(commit), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-						Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10, LineHeight: 14}, StyleFunc: ui.Colored(colors.Faint)},
+						Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: viewkit.PanelCaptionSize, LineHeight: 18}, StyleFunc: ui.Colored(colors.Muted)},
 				}},
-				ui.Icon(lucide.ChevronRight, 11, colors.Faint),
+				ui.Icon(lucide.ChevronRight, 12, colors.Faint),
 			},
 		},
 		Children: []core.Node{

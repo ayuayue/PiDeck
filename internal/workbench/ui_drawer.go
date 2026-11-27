@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -24,12 +25,12 @@ func (a *app) drawerPanel() core.Node {
 			if n == 0 {
 				return nil
 			}
-			return core.View{Style: core.Style{MinWidth: core.Pt(16), Height: core.Pt(16), Padding: core.Symmetric(0, 5),
-				CornerRadius: 8, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Background: colors.Inset()},
-				Children: []core.Node{ui.Text(fmt.Sprint(n), 11, ui.Medium, colors.Muted)}}
+			return core.View{Style: core.Style{MinWidth: core.Pt(20), Height: core.Pt(20), Padding: core.Symmetric(0, 6),
+				CornerRadius: 6, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Background: colors.Inset()},
+				Children: []core.Node{ui.Text(fmt.Sprint(n), viewkit.PanelMicroSize, ui.Medium, colors.Muted)}}
 		}),
 	}}
-	return core.View{Style: core.Style{Padding: core.All(14), Gap: 12, Width: core.Pct(100),
+	return core.View{Style: core.Style{Padding: core.All(viewkit.PanelInset), Gap: viewkit.PanelGap, Width: core.Pct(100),
 		FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Direction: core.Column}, Children: []core.Node{
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4}, Children: []core.Node{
 			ui.Tabs[string]{Variant: ui.TabsUnderline, Size: ui.SizeDefault, Equal: true, Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
@@ -46,7 +47,7 @@ func (a *app) drawerPanel() core.Node {
 					}
 				}},
 
-			hintOf(func() string { return apptext.T("收起") }, ui.IconButton{Icon: lucide.X, Label: apptext.T("收起"), Size: 28, IconSize: 13.5,
+			hintOf(func() string { return apptext.T("收起") }, ui.IconButton{Icon: lucide.X, Label: apptext.T("收起"), Size: viewkit.PanelControlSize, IconSize: viewkit.PanelIconSize,
 				TestID: "drawer-close", OnPress: a.toggleDrawer}),
 		}},
 		core.View{Style: ui.FillRest, Children: []core.Node{

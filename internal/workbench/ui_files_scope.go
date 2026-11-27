@@ -15,7 +15,7 @@ import (
 )
 
 func (a *app) fileScopeTabs() core.Node {
-	return ui.Tabs[string]{Variant: ui.TabsSegmented, Equal: true, Size: ui.SizeSmall,
+	return ui.Tabs[string]{Variant: ui.TabsSegmented, Equal: true, Size: ui.SizeDefault,
 		Label: apptext.T("文件范围"), TestID: "files-scope", Value: a.files.scope.Get, OnChange: a.files.scope.Set,
 		Options: []ui.Option[string]{
 			{Value: "all", Label: apptext.T("全部文件"), TestID: "files-scope-all"},
@@ -64,7 +64,7 @@ func (a *app) sessionFiles(cx *core.Scope, s *session, root string) core.Node {
 				paths = append(paths, entry.Rel)
 			}
 			rows = append(rows, core.Text{Content: fmt.Sprintf(apptext.T("修改 %d 个文件"), len(entries)),
-				Style: core.Style{FontSize: 12, Padding: core.Edges{Bottom: 8}}, StyleFunc: ui.Colored(colors.Muted)})
+				Style: core.Style{FontSize: viewkit.PanelCaptionSize, LineHeight: viewkit.PanelLineHeight, Padding: core.Edges{Bottom: 8}}, StyleFunc: ui.Colored(colors.Muted)})
 			for _, rel := range a.sortedWorkspacePaths(root, paths) {
 				entry := byPath[rel][0]
 				byPath[rel] = byPath[rel][1:]
@@ -78,15 +78,15 @@ func (a *app) sessionFiles(cx *core.Scope, s *session, root string) core.Node {
 						return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Padding: core.All(8), CornerRadius: 8,
 							Hover: &core.Style{Background: colors.Hover()}, FocusVisible: ui.FocusRing(cx, 2)}
 					}, Children: []core.Node{
-						ui.Icon(lucide.FileText, 16, colors.Muted),
+						ui.Icon(lucide.FileText, viewkit.PanelDetailIconSize, colors.Muted),
 						core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 4}, Children: []core.Node{
 							core.Text{Content: filepath.Base(entry.Rel), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-								Style: core.Style{FontSize: 13}, StyleFunc: ui.Colored(colors.Text)},
+								Style: core.Style{FontSize: viewkit.PanelTextSize, LineHeight: viewkit.PanelLineHeight}, StyleFunc: ui.Colored(colors.Text)},
 							core.Text{Content: filepath.ToSlash(filepath.Dir(entry.Rel)), MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-								Style: core.Style{FontSize: 11, FontFamily: viewkit.MonoFont()}, StyleFunc: ui.Colored(colors.Muted)},
+								Style: core.Style{FontSize: viewkit.PanelCaptionSize, FontFamily: viewkit.MonoFont()}, StyleFunc: ui.Colored(colors.Muted)},
 						}},
-						ui.Text(fmt.Sprintf("+%d", entry.Change.Added), 11, ui.Medium, colors.Up),
-						ui.Text(fmt.Sprintf("−%d", entry.Change.Removed), 11, ui.Medium, colors.Danger),
+						ui.Text(fmt.Sprintf("+%d", entry.Change.Added), viewkit.PanelCaptionSize, ui.Medium, colors.Up),
+						ui.Text(fmt.Sprintf("−%d", entry.Change.Removed), viewkit.PanelCaptionSize, ui.Medium, colors.Danger),
 					},
 				}))
 			}
@@ -95,7 +95,7 @@ func (a *app) sessionFiles(cx *core.Scope, s *session, root string) core.Node {
 				if filter != "" {
 					label = apptext.T("没有匹配的文件")
 				}
-				rows = append(rows, ui.Text(label, 12, ui.Regular, colors.Muted))
+				rows = append(rows, ui.Text(label, viewkit.PanelCaptionSize, ui.Regular, colors.Muted))
 			}
 			return core.View{Style: core.Style{Gap: 4, Padding: core.Edges{Bottom: 20}}, Children: rows}
 		})}})

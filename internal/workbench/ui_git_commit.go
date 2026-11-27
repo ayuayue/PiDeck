@@ -31,26 +31,27 @@ func (a *app) gitCommitBox(cx *core.Scope) core.Node {
 	changed := func() int { return len(a.git.state.Get().Files) }
 	amend := a.git.amend.Get
 	conflicted := func() bool { return len(a.git.state.Get().conflicts()) > 0 }
-	return core.View{Style: core.Style{Gap: 8, FlexShrink: 0, Padding: core.Edges{Top: 12}, Borders: core.Edges{Top: 1}, BorderColors: core.EdgeColors{Top: colors.Line()}}, Children: []core.Node{
-		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinHeight: core.Pt(22)}, Children: []core.Node{
+	return core.View{Style: core.Style{Gap: viewkit.PanelGap, FlexShrink: 0, Padding: core.Edges{Top: viewkit.PanelGap}, Borders: core.Edges{Top: 1}, BorderColors: core.EdgeColors{Top: colors.Line()}}, Children: []core.Node{
+		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(viewkit.PanelControlSize)}, Children: []core.Node{
 			gitSectionTitle(colors, apptext.T("提交")),
 			// Nothing staged means nothing to commit: the count would
 			// only say zero.
 			core.Show{When: func() bool { return staged() > 0 }, Then: func(*core.Scope) core.Node {
 				return core.Text{ContentFunc: func() string { return fmt.Sprintf(apptext.T("已暂存 %d"), staged()) }, MaxLines: 1,
-					Style: core.Style{FontSize: 10.5}, StyleFunc: ui.Colored(colors.Faint)}
+					Style: core.Style{FontSize: viewkit.PanelCaptionSize}, StyleFunc: ui.Colored(colors.Muted)}
 			}},
 			core.View{Style: core.Style{FlexGrow: 1}},
-			hint("生成提交摘要", a.pressIcon(lucide.Sparkles, apptext.T("生成提交摘要"), 22, 12,
+			hint("生成提交摘要", a.pressIcon(lucide.Sparkles, apptext.T("生成提交摘要"), viewkit.PanelControlSize, viewkit.PanelIconSize,
 				func() bool { return busy() || a.aiBusy.Get() != "" }, a.generateCommitMessage, "git-summary")),
 		}},
 		core.Input{
 			Value: a.git.msg.Get, OnChange: a.git.msg.Set, Multiline: true,
 			Placeholder: apptext.T("提交说明（第一行是标题）"), Label: apptext.T("提交说明"), TestID: "git-commit-message",
-			Style: core.Style{MinHeight: core.Pt(64), MaxHeight: core.Pt(112), Padding: core.Symmetric(8, 9), FontSize: 12.5, Color: colors.Text()},
+			Style: core.Style{MinHeight: core.Pt(80), MaxHeight: core.Pt(128), Padding: core.All(12), FontSize: viewkit.PanelTextSize, LineHeight: viewkit.PanelLineHeight},
 			StyleFunc: func() core.Style {
 				return core.Style{Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 8,
-					PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}
+					Color: colors.Text(), PlaceholderColor: colors.Muted(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection,
+					FocusVisible: ui.FocusRing(cx, 2)}
 			},
 		},
 		core.Dynamic(func(*core.Scope) core.Node { return a.recentMessageMenu(a.cx) }),
@@ -60,18 +61,18 @@ func (a *app) gitCommitBox(cx *core.Scope) core.Node {
 			ui.Button{Text: apptext.T("全部提交"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "git-commit-all",
 				OnPress:  func() { a.gitCommit(true, false) },
 				Disabled: func() bool { return busy() || conflicted() || msgEmpty() || changed() == 0 }},
-			hint("提交并推送", a.pressIcon(lucide.CloudUpload, apptext.T("提交并推送"), 24, 12,
+			hint("提交并推送", a.pressIcon(lucide.CloudUpload, apptext.T("提交并推送"), viewkit.PanelControlSize, viewkit.PanelIconSize,
 				func() bool { return busy() || conflicted() || msgEmpty() || staged() == 0 }, a.gitCommitAndPush, "git-commit-push")),
 		}},
 		core.Show{When: conflicted, Then: func(*core.Scope) core.Node {
-			return core.Text{Content: apptext.T("请先解决冲突再提交"), Style: core.Style{FontSize: 12}, StyleFunc: ui.Colored(colors.Danger)}
+			return core.Text{Content: apptext.T("请先解决冲突再提交"), Style: core.Style{FontSize: viewkit.PanelCaptionSize, LineHeight: viewkit.PanelLineHeight}, StyleFunc: ui.Colored(colors.Danger)}
 		}},
-		ui.Button{Text: apptext.T("提交"), Variant: ui.ButtonPrimary, Size: ui.SizeDefault, TestID: "git-commit",
+		ui.Button{Text: apptext.T("提交"), Variant: ui.ButtonPrimary, Size: ui.SizeDefault, Style: core.Style{Height: core.Pt(viewkit.PanelFieldHeight)}, TestID: "git-commit",
 			OnPress:  func() { a.gitCommit(false, a.git.amend.Get()) },
 			Disabled: func() bool { return busy() || conflicted() || msgEmpty() || (staged() == 0 && !amend()) }},
 		core.Show{When: amend, Then: func(*core.Scope) core.Node {
 			return core.Text{Content: apptext.T("这次的暂存改动会并入上一次提交，不再新增提交。"),
-				Style: core.Style{FontSize: 10.5, LineHeight: 15}, StyleFunc: ui.Colored(colors.Faint)}
+				Style: core.Style{FontSize: viewkit.PanelCaptionSize, LineHeight: viewkit.PanelLineHeight}, StyleFunc: ui.Colored(colors.Faint)}
 		}},
 	}}
 }
@@ -91,9 +92,9 @@ func (a *app) recentMessageMenu(cx *core.Scope) core.Node {
 		items = append(items, base.MenuItem{
 			Label: subject, TestID: "git-msg-recent-item", OnSelect: func() { a.git.msg.Set(subject) },
 			Children: []core.Node{core.Text{Content: subject, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-				Style:     core.Style{FontSize: 12, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
+				Style:     core.Style{FontSize: viewkit.PanelTextSize, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
 				StyleFunc: ui.Colored(colors.Text)}},
-			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Height: core.Pt(28),
+			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Height: core.Pt(viewkit.PanelRowHeight),
 				Padding: core.Symmetric(0, 8), CornerRadius: 6},
 			StyleFunc: func() core.Style {
 				return core.Style{Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()},
@@ -105,7 +106,7 @@ func (a *app) recentMessageMenu(cx *core.Scope) core.Node {
 		Open: a.git.recentOpen.Get, OnOpenChange: func(open bool, _ base.Reason) { a.git.recentOpen.Set(open) },
 		Label: apptext.T("用最近的提交说明"), TestID: "git-msg-recent",
 		Placement: core.PlaceBottom, Align: core.AlignStart, Offset: 4, Margin: 8,
-		Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, Height: core.Pt(24),
+		Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Height: core.Pt(viewkit.PanelControlSize),
 			MaxWidth: core.Pct(100), Padding: core.Symmetric(0, 5), CornerRadius: 6, FlexShrink: 1},
 		StyleFunc: func() core.Style {
 			return core.Style{Transition: viewkit.PressMotion, Hover: &core.Style{Background: colors.Hover()},
@@ -113,11 +114,11 @@ func (a *app) recentMessageMenu(cx *core.Scope) core.Node {
 		},
 		Trigger: core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, MinWidth: core.Pt(0)},
 			Children: []core.Node{
-				ui.Icon(lucide.Clock, 11, colors.Faint),
+				ui.Icon(lucide.Clock, viewkit.PanelDetailIconSize, colors.Muted),
 				core.Text{Content: subjects[0], MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-					Style:     core.Style{FontSize: 11, FlexShrink: 1, MinWidth: core.Pt(0)},
+					Style:     core.Style{FontSize: viewkit.PanelCaptionSize, FlexShrink: 1, MinWidth: core.Pt(0)},
 					StyleFunc: ui.Colored(colors.Muted)},
-				ui.Icon(lucide.ChevronDown, 10, colors.Faint),
+				ui.Icon(lucide.ChevronDown, 12, colors.Faint),
 			}},
 		PopupStyle: a.menuPopup(cx), PopupStyleFunc: func() core.Style {
 			style := a.menuCard(a.cx)

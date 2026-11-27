@@ -33,33 +33,33 @@ func (a *app) drawerFiles() core.Node {
 		}
 		if root == "" {
 			return core.View{Style: core.Style{Padding: core.All(16)}, Children: []core.Node{
-				ui.Text(apptext.T("先打开一个工作区"), 12.5, ui.Regular, colors.Muted),
+				ui.Text(apptext.T("先打开一个工作区"), viewkit.PanelTextSize, ui.Regular, colors.Muted),
 			}}
 		}
-		head := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7}, Children: []core.Node{
-			ui.Icon(lucide.Folder, 16, colors.Muted),
+		head := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
+			ui.Icon(lucide.Folder, viewkit.PanelIconSize, colors.Muted),
 			core.Text{Content: filepath.Base(root), MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-				Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 14, FontWeight: ui.Semibold}, StyleFunc: ui.Colored(colors.Text)},
-			hint(apptext.T("在文件管理器中打开工作区"), ui.IconButton{Icon: lucide.FolderOpen, Label: apptext.T("在文件管理器中打开工作区"), Size: 28, IconSize: 14, TestID: "files-open-folder", OnPress: func() { a.revealFileBrowserRoot(root) }}),
-			ui.IconButton{Icon: lucide.RefreshCw, Label: apptext.T("刷新文件"), Size: 28, IconSize: 14, TestID: "files-refresh", OnPress: a.refreshFileBrowser},
+				Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: viewkit.PanelTitleSize, FontWeight: ui.Medium, LineHeight: 24}, StyleFunc: ui.Colored(colors.Text)},
+			hint(apptext.T("在文件管理器中打开工作区"), ui.IconButton{Icon: lucide.FolderOpen, Label: apptext.T("在文件管理器中打开工作区"), Size: viewkit.PanelControlSize, IconSize: viewkit.PanelIconSize, TestID: "files-open-folder", OnPress: func() { a.revealFileBrowserRoot(root) }}),
+			ui.IconButton{Icon: lucide.RefreshCw, Label: apptext.T("刷新文件"), Size: viewkit.PanelControlSize, IconSize: viewkit.PanelIconSize, TestID: "files-refresh", OnPress: a.refreshFileBrowser},
 			ui.IconButton{Icon: func() *core.SVG {
 				if a.files.hidden.Get() {
 					return lucide.Eye()
 				}
 				return lucide.EyeOff()
 			}, Label: apptext.T("显示隐藏文件"), Selected: a.files.hidden.Get,
-				Disabled: func() bool { return a.files.scope.Get() == "session" }, Size: 28, IconSize: 14, TestID: "files-hidden", Tint: func() core.Color {
+				Disabled: func() bool { return a.files.scope.Get() == "session" }, Size: viewkit.PanelControlSize, IconSize: viewkit.PanelIconSize, TestID: "files-hidden", Tint: func() core.Color {
 					if a.files.hidden.Get() {
 						return colors.Text()
 					}
 					return colors.Muted()
 				}, OnPress: func() { a.files.setHidden(!a.files.hidden.Get()) }},
-			ui.IconButton{Icon: lucide.ChevronsUp, Label: apptext.T("收起全部"), Size: 28, IconSize: 14, TestID: "files-collapse", OnPress: a.files.collapse,
+			ui.IconButton{Icon: lucide.ChevronsUp, Label: apptext.T("收起全部"), Size: viewkit.PanelControlSize, IconSize: viewkit.PanelIconSize, TestID: "files-collapse", OnPress: a.files.collapse,
 				Disabled: func() bool { return a.files.scope.Get() == "session" || strings.TrimSpace(a.filesQuery.Get()) != "" }},
 		}}
 		empty := func() core.Node {
 			return core.View{Style: core.Style{Padding: core.Symmetric(10, 4)}, Children: []core.Node{
-				ui.Text(apptext.T("目录为空"), 11.5, ui.Regular, colors.Faint),
+				ui.Text(apptext.T("目录为空"), viewkit.PanelCaptionSize, ui.Regular, colors.Muted),
 			}}
 		}
 		// Polls and index completions update their own subtrees. Rebuilding
@@ -91,10 +91,10 @@ func (a *app) drawerFiles() core.Node {
 				},
 				Role: core.RoleButton, Label: node.Name, TestID: "file-row",
 				StyleFunc: func() core.Style {
-					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Height: core.Pt(32),
-						Padding: core.Edges{Left: core.Points(4 + node.Depth*13), Right: 8}, CornerRadius: 6,
+					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(viewkit.PanelRowHeight),
+						Padding: core.Edges{Top: 6, Bottom: 6, Left: 4 + core.Points(node.Depth)*viewkit.PanelInset, Right: 8}, CornerRadius: 6,
 						Transition: viewkit.PressMotion, Hover: &core.Style{Background: colors.Hover()},
-						Active: &core.Style{Background: colors.Pressed()}}
+						Active: &core.Style{Background: colors.Pressed()}, FocusVisible: ui.FocusRing(cx, 2)}
 				},
 				Children: []core.Node{
 					core.View{Style: core.Style{Width: core.Pt(12), AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter}, Children: []core.Node{
@@ -103,9 +103,9 @@ func (a *app) drawerFiles() core.Node {
 								return nil
 							}
 							if n().Expanded {
-								return ui.Icon(lucide.ChevronDown, 10, colors.Faint)
+								return ui.Icon(lucide.ChevronDown, 12, colors.Faint)
 							}
-							return ui.Icon(lucide.ChevronRight, 10, colors.Faint)
+							return ui.Icon(lucide.ChevronRight, 12, colors.Faint)
 						}),
 					}},
 					ui.IconOf(func() *core.SVG {
@@ -116,14 +116,14 @@ func (a *app) drawerFiles() core.Node {
 							return lucide.Folder()
 						}
 						return lucide.FileText()
-					}, 12.5, func() core.Color {
+					}, viewkit.PanelDetailIconSize, func() core.Color {
 						if node.Dir {
 							return colors.Muted()
 						}
 						return colors.Faint()
 					}),
 					core.Text{Content: node.Name, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-						Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 13}, StyleFunc: ui.Colored(colors.Text)},
+						Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: viewkit.PanelTextSize, LineHeight: viewkit.PanelLineHeight}, StyleFunc: ui.Colored(colors.Text)},
 					core.Show{When: func() bool { return node.Dir && dirs.Get()[node.Path] }, Then: func(*core.Scope) core.Node {
 						return core.View{Style: core.Style{Width: core.Pt(5), Height: core.Pt(5), CornerRadius: 3,
 							Background: colors.Warn(), FlexShrink: 0}}
@@ -137,7 +137,7 @@ func (a *app) drawerFiles() core.Node {
 						return core.View{TestID: "file-git-mark", Accessible: true, Label: label,
 							Style: core.Style{Width: core.Pt(12), AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
 							Children: []core.Node{core.Text{Content: label, Style: core.Style{FontFamily: viewkit.MonoFont(),
-								FontSize: 11, FontWeight: ui.Semibold}, StyleFunc: ui.Colored(func() core.Color { return markColor(label) })}}}
+								FontSize: viewkit.PanelMicroSize, FontWeight: ui.Medium}, StyleFunc: ui.Colored(func() core.Color { return markColor(label) })}}}
 					}),
 				},
 			}
@@ -150,9 +150,13 @@ func (a *app) drawerFiles() core.Node {
 		})
 		search := core.Input{Value: a.filesQuery.Get, OnChange: a.filesQuery.Set, Placeholder: apptext.T("筛选文件…"),
 			Label: apptext.T("筛选文件"), TestID: "files-search",
-			Style: core.Style{Height: core.Pt(36), Padding: core.Symmetric(0, 12), CornerRadius: 8, FontSize: 13,
-				Color: colors.Text(), Background: colors.Field(),
-				BorderWidth: 1, BorderColor: colors.FieldBorder()}}
+			Style: core.Style{Height: core.Pt(viewkit.PanelFieldHeight), Padding: core.Symmetric(0, 12), CornerRadius: 8,
+				FontSize: viewkit.PanelTextSize, LineHeight: viewkit.PanelLineHeight},
+			StyleFunc: func() core.Style {
+				return core.Style{Color: colors.Text(), Background: colors.Field(), PlaceholderColor: colors.Muted(),
+					CaretColor: colors.Text(), SelectionColor: colors.Now().Selection, BorderWidth: 1,
+					BorderColor: colors.FieldBorder(), FocusVisible: ui.FocusRing(cx, 2)}
+			}}
 		hits := func() core.Node {
 			filter := strings.ToLower(strings.TrimSpace(a.filesQuery.Get()))
 			_ = a.filesRev.Get()
@@ -166,14 +170,15 @@ func (a *app) drawerFiles() core.Node {
 					OnPress: func(core.PressEvent) { a.openEditorFile(root, filepath.Join(root, filepath.FromSlash(rel))) },
 					Role:    core.RoleButton, Label: rel, TestID: "file-hit",
 					StyleFunc: func() core.Style {
-						return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Height: core.Pt(25),
-							Padding: core.Symmetric(0, 6), CornerRadius: 6, Transition: viewkit.PressMotion,
-							Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
+						return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(viewkit.PanelRowHeight),
+							Padding: core.Symmetric(6, 8), CornerRadius: 6, Transition: viewkit.PressMotion,
+							Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()},
+							FocusVisible: ui.FocusRing(cx, 2)}
 					},
 					Children: []core.Node{
-						ui.Icon(lucide.FileText, 12, colors.Faint),
+						ui.Icon(lucide.FileText, viewkit.PanelDetailIconSize, colors.Muted),
 						core.Text{Content: rel, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-							Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: viewkit.MonoFont(), FontSize: 11},
+							Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: viewkit.MonoFont(), FontSize: viewkit.PanelCaptionSize, LineHeight: viewkit.PanelLineHeight},
 							StyleFunc: ui.Colored(colors.Text)},
 					},
 				})
@@ -182,13 +187,13 @@ func (a *app) drawerFiles() core.Node {
 				}
 			}
 			if len(rows) == 0 {
-				rows = append(rows, core.Text{Content: apptext.T("没有匹配的文件"), Style: core.Style{FontSize: 11, Padding: core.Symmetric(8, 4)},
-					StyleFunc: ui.Colored(colors.Faint)})
+				rows = append(rows, core.Text{Content: apptext.T("没有匹配的文件"), Style: core.Style{FontSize: viewkit.PanelCaptionSize, LineHeight: viewkit.PanelLineHeight, Padding: core.Symmetric(8, 4)},
+					StyleFunc: ui.Colored(colors.Muted)})
 			}
 			return core.View{Style: core.Style{Gap: 1}, Children: rows}
 		}
 		return core.View{Style: ui.FillRest, Children: []core.Node{
-			core.View{Style: core.Style{Gap: 12, Padding: core.Edges{Bottom: 12}}, Children: []core.Node{
+			core.View{Style: core.Style{Gap: viewkit.PanelGap, Padding: core.Edges{Bottom: viewkit.PanelGap}}, Children: []core.Node{
 				hintOf(func() string { return root }, head), search, a.fileScopeTabs(), a.fileSortControl(),
 			}},
 			core.Show{When: func() bool { return a.files.scope.Get() == "session" }, Then: func(cx *core.Scope) core.Node { return a.sessionFiles(cx, s, root) }},
