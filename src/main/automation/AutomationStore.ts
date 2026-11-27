@@ -1,6 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
 import type {
 	AutomationBudget,
 	AutomationChangedEvent,
@@ -19,8 +17,10 @@ import type {
 	UpdateAutomationTaskInput,
 } from "../../shared/types";
 import { isAutomationRunTerminal } from "../../shared/types";
+import { writeDurableJsonFile } from "../persistence/durableJsonStore";
 import { nextAutomationCronOccurrence, parseAutomationCron } from "./automationCron";
 import { trimAutomationRunHistory } from "./automationPolicy";
+import { readAutomationFile } from "./readAutomationFile";
 
 const SCHEMA_VERSION = 1;
 const MAX_RUN_EVENTS = 200;
@@ -53,22 +53,17 @@ type RunPatch = Partial<Omit<AutomationRun, "id" | "taskId" | "taskName" | "proj
  */
 export class AutomationStore {
 	private state: PersistedAutomationState = createEmptyState();
+	private loaded = false;
 	private saveQueue: Promise<void> = Promise.resolve();
 	private readonly listeners = new Set<(event: AutomationChangedEvent) => void>();
 
 	constructor(private readonly filePath: string) {}
 
 	async load(now = Date.now()): Promise<AutomationSnapshot> {
-		let shouldPersist = false;
-		try {
-			const raw = await readFile(this.filePath, "utf8");
-			const normalized = normalizePersistedState(JSON.parse(raw) as unknown);
-			this.state = normalized.state;
-			shouldPersist = normalized.changed;
-		} catch {
-			this.state = createEmptyState();
-			shouldPersist = true;
-		}
+		this.loaded = false;
+		const normalized = normalizePersistedState(await readAutomationFile(this.filePath));
+		this.state = normalized.state;
+		let shouldPersist = normalized.changed;
 
 		// A process restart loses the live runtime binding. Never pretend a persisted
 		// queued/running run can resume safely; keep the session for audit and mark it.
@@ -85,10 +80,17 @@ export class AutomationStore {
 		}
 		this.state.runs = trimAutomationRunHistory(this.state.runs, this.state.settings.historyLimit);
 		if (shouldPersist) await this.persist();
+		this.loaded = true;
 		return this.getSnapshot(now);
 	}
 
+	/** 启动可以在自动化不可用时继续，但空的内存初值不能作为正式存档读写。 */
+	private assertLoaded(): void {
+		if (!this.loaded) throw new Error("Automation is unavailable. Check automation.json and restart PiDeck.");
+	}
+
 	getSnapshot(now = Date.now()): AutomationSnapshot {
+		this.assertLoaded();
 		return cloneSerializable({
 			revision: this.state.revision,
 			settings: this.state.settings,
@@ -187,7 +189,7 @@ export class AutomationStore {
 			const before = this.state.tasks.length;
 			this.state.tasks = this.state.tasks.filter((task) => task.id !== taskId);
 			deleted = this.state.tasks.length !== before;
-		}, false);
+		});
 		return deleted;
 	}
 
@@ -288,7 +290,7 @@ export class AutomationStore {
 			}
 			run.updatedAt = patch.updatedAt ?? event?.at ?? Date.now();
 			updated = cloneSerializable(run);
-		}, false);
+		});
 		return updated;
 	}
 
@@ -296,16 +298,9 @@ export class AutomationStore {
 		await this.saveQueue;
 	}
 
-	private async mutate(mutator: () => void, alwaysNotify = true): Promise<void> {
-		const beforeRevision = this.state.revision;
+	private async mutate(mutator: () => void): Promise<void> {
+		this.assertLoaded();
 		mutator();
-		// Callers can use alwaysNotify=false for idempotent operations. Detecting a
-		// deep mutation is deliberately avoided; they leave revision unchanged when no-op.
-		if (!alwaysNotify && beforeRevision === this.state.revision) {
-			// Mutation functions do not touch revision directly. For no-op-aware callers,
-			// cheaply compare the serialized business state before deciding is impossible
-			// after mutation, so they should simply tolerate an extra revision/persist.
-		}
 		this.state.revision += 1;
 		await this.persist();
 		this.emitChanged();
@@ -316,8 +311,7 @@ export class AutomationStore {
 		this.saveQueue = this.saveQueue
 			.catch(() => undefined)
 			.then(async () => {
-				await mkdir(dirname(this.filePath), { recursive: true });
-				await writeFile(this.filePath, snapshot, "utf8");
+				await writeDurableJsonFile(this.filePath, snapshot);
 			});
 		return this.saveQueue;
 	}

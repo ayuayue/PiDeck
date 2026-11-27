@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import fs, { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -10,6 +10,67 @@ const { AutomationStore } = loadTsCommonJs("src/main/automation/AutomationStore.
 function jsonClone(value) {
 	return JSON.parse(JSON.stringify(value));
 }
+
+test("malformed automation JSON is preserved through startup and subsequent mutation attempts", async (t) => {
+	const dir = await mkdtemp(join(tmpdir(), "pideck-automation-repair-"));
+	t.after(() => rm(dir, { recursive: true, force: true }));
+	const path = join(dir, "automation.json");
+	const store = new AutomationStore(path);
+	await store.load();
+	const task = await store.createTask({ name: "Weekly", projectId: "p", prompt: "test", schedule: { type: "manual" } });
+	const valid = await readFile(path, "utf8");
+	const truncated = valid.slice(0, -1);
+	await writeFile(path, truncated);
+
+	const restarted = new AutomationStore(path);
+	await assert.rejects(restarted.load(), /automation\.json/);
+	assert.throws(() => restarted.getSnapshot(), /automation\.json/);
+	assert.equal(await readFile(path, "utf8"), truncated);
+	await assert.rejects(restarted.updateSettings({ historyLimit: 50 }), /automation\.json/);
+	assert.equal(await readFile(path, "utf8"), truncated);
+	await writeFile(path, valid);
+	assert.equal((await restarted.load()).tasks[0].id, task.id);
+	assert.equal((await restarted.updateSettings({ historyLimit: 50 })).historyLimit, 50);
+});
+
+test("a transient automation read error preserves the original snapshot", async (t) => {
+	const dir = await mkdtemp(join(tmpdir(), "pideck-automation-read-"));
+	t.after(() => rm(dir, { recursive: true, force: true }));
+	const path = join(dir, "automation.json");
+	const original = JSON.stringify({ version: 1, revision: 5, tasks: [], runs: [] });
+	await writeFile(path, original);
+	const failure = Object.assign(new Error("read failed"), { code: "EIO" });
+	const read = t.mock.fn(async () => {
+		throw failure;
+	});
+	const { AutomationStore: Store } = loadTsCommonJs("src/main/automation/AutomationStore.ts", { stubs: { "node:fs/promises": { ...fs, readFile: read } } });
+	const store = new Store(path);
+	await assert.rejects(store.load(), (error) => error === failure);
+	await assert.rejects(store.updateSettings({ historyLimit: 50 }));
+	assert.equal(await readFile(path, "utf8"), original);
+	read.mock.mockImplementation(fs.readFile);
+	assert.equal((await store.load()).revision, 5);
+});
+
+test("a failed automation snapshot replacement leaves the previous file intact", async (t) => {
+	const dir = await mkdtemp(join(tmpdir(), "pideck-automation-write-"));
+	t.after(() => rm(dir, { recursive: true, force: true }));
+	const path = join(dir, "automation.json");
+	const original = JSON.stringify({ version: 1, revision: 2, tasks: [], runs: [] });
+	await writeFile(path, original);
+	const failure = Object.assign(new Error("replace failed"), { code: "EIO" });
+	const rename = t.mock.fn(async () => {
+		throw failure;
+	});
+	const { AutomationStore: Store } = loadTsCommonJs("src/main/automation/AutomationStore.ts", { stubs: { "node:fs/promises": { ...fs, rename } } });
+	const store = new Store(path);
+	await store.load();
+	await assert.rejects(store.updateSettings({ historyLimit: 50 }), (error) => error === failure);
+	assert.equal(await readFile(path, "utf8"), original);
+	rename.mock.mockImplementation(fs.rename);
+	await store.updateSettings({ historyLimit: 60 });
+	assert.equal(JSON.parse(await readFile(path, "utf8")).settings.historyLimit, 60);
+});
 
 test("AutomationStore lifecycle: CRUD, recovery of interrupted runs, and snapshot", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "pideck-automation-store-"));
