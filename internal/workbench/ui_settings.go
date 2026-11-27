@@ -33,7 +33,7 @@ func settingsSections() []settingsSection {
 	return []settingsSection{
 		{"general", "通用", lucide.Settings2, "通用", "本页选项更改后自动保存；快捷短语在管理窗口中单独保存。", "偏好设置"},
 		{"look", "外观", lucide.Palette, "外观", "更改后自动保存；字体名称在回车或移开焦点后应用。", "偏好设置"},
-		{"keys", "快捷键", lucide.Keyboard, "快捷键", "每个命令的快捷键；留空则不绑定，改坏了可以恢复默认。", "偏好设置"},
+		{"keys", "快捷键", lucide.Keyboard, "快捷键", "按用途管理快捷键；回车或移开焦点后保存，留空取消绑定。", "偏好设置"},
 		{"models", "模型与供应商", lucide.Cpu, "模型与供应商", "供应商提供模型服务；这里管理连接信息、常用模型及翻译与提示词增强使用的模型。", "模型与运行"},
 		{"credentials", "登录与密钥", lucide.KeyRound, "登录与密钥", "管理 pi 使用的登录凭据和 API 密钥。", "模型与运行"},
 		{"pi", "pi 设置", lucide.Settings, "pi 设置", "pi 是运行会话的 AI 助手；这里管理它的 settings.json 设置。", "模型与运行"},
@@ -297,13 +297,14 @@ func (a *app) settingsRail(nav []core.Node) core.Node {
 // settingsContent picks the section's body.
 func (a *app) settingsContent() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		// The language and settings revisions make every page rebuild after
-		// a switch.
 		_ = a.langRev.Get()
-		if a.settingsRev != nil {
+		section := a.settingsTab.Get()
+		// Shortcuts refresh their own list so saving a key keeps the search
+		// field and filters mounted. Other pages retain their existing refresh.
+		if a.settingsRev != nil && section != "keys" {
 			a.settingsTick()
 		}
-		switch a.settingsTab.Get() {
+		switch section {
 		case "models":
 			return a.settingsModels()
 		case "credentials":
