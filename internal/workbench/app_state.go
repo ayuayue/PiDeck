@@ -586,6 +586,7 @@ type app struct {
 	gitBlamePath *core.Signal[string]
 	gitBlameRev  *core.Signal[int]
 	gitBlameErr  *core.Signal[string]
+	gitBlameSeq  int
 	gitBlame     []blameRange
 	// gitFileHistoryOpen shows the commits that touched one path.
 	gitFileHistoryOpen *core.Signal[bool]

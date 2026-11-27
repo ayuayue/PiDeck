@@ -363,6 +363,8 @@ func (a *app) openBlame(path string) {
 	if dir == "" {
 		return
 	}
+	a.gitBlameSeq++
+	project, visit := a.git.seq, a.gitBlameSeq
 	a.gitBlamePath.Set(path)
 	a.gitBlame = nil
 	a.gitBlameErr.Set("")
@@ -371,6 +373,9 @@ func (a *app) openBlame(path string) {
 	go func() {
 		ranges, err := readFileBlame(t, dir, path)
 		a.cx.Post(func() {
+			if project != a.git.seq || visit != a.gitBlameSeq || !a.gitBlameOpen.GetUntracked() {
+				return
+			}
 			if err != nil {
 				a.gitBlameErr.Set(err.Error())
 			}
