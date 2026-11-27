@@ -1,5 +1,5 @@
 import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
-import { Component, useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { Component, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { assertRangeIndexes, mergePinnedRange, resolveRunHeight, splitVirtualRunsByTail, VIRTUAL_ESTIMATED_RUN_HEIGHT } from "./virtualTimelinePolicy";
 
 /**
@@ -229,6 +229,12 @@ export interface VirtualRunListProps<T> {
 	 * （#401 复审）。传 controller.markProgrammaticScroll 即可。
 	 */
 	onBeforeScrollCorrection?: () => void;
+	/**
+	 * 虚拟器出口：跳转落位要「按行号滚到视口顶」，这是 virtual-core 的 scrollToIndex，
+	 * 不是自己算 scrollTop。库内部有 pending 补偿（测量后校正），自造闭环补不了它。
+	 * 传进来就挂上，组件卸载时清空——调用方据此判断「能不能用库的定位」。
+	 */
+	virtualizerRef?: RefObject<{ scrollToIndex: (input: { index: number; align: "start" }) => void } | null>;
 }
 
 /**
@@ -262,7 +268,7 @@ export interface VirtualRunListProps<T> {
  *    在两种分支同在 .message-list 顶层、同 type 同 key，React 会复用。
  */
 export function VirtualRunList<T>(props: VirtualRunListProps<T>) {
-	const { runs, scrollRef, renderRun, getRunId, isAgentRun, isRenderable, solidTailCount, solid = false, onBeforeScrollCorrection, pinnedRunKeys } = props;
+	const { runs, scrollRef, renderRun, getRunId, isAgentRun, isRenderable, solidTailCount, solid = false, onBeforeScrollCorrection, pinnedRunKeys, virtualizerRef } = props;
 	/** 按宽度分桶的实测高度（唯一真值，来自 ref 初测 + 库的后续重测）。 */
 	const heightBucketsRef = useRef<HeightBuckets>(new Map());
 	/** 当前宽度下解算好的高度，供 estimateSize 直接查（避免每帧遍历分桶）。 */
@@ -404,6 +410,15 @@ export function VirtualRunList<T>(props: VirtualRunListProps<T>) {
 			}
 		},
 	});
+	// 虚拟器出口：把「滚到第 N 行」交给库。库自己会有 pending 补偿（测量后校正），
+	// 外面自己写 scrollTop 补不了这一步，那正是「跳了但没到位、要再点一次」的来源。
+	useEffect(() => {
+		if (!virtualizerRef) return;
+		virtualizerRef.current = { scrollToIndex: (input) => virtualizer.scrollToIndex(input.index, { align: input.align }) };
+		return () => {
+			virtualizerRef.current = null;
+		};
+	}, [virtualizer, virtualizerRef]);
 
 	// 每 id 一个稳定 ref 回调：内联箭头每帧换引用 → React 对每行 detach/attach → 逐帧强制布局。
 	const measureRefs = useMemo(() => new Map<string, (node: HTMLDivElement | null) => void>(), [virtualizer]);
