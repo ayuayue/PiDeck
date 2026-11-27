@@ -35,6 +35,7 @@ import { showNotice } from "../../utils/notice";
 import { isBinaryExtension, isImageFile, isPdfFile } from "../../utils/isTextFile";
 import { updateInstallPreflightTasksAtom } from "../../atoms/update-install-preflight";
 import { HtmlPreview, openPreviewExternal } from "./preview/HtmlPreview";
+import { OpenHtmlInBrowserButton } from "./preview/OpenHtmlInBrowserButton";
 import { fileLoadErrorMessage } from "./fileLoadErrorMessage";
 
 /** 内容指纹（与主进程 localTextRevision 同一算法）：保存时带上它做乐观锁。 */
@@ -93,8 +94,7 @@ export function FileDiffViewer(props: {
 	 * 的 allowSave 翻成 true，之后才挂自动保存与 Ctrl+S。
 	 */
 	onRequestEditable?: () => void;
-	/** HTML 文件点击预览时，切换到内置浏览器面板预览。 */
-	onPreviewHtml?: (filePath: string) => void;
+	onOpenInBrowser?: (url: string) => void;
 	theme?: "light" | "dark";
 	/** 单个文件超过此大小（MB）时不加载编辑器。默认 5MB。 */
 	maxFileSizeMB?: number;
@@ -614,21 +614,11 @@ export function FileDiffViewer(props: {
 						</Button>
 					)}
 					{(isMarkdown || isHtml || isSvg || isCsv) && !isDiffMode && !loading && !error && (
-						<Button
-							variant="ghost"
-							size="icon-sm"
-							title={preview ? t("editor.source") : t("editor.preview")}
-							onClick={() => {
-								if (isHtml && props.onPreviewHtml) {
-									props.onPreviewHtml(props.filePath);
-								} else {
-									setPreview(!preview);
-								}
-							}}
-						>
+						<Button variant="ghost" size="icon-sm" title={preview ? t("editor.source") : t("editor.preview")} onClick={() => setPreview(!preview)}>
 							{preview ? <FileCode size={15} /> : <Eye size={15} />}
 						</Button>
 					)}
+					{isHtml && !isDiffMode && !loading && !error && props.onOpenInBrowser && <OpenHtmlInBrowserButton content={content} fileName={fileName} onOpen={props.onOpenInBrowser} />}
 					{!loading && !error && !dedicatedPreview && (
 						<Button variant="ghost" size="icon-sm" title={wordWrap ? t("editor.wordWrapOff") : t("editor.wordWrapOn")} aria-label={t("editor.wordWrap")} aria-pressed={wordWrap} className={cn(wordWrap && "text-foreground")} onClick={toggleWordWrap}>
 							<WrapText size={15} />

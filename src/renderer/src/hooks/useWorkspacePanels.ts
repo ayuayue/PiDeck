@@ -460,6 +460,12 @@ export function useWorkspacePanels(options: WorkspacePanelOptions = {}) {
 	 */
 	const closeBrowser = useCallback(() => {
 		setBrowserFullscreen(false);
+		const pinnedPanel = projectIdRef.current ? drawerPinnedByProjectRef.current[projectIdRef.current] : undefined;
+		// 外部入口临时打开浏览器时，不改写该工作区原本钉住的面板。
+		if (pinnedPanel && pinnedPanel !== "browser" && drawerRef.current === "browser") {
+			setDrawer(pinnedPanel);
+			return;
+		}
 		closeDrawer();
 	}, [closeDrawer]);
 	const minimizeBrowser = useCallback(() => {

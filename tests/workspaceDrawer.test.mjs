@@ -264,8 +264,8 @@ test("drawer rail renders each remove button right after its tab", () => {
 //    跳过重渲染，旧 tab 残留显示。
 test("closing the last browser tab syncs local state and collapses the sidebar", () => {
 	const panel = readFileSync("src/renderer/src/components/app/BrowserPanel.tsx", "utf8");
-	// closeBrowser 语义：关闭整个浏览器面板（退出全屏 + 关抽屉），区别于 minimizeBrowser
-	assert.match(hook, /const closeBrowser = useCallback\(\(\) => \{\s*setBrowserFullscreen\(false\);\s*closeDrawer\(\);\s*\}, \[closeDrawer\]\);/);
+	// 关闭浏览器退出全屏。没有待还原的钉住面板时仍关闭抽屉。
+	assert.match(hook, /const closeBrowser = useCallback\(\(\) => \{\s*setBrowserFullscreen\(false\);[\s\S]*?closeDrawer\(\);\s*\}, \[closeDrawer\]\);/);
 	assert.match(hook, /const minimizeBrowser = useCallback/);
 	// closeTab 最后 tab 分支：moduleState 与本地 state 同时清空，再调用 onClose
 	assert.match(panel, /if \(current\.length <= 1\) \{/);

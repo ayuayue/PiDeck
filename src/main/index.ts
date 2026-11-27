@@ -2485,14 +2485,13 @@ async function prepareMainPreloadPath() {
 
 const BROWSER_PANEL_PARTITION = BROWSER_PANEL_PARTITION_SHARED;
 
-// 浏览器面板 webview 宿主管线（partition 权限/导航默认拒绝 + will/did-attach 加固与 guest 接管）
-// 已搬到 window/browserPanelHost.ts：依赖全部延迟读取（appLogger / browserAgentService 均在
-// whenReady 装配阶段才赋值）。
+// 浏览器面板宿主的依赖在 whenReady 阶段才就绪。
 const browserPanelHostDeps: BrowserPanelHostContext = {
 	getAppLogger: () => appLogger,
 	getBrowserAgentService: () => browserAgentService,
 	handleWindowZoomShortcut,
 	openExternalUrl,
+	openLinkLabel: () => mainCopy("browser.openLinkInBrowser"),
 };
 
 // 建窗所需宿主状态：单例与启动装配仍归本文件，建窗实现搬进 window/mainWindow.ts。

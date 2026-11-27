@@ -1,8 +1,11 @@
-import { session, type BrowserWindow } from "electron";
+import { Menu, session, type BrowserWindow } from "electron";
+import { normalizeBrowserWebLink } from "../../shared/browserWebLink";
+import { browserHtmlPreviewFileName, HTML_PREVIEW_SCHEME } from "../../shared/htmlPreview";
 import { ipcChannels } from "../../shared/ipc";
 import type { ShortcutInput } from "../../shared/shortcuts";
 import { isShortcutInput } from "../appShortcuts";
-import { BROWSER_PANEL_PARTITION, isAllowedBrowserPanelUrl } from "../browser/browserSecurity";
+import { BROWSER_PANEL_PARTITION, isAllowedBrowserPanelFrameUrl, isAllowedBrowserPanelUrl } from "../browser/browserSecurity";
+import { registerHtmlPreviewProtocol } from "../htmlPreviewProtocol";
 import type { BrowserAgentService } from "../browser/BrowserAgentService";
 import { toggleMainWindowDevTools } from "../devTools";
 import type { AppLogger } from "../logging/AppLogger";
@@ -22,6 +25,7 @@ export interface BrowserPanelHostContext {
 	readonly getBrowserAgentService: () => BrowserAgentService | null;
 	readonly handleWindowZoomShortcut: (input: ShortcutInput) => boolean;
 	readonly openExternalUrl: (url: string, forceSystem?: boolean) => Promise<void>;
+	readonly openLinkLabel: () => string;
 }
 
 /**
@@ -32,6 +36,11 @@ export interface BrowserPanelHostContext {
  */
 let browserPanelRequestInstalled = false;
 
+/** 预览短地址携带快照访问令牌，拒绝日志只保留协议名。 */
+function browserUrlForLog(url: string): string {
+	return url.toLowerCase().startsWith(`${HTML_PREVIEW_SCHEME}:`) ? `${HTML_PREVIEW_SCHEME}:` : url;
+}
+
 export function configureBrowserPanelWebviewHost(window: BrowserWindow, ctx: BrowserPanelHostContext): void {
 	const { getAppLogger, getBrowserAgentService, handleWindowZoomShortcut, openExternalUrl } = ctx;
 	const appLogger = getAppLogger();
@@ -41,12 +50,14 @@ export function configureBrowserPanelWebviewHost(window: BrowserWindow, ctx: Bro
 	browserPanelSession.setDevicePermissionHandler(() => false);
 	if (!browserPanelRequestInstalled) {
 		browserPanelRequestInstalled = true;
+		registerHtmlPreviewProtocol(browserPanelSession.protocol, "browser");
 		browserPanelSession.webRequest.onBeforeRequest((details, callback) => {
 			const isFrameNavigation = details.resourceType === "mainFrame" || details.resourceType === "subFrame";
-			if (isFrameNavigation && !isAllowedBrowserPanelUrl(details.url)) {
+			const isPreviewResource = details.url.startsWith(`${HTML_PREVIEW_SCHEME}:`);
+			if ((isFrameNavigation || isPreviewResource) && !isAllowedBrowserPanelFrameUrl(details.url, details.resourceType === "mainFrame")) {
 				void appLogger.warn("browser", "Blocked unsafe webview frame request", {
 					resourceType: details.resourceType,
-					url: details.url,
+					url: browserUrlForLog(details.url),
 				});
 				callback({ cancel: true });
 				return;
@@ -87,10 +98,10 @@ export function configureBrowserPanelWebviewHost(window: BrowserWindow, ctx: Bro
 			return;
 		}
 		const sourceUrl = params.src || "about:blank";
-		if ((params.partition && params.partition !== BROWSER_PANEL_PARTITION) || !isAllowedBrowserPanelUrl(sourceUrl)) {
+		if ((params.partition && params.partition !== BROWSER_PANEL_PARTITION) || !isAllowedBrowserPanelFrameUrl(sourceUrl, true)) {
 			event.preventDefault();
 			void appLogger.warn("browser", "Blocked unsafe webview attachment", {
-				sourceUrl,
+				sourceUrl: browserUrlForLog(sourceUrl),
 				partition: params.partition,
 			});
 			return;
@@ -139,23 +150,40 @@ export function configureBrowserPanelWebviewHost(window: BrowserWindow, ctx: Bro
 		getBrowserAgentService()?.attachGuest(guest);
 
 		const blockUnsafeNavigation = (event: { url: string; preventDefault(): void }, phase: string) => {
-			if (isAllowedBrowserPanelUrl(event.url)) return;
+			// 页面发起的跳转保留 HTTP(S) 白名单，但离线预览无权发起跨文档导航。
+			if (!browserHtmlPreviewFileName(guest.getURL()) && isAllowedBrowserPanelUrl(event.url)) return;
 			event.preventDefault();
 			void appLogger.warn("browser", "Blocked unsafe webview navigation", {
 				phase,
-				url: event.url,
+				url: browserUrlForLog(event.url),
 			});
 		};
 
 		guest.on("will-frame-navigate", (event) => blockUnsafeNavigation(event, "navigate"));
 		guest.on("will-redirect", (event) => blockUnsafeNavigation(event, "redirect"));
 		guest.setWindowOpenHandler(({ url }) => {
+			if (browserHtmlPreviewFileName(guest.getURL())) return { action: "deny" };
 			if (url !== "about:blank" && isAllowedBrowserPanelUrl(url)) {
 				void openExternalUrl(url);
 			} else if (!isAllowedBrowserPanelUrl(url)) {
-				void appLogger.warn("browser", "Blocked unsafe webview window open", { url });
+				void appLogger.warn("browser", "Blocked unsafe webview window open", { url: browserUrlForLog(url) });
 			}
 			return { action: "deny" };
+		});
+
+		// 预览脚本仍不能发起外部导航。只有宿主菜单中的用户操作才打开新标签。
+		guest.on("context-menu", (_event, params) => {
+			if (!browserHtmlPreviewFileName(guest.getURL())) return;
+			const url = normalizeBrowserWebLink(params.linkURL);
+			if (!url || window.isDestroyed()) return;
+			Menu.buildFromTemplate([
+				{
+					label: ctx.openLinkLabel(),
+					click: () => {
+						if (!window.isDestroyed()) window.webContents.send(ipcChannels.appOpenInBrowser, url);
+					},
+				},
+			]).popup({ window });
 		});
 
 		// webview guest 是独立 webContents，按键到不了主窗口的 before-input-event；

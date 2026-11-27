@@ -3,6 +3,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { FileManagerInfo } from "../../shared/types/project";
 import { ipcChannels } from "../../shared/ipc";
+import { MAX_BROWSER_HTML_PREVIEW_BYTES } from "../../shared/htmlPreview";
+import { stageBrowserHtmlSnapshot } from "../browser/browserHtmlSnapshots";
 import { detectFileManager, openFileManagerAt } from "../files/FileManager";
 import { expandHomeForFileAccess } from "../fs/homePathExpansion";
 import { openSystemPath } from "../fs/openPath";
@@ -54,6 +56,11 @@ export function registerFilesSystemIpc({ settingsStore, openExternalUrl }: Files
 			return;
 		}
 		await openFileManagerAt(target);
+	});
+
+	ipcMain.handle(ipcChannels.browserStageHtmlPreview, (_event, fileName: unknown, html: unknown) => {
+		if (typeof fileName !== "string" || fileName.length > 1024 || typeof html !== "string" || html.length > MAX_BROWSER_HTML_PREVIEW_BYTES) return null;
+		return stageBrowserHtmlSnapshot(fileName, html);
 	});
 
 	ipcMain.handle(ipcChannels.browserOpenExternal, async (_event, url: string) => {

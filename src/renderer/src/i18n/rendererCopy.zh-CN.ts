@@ -3930,6 +3930,7 @@ export const zhCN = {
 	"config.extensionStoreOpenPage": "在 pi.dev 打开详情",
 	"config.yaoSearchPlaceholder": "搜索中文提示词…",
 	"editor.htmlPreview": "HTML 预览",
+	"editor.browserHtmlTooLarge": "网页内容超过内置浏览器的预览大小限制。",
 	"config.yaoAll": "全部",
 	"config.yaoNoData": "暂无提示词数据",
 	"config.yaoDbPreparing": "正在获取提示词库…",

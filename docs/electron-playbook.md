@@ -27,7 +27,7 @@
 - Chromium 沙箱默认关闭是刻意的（Windows 安全软件/旧驱动在沙箱初始化触发 `0x80000003`）；关闭时显式 `appendSwitch("no-sandbox")`。开关改动需整应用重启。
 - `setWindowOpenHandler` 主窗口与 webview guest 都要注册：走 `openExternalUrl` 并 deny；浮动窗/插件视图/选择浮窗一律 `deny`。
 - webview 安全（`configureBrowserPanelWebviewHost`，只在主窗口注册一次）：专属 `partition` 强制 `sandbox: true` / `nodeIntegration: false` / `webSecurity: true`；删除外部传入的 `preload` / `allowpopups`；`did-attach-webview` 校验 partition，不符立即 close。
-- 导航白名单三层都要过：`will-frame-navigate` / `will-redirect` / `setWindowOpenHandler`（只拦一层会被重定向绕过）。内置浏览器的 URL 判定统一走 `isAllowedBrowserPanelUrl`（`src/main/browser/browserSecurity.ts`）。
+- 导航白名单三层都要过：`will-frame-navigate` / `will-redirect` / `setWindowOpenHandler`（只拦一层会被重定向绕过）。内置浏览器的常规导航只允许 HTTP(S) 和空白页（`src/main/browser/browserSecurity.ts`）。宿主可在主框架打开单文件 HTML 快照（`pideck-html://browser/`）。文件经过原有读取边界后，以令牌索引的快照保存在主进程内存中，单份上限 16 MiB。浏览器 partition 的独立 handler 使用 CSP sandbox 隔离。
 - 自定义标题栏改动要验证三平台控制按钮、拖拽区、双击最大化。
 - 窗口**呈现态**（normal / maximized / fullscreen）由 `src/main/index.ts` 的 `mainWindowVisualIntent` 跟踪（`trackMainWindowVisualIntent` 监听 maximize / unmaximize / enter-full-screen / leave-full-screen）。所有唤回路径（托盘双击、`app.activate`、桌面宠物、通知/协议深链唤起）一律走 `revealMainWindow`，禁止直接 `show() + focus()`：Windows 上「最小化 → show()」不会恢复最大化，窗口会停在伪全屏几何，下次还原就掉回正常尺寸。恢复策略集中在纯模块 `src/main/windowReveal.ts`（`planMainWindowReveal` 纯函数，`tests/windowRevealState.test.mjs` 固定矩阵）：全屏意图先 `maximize()` 再 `setFullScreen(true)`，退出全屏才能回到最大化。
 - **透明/无边框窗口的 bounds 会被系统放大**（Windows 实测：悬浮球窗口 `224×104` 被放大到 `690×632`）：窗口内可视内容的锚点随窗口尺寸漂移（拖动后自动跑、静止也偏移），放大后的透明区域还会拦截下层页面点击（透明像素同样命中）。规则：高频移动一律走 `moveWindowWithSize`（`src/main/windowGeometry.ts`，强制带设计尺寸），尺寸用 `WindowSizeGuard` 定期拉回（悬浮球 1s、桌宠 5s；窗口销毁自动停表）；新增透明/无边框窗口必须登记守卫。窗口尺寸要贴合可见内容——删掉气泡/标题等 UI 后同步收紧窗口，别留大片透明命中区。
