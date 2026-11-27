@@ -52,6 +52,30 @@ export function runIndexOfMessage(runs: ReadonlyArray<{ kind: string; items?: Re
 	}
 	return -1;
 }
+/**
+ * 锚点 run id -> 窗口起点。**找不到返回 undefined（退回尾窗），绝不 clamp 到 0。**
+ *
+ * 为什么单独一层（组 2 的第 8 件）：runIndexOfMessage 找不到时返回 -1，
+ * 而 -1 直接喂 selectTimelineTurnWindow 会走 Math.max(0, -1) -> 0 -> **跳到会话开头**。
+ * 那是「跳到别处」那一类，比停在原地糟得多。
+ *
+ * 真会发生的两类：
+ *   context_edit 把那条移出展示
+ *   prepend 时基线重算、锚点那轮被合并（stalePrefix 分支把 baseMessages 置空）
+ *
+ * 策略选「退回尾窗 + 清锚点」（调用方清），不选「保留锚点等下次数据变」：
+ * 后者在切会话恢复路径上会留下「锚点在、id 已不在、每帧算一次 -1、每帧退回尾窗」，
+ * 表现是「切回来在末尾但回底按钮不亮」—— 状态不一致比「回到底部」更难解释。
+ * 收敛成一种：没有锚点就是跟流。
+ *
+ * 判据：tests/jumpWindowAnchorResolve.test.mjs。
+ */
+export function resolveAnchorStartRun(runs: ReadonlyArray<{ kind: string; items?: ReadonlyArray<{ id: string; meta?: unknown }> }>, anchoredRunId: string | undefined): number | undefined {
+	if (!anchoredRunId) return undefined;
+	const runIndex = runIndexOfMessage(runs, { messageId: anchoredRunId });
+	return runIndex >= 0 ? runIndex : undefined;
+}
+
 export function resolveJumpMessageIndex(messages: ReadonlyArray<{ id: string; meta?: unknown }>, target: { messageId?: string; entryId?: string }): number {
 	// 与 runIndexOfMessage 同一形态：两个空间分开扫，entryId 优先。
 	if (target.entryId) {
