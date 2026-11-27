@@ -17,6 +17,7 @@
  */
 import type { Dispatch, SetStateAction } from "react";
 import type { SessionMessagePage } from "../../../../../shared/types";
+import { RUNTIME_HISTORY_PREFIX_MESSAGE_LIMIT } from "../../../atoms/session-history-atoms";
 import { HISTORY_BACKFILL_TURN_PAGE_SIZE } from "./historyPagePolicy";
 import { planJumpPageRequest } from "./jumpWindowPolicy";
 import type { TaggedTimelineJumpRequest } from "../../../hooks/session/timeline/useTimelineJumpNavigation";
@@ -68,6 +69,11 @@ export function useJumpPageFetch(ports: JumpPageFetchPorts) {
 		void readRecordMessagePage(sessionId, undefined, HISTORY_BACKFILL_TURN_PAGE_SIZE, { beforeEntryId: plan.beforeEntryId })
 			.then((page) => {
 				if (currentOwnerKey !== requestOwnerKey) return;
+				// 撑爆前缀上限时别 prepend：prependSessionHistoryPageAtom 会把整页丢掉并把游标置成
+				// 「没有更早历史」，用户看到的是「这条根本没有历史」——比原来的「连点几次」更糟，
+				// 而且是撒谎（历史在盘上，只是这页太大）。这时宁可不取这页，退回扩窗与放弃，
+				// 由 resolveJumpPendingAction 给出如实的失败提示。
+				if (page.messages.length >= RUNTIME_HISTORY_PREFIX_MESSAGE_LIMIT) return;
 				prependHistoryPage({ sessionId, expectedRevision: revision ?? 0, before: undefined, page });
 			})
 			.catch(() => {
