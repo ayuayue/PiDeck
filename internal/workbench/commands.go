@@ -319,8 +319,6 @@ func builtinCommands() []appCommand {
 		{ID: "save-prompt", Label: "保存当前草稿为提示词", Group: "会话", Icon: lucide.BookmarkPlus,
 			When: func(a *app) bool { return a.active() != nil },
 			Run:  func(a *app) { a.saveDraftPrompt() }},
-		{ID: "appearance", Label: "切换外观（浅色 / 深色 / 跟随系统）", Group: "应用", Icon: lucide.Sun,
-			Run: func(a *app) { a.cycleTheme() }},
 		{ID: "sidebar", Label: "显示 / 隐藏侧栏", Group: "应用", Shortcut: "mod+b", Icon: lucide.PanelLeft, HookSafe: true,
 			Run: func(a *app) {
 				a.sidebar.Update(func(v bool) bool { return !v })
@@ -347,8 +345,10 @@ func builtinCommands() []appCommand {
 			Run: func(a *app) { a.shortcutsQuery.Set(""); a.shortcutsOpen.Set(true) }},
 		{ID: "check-updates", Label: "检查更新", Group: "应用", Icon: lucide.CloudDownload,
 			Run: func(a *app) { updater.Check(a.cx) }},
+		{ID: "appearance", Label: "切换深浅色", Group: "外观", Icon: lucide.SunMoon, Hidden: true,
+			Run: func(a *app) { a.cycleTheme() }},
 		{ID: "appearance-cycle", Label: "切换深浅色", Group: "外观", Shortcut: "mod+shift+l", Icon: lucide.SunMoon,
-			Run: func(a *app) { a.cycleAppearance() }},
+			Run: func(a *app) { a.cycleTheme() }},
 		{ID: "theme-export", Label: "导出当前主题…", Group: "外观", Icon: lucide.Palette,
 			Run: func(a *app) { a.exportTheme() }},
 		{ID: "theme-import", Label: "导入主题…", Group: "外观", Icon: lucide.FolderInput,

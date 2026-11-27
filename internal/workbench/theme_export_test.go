@@ -75,14 +75,12 @@ func TestExportTheme(t *testing.T) {
 	}
 }
 
-// TestCycleAppearance walks system, light and dark with the shortcut.
+// TestCycleAppearance flips the current appearance with the shortcut.
 func TestCycleAppearance(t *testing.T) {
 	if nsgotest.Target() != "" {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
-	home := t.TempDir()
-	t.Setenv("PIDECK_V2_HOME", home)
-	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
+	built, app, home := lookFixture(t, "light", "")
 	read := func() string {
 		raw, err := os.ReadFile(filepath.Join(home, "config.json"))
 		if err != nil {
@@ -92,12 +90,13 @@ func TestCycleAppearance(t *testing.T) {
 		_ = json.Unmarshal(raw, &c)
 		return c.Theme
 	}
-	app.Key("mod+shift+l")
-	app.WaitUntil(5*time.Second, func() bool { return read() == "light" })
-	app.Key("mod+shift+l")
-	app.WaitUntil(5*time.Second, func() bool { return read() == "dark" })
-	app.Key("mod+shift+l")
-	app.WaitUntil(5*time.Second, func() bool { return read() == "system" })
+	for _, want := range []string{"dark", "light", "dark"} {
+		app.Key("mod+shift+l")
+		app.WaitUntil(5*time.Second, func() bool { return read() == want })
+		if got := built.cx.Dark(); got != (want == "dark") {
+			t.Fatalf("appearance dark = %v, want %v", got, want == "dark")
+		}
+	}
 }
 
 // TestTerminalFont keeps the terminal's text size.

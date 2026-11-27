@@ -299,11 +299,22 @@ func (a *app) toastCopyControl(title, detail string) core.Node {
 		}}
 }
 
-// cycleTheme moves system → light → dark → system.
+// cycleTheme flips the look to its other side and keeps the palette: 羊皮纸
+// turns into its dark side rather than into another theme, and the side is
+// kept for the next launch. 跟随系统 and the 纸白/炭黑 pair are the
+// foundation's own halves, whose sides are their ids.
 func (a *app) cycleTheme() {
-	next := map[string]string{"": "light", "system": "light", "light": "dark", "dark": "system"}[a.theme.GetUntracked()]
-	a.theme.Set(next)
-	a.applyTheme()
-	a.st.edit(func(c *config) { c.Theme = next })
-	a.toast(ui.ToastInfo, "外观", map[string]string{"light": "浅色", "dark": "深色", "system": "跟随系统"}[next])
+	var dark bool
+	a.cx.Untrack(func() { dark = a.cx.Dark() })
+	side := "dark"
+	if dark {
+		side = "light"
+	}
+	name := a.theme.GetUntracked()
+	if a.themeHasSides(name) {
+		a.setLook(name, side) // the same palette, the other side
+	} else {
+		a.setLook(side, "")
+	}
+	a.toast(ui.ToastInfo, "外观", map[string]string{"light": "浅色", "dark": "深色"}[side])
 }

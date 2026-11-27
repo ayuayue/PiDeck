@@ -34,17 +34,22 @@ import (
 func (a *app) applyTheme() {
 	name := a.theme.GetUntracked()
 	spec := a.themeSpec(name)
-	forced := ""
+	// The side: a theme that names one owns it, then the side the look
+	// button pinned, then the 纸白/炭黑 pair, and otherwise the system's.
+	// The palette always comes from the theme, so flipping 羊皮纸 to its
+	// dark side keeps 羊皮纸's colors.
+	side := ""
 	if spec != nil {
-		forced = spec.Appearance
+		side = spec.Appearance
+	}
+	if side != "light" && side != "dark" {
+		side = a.cfg.Appearance
 	}
 	switch {
-	case forced == "light" || forced == "dark":
-		if forced == "light" {
-			a.cx.SetAppearance(core.AppearanceLight)
-		} else {
-			a.cx.SetAppearance(core.AppearanceDark)
-		}
+	case side == "light":
+		a.cx.SetAppearance(core.AppearanceLight)
+	case side == "dark":
+		a.cx.SetAppearance(core.AppearanceDark)
 	case name == "light":
 		a.cx.SetAppearance(core.AppearanceLight)
 	case name == "dark":

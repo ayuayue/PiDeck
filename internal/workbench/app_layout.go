@@ -12,17 +12,27 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// applyAppearance lets the settings dialog set the look. A name a theme
-// carries resolves to its id, so a plugin can name a theme rather than
-// know how the app keys it.
+// setLook applies a palette and the side it shows, and keeps both. An
+// empty side lets the theme's own side or the system decide.
+func (a *app) setLook(theme, side string) {
+	a.theme.Set(theme)
+	a.cfg.Appearance = side
+	a.applyTheme()
+	if a.st != nil {
+		a.st.edit(func(c *config) { c.Theme, c.Appearance = theme, side })
+	}
+	a.emit(eventThemeChanged, appEvent{Data: map[string]string{"theme": theme}})
+}
+
+// setTheme lets the settings dialog or a plugin pick the look. A name a
+// theme carries resolves to its id, so a plugin can name a theme rather than
+// know how the app keys it. Picking a theme clears the side the look button
+// pinned, so the theme starts on its own side.
 func (a *app) setTheme(name string) {
 	if spec := a.themeSpecByName(name); spec != nil {
 		name = spec.ID
 	}
-	a.theme.Set(name)
-	a.applyTheme()
-	a.st.edit(func(c *config) { c.Theme = name })
-	a.emit(eventThemeChanged, appEvent{Data: map[string]string{"theme": name}})
+	a.setLook(name, "")
 }
 
 // setTerminalFont changes the terminal's text size and keeps it.
@@ -63,16 +73,16 @@ func (a *app) setEditorFont(size float64) {
 	}
 }
 
-// cycleAppearance walks the three built-in looks: system, light, dark.
-func (a *app) cycleAppearance() {
-	switch a.theme.GetUntracked() {
-	case "system", "":
-		a.setTheme("light")
-	case "light":
-		a.setTheme("dark")
-	default:
-		a.setTheme("system")
+// themeHasSides reports whether the look has its own light and dark
+// palettes, so the look button can flip between them. A theme that names one
+// side has only that one, and the foundation's looks have none: their sides
+// are the 纸白 and 炭黑 ids.
+func (a *app) themeHasSides(id string) bool {
+	spec := a.themeSpec(id)
+	if spec == nil || spec.Appearance == "light" || spec.Appearance == "dark" {
+		return false
 	}
+	return len(spec.Light) > 0 || len(spec.Dark) > 0 || len(spec.LightColors) > 0 || len(spec.DarkColors) > 0
 }
 
 // openWorkspaceFolder reveals a folder in the file manager of the machine

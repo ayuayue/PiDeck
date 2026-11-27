@@ -29,6 +29,7 @@ func intPtr(n int) *int { return &n }
 // appSettingFields is the schema of the app's own config.
 var appSettingFields = []settingField{
 	{Key: "theme", Type: "text", Default: "system"},
+	{Key: "appearance", Type: "enum", Default: "", Values: []string{"", "light", "dark"}},
 	{Key: "logoStyle", Type: "enum", Default: "pi-tui", Values: []string{"", "pi-tui", "classic", "custom"}},
 	{Key: "logoCustomImage", Type: "text", Default: ""},
 	{Key: "appDisplayName", Type: "text", Default: ""},

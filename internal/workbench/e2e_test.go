@@ -5,6 +5,7 @@ package workbench
 // End-to-end checks that drive a real pi process through the app.
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -301,12 +302,23 @@ func TestRestore(t *testing.T) {
 
 // TestLook captures the app in dark mode and while an answer streams.
 func TestLook(t *testing.T) {
+	// Start on 纸白, so one press of the look button lands on 炭黑
+	// whatever appearance the machine's system is in.
+	home := t.TempDir()
+	t.Setenv("PIDECK_V2_HOME", home)
+	raw, err := json.Marshal(config{Version: configVersion, Theme: "light", ScanPi: false, SidebarOpen: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config.json"), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	app := startApp(t, workspaceWith(t), 1320, 860)
 	appReady(app)
 	app.Press("label:会话面板")
 	app.Advance(300 * time.Millisecond)
 	shot(app, "20-drawer")
-	app.Press("label:切换外观")
+	// The button flips the current look to its dark side.
 	app.Press("label:切换外观")
 	app.Advance(300 * time.Millisecond)
 	shot(app, "21-dark")

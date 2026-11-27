@@ -49,7 +49,10 @@ type config struct {
 	Workspaces  []workspaceCfg `json:"workspaces"`
 	LastSession string         `json:"lastSession,omitempty"`
 	Tabs        []string       `json:"tabs,omitempty"`
-	Theme       string         `json:"theme,omitempty"` // system, light, dark
+	Theme       string         `json:"theme,omitempty"` // a look: system, light, dark or a theme id
+	// Appearance pins the side of the look the button flipped: "light",
+	// "dark", or "" to let the theme's own side or the system decide.
+	Appearance string `json:"appearance,omitempty"`
 	// Branding is shared by the rail, welcome and about views. The custom
 	// image is inline data so settings backups carry it with them.
 	LogoStyle       string            `json:"logoStyle,omitempty"` // pi-tui (default), classic, custom

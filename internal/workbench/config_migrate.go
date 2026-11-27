@@ -16,7 +16,7 @@ import (
 
 // configVersion is the shape of config.json this build writes. A file
 // from an older build is migrated on load and written back once.
-const configVersion = 5
+const configVersion = 6
 
 // chatWidthPtMin and chatWidthPtMax were the old chat width slider's
 // range in points; they convert a config written before percentages. The
@@ -109,6 +109,12 @@ func migrateConfig(c *config, raw []byte) bool {
 		c.Version = 5
 		changed = true
 	}
+	if c.Version < 6 {
+		// Version 6 adds the side the look button pinned. An older file has
+		// none and keeps following the theme, which is what it always did.
+		c.Version = 6
+		changed = true
+	}
 	return normalizeConfig(c) || changed
 }
 
@@ -139,6 +145,16 @@ func normalizeConfig(c *config) bool {
 	trim(&c.ProxyAgent)
 	trim(&c.ProxyBypass)
 	trim(&c.Theme)
+	// Only a side is pinned: "light" or "dark", lowercase, and "" follows
+	// the theme. A theme file's "both", a typo or stray space follows it too.
+	v := strings.ToLower(strings.TrimSpace(c.Appearance))
+	if v != "light" && v != "dark" {
+		v = ""
+	}
+	if v != c.Appearance {
+		c.Appearance = v
+		changed = true
+	}
 	trim(&c.BackgroundVideo)
 	if spec := normalizeComposerMetrics(c.FooterMetrics); spec != c.FooterMetrics {
 		c.FooterMetrics = spec
