@@ -902,6 +902,7 @@
   "刷新文件": "Refresh files",
   "刷新模型": "Refresh models",
   "刷新模型失败": "Could not refresh the models",
+  "正在加载模型…": "Loading models…",
   "刷新页面": "Reload the page",
   "剩余 %s": "%s left",
   "剪贴板里没有图片": "No image on the clipboard",

@@ -46,6 +46,7 @@ func bundledExtensions() []bundledExtension {
 		{Name: "pi-deck-request-size-recovery.ts", Content: extensions.RequestSizeRecovery},
 		{Name: "pi-deck-session-title.ts", Content: extensions.SessionTitle},
 		{Name: "pi-deck-runtime.ts", Content: extensions.Runtime},
+		{Name: "pi-deck-model-options.ts", Content: extensions.ModelOptions},
 		{Name: "pi-deck-shell-proxy.ts", Content: extensions.ShellProxy},
 		{Name: "pi-deck-plan-mode.ts", Content: extensions.PlanMode},
 		{Name: "pi-deck-security-gate.ts", Content: extensions.SecurityGate},

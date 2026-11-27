@@ -996,6 +996,7 @@
   "删除失败": "Impossible de supprimer",
   "已删除这一轮": "Tour supprimé",
   "刷新模型失败": "Impossible de rafraîchir les modèles",
+  "正在加载模型…": "Chargement des modèles…",
   "剪贴板里没有图片": "Aucune image sur le bloc-notes",
   "压缩失败": "Impossible de compacter",
   "复制会话失败": "Impossible de copier la session",

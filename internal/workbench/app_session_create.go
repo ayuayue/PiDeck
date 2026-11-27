@@ -85,8 +85,7 @@ func (a *app) blankSession(id string, ws *workspace, title string) *session {
 		acpThinkOpen:   core.NewSignal(a.cx, false),
 	}
 	s.conversation = newChatScroll(a.cx)
-	// A blank session starts no process: its chips read the remembered
-	// defaults until the first message starts pi and reports the real ones.
+	// Model choices are available independently of the session process.
 	if chosen := a.defaultModel; chosen.ID != "" {
 		s.model.Set(modelInfo{ID: chosen.ID, Provider: chosen.Provider})
 	}
@@ -95,6 +94,9 @@ func (a *app) blankSession(id string, ws *workspace, title string) *session {
 	}
 	a.byID[s.ID] = s
 	a.all = append(a.all, s)
+	if s.backend != "acp" && !s.Target.remote() {
+		a.publishSessionModelOptions(s, a.modelOptionsFor(s.WS))
+	}
 	a.observeSessionDraft(s)
 	return s
 }
@@ -132,6 +134,7 @@ func (a *app) newProjectSession(ws *workspace) *session {
 		id, warm = w.ID, w
 	}
 	s := a.blankSession(id, ws, title)
+	a.ensureSessionModelOptions(s, false, false)
 	s.warmPi = warm
 	if warm != nil {
 		a.expireHeldWarmPi(s, warm, piWarmTTL)

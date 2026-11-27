@@ -61,6 +61,7 @@ type session struct {
 	modelsBusy      *core.Signal[bool]
 	thinking        *core.Signal[string]
 	levels          *core.Signal[[]string]
+	modelSelection  modelSelectionState
 	// usage is what the session has spent, and perf how fast its last
 	// reply came and how much of every prompt the cache served.
 	usage   *core.Signal[usageInfo]

@@ -35,6 +35,13 @@ func (a *app) ensureEngine(s *session, then func()) {
 		return
 	}
 	if s.engine != nil && !s.starting {
+		if s.modelSelection.busy || s.modelSelection.model || s.modelSelection.thinking {
+			if then != nil {
+				s.waiters = append(s.waiters, then)
+			}
+			a.flushModelSelection(s)
+			return
+		}
 		if then != nil {
 			then()
 		}
@@ -50,6 +57,7 @@ func (a *app) ensureEngine(s *session, then func()) {
 		a.failSession(s, "找不到 pi 命令："+info.PiError)
 		return
 	}
+	s.modelSelection.busy = false
 	s.starting = true
 	generation := s.piGeneration.Add(1)
 	started := make(chan *piClient, 1)
@@ -171,53 +179,52 @@ func (a *app) engineState(s *session, c *piClient, generation uint64) {
 		if s.piGeneration.Load() != generation || c.isClosed() {
 			return
 		}
-		a.engineReady(s, c, state.Model, state.ThinkingLevel, state.SessionFile, state.MessageCount, state.IsStreaming)
+		if s.deleting {
+			a.engineReady(s, c, state.Model, state.ThinkingLevel, state.SessionFile, state.MessageCount, state.IsStreaming)
+			return
+		}
+		a.initializeEngineModels(s, c, generation, state.Model, state.ThinkingLevel, state.MessageCount, func(model *modelInfo, thinking string) {
+			a.engineReady(s, c, model, thinking, state.SessionFile, state.MessageCount, state.IsStreaming)
+			if s.deleting {
+				return
+			}
+			if state.MessageCount == 0 || s.histFile == state.MessageCount {
+				a.historyReady(s)
+			} else {
+				go a.fetchHistory(s, c)
+			}
+			a.ensureSessionModelOptions(s, false, false)
+			go a.readEngineModelLists(s, c, generation, s.modelSelection.revision)
+		})
 	})
-	if state.MessageCount == 0 {
-		a.cx.Post(func() {
-			if s.engine == c && s.piGeneration.Load() == generation {
-				a.historyReady(s)
-			}
-		})
-	} else {
-		// A session file already on screen is not fetched again: pi counts
-		// the same messages, so the tab is showing what get_messages would
-		// send. A mismatch (a compacted session, a file lagging behind a
-		// running turn) falls back to pi's copy.
-		a.cx.Post(func() {
-			if s.engine != c || s.piGeneration.Load() != generation {
-				return
-			}
-			if s.histFile == state.MessageCount {
-				a.historyReady(s)
-				return
-			}
-			go a.fetchHistory(s, c)
-		})
-	}
+}
+
+func (a *app) readEngineModelLists(s *session, c *piClient, generation, selection uint64) {
 	var models struct {
 		Models []modelInfo `json:"models"`
 	}
-	if err := c.call(map[string]any{"type": "get_available_models"}, &models, 40*time.Second); err == nil {
-		a.cx.Post(func() {
-			if s.engine == c && s.piGeneration.Load() == generation {
-				s.models.Set(models.Models)
-			}
-		})
+	if s.Target.remote() {
+		if err := c.call(map[string]any{"type": "get_available_models"}, &models, 40*time.Second); err == nil {
+			a.cx.Post(func() {
+				if s.engine == c && s.piGeneration.Load() == generation {
+					s.models.Set(models.Models)
+				}
+			})
+		}
 	}
 	var levels struct {
 		Levels []string `json:"levels"`
 	}
 	if err := c.call(map[string]any{"type": "get_available_thinking_levels"}, &levels, 40*time.Second); err == nil {
 		a.cx.Post(func() {
-			if s.engine == c && s.piGeneration.Load() == generation {
+			if s.engine == c && s.piGeneration.Load() == generation && s.modelSelection.revision == selection {
 				s.levels.Set(levels.Levels)
 			}
 		})
 	}
 }
 
-// engineReady records the process and applies defaults once the history is in.
+// engineReady records the process after its initial model selection succeeds.
 func (a *app) engineReady(s *session, c *piClient, model *modelInfo, thinking, file string, count int, streaming bool) {
 	s.engine = c
 	s.piStarting = nil
@@ -245,15 +252,6 @@ func (a *app) engineReady(s *session, c *piClient, model *modelInfo, thinking, f
 	} else if !s.busyNow() {
 		s.status.Set(statusIdle)
 	}
-	// The user's remembered model and thinking level win for a fresh session.
-	if count == 0 {
-		if a.defaultModel.ID != "" && (model == nil || model.ID != a.defaultModel.ID) {
-			go a.applyModel(s, a.defaultModel.Provider, a.defaultModel.ID, false)
-		}
-		if a.defaultThinking != "" && thinking != a.defaultThinking {
-			go a.applyThinking(s, a.defaultThinking, false)
-		}
-	}
 	a.startStats(s)
 }
 
@@ -269,7 +267,7 @@ func (a *app) historyReady(s *session) {
 	s.loaded.Set(true)
 	// A file can paint before the handshake completes. Its history must not
 	// release pending prompts until the process has answered get_state.
-	if !s.readySig.GetUntracked() {
+	if !s.readySig.GetUntracked() || s.modelSelection.busy {
 		return
 	}
 	waiters := s.waiters

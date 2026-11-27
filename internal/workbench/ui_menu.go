@@ -154,9 +154,10 @@ func (a *app) modelMenu(s *session, open *core.Signal[bool]) core.Node {
 			open.Update(func(v bool) bool { return !v })
 			if open.GetUntracked() {
 				s.modelQuery.Set("")
-				// Asking for pi's live model list explicitly needs its process.
-				if !s.hasAgent() {
+				if s.Target.remote() && !s.hasAgent() {
 					a.ensureEngine(s, nil)
+				} else {
+					a.ensureSessionModelOptions(s, false, false)
 				}
 			}
 		},
@@ -293,7 +294,13 @@ func (a *app) modelMenu(s *session, open *core.Signal[bool]) core.Node {
 				}
 			}
 			if len(rows) == 0 {
-				rows = append(rows, core.Text{Content: apptext.T("没有匹配的模型"), Style: core.Style{FontSize: 11.5, Padding: core.All(8)},
+				text := apptext.T("没有匹配的模型")
+				if s.modelsBusy.Get() {
+					text = apptext.T("正在加载模型…")
+				} else if entry := a.modelOptions[s.WS]; entry != nil && entry.err != "" && !s.Target.remote() {
+					text = apptext.T("刷新模型失败")
+				}
+				rows = append(rows, core.Text{Content: text, Style: core.Style{FontSize: 11.5, Padding: core.All(8)},
 					StyleFunc: ui.Colored(colors.Faint)})
 			}
 			return a.scrollStashFor("modelMenu:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(380), MinWidth: core.Pt(0)}, Children: []core.Node{

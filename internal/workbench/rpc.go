@@ -248,17 +248,20 @@ type piClient struct {
 	pending map[string]chan response
 	closed  bool
 
-	hooks    atomic.Value // hooks
-	stderr   *ringBuffer
-	exitOnce sync.Once
+	modelOptionsMu    sync.Mutex
+	modelOptionsReply chan []byte
+	hooks             atomic.Value // hooks
+	stderr            *ringBuffer
+	exitOnce          sync.Once
 }
 
 // startPi starts pi for one session: on this machine or through a target,
 // keeping the app's sessions under appSessions. onEvent, onUI and onExit
 // run on the reader goroutine.
 type piLocalTools struct {
-	extension string
-	env       []string
+	extension  string
+	env        []string
+	modelProbe bool
 }
 
 func startPi(t target, piPath, dir, appSessions, id, sessionFile string, onEvent func(piEvent), onUI func(uiRequest), onExit func(error), local ...piLocalTools) (*piClient, error) {
@@ -273,7 +276,11 @@ func startPi(t target, piPath, dir, appSessions, id, sessionFile string, onEvent
 		}
 	}
 	args := []string{"--mode", "rpc"}
-	if !t.remote() {
+	probe := len(local) > 0 && local[0].modelProbe
+	if probe {
+		args = append(args, "--no-session", "--offline", "--no-skills", "--no-prompt-templates", "--no-mcp")
+	}
+	if !t.remote() && !probe {
 		if path := extensionToInject(askExtensionPath); path != "" {
 			args = append(args, "-e", path)
 		}
@@ -288,7 +295,7 @@ func startPi(t target, piPath, dir, appSessions, id, sessionFile string, onEvent
 			env = local[0].env
 		}
 	}
-	if !t.remote() {
+	if !t.remote() && !probe {
 		args = append(args, bundledExtensionArgs()...)
 		if pideckSkillPath != "" {
 			args = append(args, "--skill", pideckSkillPath)
@@ -388,6 +395,17 @@ func (c *piClient) dispatch(line []byte) {
 	case "extension_ui_request":
 		var req uiRequest
 		if json.Unmarshal(line, &req) == nil {
+			if req.Method == "setStatus" && req.StatusKey == modelOptionsStatusKey {
+				c.mu.Lock()
+				if c.modelOptionsReply != nil && req.StatusText != nil {
+					select {
+					case c.modelOptionsReply <- []byte(*req.StatusText):
+					default:
+					}
+				}
+				c.mu.Unlock()
+				return
+			}
 			if ui := c.callbacks().onUI; ui != nil {
 				ui(req)
 			}

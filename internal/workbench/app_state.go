@@ -70,6 +70,7 @@ type app struct {
 	trajectory          *core.Signal[*trajectoryView]
 	delegationSession   *core.Signal[*session]
 	modelCatalogBusy    *core.Signal[bool]
+	modelOptions        map[string]*modelOptionsState
 	piUpdateBusy        *core.Signal[bool]
 	providerQuery       *core.Signal[string]
 	reduceEffects       *core.Signal[bool]

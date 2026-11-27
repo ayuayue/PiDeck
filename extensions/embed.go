@@ -47,6 +47,9 @@ var TodoState []byte
 //go:embed pi-deck-runtime.ts
 var Runtime []byte
 
+//go:embed pi-deck-model-options.ts
+var ModelOptions []byte
+
 //go:embed pi-deck-shell-proxy.ts
 var ShellProxy []byte
 

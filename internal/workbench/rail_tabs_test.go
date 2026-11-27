@@ -46,6 +46,7 @@ func railFixture(t *testing.T, projects ...string) (*app, *nsgotest.App) {
 	// home is removed, as the other fixtures do.
 	t.Cleanup(sessionDraftWrites.Wait)
 	t.Cleanup(built.closeDiag)
+	t.Cleanup(closeAllPi)
 	return built, screen
 }
 

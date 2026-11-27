@@ -15,12 +15,30 @@ import (
 
 // applyModel switches the session's model.
 func (a *app) applyModel(s *session, provider, id string, remember bool) {
-	if s == nil || id == "" {
+	if s == nil || s.deleting || id == "" {
 		return
 	}
 	if remember {
 		a.defaultModel = modelChoice{Provider: provider, ID: id}
 		a.st.edit(func(c *config) { c.Model = a.defaultModel })
+	}
+	if !s.Target.remote() && s.backend != "acp" {
+		chosen := modelInfo{Provider: provider, ID: id}
+		for _, m := range s.models.GetUntracked() {
+			if m.Provider == provider && m.ID == id {
+				chosen = m
+				break
+			}
+		}
+		s.model.Set(chosen)
+		s.levels.Set(nil)
+		if entry := a.modelOptions[s.WS]; entry != nil {
+			a.seedModelThinking(s, entry.items)
+		}
+		s.modelSelection.revision++
+		s.modelSelection.model, s.modelSelection.thinking = true, true
+		a.flushModelSelection(s)
+		return
 	}
 	a.ensureEngine(s, func() {
 		c := s.engine
@@ -50,7 +68,14 @@ func (a *app) refreshModels(s *session) {
 }
 
 func (a *app) refreshSessionModels(s *session, announce bool) {
-	if s == nil || s.backend == "acp" || s.modelsBusy.GetUntracked() {
+	if s == nil || s.backend == "acp" || s.deleting {
+		return
+	}
+	if !s.Target.remote() {
+		a.ensureSessionModelOptions(s, announce, announce)
+		return
+	}
+	if s.modelsBusy.GetUntracked() {
 		return
 	}
 	c := s.engine
@@ -106,6 +131,7 @@ func (a *app) refreshModelState(s *session) {
 	if c == nil {
 		return
 	}
+	selection := s.modelSelection.revision
 	go func() {
 		var levels struct {
 			Levels []string `json:"levels"`
@@ -117,6 +143,9 @@ func (a *app) refreshModelState(s *session) {
 		levelsErr := c.call(map[string]any{"type": "get_available_thinking_levels"}, &levels, 20*time.Second)
 		stateErr := c.call(map[string]any{"type": "get_state"}, &state, 20*time.Second)
 		a.cx.Post(func() {
+			if s.engine != c || s.deleting || s.modelSelection.revision != selection {
+				return
+			}
 			if levelsErr == nil && len(levels.Levels) > 0 {
 				s.levels.Set(levels.Levels)
 			}
@@ -214,12 +243,19 @@ func (a *app) cycleThinking(s *session) {
 
 // applyThinking sets the reasoning level.
 func (a *app) applyThinking(s *session, level string, remember bool) {
-	if s == nil || level == "" {
+	if s == nil || s.deleting || level == "" {
 		return
 	}
 	if remember {
 		a.defaultThinking = level
 		a.st.edit(func(c *config) { c.Thinking = level })
+	}
+	if !s.Target.remote() && s.backend != "acp" {
+		s.thinking.Set(level)
+		s.modelSelection.revision++
+		s.modelSelection.thinking = true
+		a.flushModelSelection(s)
+		return
 	}
 	a.ensureEngine(s, func() {
 		c := s.engine

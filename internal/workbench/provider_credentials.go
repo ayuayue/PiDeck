@@ -199,6 +199,7 @@ func mergeProviders(cfgs []providerConfig, catalog []providerConfig, entries []a
 // credentials, which may take longer than the file read. Only the newest
 // load can replace either snapshot.
 func (a *app) loadProviders(piPath string) {
+	a.invalidateModelOptions(piPath)
 	a.providerLoadSeq++
 	seq := a.providerLoadSeq
 	publish := func(list []providerInfo) {
