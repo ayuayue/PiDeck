@@ -4151,7 +4151,10 @@ app
 			{ referenceGuard: referenceWriteGuard },
 		);
 		automationStore = new AutomationStore(join(app.getPath("userData"), "automation.json"));
-		const automationStorePreload = automationStore.load();
+		const automationStorePreload = automationStore.load().catch((error: unknown) => {
+			void appLogger.error("automation", "Could not load automation.json; automation is disabled for this launch", error);
+			return null;
+		});
 		// 智能体：配置存储（userData/agent-profiles.json）。load 内部做旧数据归一化与
 		// 内置翻译智能体补种；与 sessionCatalog 并行加载，不额外拖慢启动。
 		agentProfileStore = new AgentProfileStore(join(app.getPath("userData"), "agent-profiles.json"));
@@ -4170,7 +4173,7 @@ app
 			const win = mainWindow;
 			if (win && !win.isDestroyed()) win.webContents.send(ipcChannels.sessionGroupsChanged, null);
 		});
-		await Promise.all([sessionCatalog.load(), automationStorePreload, agentProfileStorePreload, favoritesStorePreload, sessionGroupStorePreload]);
+		const [, automationSnapshot] = await Promise.all([sessionCatalog.load(), automationStorePreload, agentProfileStorePreload, favoritesStorePreload, sessionGroupStorePreload]);
 		// 云同步装配（构造 → initialize → 退出清理登记）整体搬到 startup/cloudSync.ts：
 		// 这里原位调用，构造与登记次序不变。
 		await startCloudSync({
@@ -4327,7 +4330,7 @@ app
 		automationScheduler.setTriggerHandler(async (task, scheduledFor, trigger) => {
 			await automationRunCoordinator?.enqueueRun(task, scheduledFor, trigger);
 		});
-		automationScheduler.start();
+		if (automationSnapshot) automationScheduler.start();
 		quitCleanup.register("automation", () => {
 			automationScheduler?.stop();
 			automationRunCoordinator?.dispose();
