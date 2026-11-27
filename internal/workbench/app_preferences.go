@@ -70,7 +70,8 @@ func (a *app) setSessionSort(sort string) {
 	}
 	a.cfg.SessionSort = sort
 	if a.st != nil {
-		a.st.edit(func(c *config) { c.SessionSort = sort })
+		a.st.change(func(c *config) { c.SessionSort = sort })
+		a.saveConfigAsync()
 	}
 	a.projectsRev.Update(func(n int) int { return n + 1 })
 	a.bumpSettings()

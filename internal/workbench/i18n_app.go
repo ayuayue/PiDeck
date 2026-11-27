@@ -31,7 +31,8 @@ func (a *app) applyLanguage() {
 func (a *app) setLanguage(code string) {
 	a.cfg.Language = code
 	if a.st != nil {
-		a.st.edit(func(c *config) { c.Language = code })
+		a.st.change(func(c *config) { c.Language = code })
+		a.saveConfigAsync()
 	}
 	a.applyLanguage()
 	a.bumpSettings()

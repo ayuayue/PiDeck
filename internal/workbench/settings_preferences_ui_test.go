@@ -32,6 +32,7 @@ func settingsPreferencesFixture(t *testing.T, width, height core.Points, dark bo
 		built = &app{
 			cx: cx, cfg: cfg, defaultThinking: cfg.Thinking,
 			st:          &store{dir: home, path: filepath.Join(home, "config.json"), c: &cfg},
+			providers:   core.NewSignalFunc(cx, []providerInfo{}, nil),
 			settingsTab: core.NewSignal(cx, "general"), settingsQuery: core.NewSignal(cx, ""),
 			settingsRev: core.NewSignal(cx, 0), langRev: core.NewSignal(cx, 0),
 			chatWidthPctSig: core.NewSignal(cx, chatWidthPctDefault),
@@ -58,18 +59,18 @@ func TestSettingsThinkingSelectionRefreshes(t *testing.T) {
 	if nsgotest.Target() != "" {
 		screen.Screenshot("settings-general-before-selection")
 	}
-	high := screen.Find("role:radio 高").Style.BorderColor
-	off := screen.Find("role:radio 关").Style.BorderColor
-	if high == off {
-		t.Fatal("selected and unselected thinking levels are not distinguishable")
-	}
-	screen.Press("role:radio 关")
+	screen.Find(`id:default-thinking >> text:"高"`)
+	screen.Press("id:default-thinking")
+	screen.WaitFor("id:default-thinking-1", 5*time.Second)
+	screen.Press("id:default-thinking-1")
 	if built.defaultThinking != "off" || built.st.config().Thinking != "off" {
 		t.Fatal("thinking selection did not update the new-session default")
 	}
-	screen.WaitUntil(5*time.Second, func() bool {
-		return screen.Find("role:radio 关").Style.BorderColor == high && screen.Find("role:radio 高").Style.BorderColor == off
-	})
+	screen.WaitFor(`id:default-thinking >> text:"关"`, 5*time.Second)
+	screen.WaitForGone("id:default-thinking-1", 5*time.Second)
+	if len(screen.Query(`id:default-thinking >> text:"高"`)) != 0 {
+		t.Fatal("the thinking field still shows the previous selection")
+	}
 	if nsgotest.Target() != "" {
 		screen.Screenshot("settings-general-selected")
 	}
@@ -82,7 +83,9 @@ func TestSettingsThinkingSelectionRefreshes(t *testing.T) {
 	if err := json.Unmarshal(raw, &saved); err != nil || saved.Thinking != "off" {
 		t.Fatalf("persisted thinking level = %q, decode error = %v", saved.Thinking, err)
 	}
-	screen.Press("role:radio 使用 pi 默认值")
+	screen.Press("id:default-thinking")
+	screen.WaitFor("id:default-thinking-0", 5*time.Second)
+	screen.Press("id:default-thinking-0")
 	if built.defaultThinking != "" || built.st.config().Thinking != "" {
 		t.Fatal("using pi default did not clear the thinking override")
 	}

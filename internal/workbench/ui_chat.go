@@ -105,13 +105,14 @@ func (a *app) setChatWidthPct(pct int) {
 	if a.st == nil {
 		return
 	}
+	a.st.change(func(c *config) { c.ChatWidthPct = stored })
 	a.chatWidthSeq++
 	seq := a.chatWidthSeq
 	a.cx.AfterFunc(300*time.Millisecond, func() {
 		if a.chatWidthSeq != seq || a.st == nil {
 			return // still moving: the last value will be kept
 		}
-		a.st.edit(func(c *config) { c.ChatWidthPct = stored })
+		a.saveConfigAsync()
 	})
 }
 
@@ -164,13 +165,14 @@ func (a *app) setTabWidthPct(pct int) {
 	if a.st == nil {
 		return
 	}
+	a.st.change(func(c *config) { c.TabWidthPct = stored })
 	a.tabWidthSeq++
 	seq := a.tabWidthSeq
 	a.cx.AfterFunc(300*time.Millisecond, func() {
 		if a.tabWidthSeq != seq || a.st == nil {
 			return // still moving: the last value will be kept
 		}
-		a.st.edit(func(c *config) { c.TabWidthPct = stored })
+		a.saveConfigAsync()
 	})
 }
 

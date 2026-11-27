@@ -30,7 +30,7 @@ type settingsSection struct {
 // settingsSections are the sections, in order.
 func settingsSections() []settingsSection {
 	return []settingsSection{
-		{"general", "通用", lucide.Settings2, "通用", "语言、布局、会话默认值，以及通知和提示音。", "偏好设置"},
+		{"general", "通用", lucide.Settings2, "通用", "本页选项更改后自动保存；快捷短语在管理窗口中单独保存。", "偏好设置"},
 		{"look", "外观", lucide.Palette, "外观", "主题配色、文字大小、字体和背景。", "偏好设置"},
 		{"keys", "快捷键", lucide.Keyboard, "快捷键", "每个命令的快捷键；留空则不绑定，改坏了可以恢复默认。", "偏好设置"},
 		{"models", "模型与供应商", lucide.Cpu, "模型与供应商", "供应商提供模型服务；这里管理连接信息、常用模型及翻译与提示词增强使用的模型。", "模型与运行"},

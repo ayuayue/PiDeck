@@ -135,7 +135,7 @@ func TestChatWidthPctSlider(t *testing.T) {
 	app.Press("id:welcome-chat")
 	app.WaitFor("id:composer-column", 10*time.Second)
 	openChatWidthSettings(app)
-	app.WaitFor("text:80%", 5*time.Second)
+	app.WaitUntil(5*time.Second, func() bool { return app.Find("id:chat-width-value").Text == "80%" })
 
 	app.Drag("id:chat-width-thumb", core.Point{X: -60})
 	// The write waits for the drag to rest: the views already follow the
@@ -166,7 +166,7 @@ func TestChatWidthPctSlider(t *testing.T) {
 
 	// The slider reads the stored value back when the page reopens.
 	openChatWidthSettings(app)
-	app.WaitFor(fmt.Sprintf("text:%d%%", stored), 5*time.Second)
+	app.WaitUntil(5*time.Second, func() bool { return app.Find("id:chat-width-value").Text == fmt.Sprintf("%d%%", stored) })
 }
 
 // TestChatWidthStripsShareTheComposerColumn checks the stack above the
@@ -356,12 +356,15 @@ func TestChatColumnFillsTheChatAreaAtFullWidth(t *testing.T) {
 // a two-point move. One drag has to land many percentage points away.
 func TestChatWidthDragFollowsTheWholeMove(t *testing.T) {
 	built, screen, _ := newAskApp(t)
-	built.settingsTab.Set("general")
-	built.openSettingsPane()
+	onNativeUI(t, screen, built, func() {
+		built.settingsTab.Set("general")
+		built.openSettingsPane()
+	})
 	screen.Advance(200 * time.Millisecond)
 	screen.WaitFor("id:chat-width", 5*time.Second)
 
-	before := built.chatWidthPct()
+	var before int
+	onNativeUI(t, screen, built, func() { before = built.chatWidthPct() })
 	thumb := screen.Find("id:chat-width-thumb")
 	if thumb.Frame.Origin.X < 60 {
 		t.Fatalf("the thumb starts at x=%.0f, too near the track's end to drag inward", thumb.Frame.Origin.X)
@@ -374,7 +377,8 @@ func TestChatWidthDragFollowsTheWholeMove(t *testing.T) {
 	screen.Drag("id:chat-width-thumb", path...)
 	screen.Advance(400 * time.Millisecond)
 
-	got := built.chatWidthPct()
+	var got int
+	onNativeUI(t, screen, built, func() { got = built.chatWidthPct() })
 	if moved := before - got; moved < 5 {
 		t.Fatalf("a %.0f-point drag moved the width %d%% -> %d%% (%d points): the slider did not follow the finger",
 			float64(-5*len(path)), before, got, moved)

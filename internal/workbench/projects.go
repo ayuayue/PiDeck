@@ -239,7 +239,8 @@ func (a *app) dissolveProjectGroup(name string) {
 func (a *app) setProjectSort(sort string) {
 	a.cfg.ProjectSort = sort
 	if a.st != nil {
-		a.st.edit(func(c *config) { c.ProjectSort = sort })
+		a.st.change(func(c *config) { c.ProjectSort = sort })
+		a.saveConfigAsync()
 	}
 	a.projectsRev.Update(func(n int) int { return n + 1 })
 	a.bumpSettings()

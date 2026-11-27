@@ -127,14 +127,19 @@ func TestImportAlertSound(t *testing.T) {
 // so a long drag landed on one small step instead of following the finger.
 func TestAlertVolumeDragFollowsTheWholeMove(t *testing.T) {
 	built, screen, _ := newAskApp(t)
-	built.settingsTab.Set("general")
-	built.openSettingsPane()
+	onNativeUI(t, screen, built, func() {
+		built.settingsTab.Set("general")
+		built.openSettingsPane()
+	})
 	screen.Advance(200 * time.Millisecond)
 	screen.WaitFor("id:sound-volume", 5*time.Second)
-	screen.ScrollTo("id:settings-page", core.Point{Y: 600})
+	page := screen.Find("id:settings-page").Bounds()
+	volume := screen.FindMounted("id:sound-volume").Bounds()
+	screen.Scroll("id:settings-page", volume.Origin.Y-page.Origin.Y-100)
 	screen.Advance(200 * time.Millisecond)
 
-	before := built.alertVolumePct()
+	var before int
+	onNativeUI(t, screen, built, func() { before = built.alertVolumePct() })
 	path := make([]core.Point, 0, 12)
 	for i := 1; i <= 12; i++ {
 		path = append(path, core.Point{X: core.Points(-5 * i)})
@@ -142,7 +147,11 @@ func TestAlertVolumeDragFollowsTheWholeMove(t *testing.T) {
 	screen.Drag("id:sound-volume-thumb", path...)
 	screen.Advance(400 * time.Millisecond)
 
-	got := built.alertVolumePct()
+	var got, played int
+	onNativeUI(t, screen, built, func() {
+		got = built.alertVolumePct()
+		played = int(built.alertVolume()*100 + 0.5)
+	})
 	if moved := before - got; moved < 5 {
 		t.Fatalf("a %.0f-point drag moved the volume %d%% -> %d%% (%d points): the slider did not follow the finger",
 			float64(-5*len(path)), before, got, moved)
@@ -151,7 +160,7 @@ func TestAlertVolumeDragFollowsTheWholeMove(t *testing.T) {
 		t.Fatalf("volume %d is outside 0-100 after the drag", got)
 	}
 	// The value the row shows is the one that will be played and kept.
-	if played := int(built.alertVolume()*100 + 0.5); played != got {
+	if played != got {
 		t.Fatalf("the row shows %d%% while playback uses %d%%", got, played)
 	}
 }

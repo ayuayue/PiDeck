@@ -174,12 +174,10 @@ func (a *app) pickAlertSound() {
 					return
 				}
 				a.customSound, a.customSoundFor = data, name
-				a.cfg.SoundCustom = name
-				a.st.edit(func(c *config) { c.SoundCustom = name })
 				if a.sounds != nil {
 					a.sounds.Forget(alertCustom)
 				}
-				a.bumpSettings()
+				a.updateGeneralSettings(func(c *config) { c.SoundCustom = name })
 				a.toast(ui.ToastSuccess, "提示音已导入", "在完成、出错或等待确认里选择“自定义”。")
 			})
 		}()
@@ -237,16 +235,18 @@ func importAlertSound(dataDir, path string) (string, []byte, error) {
 // clearAlertSound forgets the imported file and the rows that chose it.
 func (a *app) clearAlertSound() {
 	a.customSound, a.customSoundFor = nil, ""
-	a.cfg.SoundCustom = ""
-	a.cfg.SoundDone, a.cfg.SoundError, a.cfg.SoundWaiting = "", "", ""
-	a.st.edit(func(c *config) {
-		c.SoundCustom, c.SoundDone, c.SoundError, c.SoundWaiting = "", "", "", ""
+	a.updateGeneralSettings(func(c *config) {
+		c.SoundCustom = ""
+		for _, choice := range []*string{&c.SoundDone, &c.SoundError, &c.SoundWaiting} {
+			if *choice == alertCustom {
+				*choice = ""
+			}
+		}
 	})
 	if a.sounds != nil {
 		a.sounds.Forget(alertCustom)
 	}
 	_ = os.RemoveAll(filepath.Join(a.dataDir, alertSoundDir))
-	a.bumpSettings()
 }
 
 // setAlertKind stores which sound a moment plays.
@@ -254,14 +254,15 @@ func (a *app) setAlertKind(kind, name string) {
 	switch kind {
 	case alerts.KindError:
 		a.cfg.SoundError = name
-		a.st.edit(func(c *config) { c.SoundError = name })
+		a.st.change(func(c *config) { c.SoundError = name })
 	case alerts.KindWaiting:
 		a.cfg.SoundWaiting = name
-		a.st.edit(func(c *config) { c.SoundWaiting = name })
+		a.st.change(func(c *config) { c.SoundWaiting = name })
 	default:
 		a.cfg.SoundDone = name
-		a.st.edit(func(c *config) { c.SoundDone = name })
+		a.st.change(func(c *config) { c.SoundDone = name })
 	}
+	a.saveConfigAsync()
 	a.bumpSettings()
 }
 
@@ -279,14 +280,12 @@ func (a *app) setAlertVolume(pct int) {
 	if a.st == nil {
 		return
 	}
+	a.st.change(func(c *config) { v := pct; c.SoundVolume = &v })
 	a.cx.AfterFunc(300*time.Millisecond, func() {
 		if a.alertVolumeSeq != seq || a.st == nil {
 			return // still moving: the last value will be kept
 		}
-		a.st.edit(func(c *config) {
-			v := pct
-			c.SoundVolume = &v
-		})
+		a.saveConfigAsync()
 	})
 }
 
@@ -308,7 +307,7 @@ func (a *app) configuredAlertVolumePct() int {
 	return defaultAlertVolume
 }
 
-// alertSoundChoices are the chips the three sound rows offer: the moment's
+// alertSoundChoices are the choices the three sound rows offer: the moment's
 // default, the sounds the app ships, and the imported file once there is
 // one.
 func (a *app) alertSoundChoices() []choice[string] {

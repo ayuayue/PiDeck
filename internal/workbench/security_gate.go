@@ -140,15 +140,14 @@ func (a *app) setSecurityLevel(level string) {
 	if _, ok := securityLevels[level]; !ok {
 		return
 	}
+	previous := a.cfg.SecurityLevel
 	a.cfg.SecurityLevel = level
-	if a.st != nil {
-		a.st.edit(func(c *config) { c.SecurityLevel = level })
-	}
 	path := a.writeSecurityPolicy()
 	if path == "" {
+		a.cfg.SecurityLevel = previous
 		a.toast(ui.ToastError, apptext.T("安全策略保存失败"), apptext.T("策略快照没有写入，扩展仍按上一份文件执行。"))
 		return
 	}
 	securityPolicyPath = path
-	a.bumpSettings()
+	a.updateGeneralSettings(func(c *config) { c.SecurityLevel = level })
 }
