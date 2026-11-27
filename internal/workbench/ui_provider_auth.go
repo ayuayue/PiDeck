@@ -13,7 +13,6 @@ import (
 	"example.com/pideck-v2/internal/apptext"
 	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
-	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
@@ -119,65 +118,15 @@ func infoDot(c func() core.Color) core.Node {
 // modelCompatEditor draws the compatibility switches of the model being
 // edited: each one auto-detected, on, or off, as pi reads them.
 func (a *app) modelCompatEditor() core.Node {
-	return core.Dynamic(func(cx *core.Scope) core.Node {
-		colors := ui.ColorsOf(cx)
-		_ = a.modelCompatRev.Get()
-		if !compatOpenAI(a.providerAPI.Get()) {
-			return core.View{Style: core.Style{Gap: 3}, Children: []core.Node{
-				ui.Text(apptext.T("兼容性"), 10.5, ui.Medium, colors.Muted),
-				core.Text{Content: apptext.T("这些开关只对 OpenAI 兼容接口有用；这个供应商的 API 不用它们。"),
-					Style: core.Style{FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
-			}}
+	return compatibilityFields("compat-", a.modelCompatRev, func() map[string]bool { return a.modelCompat }, func(flag, mode string) {
+		if a.modelCompat == nil {
+			a.modelCompat = map[string]bool{}
 		}
-		var rows []core.Node
-		for _, flag := range compatFlags {
-			flag := flag
-			current := func() string {
-				value, ok := a.modelCompat[flag]
-				switch {
-				case !ok:
-					return ""
-				case value:
-					return "on"
-				}
-				return "off"
-			}
-			pick := func(mode string) {
-				if a.modelCompat == nil {
-					a.modelCompat = map[string]bool{}
-				}
-				switch mode {
-				case "on":
-					a.modelCompat[flag] = true
-				case "off":
-					a.modelCompat[flag] = false
-				default:
-					delete(a.modelCompat, flag)
-				}
-				a.modelCompatRev.Update(func(n int) int { return n + 1 })
-			}
-			rows = append(rows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8,
-				MinHeight: core.Pt(24)}, Children: []core.Node{
-				core.Text{Content: flag, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-					Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: viewkit.MonoFont(), FontSize: 9.5},
-					StyleFunc: ui.Colored(colors.Muted)},
-				choiceChips([]choice[string]{{"", apptext.T("自动")}, {"on", apptext.T("打开")}, {"off", apptext.T("关闭")}},
-					current, pick),
-			}})
+		if mode == "" {
+			delete(a.modelCompat, flag)
+		} else {
+			a.modelCompat[flag] = mode == "on"
 		}
-		hint := apptext.T("「自动」让 pi 按接口自己判断；这里只写这 7 个字段，其余保持原样。")
-		if suggest := compatSuggestion(a.modelCompatSuggestion, a.modelCompat); suggest != "" {
-			hint = apptext.T("官方目录建议 %s", suggest)
-		}
-		return core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
-			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
-				ui.Text(apptext.T("兼容性"), 10.5, ui.Medium, colors.Muted),
-				core.Text{Content: apptext.T("compat"), Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9.5},
-					StyleFunc: ui.Colored(colors.Faint)},
-				ui.Icon(lucide.SlidersHorizontal, 11, colors.Faint),
-			}},
-			core.View{Style: core.Style{Gap: 1}, Children: rows},
-			core.Text{Content: hint, MaxLines: 2, Style: core.Style{FontSize: 10, LineHeight: 15}, StyleFunc: ui.Colored(colors.Faint)},
-		}}
+		a.providerManagerState().modelDirty.Set(true)
 	})
 }

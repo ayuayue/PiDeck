@@ -18,6 +18,9 @@ import (
 // compatFlags are the switches the compatibility editor shows. They are
 // pi's own field names, so they read the same as the file.
 var compatFlags = []string{
+	"supportsStrictMode",
+	"supportsTemperature",
+	"forceAdaptiveThinking",
 	"supportsStore",
 	"supportsDeveloperRole",
 	"supportsReasoningEffort",
@@ -98,18 +101,38 @@ func applyModelEntry(entry map[string]any, m modelConfig) {
 	} else {
 		delete(entry, "reasoning")
 	}
+	input, _ := entry["input"].([]any)
+	kept := make([]any, 0, len(input)+1)
+	for _, value := range input {
+		if value != "image" {
+			kept = append(kept, value)
+		}
+	}
+	if len(kept) == 0 && m.Images {
+		kept = append(kept, "text")
+	}
 	if m.Images {
-		entry["input"] = []any{"text", "image"}
+		kept = append(kept, "image")
+	}
+	if len(kept) > 0 && (m.Images || len(kept) > 1 || kept[0] != "text") {
+		entry["input"] = kept
 	} else {
 		delete(entry, "input")
 	}
+	cost, _ := entry["cost"].(map[string]any)
+	if cost == nil {
+		cost = map[string]any{}
+	}
 	if m.Cost.priceSet() {
-		entry["cost"] = map[string]any{
-			"input":      m.Cost.Input,
-			"output":     m.Cost.Output,
-			"cacheRead":  m.Cost.CacheRead,
-			"cacheWrite": m.Cost.CacheWrite,
+		cost["input"], cost["output"] = m.Cost.Input, m.Cost.Output
+		cost["cacheRead"], cost["cacheWrite"] = m.Cost.CacheRead, m.Cost.CacheWrite
+	} else {
+		for _, key := range []string{"input", "output", "cacheRead", "cacheWrite"} {
+			delete(cost, key)
 		}
+	}
+	if len(cost) > 0 {
+		entry["cost"] = cost
 	} else {
 		delete(entry, "cost")
 	}

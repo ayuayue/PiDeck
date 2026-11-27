@@ -146,6 +146,7 @@ type providerConfig struct {
 	API     string
 	BaseURL string
 	APIKey  string
+	Headers map[string]string
 	// Models are the provider's entries; the catalog's when Builtin.
 	Models []modelConfig
 	// Builtin says the entry came from pi's catalog, not models.json.
@@ -210,6 +211,14 @@ func readProviderConfigs() []providerConfig {
 		cfg.API, _ = p["api"].(string)
 		cfg.BaseURL, _ = p["baseUrl"].(string)
 		cfg.APIKey, _ = p["apiKey"].(string)
+		if headers, ok := p["headers"].(map[string]any); ok {
+			cfg.Headers = map[string]string{}
+			for key, value := range headers {
+				if text, ok := value.(string); ok {
+					cfg.Headers[key] = text
+				}
+			}
+		}
 		if list, ok := p["models"].([]any); ok {
 			for _, rawModel := range list {
 				m, _ := rawModel.(map[string]any)
@@ -259,6 +268,8 @@ var errProviderExists = errors.New("provider already exists")
 // writeProviderConfig creates a new provider with its first model or edits
 // an existing provider's connection fields. Unknown JSON fields stay intact.
 func writeProviderConfig(cfg providerConfig, create bool) error {
+	modelsFileMu.Lock()
+	defer modelsFileMu.Unlock()
 	id := strings.TrimSpace(cfg.ID)
 	if id == "" {
 		return fmt.Errorf("供应商 ID 不能为空")
@@ -273,10 +284,13 @@ func writeProviderConfig(cfg providerConfig, create bool) error {
 	}
 	var root map[string]any
 	if err == nil {
-		if err := json.Unmarshal(raw, &root); err != nil {
-			return fmt.Errorf("models.json 不是有效的 JSON：%w", err)
+		value, decodeErr := usageProbeDecodeJSON(raw)
+		var ok bool
+		root, ok = value.(map[string]any)
+		if decodeErr != nil || !ok {
+			return errors.New("models.json: expected a valid JSON object")
 		}
-		if create && root == nil {
+		if root == nil {
 			return errors.New("models.json: expected a JSON object")
 		}
 	} else if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -287,7 +301,7 @@ func writeProviderConfig(cfg providerConfig, create bool) error {
 	}
 	providers, _ := root["providers"].(map[string]any)
 	if providers == nil {
-		if create && root["providers"] != nil {
+		if _, exists := root["providers"]; exists {
 			return fmt.Errorf("models.json: providers must be an object")
 		}
 		providers = map[string]any{}
@@ -296,6 +310,9 @@ func writeProviderConfig(cfg providerConfig, create bool) error {
 	p, _ := providers[id].(map[string]any)
 	if _, exists := providers[id]; exists && create {
 		return errProviderExists
+	}
+	if _, exists := providers[id]; exists && p == nil {
+		return errors.New("models.json: provider must be an object")
 	}
 	if p == nil {
 		p = map[string]any{"models": []any{}}
@@ -632,6 +649,8 @@ func strField(v any) string {
 // saveProviderModels writes a provider's model entries, keeping the
 // fields of each entry the editor does not show.
 func saveProviderModels(id string, models []modelConfig) error {
+	modelsFileMu.Lock()
+	defer modelsFileMu.Unlock()
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return fmt.Errorf("供应商 ID 不能为空")

@@ -65,8 +65,9 @@ type config struct {
 	Titles          map[string]string `json:"titles,omitempty"`
 	// Pinned are the sessions kept at the top of the rail, and FavModels
 	// the "provider/id" of the models offered first.
-	Pinned    []string `json:"pinned,omitempty"`
-	FavModels []string `json:"favModels,omitempty"`
+	Pinned       []string `json:"pinned,omitempty"`
+	FavModels    []string `json:"favModels,omitempty"`
+	HiddenModels []string `json:"hiddenModels,omitempty"`
 	// ProviderOrder is the order suppliers are listed in, pinned ones
 	// first; providers it does not name follow alphabetically.
 	ProviderOrder []string `json:"providerOrder,omitempty"`

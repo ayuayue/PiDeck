@@ -195,8 +195,13 @@ func (a *app) modelMenu(s *session, open *core.Signal[bool]) core.Node {
 			query := strings.ToLower(strings.TrimSpace(s.modelQuery.Get()))
 			colors := ui.ColorsOf(cx)
 			models := append([]modelInfo(nil), s.models.Get()...)
+			a.settingsTick()
 			a.orderModels(models)
 			match := func(m modelInfo) bool {
+				current := s.model.Get()
+				if a.modelHidden(m.Provider, m.ID) && (current.Provider != m.Provider || current.ID != m.ID) {
+					return false
+				}
 				if query == "" {
 					return true
 				}

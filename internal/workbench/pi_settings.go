@@ -81,6 +81,8 @@ func readPiSettings() (piSettings, error) {
 
 // savePiSettings merges only fields changed by this edit into the latest file.
 func savePiSettings(before, s piSettings) error {
+	piSettingsFileMu.Lock()
+	defer piSettingsFileMu.Unlock()
 	path := piSettingsPath()
 	if path == "" {
 		return fmt.Errorf("找不到 pi 的配置目录")

@@ -47,6 +47,9 @@ func resolveProviderModelCredential(ctx context.Context, piPath string, cfg prov
 			}
 		}
 	}
+	if source, _ := keyOrigin(cfg.APIKey); source == keyCommand {
+		return providerModelCredential{}
+	}
 	return providerModelCredential{Value: providerKey(cfg)}
 }
 
@@ -58,6 +61,8 @@ func fetchProviderModelList(ctx context.Context, client *http.Client, cfg provid
 	if client == nil {
 		client = appHTTPClient
 	}
+	safeClient := *client
+	safeClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	var lastErr error
 	for _, endpoint := range endpoints {
 		request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.URL, nil)
@@ -78,7 +83,13 @@ func fetchProviderModelList(ctx context.Context, client *http.Client, cfg provid
 		} else if credential.Value != "" && !endpoint.GoogleKey {
 			request.Header.Set("Authorization", "Bearer "+credential.Value)
 		}
-		response, err := client.Do(request)
+		for key, value := range cfg.Headers {
+			if strings.TrimSpace(key) == "" || strings.ContainsAny(key+value, "\r\n") {
+				return nil, errors.New(apptext.T("请求头不能包含空名称或换行。"))
+			}
+			request.Header.Set(key, providerHeaderValue(value))
+		}
+		response, err := safeClient.Do(request)
 		if err != nil {
 			lastErr = errors.New(apptext.T("获取模型列表失败"))
 			continue

@@ -177,6 +177,8 @@ func TestProviderCreateFromSettings(t *testing.T) {
 	shot(screen, "comparison/provider-add")
 	screen.Type("id:provider-add-id", "discard-fixture")
 	screen.Press("id:provider-add-cancel")
+	screen.WaitFor("id:confirm-ok", 5*time.Second)
+	screen.Press("id:confirm-ok")
 	screen.Advance(250 * time.Millisecond)
 	screen.WaitForGone("id:provider-add-dialog", 5*time.Second)
 	screen.Press("id:provider-add")
@@ -199,9 +201,12 @@ func TestProviderCreateFromSettings(t *testing.T) {
 	screen.Clear("id:provider-add-base")
 	screen.Type("id:provider-add-base", "https://api.example.invalid/v1")
 	screen.Press("id:provider-add-save")
-	screen.WaitFor("text:已添加供应商", 15*time.Second)
+	screen.WaitFor("text:供应商已添加", 15*time.Second)
 	screen.Advance(250 * time.Millisecond)
 	screen.WaitForGone("id:provider-add-dialog", 5*time.Second)
+	screen.WaitFor("id:provider-model-add-manual-new-provider", 5*time.Second)
+	screen.Press("id:provider-cancel")
+	screen.WaitForGone("id:provider-dialog", 5*time.Second)
 	byID := make(map[string]providerConfig)
 	for _, cfg := range readProviderConfigs() {
 		byID[cfg.ID] = cfg
@@ -263,6 +268,8 @@ func settingsProviderFixture() []providerInfo {
 
 func startNativeSettingsApp(t *testing.T) (*app, *nsgotest.App) {
 	t.Helper()
+	// Settings fixtures never launch a real CLI or write generated catalogs.
+	t.Setenv("PATH", t.TempDir())
 	home, piConfig := t.TempDir(), t.TempDir()
 	t.Setenv("PIDECK_V2_HOME", home)
 	t.Setenv("PIDECK_V2_PI_CONFIG", piConfig)

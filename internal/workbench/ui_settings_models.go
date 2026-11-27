@@ -15,26 +15,35 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// settingsModels shows the providers and models declared in pi's models.json.
+// settingsModels follows the user's tasks instead of configuration file names.
 func (a *app) settingsModels() core.Node {
-	return a.providerSettingsPage("settings-content",
-		setGroup("models.json",
-			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Wrap: core.Wrap, Gap: 8}, Children: []core.Node{
-				ui.Input{Value: a.providerQuery.Get, OnChange: a.providerQuery.Set,
-					Style:       core.Style{FlexGrow: 1, MinWidth: core.Pt(110)},
-					Placeholder: apptext.T("筛选供应商"), Label: apptext.T("筛选供应商"), TestID: "provider-filter"},
-				ui.Button{Text: apptext.T("添加供应商"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "provider-add",
-					OnPress: func() { a.openProviderDialog("") }},
-			}},
-			a.configuredProviderCards(),
-			setDivider(),
-			setRow("models.json", "管理 providers 与模型条目。", ui.Button{Text: apptext.T("编辑 models.json"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
-				TestID: "models-json-edit", OnPress: func() { a.openPiConfigFile("models.json") }}),
-		),
-		a.favoriteModelSettings(),
-		a.toolModelsGroup(),
-		a.modelCatalogSettings(), a.balanceAccountsSettings(), a.tokenDanceGroup(),
-	)
+	h := a.providerManagerState()
+	return core.View{Style: ui.FillRest.Merge(core.Style{Gap: 10}), Children: []core.Node{
+		ui.Tabs[string]{Variant: ui.TabsUnderline, Size: ui.SizeSmall, Label: apptext.T("模型与供应商"), TestID: "models-settings-tabs", Value: h.page.Get, OnChange: h.page.Set, Options: []ui.Option[string]{
+			{Value: "providers", Label: apptext.T("供应商与模型"), TestID: "models-tab-providers"}, {Value: "tools", Label: apptext.T("默认与工具模型"), TestID: "models-tab-tools"}, {Value: "accounts", Label: apptext.T("账户与目录"), TestID: "models-tab-accounts"},
+		}},
+		core.Show{When: func() bool { return h.page.Get() == "providers" }, Then: func(cx *core.Scope) core.Node {
+			return a.providerSettingsPage("settings-content",
+				setGroup("供应商连接",
+					core.Text{Content: apptext.T("添加供应商连接，然后管理该供应商的模型。每个供应商的用量查询可单独设置。"), Style: core.Style{FontSize: 11, Padding: core.Edges{Bottom: 12}}, StyleFunc: ui.Colored(ui.ColorsOf(cx).Muted)},
+					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Wrap: core.Wrap, Gap: 8}, Children: []core.Node{
+						ui.Input{Value: a.providerQuery.Get, OnChange: func(v string) { a.providerQuery.Set(v); h.providerLimit.Set(30) }, Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(130)}, Placeholder: apptext.T("搜索供应商名称、协议或地址"), Label: apptext.T("筛选供应商"), TestID: "provider-filter"},
+						ui.Button{Text: apptext.T("添加供应商"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "provider-add", OnPress: func() { a.openProviderDialog("") }},
+					}}, a.providerBatchActions(), a.configuredProviderCards(),
+					core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 8}, Children: []core.Node{
+						ui.Button{Text: apptext.T("管理 pi 登录与密钥"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "models-manage-credentials", OnPress: func() { a.openSettingsSection("credentials") }},
+						ui.Button{Text: apptext.T("高级：编辑 models.json"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "models-json-edit", OnPress: func() { a.openPiConfigFile("models.json") }},
+					}},
+				),
+			)
+		}},
+		core.Show{When: func() bool { return h.page.Get() == "tools" }, Then: func(cx *core.Scope) core.Node {
+			return a.providerSettingsPage("settings-content", setGroup("新会话默认模型", core.Text{Content: apptext.T("用于新建 pi 会话；工具模型在下方单独指定。"), Style: core.Style{FontSize: 11, Padding: core.Edges{Bottom: 10}}, StyleFunc: ui.Colored(ui.ColorsOf(cx).Muted)}, a.defaultModelSettings()), a.favoriteModelSettings(), a.toolModelsGroup())
+		}},
+		core.Show{When: func() bool { return h.page.Get() == "accounts" }, Then: func(cx *core.Scope) core.Node {
+			return a.providerSettingsPage("settings-content", setGroup("账户与模型目录", core.Text{Content: apptext.T("独立账户可使用不同的查询凭据；各供应商的余额或套餐查询请在“供应商与模型”中设置。"), Style: core.Style{FontSize: 11}, StyleFunc: ui.Colored(ui.ColorsOf(cx).Muted)}), a.balanceAccountsSettings(), a.tokenDanceGroup(), a.modelCatalogSettings())
+		}},
+	}}
 }
 
 func (a *app) providerSettingsPage(testID string, content ...core.Node) core.Node {
@@ -75,89 +84,69 @@ func (a *app) favoriteModelSettings() core.Node {
 			}})
 		}
 		if len(favRows) == 0 {
-			favRows = append(favRows, core.Text{Content: apptext.T("在输入框的模型菜单里点星标收藏；收藏的模型排在最前，可在这里调顺序。"),
+			favRows = append(favRows, core.Text{Content: apptext.T("在供应商的模型管理中点“收藏”，或在输入框的模型菜单里点星标；可在这里调整顺序。"),
 				Style: core.Style{FontSize: 11, LineHeight: 16, Padding: core.Symmetric(4, 2)}, StyleFunc: ui.Colored(colors.Faint)})
 		}
 		return setGroup("常用模型", core.View{Style: core.Style{Gap: 1}, Children: favRows})
 	})
 }
 
-// toolModelsGroup gives each AI tool its own provider and model.
+// toolModelsGroup gives each tool a readable, searchable pair of controls.
 func (a *app) toolModelsGroup() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = a.toolRev.Get()
 		colors := ui.ColorsOf(cx)
 		providers := a.providers.Get()
-		var providerOpts []ui.Option[string]
+		var providerOptions []ui.Option[string]
 		for _, p := range providers {
-			if p.Configured {
-				providerOpts = append(providerOpts, ui.Option[string]{Value: p.ID, Label: p.ID})
+			if len(p.Models) > 0 {
+				providerOptions = append(providerOptions, ui.Option[string]{Value: p.ID, Label: p.ID})
 			}
 		}
 		tools := []struct{ ID, Name, Help string }{
-			{"commit", "提交摘要", "按暂存改动生成一条提交说明，写进提交框。"},
-			{"prompt", "提示词增强", "把输入框里的草稿改写得更清楚、更具体。"},
-			{"predict", "输入预测", "在输入框里续写草稿的下一句。"},
-			{"translate", "文本翻译", "翻译窗口使用的供应商与模型。"},
+			{"commit", "提交摘要", "按暂存改动生成一条提交说明，写进提交框。"}, {"prompt", "提示词增强", "把输入框里的草稿改写得更清楚、更具体。"}, {"predict", "输入预测", "在输入框里续写草稿的下一句。"}, {"translate", "文本翻译", "翻译窗口使用的供应商与模型。"},
 		}
 		var rows []core.Node
-		for i, tool := range tools {
-			tool := tool
+		for _, entry := range tools {
+			tool := entry
 			cfg := a.cfg.ToolModels[tool.ID]
-			var modelOpts []ui.Option[string]
+			var modelOptions []ui.Option[string]
 			for _, p := range providers {
-				if !p.Configured || p.ID != cfg.Provider {
-					continue
-				}
-				for _, m := range p.Models {
-					label := m.Name
-					if label == "" {
-						label = m.ID
-					}
-					modelOpts = append(modelOpts, ui.Option[string]{Value: m.ID, Label: label})
-				}
-			}
-			control := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4}, Children: []core.Node{
-				ui.Select[string]{Options: providerOpts, Value: func() string { return a.cfg.ToolModels[tool.ID].Provider },
-					Placeholder: apptext.T("不启用"), OnClear: func() { a.setToolModel(tool.ID, "", "") },
-					Label: apptext.T("供应商"), TestID: "tool-" + tool.ID + "-provider",
-					Style: core.Style{Width: core.Pt(108)},
-					OnChange: func(provider string) {
-						model := ""
-						for _, p := range providers {
-							if p.Configured && p.ID == provider && len(p.Models) > 0 {
-								model = p.Models[0].ID
-								break
-							}
+				if p.ID == cfg.Provider {
+					for _, m := range p.Models {
+						label := m.ID
+						if m.Name != "" && m.Name != m.ID {
+							label = m.Name + " · " + m.ID
 						}
-						a.setToolModel(tool.ID, provider, model)
-
-						a.bumpSettings()
-					}},
-				ui.Select[string]{Options: modelOpts, Value: func() string { return a.cfg.ToolModels[tool.ID].Model },
-					Placeholder: apptext.T("模型"), Disabled: func() bool { return a.cfg.ToolModels[tool.ID].Provider == "" },
-					Label: apptext.T("模型"), TestID: "tool-" + tool.ID + "-model",
-					Style: core.Style{Width: core.Pt(126)},
-					OnChange: func(model string) {
-						a.setToolModel(tool.ID, a.cfg.ToolModels[tool.ID].Provider, model)
-
-						a.bumpSettings()
-					}},
-				hintOf(func() string { return apptext.T("清除") + " " + apptext.T(tool.Name) }, ui.IconButton{Icon: lucide.X, Label: apptext.T("清除") + " " + apptext.T(tool.Name), Size: 22, IconSize: 10,
-					TestID: "tool-" + tool.ID + "-clear", Disabled: func() bool { return cfg.Provider == "" },
-					OnPress: func() { a.setToolModel(tool.ID, "", "") }}),
-			}}
-			rows = append(rows, setRow(tool.Name, tool.Help, control))
-			if i < len(tools)-1 {
-				rows = append(rows, setDivider())
+						modelOptions = append(modelOptions, ui.Option[string]{Value: m.ID, Label: label})
+					}
+				}
 			}
+			rows = append(rows, core.View{Style: core.Style{Gap: 8, Padding: core.Symmetric(12, 0)}, Children: []core.Node{
+				ui.Text(apptext.T(tool.Name), 12, ui.Medium, colors.Text),
+				core.Text{Content: apptext.T(tool.Help), Style: core.Style{FontSize: 11}, StyleFunc: ui.Colored(colors.Muted)},
+				ui.Select[string]{Options: providerOptions, Value: func() string { return a.cfg.ToolModels[tool.ID].Provider }, Placeholder: apptext.T("不启用：选择供应商后开启"), Label: apptext.T("供应商"), TestID: "tool-" + tool.ID + "-provider", Searchable: true, SearchPlaceholder: apptext.T("搜索供应商"), Style: core.Style{Width: core.Pct(100)}, OnClear: func() { a.setToolModel(tool.ID, "", ""); a.bumpSettings() }, OnChange: func(provider string) {
+					model := ""
+					for _, p := range providers {
+						if p.ID == provider && len(p.Models) > 0 {
+							model = p.Models[0].ID
+							break
+						}
+					}
+					a.setToolModel(tool.ID, provider, model)
+					a.bumpSettings()
+				}},
+				ui.Select[string]{Options: modelOptions, Value: func() string { return a.cfg.ToolModels[tool.ID].Model }, Placeholder: apptext.T("选择模型"), Label: apptext.T("模型"), TestID: "tool-" + tool.ID + "-model", Searchable: true, SearchPlaceholder: apptext.T("搜索模型名称或 ID"), Style: core.Style{Width: core.Pct(100)}, Disabled: func() bool { return a.cfg.ToolModels[tool.ID].Provider == "" }, OnChange: func(model string) {
+					a.setToolModel(tool.ID, a.cfg.ToolModels[tool.ID].Provider, model)
+					a.bumpSettings()
+				}},
+				ui.Button{Text: apptext.T("停用此工具"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "tool-" + tool.ID + "-clear", Disabled: func() bool { return cfg.Provider == "" }, OnPress: func() { a.setToolModel(tool.ID, "", ""); a.bumpSettings() }},
+			}}, setDivider())
 		}
-		if len(providerOpts) == 0 {
-			rows = append(rows, core.Text{Content: apptext.T("还没有读到供应商；先配置供应商，或检查 pi 的 models.json。"),
-				Style: core.Style{FontSize: 11, LineHeight: 16, Padding: core.Symmetric(4, 2)}, StyleFunc: ui.Colored(colors.Faint)})
+		if len(providerOptions) == 0 {
+			rows = append(rows, ui.Text(apptext.T("请先添加供应商和模型，再为工具选择模型。"), 11, ui.Regular, colors.Muted))
 		}
-		rows = append(rows, setDivider(), setRow("提示词增强模板", "桌面与手机共用增强指令；可编辑或恢复默认。",
-			ui.Button{Text: apptext.T("编辑模板…"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "settings-prompt-template", OnPress: a.openPromptTemplate}))
+		rows = append(rows, setRow("提示词增强模板", "桌面与手机共用增强指令；可编辑或恢复默认。", ui.Button{Text: apptext.T("编辑模板…"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "settings-prompt-template", OnPress: a.openPromptTemplate}))
 		return setGroup("工具模型", rows...)
 	})
 }

@@ -211,6 +211,7 @@ func TestProviderConnection(t *testing.T) {
 
 // TestProviderDialogSaves checks the dialog writes models.json.
 func TestProviderDialogSaves(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
 	if nsgotest.Target() != "" {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
@@ -229,20 +230,14 @@ func TestProviderDialogSaves(t *testing.T) {
 	app.WaitFor("text:acme", 10*time.Second)
 	app.Press("id:provider-configure-acme")
 	app.WaitFor("id:provider-dialog", 5*time.Second)
-	app.Clear("label:Base URL")
-	app.Type("label:Base URL", "https://changed.example/v1")
+	app.WaitFor("id:provider-base", 5*time.Second)
+	app.Clear("id:provider-base")
+	app.Type("id:provider-base", "https://changed.example/v1")
 	app.Press("id:provider-save")
-	deadline := time.Now().Add(5 * time.Second)
-	for {
+	app.WaitUntil(5*time.Second, func() bool {
 		raw, err := os.ReadFile(path)
-		if err == nil && strings.Contains(string(raw), "https://changed.example/v1") {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("models.json after save = %s", raw)
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+		return err == nil && strings.Contains(string(raw), "https://changed.example/v1")
+	})
 	// Saving keeps the dialog on screen so the next field can be fixed
 	// without opening it again.
 	app.Settle()
@@ -324,6 +319,7 @@ func TestCustomBalance(t *testing.T) {
 // TestProviderDialogBalance checks the dialog's balance button, against a
 // local server standing in for SiliconFlow.
 func TestProviderDialogBalance(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
 	if nsgotest.Target() != "" {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
@@ -332,7 +328,7 @@ func TestProviderDialogBalance(t *testing.T) {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		_, _ = w.Write([]byte(`{"data":{"balance":"5.00"}}`))
+		_, _ = w.Write([]byte(`{"data":{"balance":"5.00","currency":"CNY"}}`))
 	}))
 	defer srv.Close()
 	home := t.TempDir()
@@ -347,15 +343,23 @@ func TestProviderDialogBalance(t *testing.T) {
 	app.Press("label:设置")
 	app.Press("id:settings-tab-models")
 	app.WaitFor("text:siliconflow", 10*time.Second)
-	app.Press("id:provider-configure-siliconflow")
-	app.WaitFor("id:provider-dialog", 5*time.Second)
+	app.Press("id:provider-usage-siliconflow")
+	app.WaitFor("id:provider-usage-template", 5*time.Second)
+	app.Press("id:provider-usage-enabled")
+	app.Press("id:provider-usage-template")
+	app.Press("role:option 通用余额接口")
+	app.Type("id:provider-usage-baseUrl", srv.URL+"/user/info")
+	app.Type("id:provider-usage-valuePath", "data.balance")
+	app.Type("id:provider-usage-currencyPath", "data.currency")
+	app.ScrollTo("id:provider-scroll", core.Point{Y: 2000})
 	app.Press("id:provider-balance")
-	waitApp(app, "text:余额 ¥5.00", 10*time.Second)
+	app.WaitFor("text:余额 5.00 CNY", 10*time.Second)
 }
 
 // TestProviderCustomBalanceDialog sets a provider's own endpoint in the
-// dialog, queries it, and keeps the fields in config.json.
+// dialog, queries it, and keeps the fields in usage-probes.json.
 func TestProviderCustomBalanceDialog(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
 	if nsgotest.Target() != "" {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
@@ -364,13 +368,16 @@ func TestProviderCustomBalanceDialog(t *testing.T) {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		_, _ = w.Write([]byte(`{"data":{"credit":"7.25"}}`))
+		_, _ = w.Write([]byte(`{"data":{"credit":"7.25","currency":"USD"}}`))
 	}))
 	defer srv.Close()
 	home := t.TempDir()
 	cfgDir := t.TempDir()
 	t.Setenv("PIDECK_V2_HOME", home)
 	t.Setenv("PIDECK_V2_PI_CONFIG", cfgDir)
+	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(`{"scanPi":false,"telemetryEnabled":false,"autoModelCatalog":false,"sidebarOpen":true}`), 0600); err != nil {
+		t.Fatal(err)
+	}
 	body := fmt.Sprintf(`{"providers":{"acme":{"api":"openai-completions","baseUrl":%q,"apiKey":"k","models":[{"id":"m1"}]}}}`, srv.URL+"/v1")
 	if err := os.WriteFile(filepath.Join(cfgDir, "models.json"), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
@@ -381,23 +388,26 @@ func TestProviderCustomBalanceDialog(t *testing.T) {
 	app.WaitFor("text:acme", 10*time.Second)
 	app.Press("id:provider-configure-acme")
 	app.WaitFor("id:provider-dialog", 5*time.Second)
-	app.Type("id:provider-balance-url", "/billing")
-	app.Type("id:provider-balance-path", "data.credit")
-	app.Type("id:provider-balance-currency", "USD")
+	app.WaitFor("id:provider-tab-usage", 5*time.Second)
+	app.Press("id:provider-tab-usage")
+	app.WaitFor("id:provider-usage-template", 5*time.Second)
+	app.Press("id:provider-usage-enabled")
+	app.Press("id:provider-usage-template")
+	app.Press("role:option 通用余额接口")
+	app.Type("id:provider-usage-baseUrl", srv.URL+"/v1/billing")
+	app.Type("id:provider-usage-valuePath", "data.credit")
+	app.Type("id:provider-usage-currencyPath", "data.currency")
+	app.ScrollTo("id:provider-scroll", core.Point{Y: 2000})
 	app.Press("id:provider-balance")
-	waitApp(app, "text:余额 $7.25", 10*time.Second)
-	app.Press("id:provider-save")
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		raw, err := os.ReadFile(filepath.Join(home, "config.json"))
-		if err == nil && strings.Contains(string(raw), `"balances"`) && strings.Contains(string(raw), "data.credit") {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("config.json after save = %s", raw)
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+	app.WaitFor("text:余额 7.25 USD", 10*time.Second)
+	app.Press("id:provider-usage-save")
+	app.WaitUntil(5*time.Second, func() bool {
+		cfg, found, err := loadUsageProbeConfig("acme")
+		return err == nil && found && cfg.ValuePath == "data.credit" && cfg.BaseURL == srv.URL+"/v1/billing"
+	})
+	app.WaitFor("text:用量配置已保存", 5*time.Second)
+	app.Press("id:provider-cancel")
+	app.WaitForGone("id:provider-dialog", 5*time.Second)
 }
 
 // TestSaveProviderModels keeps the fields the editor does not show.
@@ -440,6 +450,7 @@ func TestSaveProviderModels(t *testing.T) {
 
 // TestProviderModelEditor adds, edits and removes a model from the dialog.
 func TestProviderModelEditor(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
 	if nsgotest.Target() != "" {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
@@ -458,12 +469,16 @@ func TestProviderModelEditor(t *testing.T) {
 	app.WaitFor("text:acme", 10*time.Second)
 	app.Press("id:provider-configure-acme")
 	app.WaitFor("id:provider-dialog", 5*time.Second)
-	app.ScrollTo("id:provider-scroll", core.Point{Y: 400})
+	app.WaitFor("id:provider-tab-models", 5*time.Second)
+	app.Press("id:provider-tab-models")
+	app.WaitFor("id:provider-model-add-manual-acme", 5*time.Second)
+	app.Press("id:provider-model-add-manual-acme")
 	app.Press("id:provider-model-id")
 	app.Type("id:provider-model-id", "new-1")
 	app.Type("id:provider-model-name", "New Model")
 	app.Type("id:provider-model-context", "32000")
 	app.Press("id:provider-model-save")
+	app.WaitForGone("id:provider-model-save", 5*time.Second)
 	raw, err := os.ReadFile(path)
 	if err != nil || !strings.Contains(string(raw), "new-1") || !strings.Contains(string(raw), "32000") {
 		t.Fatalf("models.json = %s, %v", raw, err)
@@ -475,18 +490,15 @@ func TestProviderModelEditor(t *testing.T) {
 	app.Clear("id:provider-model-name")
 	app.Type("id:provider-model-name", "Renamed")
 	app.Press("id:provider-model-save")
-	deadline := time.Now().Add(5 * time.Second)
-	for {
+	app.WaitUntil(5*time.Second, func() bool {
 		raw, err = os.ReadFile(path)
-		if err == nil && strings.Contains(string(raw), "Renamed") {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("models.json after rename = %s, %v", raw, err)
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+		return err == nil && strings.Contains(string(raw), "Renamed")
+	})
+	app.WaitForGone("id:provider-model-save", 5*time.Second)
+	app.Press("id:provider-model-more-new-1")
 	app.Press("id:provider-model-remove-new-1")
+	app.WaitFor("id:confirm-ok", 5*time.Second)
+	app.Press("id:confirm-ok")
 	app.ScrollTo("id:provider-scroll", core.Point{Y: 400})
 	app.WaitForGone("id:provider-model-new-1", 5*time.Second)
 	raw, err = os.ReadFile(path)

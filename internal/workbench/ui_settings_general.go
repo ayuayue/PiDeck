@@ -34,6 +34,8 @@ func (a *app) defaultModelSettings() core.Node {
 				label := model.Name
 				if label == "" {
 					label = model.ID
+				} else if label != model.ID {
+					label += " · " + model.ID
 				}
 				modelOptions = append(modelOptions, ui.Option[string]{Value: model.ID, Label: label})
 			}
@@ -50,9 +52,9 @@ func (a *app) defaultModelSettings() core.Node {
 				modelOptions = append(modelOptions, ui.Option[string]{Value: a.defaultModel.ID, Label: a.defaultModel.ID})
 			}
 		}
-		return core.View{Style: core.Style{Width: core.Pt(230), MaxWidth: core.Pct(100), Gap: 7}, Children: []core.Node{
+		return core.View{Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pt(520), Gap: 7}, Children: []core.Node{
 			ui.Select[string]{Options: providerOptions, Value: func() string { return a.defaultModel.Provider },
-				Placeholder: apptext.T("跟随 pi 当前模型"), Label: apptext.T("供应商"), TestID: "default-model-provider",
+				Placeholder: apptext.T("跟随 pi 当前模型"), Label: apptext.T("供应商"), TestID: "default-model-provider", Searchable: true, SearchPlaceholder: apptext.T("搜索供应商"),
 				OnClear: func() { a.setDefaultModel(modelChoice{}) },
 				OnChange: func(provider string) {
 					choice := modelChoice{Provider: provider}
@@ -63,12 +65,12 @@ func (a *app) defaultModelSettings() core.Node {
 					}
 					a.setDefaultModel(choice)
 				},
-				Style: settingsSelectStyle()},
+				Style: core.Style{Width: core.Pct(100)}},
 			ui.Select[string]{Options: modelOptions, Value: func() string { return a.defaultModel.ID },
-				Placeholder: apptext.T("选择模型"), Label: apptext.T("模型"), TestID: "default-model-select",
+				Placeholder: apptext.T("选择模型"), Label: apptext.T("模型"), TestID: "default-model-select", Searchable: true, SearchPlaceholder: apptext.T("搜索模型名称或 ID"),
 				Disabled: func() bool { return a.defaultModel.Provider == "" },
 				OnChange: func(model string) { a.setDefaultModel(modelChoice{Provider: a.defaultModel.Provider, ID: model}) },
-				Style:    settingsSelectStyle()},
+				Style:    core.Style{Width: core.Pct(100)}},
 		}}
 	})
 }

@@ -240,6 +240,7 @@ type app struct {
 
 	// The provider editor: which provider, its fields, and the result of
 	// a connection test.
+	providerManager *providerManagerState
 	providerOpen    *core.Signal[bool]
 	providerID      *core.Signal[string]
 	providerAPI     *core.Signal[string]

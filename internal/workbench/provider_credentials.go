@@ -141,6 +141,9 @@ func readCatalogProviders() []providerConfig {
 			mc.ContextWindow = intField(m["contextWindow"])
 			mc.MaxTokens = intField(m["maxTokens"])
 			mc.Reasoning, _ = m["reasoning"].(bool)
+			mc.Images = inputHasImage(m["input"])
+			mc.Cost = readModelCost(m["cost"])
+			mc.Compat = readCompat(m["compat"], compatFlags)
 			if mc.ID == "" {
 				continue
 			}
@@ -182,8 +185,30 @@ func mergeProviders(cfgs []providerConfig, catalog []providerConfig, entries []a
 		out = append(out, providerInfo{ID: id, API: api, BaseURL: baseURL, Models: models,
 			Configured: configs[id] != nil, Builtin: builtin, Credential: credentialOf(id, byID[id], configs[id])})
 	}
+	builtins := map[string]providerConfig{}
+	for _, p := range catalog {
+		builtins[p.ID] = p
+	}
 	for _, cfg := range cfgs {
-		add(cfg.ID, cfg.API, cfg.BaseURL, cfg.Models, false)
+		builtin, exists := builtins[cfg.ID]
+		api, base := cfg.API, cfg.BaseURL
+		if api == "" {
+			api = builtin.API
+		}
+		if base == "" {
+			base = builtin.BaseURL
+		}
+		models := append([]modelConfig(nil), cfg.Models...)
+		known := map[string]bool{}
+		for _, m := range models {
+			known[m.ID] = true
+		}
+		for _, m := range builtin.Models {
+			if !known[m.ID] {
+				models = append(models, m)
+			}
+		}
+		add(cfg.ID, api, base, models, exists)
 	}
 	for _, cfg := range catalog {
 		add(cfg.ID, cfg.API, cfg.BaseURL, cfg.Models, true)
