@@ -24,6 +24,18 @@ func TestChatStartKeepsComposerAcrossFirstTurn(t *testing.T) {
 	const suggestions = "id:chat-starter-prompts"
 	before := screen.Find(input)
 	startCard := screen.Find(card).Bounds()
+	if inputBounds := before.Bounds(); inputBounds.Size.Height < 72 {
+		t.Errorf("the start input %v should leave room for a first message", inputBounds)
+	}
+	header := screen.Find("id:chat-start-header").Bounds()
+	if header.Origin.X != startCard.Origin.X {
+		t.Errorf("the start header %v should align with its input column %v", header, startCard)
+	}
+	model := screen.Find("id:composer-model-anchor").Bounds()
+	send := screen.Find("id:composer-send").Bounds()
+	if model.Origin.Y < send.Origin.Y+send.Size.Height {
+		t.Errorf("model settings %v should have their own row below send %v", model, send)
+	}
 	if prompts := screen.Find(suggestions).Bounds(); prompts.Origin.Y+prompts.Size.Height > startCard.Origin.Y {
 		t.Errorf("starter prompts %v should sit above the composer card %v", prompts, startCard)
 	}

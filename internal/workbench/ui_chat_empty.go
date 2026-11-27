@@ -9,8 +9,9 @@ import (
 	"time"
 
 	"example.com/pideck-v2/internal/apptext"
-	"example.com/pideck-v2/internal/viewkit"
+	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
@@ -61,17 +62,19 @@ func (a *app) emptyChat(s *session, composer core.Node, editor *core.Ref, column
 				}
 			},
 			Children: []core.Node{
-				core.View{Style: core.Style{AlignItems: core.AlignCenter, Gap: 16, Margin: core.Edges{Bottom: 44}}, Children: []core.Node{
-					a.brandMark(64, "empty-chat-logo"),
-					core.Text{ContentFunc: func() string {
-						if ws := a.workspaceFor(s.Target, s.WS); ws != nil && !ws.Chat {
-							return apptext.T("在 %s 里做点什么", ws.label())
-						}
-						return apptext.T("开始新的会话")
-					}, MaxLines: 2, EllipsizeMode: core.EllipsizeTail,
-						Style:     core.Style{FontSize: 22, FontWeight: ui.Medium, LineHeight: 30, TextAlign: core.TextAlignCenter},
-						StyleFunc: ui.Colored(colors.Text)},
-				}},
+				core.View{TestID: "chat-start-header", Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter,
+					Width: core.Pct(100), MinWidth: core.Pt(0), Gap: 16, Margin: core.Edges{Bottom: 32}},
+					StyleFunc: func() core.Style { return core.Style{MaxWidth: column()} }, Children: []core.Node{
+						a.brandMark(40, "empty-chat-logo"),
+						core.Text{ContentFunc: func() string {
+							if ws := a.workspaceFor(s.Target, s.WS); ws != nil && !ws.Chat {
+								return apptext.T("在 %s 里做点什么", ws.label())
+							}
+							return apptext.T("开始新的会话")
+						}, MaxLines: 2, EllipsizeMode: core.EllipsizeTail,
+							Style:     core.Style{FontSize: 28, FontWeight: ui.Medium, LineHeight: 40, FlexShrink: 1, MinWidth: core.Pt(0)},
+							StyleFunc: ui.Colored(colors.Text)},
+					}},
 				core.Show{When: func() bool {
 					ws := a.workspaceFor(s.Target, s.WS)
 					return ws != nil && !ws.Chat && s.agentMode.Get() == modeNormal && s.showingAsk() == nil
@@ -85,7 +88,8 @@ func starterPrompts(s *session, editor *core.Ref, column func() core.Length) cor
 	hasDraft := func() bool { return s.draft.Get() != "" }
 	button := func(id, title, prompt string) core.Node {
 		return ui.Button{Text: title, Variant: ui.ButtonOutline, TestID: "chat-starter-" + id, Disabled: hasDraft,
-			OnPress: func() {
+			Style:     core.Style{Height: core.Pt(44), MaxWidth: core.Pct(100), Padding: core.Symmetric(0, 16), CornerRadius: 8},
+			TextStyle: core.Style{FontSize: 14, LineHeight: 20}, OnPress: func() {
 				if s.draft.GetUntracked() == "" {
 					s.draft.Set(prompt)
 					editor.Focus()
@@ -93,8 +97,8 @@ func starterPrompts(s *session, editor *core.Ref, column func() core.Length) cor
 			}}
 	}
 	return core.View{TestID: "chat-starter-prompts",
-		Style: core.Style{Direction: core.Row, Wrap: core.Wrap, JustifyContent: core.JustifyCenter, Gap: 8,
-			Width: core.Pct(100), Margin: core.Edges{Bottom: 26}},
+		Style: core.Style{Direction: core.Row, Wrap: core.Wrap, JustifyContent: core.JustifyStart, Gap: 8,
+			Width: core.Pct(100), Margin: core.Edges{Bottom: 24}},
 		StyleFunc: func() core.Style {
 			style := core.Style{MaxWidth: column()}
 			// Keep the composer in place as the user starts typing.
@@ -110,42 +114,96 @@ func starterPrompts(s *session, editor *core.Ref, column func() core.Length) cor
 		}}
 }
 
-// welcome is shown when there is no session at all.
+// welcome is the project launchpad when no session is selected.
 func (a *app) welcome() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
-		hasWorkspace := len(a.workspaces.Get()) > 0
-		sub := apptext.T("先添加一个项目文件夹，再开会话。")
-		if hasWorkspace {
-			sub = apptext.T("打开一个会话，或者新建一个。")
+		height := core.NewSignal(cx, core.Points(0))
+		var projects []*workspace
+		var selected *workspace
+		for _, ws := range a.workspaces.Get() {
+			if ws.Chat {
+				continue
+			}
+			projects = append(projects, ws)
+			if projectWireKey(ws) == a.activeWS.Get() {
+				selected = ws
+			}
 		}
-		return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Padding: core.All(32)},
-			StyleFunc: func() core.Style { return core.Style{Background: colors.Background()} },
-			Children: []core.Node{
-				core.View{Style: core.Style{AlignItems: core.AlignCenter, Gap: 14, MaxWidth: core.Pt(420)}, Children: []core.Node{
-					a.brandMark(64, "welcome-logo"),
-					core.Text{Content: "PiDeck V2", Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 22, FontWeight: ui.Bold, LetterSpacing: 0.4},
-						StyleFunc: ui.Colored(colors.Text)},
-					core.Text{Content: sub, Style: core.Style{FontSize: 13, TextAlign: core.TextAlignCenter, LineHeight: 20}, StyleFunc: ui.Colored(colors.Muted)},
-					core.View{Style: core.Style{Direction: core.Row, Gap: 8}, Children: []core.Node{
-						core.Dynamic(func(*core.Scope) core.Node {
-							if hasWorkspace {
-								return ui.Button{Text: apptext.T("新建会话"), Variant: ui.ButtonPrimary, TestID: "welcome-primary", OnPress: func() {
-									path := a.activeWS.Get()
-									if path == "" {
-										if list := a.workspaces.Get(); len(list) > 0 {
-											path = list[0].Path
-										}
-									}
-									a.newSession(path)
-								}}
-							}
-							return ui.Button{Text: apptext.T("添加工作区"), Variant: ui.ButtonPrimary, TestID: "welcome-primary", OnPress: func() { a.pickNative("workspace") }}
-						}),
-						ui.Button{Text: apptext.T("直接对话"), Variant: ui.ButtonSecondary, TestID: "welcome-chat", OnPress: func() { a.openChat() }},
-						ui.Button{Text: apptext.T("导入会话"), Variant: ui.ButtonSecondary, TestID: "welcome-secondary", OnPress: func() { a.openImportDialog() }},
-					}},
+		if selected == nil && len(projects) > 0 {
+			selected = projects[0]
+		}
+		sub, primary := apptext.T("先添加一个项目文件夹，再开会话。"), apptext.T("添加工作区")
+		start := func() { a.pickNative("workspace") }
+		if selected != nil {
+			sub, primary = apptext.T("打开一个会话，或者新建一个。"), apptext.T("新建会话")
+			start = func() { a.newProjectSession(selected) }
+		}
+		children := []core.Node{
+			core.View{Style: core.Style{Gap: 24}, Children: []core.Node{
+				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 12}, Children: []core.Node{
+					a.brandMark(32, "welcome-logo"),
+					ui.Text("PiDeck V2", 17, ui.Medium, colors.Text),
 				}},
+				core.View{Style: core.Style{Gap: 12}, Children: []core.Node{
+					core.Text{Content: apptext.T("开始新的会话"), MaxLines: 2,
+						Style: core.Style{FontSize: 36, LineHeight: 44, FontWeight: ui.Medium}, StyleFunc: ui.Colored(colors.Text)},
+					core.Text{Content: sub, Style: core.Style{FontSize: 16, LineHeight: 26}, StyleFunc: ui.Colored(colors.Muted)},
+				}},
+				core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 12}, Children: []core.Node{
+					ui.Button{Text: primary, Variant: ui.ButtonPrimary, TestID: "welcome-primary", OnPress: start,
+						Style: core.Style{Height: core.Pt(44), Padding: core.Symmetric(0, 20)}, TextStyle: core.Style{FontSize: 15}},
+					ui.Button{Text: apptext.T("直接对话"), Variant: ui.ButtonSecondary, TestID: "welcome-chat", OnPress: func() { a.openChat() },
+						Style: core.Style{Height: core.Pt(44), Padding: core.Symmetric(0, 16)}, TextStyle: core.Style{FontSize: 15}},
+					ui.Button{Text: apptext.T("导入会话"), Variant: ui.ButtonGhost, TestID: "welcome-secondary", OnPress: func() { a.openImportDialog() },
+						Style: core.Style{Height: core.Pt(44), Padding: core.Symmetric(0, 16)}, TextStyle: core.Style{FontSize: 15}},
+				}},
+			}},
+		}
+		if len(projects) > 0 {
+			var rows []core.Node
+			for _, ws := range projects {
+				rows = append(rows, a.welcomeProject(ws))
+			}
+			children = append(children, core.View{TestID: "welcome-projects", Style: core.Style{Gap: 12}, Children: []core.Node{
+				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 12}, Children: []core.Node{
+					core.Text{Content: apptext.T("项目"), Style: core.Style{FontSize: 18, FontWeight: ui.Medium, FlexGrow: 1}, StyleFunc: ui.Colored(colors.Text)},
+					ui.Button{Text: apptext.T("添加工作区"), Icon: lucide.FolderPlus, Variant: ui.ButtonGhost,
+						TestID: "welcome-add-project", Style: core.Style{Height: core.Pt(44)}, OnPress: func() { a.pickNative("workspace") }},
+				}},
+				core.View{Style: core.Style{Gap: 4, Padding: core.All(8), BorderWidth: 1, CornerRadius: 12},
+					StyleFunc: func() core.Style { return core.Style{Background: colors.Surface(), BorderColor: colors.Border()} }, Children: rows},
+			}})
+		}
+		return core.Scroll{TestID: "welcome", OnLayout: func(b core.Bounds) { height.Set(b.Size.Height) },
+			Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)},
+			StyleFunc: func() core.Style { return core.Style{Background: colors.Background()} }, Children: []core.Node{
+				core.View{Style: core.Style{AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Padding: core.Symmetric(40, 24)},
+					StyleFunc: func() core.Style { return core.Style{MinHeight: core.Pt(height.Get())} }, Children: []core.Node{
+						core.View{Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pt(760), MinWidth: core.Pt(0), Gap: 36}, Children: children},
+					}},
+			}}
+	})
+}
+
+func (a *app) welcomeProject(ws *workspace) core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		colors := ui.ColorsOf(cx)
+		return base.Button{TestID: "welcome-project-" + ws.key(), Label: apptext.T("新建会话") + ": " + ws.label(),
+			OnPress: func(core.PressEvent) { a.newProjectSession(ws) },
+			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 16, MinHeight: core.Pt(72),
+				Padding: core.Symmetric(12, 16), CornerRadius: 8},
+			StyleFunc: func() core.Style {
+				return core.Style{Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}, FocusVisible: ui.FocusRing(cx, 2)}
+			}, Children: []core.Node{
+				ui.Icon(lucide.Folder, 17, colors.Muted),
+				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 4}, Children: []core.Node{
+					core.Text{Content: ws.label(), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+						Style: core.Style{FontSize: 16, LineHeight: 24, FontWeight: ui.Medium}, StyleFunc: ui.Colored(colors.Text)},
+					core.Text{Content: ws.Path, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
+						Style: core.Style{FontSize: 12, LineHeight: 20}, StyleFunc: ui.Colored(colors.Muted)},
+				}},
+				ui.Icon(lucide.ArrowUpRight, 16, colors.Muted),
 			}}
 	})
 }

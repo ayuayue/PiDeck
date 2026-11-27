@@ -283,8 +283,12 @@ func (a *app) composer(s *session, ref *core.Ref, surface func() core.Points) co
 			Style: core.Style{Padding: core.Edges{Top: 4, Right: 14, Left: 14},
 				FontSize: font, LineHeight: line, TextAlignVertical: core.TextAlignVerticalTop},
 			StyleFunc: func() core.Style {
-				limit := max(core.Points(48), composerMaxHeight(surface())-attachmentsHeight.Get())
-				height := min(max(max(core.Points(48), line+4), contentHeight.Get()), limit)
+				minimum := core.Points(48)
+				if len(s.turns.Get()) == 0 {
+					minimum = 72
+				}
+				limit := max(minimum, composerMaxHeight(surface())-attachmentsHeight.Get())
+				height := min(max(max(minimum, line+4), contentHeight.Get()), limit)
 				ink := colors.Text()
 				if highlighted() && cx.Env().OS() != core.OSWindows {
 					ink = core.Transparent
@@ -401,6 +405,12 @@ func (a *app) composer(s *session, ref *core.Ref, surface func() core.Points) co
 				core.View{TestID: "composer-model-anchor", StyleFunc: func() core.Style {
 					st := core.Style{MinWidth: core.Pt(0), AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
 						PointerEvents: core.PointerEventsBoxNone}
+					if len(s.turns.Get()) == 0 {
+						st.Width = core.Pct(100)
+						st.AlignItems = core.AlignStart
+						st.Padding = core.Edges{Top: 8}
+						return st
+					}
 					if controlsWidth.Get() < 560 {
 						// Stay in the normal flow when a drawer or a narrow window
 						// leaves too little room between attachments and Send.
@@ -429,7 +439,11 @@ func (a *app) composer(s *session, ref *core.Ref, surface func() core.Points) co
 				case focused.Get():
 					border = ui.Mix(colors.Border(), colors.Accent(), 0.5)
 				}
-				return core.Style{Background: surface, BorderColor: border,
+				minimum := core.Points(112)
+				if len(s.turns.Get()) == 0 {
+					minimum = 144
+				}
+				return core.Style{Background: surface, BorderColor: border, MinHeight: core.Pt(minimum),
 					Shadows: []core.BoxShadow{ui.Shadow(0, 2, 10, 0, ui.Black(0.06))}}
 			}, Children: body}
 		card.OnFileDragEnter = func() { dragging.Set(true) }
