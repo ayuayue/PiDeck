@@ -258,7 +258,7 @@
 | 批量移除项目、批量删除记忆 | ✅ | 明确选择与确认；移除项目不删除目录或源会话，记忆删除按作用域执行 |
 | 减弱动效、代码块自动换行 | ✅ | 应用设置与系统低动效共同生效，正文代码换行遵循统一设置 |
 | 缓存清理分区、通知历史 | ✅ | 白名单分类清理，不动会话/活动日志/崩溃报告；通知历史可查看并返回会话 |
-| macOS 正式签名 + 公证 + 更新 | 🟡 | Release workflow 接入签名/公证参数与 CI secrets；没有证书、Apple 凭据或 Mac 发布环境，本轮未签名/公证/发布 |
+| macOS 正式签名 + 公证 + 更新 | 🟡 | Release 复用 Electron/dev 的签名与公证 Secrets，强制校验 Developer ID、Team、hardened runtime、App/DMG 公证及 Gatekeeper；macOS runner 签名发布与实机 Sparkle 覆盖升级待验收，见[发布配置](DEVELOPMENT.md#发布工作流) |
 
 ### 移动端
 

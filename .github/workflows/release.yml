@@ -98,40 +98,35 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-4-1 libpango-1.0-0 libcairo2
 
+      - name: Test macOS release signing
+        if: runner.os == 'macOS'
+        run: python3 -B -m unittest discover -s scripts -p test_macos_release.py
+
+      - name: Build signed and notarized macOS release
+        if: runner.os == 'macOS'
+        env:
+          NSGO_UPDATES_KEY: ${{ secrets.NSGO_UPDATES_KEY }}
+          GOFLAGS: -tags=webassets
+          RELEASE_VERSION: ${{ steps.version.outputs.value }}
+          RELEASE_TARGET: ${{ matrix.target }}
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          MAC_CSC_NAME: ${{ secrets.MAC_CSC_NAME }}
+          PIDECK_MAC_TEAM_ID: ${{ vars.MAC_TEAM_ID || secrets.APPLE_TEAM_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: python3 scripts/macos_release.py --target "$RELEASE_TARGET" --version "$RELEASE_VERSION"
+
       - name: Build
+        if: runner.os != 'macOS'
         shell: bash
         env:
           NSGO_UPDATES_KEY: ${{ secrets.NSGO_UPDATES_KEY }}
           GOFLAGS: -tags=webassets
           RELEASE_VERSION: ${{ steps.version.outputs.value }}
           RELEASE_TARGET: ${{ matrix.target }}
-          MAC_CERT: ${{ secrets.MACOS_DEVELOPER_ID_P12_B64 }}
-          MAC_CERT_PASSWORD: ${{ secrets.MACOS_DEVELOPER_ID_P12_PASSWORD }}
-          MAC_IDENTITY: ${{ secrets.MACOS_DEVELOPER_ID_IDENTITY }}
-          MAC_NOTARY_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID }}
-          MAC_NOTARY_TEAM: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
-          MAC_NOTARY_PASSWORD: ${{ secrets.MACOS_NOTARY_APP_PASSWORD }}
-        run: |
-          args=(-target "$RELEASE_TARGET" -version "$RELEASE_VERSION")
-          if [[ "$RELEASE_TARGET" == macos_* && -n "$MAC_CERT" && -n "$MAC_IDENTITY" ]]; then
-            keychain="$RUNNER_TEMP/pideck-macos-signing.keychain-db"
-            keychain_password="$(openssl rand -hex 24)"
-            cert="$RUNNER_TEMP/pideck-macos-signing.p12"
-            trap 'security delete-keychain "$keychain" || true; rm -f "$cert"' EXIT
-            printf '%s' "$MAC_CERT" | base64 -D > "$cert"
-            security create-keychain -p "$keychain_password" "$keychain"
-            security unlock-keychain -p "$keychain_password" "$keychain"
-            security list-keychains -d user -s "$keychain" login.keychain-db
-            security import "$cert" -k "$keychain" -P "$MAC_CERT_PASSWORD" -T /usr/bin/codesign
-            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain"
-            args+=(-sign "$MAC_IDENTITY")
-            if [ -n "$MAC_NOTARY_ID" ] && [ -n "$MAC_NOTARY_TEAM" ] && [ -n "$MAC_NOTARY_PASSWORD" ]; then
-              xcrun notarytool store-credentials pideck-v2-release --keychain "$keychain" \
-                --apple-id "$MAC_NOTARY_ID" --team-id "$MAC_NOTARY_TEAM" --password "$MAC_NOTARY_PASSWORD"
-              args+=(-notarize pideck-v2-release)
-            fi
-          fi
-          go tool nsgo build "${args[@]}"
+        run: go tool nsgo build -target "$RELEASE_TARGET" -version "$RELEASE_VERSION"
 
       - name: Collect
         shell: bash

@@ -118,7 +118,23 @@ go run ./scripts pack
 | iOS | 真机 IPA、模拟器 `.app` 压缩包 |
 | Web | 可单独部署的 Web 压缩包；桌面安装包同时嵌入页面 |
 
-Release 的 `SHA256SUMS` 覆盖发布产物。更新签名使用仓库 Secret `NSGO_UPDATES_KEY`；移动端签名凭据可选：
+Release 的 `SHA256SUMS` 覆盖发布产物。更新签名使用仓库 Secret `NSGO_UPDATES_KEY`。
+
+macOS 构建复用 Electron / `dev` 分支的同名仓库 Secrets，不需要另外配置 `MACOS_DEVELOPER_ID_*` 或 `MACOS_NOTARY_*`：
+
+| Secret / Variable | 用途 |
+| --- | --- |
+| `MAC_CSC_LINK` | 必需；包含私钥的 Developer ID Application `.p12` 文件的 Base64 内容，不接受下载 URL |
+| `MAC_CSC_KEY_PASSWORD` | `.p12` 的密码；仅无密码的证书可留空 |
+| `MAC_CSC_NAME` | 可选；在证书名称或 SHA-1 指纹中选择签名身份；同一 Team 存在多个有效身份时必须指定 |
+| `APPLE_ID`、`APPLE_APP_SPECIFIC_PASSWORD`、`APPLE_TEAM_ID` | 必需；Apple 公证账号、App 专用密码与 10 位 Team ID |
+| `MAC_TEAM_ID`（Repository Variable） | 可选；固定预期 Team，配置时必须与 `APPLE_TEAM_ID` 一致 |
+
+`scripts/macos_release.py` 在临时钥匙串导入证书并选择指定 Team 的唯一有效 Developer ID 身份，再交给 NSGo 签名与公证。构建结束后校验 `.app` 和 DMG 的 Developer ID 证书链、Team、签名完整性、公证票据及 Gatekeeper，并核对应用标识和 hardened runtime；失败会阻断产物上传及发布。所有 macOS 工作流构建（包括手动构建）都执行这些门禁，缺少凭据时不会降级为未签名包。脚本退出时恢复原默认钥匙串和搜索列表，并删除临时签名材料。
+
+凭据配置入口为 GitHub 仓库的 **Settings → Secrets and variables → Actions**。已有同名 Repository Secrets 可直接使用；Environment Secrets 则须先在工作流 job 上关联对应 environment。代码检查不能证明凭据当前有效，首次发布仍需在 macOS runner 上完成签名、公证，并在 Mac 实机验收安装与 Sparkle 覆盖升级。
+
+移动端签名凭据可选：
 
 | Secret | 未配置时的行为 |
 | --- | --- |
