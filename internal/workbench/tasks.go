@@ -104,9 +104,15 @@ func (a *app) loadTasks() {
 	if json.Unmarshal(raw, &file) != nil {
 		return
 	}
+	tasks := file.Tasks[:0]
 	for _, t := range file.Tasks {
+		if t == nil {
+			continue
+		}
 		normalizeTask(t, now)
+		tasks = append(tasks, t)
 	}
+	file.Tasks = tasks
 	for i := range file.Runs {
 		if file.Runs[i].Status != taskRunning {
 			continue
@@ -348,13 +354,16 @@ func (a *app) taskSession(t scheduledTask) (*session, error) {
 	if !a.projectTrusted(ws) {
 		return nil, fmt.Errorf("%s", apptext.T("项目还没有被信任"))
 	}
-	s := a.blankSession("task-"+newSessionID(), ws, t.Name)
-	s.backend = "pi"
+	var preset *acpPreset
 	if t.Backend == "acp" {
-		preset := a.acpPresetByID(t.ACPPreset)
+		preset = a.acpPresetByID(t.ACPPreset)
 		if preset == nil {
 			return nil, fmt.Errorf("%s", apptext.T("找不到 ACP 预设：%s", t.ACPPreset))
 		}
+	}
+	s := a.blankSession("task-"+newSessionID(), ws, t.Name)
+	s.backend = "pi"
+	if preset != nil {
 		s.backend = "acp"
 		s.acpPreset = preset.ID
 	}
