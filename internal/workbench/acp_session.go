@@ -305,7 +305,7 @@ func (a *app) acpPrompt(s *session, turnID, text string, images []remotewire.Ima
 
 // acpFinish closes the turn.
 func (a *app) acpFinish(s *session, turnID, stop string, err error) {
-	if s.acpTurnID != turnID {
+	if s.deleting || a.byID[s.ID] != s || s.acpTurnID != turnID {
 		return
 	}
 	switch s.acpStopReason {
