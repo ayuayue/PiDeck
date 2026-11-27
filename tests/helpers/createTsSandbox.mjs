@@ -40,6 +40,9 @@ function resolveLocalFrom(fromFile, specifier) {
  * @property {Record<string, unknown>} [stubs]
  *   按 specifier 覆盖依赖（electron / fs 替身 / 纯函数桁）。
  *   命中即用，不再走文件系统解析——与 loadTsCommonJs 的 stubs 同语义。
+ * @property {(specifier: string) => unknown} [resolve]
+ *   自定义依赖解析：返回 undefined 表示不接管（保留 stubs 与相对/包名默认解析）。
+ *   用于「只替身几个模块、其余照常解析」的测试，避免它们再手写一套 vm require 桥。
  * @property {Record<string, unknown>} [globals]
  *   追加/覆盖 sandbox 全局（process、Buffer、计时器、自定义函数…）。
  * @property {Record<string, unknown>} [compilerOptions]
@@ -58,6 +61,7 @@ function resolveLocalFrom(fromFile, specifier) {
 export function createTsSandbox(options = {}) {
 	const cache = new Map();
 	const stubs = options.stubs ?? {};
+	const resolveDependency = options.resolve;
 	const globals = options.globals ?? {};
 	const compilerOptions = {
 		module: ts.ModuleKind.CommonJS,
@@ -81,6 +85,12 @@ export function createTsSandbox(options = {}) {
 
 		const localRequire = (specifier) => {
 			if (Object.hasOwn(stubs, specifier)) return stubs[specifier];
+			// 调用方自带的分支表（如只替身几个外部包、其余走默认解析的测试）在这里先问一句；
+			// 返回 undefined 表示不接管，交回下面的相对/包名解析。
+			if (resolveDependency) {
+				const handled = resolveDependency(specifier);
+				if (handled !== undefined) return handled;
+			}
 			if (specifier.startsWith(".") || specifier.startsWith("/")) {
 				// 关键：以**被加载文件所在目录**为基准（这是手写沙箱最容易写错的地方）
 				const resolved = resolveLocalFrom(absolutePath, specifier);

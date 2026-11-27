@@ -1,60 +1,14 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import test from "node:test";
-import ts from "typescript";
-import vm from "node:vm";
 import { atom, createStore } from "jotai/vanilla";
-
-const nodeRequire = createRequire(import.meta.url);
-
-let sharedFamilyRegistry = null;
-function getSharedFamilyRegistry() {
-	sharedFamilyRegistry ??= compileModule("src/renderer/src/atoms/session-family-registry.ts");
-	return sharedFamilyRegistry;
-}
-
-function compileModule(filePath, imports = {}) {
-	const output = ts.transpileModule(readFileSync(filePath, "utf8"), {
-		compilerOptions: {
-			module: ts.ModuleKind.CommonJS,
-			target: ts.ScriptTarget.ES2022,
-			esModuleInterop: true,
-		},
-		fileName: filePath,
-	}).outputText;
-	const module = { exports: {} };
-	// 会话级 atomFamily 释放登记表（2027-02）：被编译的 atoms 模块都 import 它，
-	// 手写映射不会预先列出，这里按需惰性编译同一实例（否则 require 以 tests/ 为基准解析失败）。
-	const localRequire = (specifier) => imports[specifier] ?? (specifier === "./session-family-registry" ? getSharedFamilyRegistry() : nodeRequire(specifier));
-	vm.runInNewContext(
-		output,
-		{
-			module,
-			exports: module.exports,
-			require: localRequire,
-			Map,
-		},
-		{ filename: filePath },
-	);
-	return module.exports;
-}
+import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
 
 function loadOutlineAtoms(buildOutline, toolStubs = {}) {
 	const currentSessionIdAtom = atom(undefined);
 	const sessionMessagesCacheAtom = atom({});
-	const projectionCache = compileModule("src/renderer/src/atoms/outlineProjectionCache.ts");
-	const outlineAtoms = compileModule("src/renderer/src/atoms/session-outline-atoms.ts", {
-		"./session-atoms": { currentSessionIdAtom, sessionMessagesCacheAtom },
-		"./outlineProjectionCache": projectionCache,
-		"../components/app/AppUtils": {
-			buildOutline,
-			getToolChangedLineCount: () => 0,
-			getToolFilePath: () => undefined,
-			getToolNewContent: () => undefined,
-			...toolStubs,
-		},
-	});
+	const load = createTsSandbox({ stubs: { "./session-atoms": { currentSessionIdAtom, sessionMessagesCacheAtom }, "../components/app/AppUtils": { buildOutline, getToolChangedLineCount: () => 0, getToolFilePath: () => undefined, getToolNewContent: () => undefined, ...toolStubs } } });
+	const projectionCache = load("src/renderer/src/atoms/outlineProjectionCache.ts");
+	const outlineAtoms = load("src/renderer/src/atoms/session-outline-atoms.ts");
 	return { ...outlineAtoms, currentSessionIdAtom, sessionMessagesCacheAtom, projectionCache };
 }
 
