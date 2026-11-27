@@ -167,3 +167,14 @@ go tool nsgo test -target windows -run '^TestAxisTickHitArea$' -timeout 45s ./in
 
 `TestSessionBucketsUseDisplayTimezone` 覆盖 UTC、UTC+8、UTC−8 下的混合时间戳、唯一日期标题和
 组内顺序；`TestSessionBucketsUseCalendarYesterday` 覆盖夏令时开始与结束的日期边界。
+
+## 发送引导的长文本显示
+
+发送引导使用独立标题，完整正文保存在过程记录中；不再把首行截成 80 字后当作整条记录。
+长正文沿用摘要的“展开全文／收起”，展开后可读到末尾。说明卡片的标题受可用宽度约束，
+图标和状态与正文各占自己的位置，长标题在窄窗口中也不会越过卡片边界。
+
+`TestSteeringPreservesFullText` 验证完整显示数据及原样发送给 pi 的正文；
+`TestSteeringFullTextCanBeExpanded` 验证末尾展开可见及再次收起；
+`TestNoteLongTitleFitsCard` 覆盖 720／320 pt 窗口。普通发送气泡、排队摘要和完整会话页面
+另有长段落与无空格链接的回归，普通消息未复现截字，不修改其显示规则。

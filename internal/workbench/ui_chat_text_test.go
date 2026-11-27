@@ -126,16 +126,21 @@ func TestNoteLongTitleFitsCard(t *testing.T) {
 		screen.Resize(width, 640)
 		card := screen.Find("id:note-card")
 		assertChatTextInside(t, card.Bounds(), screen.Find("id:text-column").Bounds())
+		found := false
 		var visit func(*nsgotest.View)
 		visit = func(view *nsgotest.View) {
-			if view.Kind == nsgotest.KindText && view.Text == message {
+			if view.Kind == nsgotest.KindText {
 				assertChatTextInside(t, view.Bounds(), card.Bounds())
+				found = found || view.Text == message
 			}
 			for _, child := range view.Children {
 				visit(child)
 			}
 		}
 		visit(card)
+		if !found {
+			t.Fatal("note title disappeared from its card")
+		}
 	}
 	shot(screen, "chat-text/note-long-title")
 }
