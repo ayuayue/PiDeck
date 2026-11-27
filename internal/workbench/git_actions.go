@@ -424,14 +424,23 @@ func (a *app) openFileHistory(path string) {
 
 // gitDiscardAll asks, then restores every path and removes untracked ones.
 func (a *app) gitDiscardAll() {
-	st := a.git.state.GetUntracked()
-	if len(st.Files) == 0 {
+	if len(a.git.state.GetUntracked().Files) == 0 {
 		return
 	}
+	project := a.git.seq
 	a.askConfirm("丢弃全部更改", "丢弃这个项目里所有未提交的改动？未跟踪的文件也会被删除，这一步不能撤销。", "全部丢弃", func() {
-		initial := st.Initial
+		if project != a.git.seq {
+			return
+		}
 		a.git.run("丢弃全部", func(g gitRunner) error {
-			if initial {
+			st, err := readGitStatus(g.t, g.path)
+			if err != nil {
+				return err
+			}
+			if !st.IsRepo || len(st.Files) == 0 {
+				return nil
+			}
+			if st.Initial {
 				if _, err := g.exec(60*time.Second, "rm", "--cached", "-r", "-q", "--", "."); err != nil {
 					return err
 				}
@@ -440,7 +449,7 @@ func (a *app) gitDiscardAll() {
 					return err
 				}
 			}
-			_, err := g.exec(60*time.Second, "clean", "-f", "-d", "--", ".")
+			_, err = g.exec(60*time.Second, "clean", "-f", "-d", "--", ".")
 			return err
 		}, nil)
 	})
