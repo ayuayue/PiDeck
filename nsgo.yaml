@@ -10,7 +10,7 @@ url_schemes: [pideck-v2]
 # of the repository; CI gets it as NSGO_UPDATES_KEY.
 updates:
   key: EHRrpwXBqCbUcC53NQZXBFa2C1D4EhF9BQ8FxMqieIY=
-  feed: https://github.com/ayuayue/PiDeck-V2/releases/latest/download/
+  feed: https://github.com/ayuayue/PiDeck/releases/download/nsgo-stable/
   automatic: true
 
 icon:

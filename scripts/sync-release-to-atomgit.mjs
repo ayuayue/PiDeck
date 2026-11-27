@@ -11,14 +11,14 @@
  * 1. 凭证只从环境变量来（ATOMGIT_TOKEN、GH_TOKEN），绝不硬编码，也不写进仓库。
  * 2. 去重按「附件名 + 远端实际大小」：同名同大小跳过，同名异大小算冲突并失败，
  *    避免同版本号重建产物后 AtomGit 静默留下旧包。--force-resync 先删附件再重传。
- * 3. latest 只跟着 GitHub 的 /releases/latest 走；同步旧 tag 时绝不抢占 latest。
+ * 3. latest 只跟着 NSGo 的 nsgo-stable 走；不读取共享仓库的 Electron latest。
  * 4. 所有请求都有超时：对象存储连接挂起不能让 CI job 卡死。
  *
  * 用法：
- *   node scripts/sync-release-to-atomgit.mjs --tags v2.0.0
- *   ATOMGIT_TOKEN=xxx node scripts/sync-release-to-atomgit.mjs --tags "v2.0.0,${OTHER_TAG}"
- *   ATOMGIT_TOKEN=xxx node scripts/sync-release-to-atomgit.mjs --tags v2.0.0 --force-resync
- *   ATOMGIT_TOKEN=xxx node scripts/sync-release-to-atomgit.mjs --tags v2.0.0 --dry-run
+ *   node scripts/sync-release-to-atomgit.mjs --tags nsgo-v2.0.0
+ *   ATOMGIT_TOKEN=xxx node scripts/sync-release-to-atomgit.mjs --tags "nsgo-v2.0.0,nsgo-stable"
+ *   ATOMGIT_TOKEN=xxx node scripts/sync-release-to-atomgit.mjs --tags nsgo-stable --force-resync
+ *   ATOMGIT_TOKEN=xxx node scripts/sync-release-to-atomgit.mjs --tags nsgo-v2.0.0 --dry-run
  */
 
 import fs from "node:fs";
@@ -40,7 +40,7 @@ const tags = (arg("--tags", "") || arg("--tag", ""))
 	.split(",")
 	.map((t) => t.trim())
 	.filter(Boolean);
-const ghRepo = arg("--gh-repo", "ayuayue/PiDeck-V2");
+const ghRepo = arg("--gh-repo", "ayuayue/PiDeck");
 const atomgitRepo = arg("--atomgit-repo", "ayuayue/PiDeck-V2");
 const apiBase = arg("--api-base", "https://api.atomgit.com/api/v5");
 const token = process.env.ATOMGIT_TOKEN || arg("--token", "");
@@ -49,7 +49,7 @@ const forceResync = args.includes("--force-resync");
 const dryRun = args.includes("--dry-run");
 
 if (!tags.length) {
-	console.error("缺少 --tags（可逗号分隔多个应用版本标签，如 v2.0.0）");
+	console.error("缺少 --tags（可逗号分隔多个 NSGo 标签，如 nsgo-v2.0.0）");
 	process.exit(2);
 }
 if (!token) {
@@ -85,7 +85,7 @@ async function githubRelease(tag) {
 }
 
 async function githubLatestTag() {
-	const res = await fetchWithTimeout(`https://api.github.com/repos/${ghRepo}/releases/latest`, {
+	const res = await fetchWithTimeout(`https://api.github.com/repos/${ghRepo}/releases/tags/nsgo-stable`, {
 		headers: githubHeaders({ Accept: "application/vnd.github+json" }),
 	});
 	if (!res.ok) return "";
@@ -241,7 +241,7 @@ async function syncTag(tag, latestTag, tmpDir) {
 	} else if (dryRun) {
 		console.log(`🅳 dry-run：跳过 [${tag}] 的 Release 元数据更新。`);
 	} else {
-		// 只有 GitHub 的 latest 才继承 latest；同步旧 tag 时不碰这个标记。
+		// 只有 NSGo stable 通道继承 latest；同步版本 tag 时不碰这个标记。
 		const body = { name: release.name || tag, body: release.body || "" };
 		if (isLatest) body.release_status = "latest";
 		const res = await fetchWithTimeout(atomgitUrl(`/releases/${encodeURIComponent(tag)}`), {
@@ -306,7 +306,7 @@ async function syncTag(tag, latestTag, tmpDir) {
 
 async function main() {
 	const latestTag = await githubLatestTag();
-	if (latestTag) console.log(`🔎 GitHub latest: ${latestTag}`);
+	if (latestTag) console.log(`🔎 GitHub NSGo stable: ${latestTag}`);
 	const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pideck-v2-sync-"));
 	let failures = [];
 	try {

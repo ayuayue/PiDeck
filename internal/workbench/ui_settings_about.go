@@ -48,7 +48,7 @@ func (a *app) settingsAbout() core.Node {
 							OnPress: func() { updater.Check(a.cx) }}),
 				),
 				setGroup("链接",
-					setRow("项目主页", "github.com/ayuayue/PiDeck-V2", ui.Button{Text: apptext.T("打开"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+					setRow("项目主页", "github.com/ayuayue/PiDeck/tree/nsgo", ui.Button{Text: apptext.T("打开"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
 						OnPress: func() { a.cx.OpenURL(appRepoURL, nil) }}),
 					setDivider(),
 					setRow("pi 项目", "github.com/badlogic/pi-mono", ui.Button{Text: apptext.T("复制"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {

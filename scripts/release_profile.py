@@ -14,7 +14,7 @@ def profile(text: str, version: str) -> str:
         "name: PiDeck V2\n": "name: PiDeck V2 Dev\n",
         "id: dev.nsgo.pideckv2\n": "id: dev.nsgo.pideckv2.dev\n",
         "[pideck-v2]": "[pideck-v2-dev]",
-        "/releases/latest/download/": "/releases/download/dev/",
+        "/releases/download/nsgo-stable/": "/releases/download/nsgo-dev/",
     }
     for before, after in replacements.items():
         if text.count(before) != 1:

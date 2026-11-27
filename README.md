@@ -1,5 +1,9 @@
 # PiDeck V2
 
+本项目与 Electron 版共用 [ayuayue/PiDeck](https://github.com/ayuayue/PiDeck) 仓库、Star 与 Issues。
+NSGo 版在 [`nsgo`](https://github.com/ayuayue/PiDeck/tree/nsgo) 分支开发；Electron 版保留 `main` / `dev` 分支，默认分支仍是 `main`。
+提交 NSGo 的 PR 时请选择 `nsgo` 作为目标分支。
+
 PiDeck V2 是用 [NSGo](https://nsgo.dev/) 重新设计与重写的新一代 PiDeck：一个原生窗口的 pi 工作台。
 它不是旧版的精简分支，而是重新实现的版本；应用标识、数据目录（Windows 稳定版为 `%APPDATA%\dev.nsgo.pideckv2`）、
 环境变量（`PIDECK_V2_*`）与插件 `runtime`（`pideck-v2`）都按 V2 独立命名，旧版数据不会被读取或改写。
@@ -654,9 +658,9 @@ GOFLAGS=-tags=webassets go tool nsgo build -target windows_x64
 
 ## 打包与发布
 
-- `ci.yml`：Ubuntu / Windows / macOS 三平台构建、vet、测试；另有 `cross` 作业把六个发布目标
+- `ci.yml`：在 `nsgo` 分支的 push 和以它为目标的 PR 上运行 Ubuntu / Windows / macOS 三平台构建、vet、测试；另有 `cross` 作业把六个发布目标
   在 Linux 上交叉编译一遍，平台相关代码坏了在 CI 就能看到
-- `release.yml`：打 `v*` 标签时构建六个目标——`windows_x64` / `windows_arm64` /
+- `release.yml`：打 `nsgo-v*` 标签时构建六个目标——`windows_x64` / `windows_arm64` /
   `macos_arm64` / `macos_x64` / `linux_x64` / `linux_arm64`，上传产物并发布 Release（附 `SHA256SUMS`，下载后可 `sha256sum -c` 校验）
 - 本机打包：`go tool nsgo build -target <目标> -version <版本>`，产物在 `dist/`
 - 本机出一个能给用户的包：`go run ./scripts pack`（菜单第 8 项）。它建当前平台并产出两样：
@@ -665,17 +669,19 @@ GOFLAGS=-tags=webassets go tool nsgo build -target windows_x64
   没装时 nsgo 仍写出 `.nsi`，脚本会打印装好后直接编译的命令，不用重新构建
 - 本地构建带不带浏览器页面，看 `webassets/site/` 在不在：在就自动加 `-tags=webassets`（`scripts pack`、
   `scripts build` 与菜单都这样）；不在就先跑 `go run ./scripts web`（菜单第 9 项）
-- `sync-atomgit.yml`：把 main、`v*` 标签和 Release 正文与附件同步到 AtomGit 的
-  `ayuayue/PiDeck-V2`（国内可达的镜像，应用的公告也先读它）。发版时先等附件清单稳定再传，
-  按「名字 + 大小」去重，同版本号重建产物后用 `force_resync` 重跑；令牌是仓库 Secret `ATOMGIT_TOKEN`
+- `sync-atomgit.yml`：把 `nsgo` 分支同步到 AtomGit `ayuayue/PiDeck-V2` 的 `main`，保留旧客户端的公告地址。
+  只推送 `nsgo-v*` 与 `nsgo-stable` 标签；稳定版发布完成后显式调用镜像工作流同步正文与附件，不依赖共享仓库的 Release 事件。
+  发版时先等附件清单稳定再传，版本附件按「名字 + 大小」去重，`nsgo-stable` 每次刷新；同版本号重建用 `force_resync` 重跑。
+  令牌是仓库 Secret `ATOMGIT_TOKEN`
 - 不带 `-target` 的 `go tool nsgo build` 只编 `nsgo.yaml` 里 `build.targets` 列出的目标，本机只留了
   `windows_x64`：跨平台编译是构建里最贵的一段，多一个平台就多一轮；要编别的平台就显式给 `-target`
 - 本机一次构建六个发布目标：`go run ./scripts build all`（不含安装器；正式包仍由 CI 出）
-- `.github/dependabot.yml`：每周检查 Go 依赖、每月检查 Actions 版本，开 PR 由 CI 验证
+- `.github/dependabot.yml`：定义每周 Go 依赖、每月 Actions 版本检查；NSGo 为非默认分支，需在仓库默认分支配置 `target-branch: nsgo` 后才能自动向它提 PR
 
 ## 自动更新
 
-direct 构建从 GitHub Release 的 `appcast-<目标>.xml` 检查更新：
+direct 构建从 GitHub Release 的 `appcast-<目标>.xml` 检查更新：稳定版固定读取 `releases/download/nsgo-stable/`，Dev 版读取 `releases/download/nsgo-dev/`。
+两个通道都会上传完整安装包与 appcast；NSGo 的所有 Release 设置 `make_latest: false`，共享仓库的全局 Latest 保留给 Electron。
 
 - 公钥写在 `nsgo.yaml` 的 `updates.key` 里（`updates.pub` 是同一份，方便查看）；私钥 `updates.key` 不入库，CI 用 `NSGO_UPDATES_KEY`
 - 生成密钥：`go tool nsgo keygen updates`
@@ -685,11 +691,12 @@ direct 构建从 GitHub Release 的 `appcast-<目标>.xml` 检查更新：
 - 本地没有 `updates.key` 时不会生成 macOS/Windows 的 appcast；开发构建从不检查更新
 - 浏览器端没有更新器：页面就是桌面端发出来的，刷新即拿到新版本；`/api/ping` 报的版本和页面自己的不一致时，页面顶部会提示刷新（`pageStale`）
 - CI 的 `release` 在发布前逐个检查 `appcast-<目标>.xml`：漏掉一个，那个目标的更新会一直 404 到下次发布
-- 打 tag 即发布：`git tag v2.0.0 && git push origin v2.0.0`，`release.yml` 编六个桌面目标（安装包里嵌了网页）、汇总校验和、上传 Release
+- 打 tag 即发布：`git tag nsgo-v2.0.0 && git push origin nsgo-v2.0.0`，`release.yml` 编六个桌面目标（安装包里嵌了网页）、汇总校验和、上传 Release
 
 ## 发布
 
-打 tag 即出全套包：`git tag v2.0.0 && git push origin v2.0.0`（也可以在 Actions 里手动跑 `release` 并填版本）。
+在 `nsgo` 分支打 tag 即出全套包：`git tag nsgo-v2.0.0 && git push origin nsgo-v2.0.0`；Dev 版使用 `nsgo-v2.0.1-dev.1` 这类标签。
+手动只构建不发布：`gh workflow run release.yml --ref nsgo -f version=2.0.0`。
 
 | 平台 | 产物 |
 | --- | --- |
@@ -707,7 +714,7 @@ Release 里的 `SHA256SUMS` 覆盖全部产物。除了 `NSGO_UPDATES_KEY`（签
 | `ANDROID_KEYSTORE_B64`（配 `NSGO_KEYSTORE_PASSWORD`、`NSGO_KEY_PASSWORD`） | APK 用 NSGo 的调试密钥签，能装能跑，但装过调试签名的手机无法用正式包覆盖升级 |
 | `IOS_PROFILE_B64`、`IOS_CERT_P12_B64`（配 `IOS_CERT_PASSWORD`、`IOS_KEYCHAIN_PASSWORD`、`IOS_TEAM`） | 出未签名 IPA，需要自己重签才能装；模拟器 `.app` 不受影响 |
 
-`ci` 在每次 push 和 PR 上跑：三平台测试、Android APK、iOS 模拟器包、Windows/Linux/macOS 交叉编译、网页（带 12 MB 体积上限）。
+`NSGo CI` 在 `nsgo` 的每次 push 和以它为目标的 PR 上跑：三平台测试、Android APK、iOS 模拟器包、Windows/Linux/macOS 交叉编译、网页（带 12 MB 体积上限）。
 
 ## 提示词库
 

@@ -26,10 +26,12 @@ import (
 
 // Where the feed lives, and how often it is read.
 const (
-	announceOwner  = "ayuayue"
-	announceRepo   = "PiDeck-V2"
-	announceFile   = "announcements.json"
-	announceBranch = "main"
+	announceOwner        = "ayuayue"
+	announceRepo         = "PiDeck"
+	announceFile         = "announcements.json"
+	announceBranch       = "nsgo"
+	announceMirrorRepo   = "PiDeck-V2"
+	announceMirrorBranch = "main"
 	// announceEvery is the wait between reads, and announceStartup the
 	// first one's, so desktops opening together do not hit the source at
 	// once.
@@ -95,7 +97,7 @@ type announceSource struct {
 func announceSources() []announceSource {
 	return []announceSource{
 		{URL: fmt.Sprintf("https://api.atomgit.com/api/v5/repos/%s/%s/contents/%s?ref=%s",
-			announceOwner, announceRepo, announceFile, announceBranch), Wrapped: true},
+			announceOwner, announceMirrorRepo, announceFile, announceMirrorBranch), Wrapped: true},
 		{URL: fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/%s/%s",
 			announceOwner, announceRepo, announceBranch, announceFile)},
 	}

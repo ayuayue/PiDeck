@@ -1,12 +1,13 @@
-name: ci
+name: NSGo CI
 
 on:
   push:
-    branches: [main]
+    branches: [nsgo]
   pull_request:
+    branches: [nsgo]
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: nsgo-ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

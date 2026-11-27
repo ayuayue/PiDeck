@@ -1,4 +1,4 @@
-name: 同步到 AtomGit
+name: NSGo 同步到 AtomGit
 
 # AtomGit 上的 ayuayue/PiDeck-V2 是国内可达的镜像：
 # - 应用的公告读取先走它的 contents 接口（GitHub raw 只兜底）；
@@ -6,14 +6,22 @@ name: 同步到 AtomGit
 # 仓库最初由 GitHub 导入，之后由这里推送，避免两边分叉。
 on:
   push:
-    branches: [main]
-    tags: ['v*']
-  release:
-    types: [published]
+    branches: [nsgo]
+  workflow_call:
+    inputs:
+      tags:
+        type: string
+        required: true
+      force_resync:
+        type: boolean
+        default: false
+    secrets:
+      ATOMGIT_TOKEN:
+        required: true
   workflow_dispatch:
     inputs:
       tags:
-        description: "要同步的 Release Tag：auto = GitHub 最新 Release；也可填 v2.0.0 或用逗号分隔多个"
+        description: "要同步的 NSGo Release：auto = nsgo-stable；也可填 nsgo-v2.0.0 或用逗号分隔多个"
         required: false
         type: string
         default: auto
@@ -26,13 +34,13 @@ on:
 permissions:
   contents: read
 
-# 同一时间只跑一次：release 事件与手动触发并发会互相抢占远端的写。
+# 同一时间只跑一次，避免分支推送、发布与手动同步抢占远端的写。
 concurrency:
-  group: sync-atomgit
+  group: nsgo-sync-atomgit
   cancel-in-progress: false
 
 env:
-  # 发版时 release:published 先于附件上传完成触发，要等清单稳定再同步，
+  # 镜像前确认附件清单稳定，手动同步也不会读到仍在上传的产物，
   # 否则会把只传了一半的安装包镜像过去。
   ASSET_WAIT_DEADLINE_SECONDS: "1200"
   ASSET_POLL_INTERVAL_SECONDS: "60"
@@ -41,8 +49,6 @@ env:
 jobs:
   sync:
     name: 同步分支、标签与 Release
-    # dev 通道的预发布不同步：AtomGit 只镜像 stable 更新源。
-    if: ${{ !(github.event_name == 'release' && github.event.release.prerelease) }}
     runs-on: ubuntu-latest
     timeout-minutes: 240
     steps:
@@ -64,7 +70,7 @@ jobs:
           echo "159.138.147.37 file.gitcode.com" | sudo tee -a /etc/hosts
           getent hosts api.atomgit.com file.atomgit.com file.gitcode.com
 
-      - name: 推送 main 与标签
+      - name: 推送 NSGo 到镜像 main 与独立标签
         env:
           ATOMGIT_TOKEN: ${{ secrets.ATOMGIT_TOKEN }}
         run: |
@@ -79,40 +85,40 @@ jobs:
             git -c credential.helper='!f() { echo username=ayuayue; echo "password=${ATOMGIT_TOKEN}"; }; f' \
               push https://atomgit.com/ayuayue/PiDeck-V2.git "$@"
           }
-          # 标签触发时 HEAD 是标签所在的提交；主分支按 origin/main 推。
-          git fetch --no-tags origin main
+          # 保留镜像 main，旧客户端的公告地址继续有效。
+          git fetch --no-tags origin nsgo
           push "FETCH_HEAD:refs/heads/main"
-          if git tag | grep -q .; then
-            push 'refs/tags/*:refs/tags/*'
+          if [ -n "$(git tag --list 'nsgo-v*')" ]; then
+            push 'refs/tags/nsgo-v*:refs/tags/nsgo-v*'
+          fi
+          # 只刷新 NSGo stable 别名，不推送共享仓库的 Electron 标签。
+          if git ls-remote --exit-code origin refs/tags/nsgo-stable >/dev/null; then
+            git fetch --force origin refs/tags/nsgo-stable:refs/tags/nsgo-stable
+            push '+refs/tags/nsgo-stable:refs/tags/nsgo-stable'
           fi
 
       - name: 解析要同步的 tag
         id: resolve
-        if: ${{ github.event_name == 'release' || github.event_name == 'workflow_dispatch' }}
+        if: ${{ github.event_name == 'workflow_dispatch' || inputs.tags != '' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          INPUT_TAGS: ${{ github.event.inputs.tags }}
-          EVENT_NAME: ${{ github.event_name }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAGS: ${{ inputs.tags }}
         run: |
           set -euo pipefail
           tags="$INPUT_TAGS"
-          if [ "$tags" = "auto" ] || [ -z "$tags" ]; then tags=""; fi
-          if [ -z "$tags" ] && [ "$EVENT_NAME" = "release" ]; then tags="$RELEASE_TAG"; fi
-          if [ -z "$tags" ]; then
-            tags=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName)
-          fi
-          # 只同步应用版本 tag（vX.Y.Z）；非版本文档类标签会抢走 AtomGit 的 latest。
-          tags=$(echo "$tags" | tr ',' '\n' | sed 's/[[:space:]]//g' | grep -E '^v[0-9]' | paste -sd, -)
-          if [ -z "$tags" ]; then
-            echo "::error::没有可同步的应用版本 tag（vX.Y.Z）"
-            exit 1
-          fi
+          if [ "$tags" = "auto" ] || [ -z "$tags" ]; then tags="nsgo-stable"; fi
+          tags=$(echo "$tags" | tr ',' '\n' | sed 's/[[:space:]]//g' | paste -sd, -)
+          for tag in $(echo "$tags" | tr ',' ' '); do
+            if [[ "$tag" != nsgo-stable && ! "$tag" =~ ^nsgo-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::只允许 NSGo 稳定版本标签或 nsgo-stable：$tag"
+              exit 1
+            fi
+          done
           echo "同步 tag：${tags}"
           echo "tags=${tags}" >> "$GITHUB_OUTPUT"
 
       - name: 等 Release 附件传完
-        if: ${{ github.event_name == 'release' || github.event_name == 'workflow_dispatch' }}
+        if: ${{ github.event_name == 'workflow_dispatch' || inputs.tags != '' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAGS: ${{ steps.resolve.outputs.tags }}
@@ -141,14 +147,18 @@ jobs:
           done
 
       - name: 同步 Release 与附件
-        if: ${{ github.event_name == 'release' || github.event_name == 'workflow_dispatch' }}
+        if: ${{ github.event_name == 'workflow_dispatch' || inputs.tags != '' }}
         env:
           ATOMGIT_TOKEN: ${{ secrets.ATOMGIT_TOKEN }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAGS: ${{ steps.resolve.outputs.tags }}
-          FORCE_RESYNC: ${{ github.event.inputs.force_resync }}
+          FORCE_RESYNC: ${{ inputs.force_resync }}
         run: |
           set -euo pipefail
-          extra=""
-          if [ "${FORCE_RESYNC}" = "true" ]; then extra="--force-resync"; fi
-          node scripts/sync-release-to-atomgit.mjs --tags "$TAGS" --gh-repo "$GITHUB_REPOSITORY" $extra
+          for tag in $(echo "$TAGS" | tr ',' ' '); do
+            extra=()
+            if [ "${FORCE_RESYNC}" = "true" ] || [ "$tag" = "nsgo-stable" ]; then
+              extra+=(--force-resync)
+            fi
+            node scripts/sync-release-to-atomgit.mjs --tags "$tag" --gh-repo "$GITHUB_REPOSITORY" "${extra[@]}"
+          done

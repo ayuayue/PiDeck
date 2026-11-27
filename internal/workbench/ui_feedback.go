@@ -20,7 +20,7 @@ import (
 )
 
 // feedbackIssueBase is where a report is sent.
-const feedbackIssueBase = "https://github.com/ayuayue/PiDeck-V2/issues/new"
+const feedbackIssueBase = "https://github.com/ayuayue/PiDeck/issues/new"
 
 // openFeedback shows the dialog with a fresh report.
 func (a *app) openFeedback() {

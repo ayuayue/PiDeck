@@ -21,7 +21,7 @@ import (
 
 // selfHostDocsURL is the step-by-step guide for a user's own tunnel or
 // Worker.
-const selfHostDocsURL = "https://github.com/ayuayue/PiDeck-V2/blob/main/docs/remote-self-host.md"
+const selfHostDocsURL = "https://github.com/ayuayue/PiDeck/blob/nsgo/docs/remote-self-host.md"
 
 // settingsRemote draws the remote access section.
 func (a *app) settingsRemote() core.Node {

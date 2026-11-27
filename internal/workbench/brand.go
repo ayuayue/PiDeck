@@ -33,7 +33,7 @@ const (
 	logoSourceMax    = 12 << 20
 	logoDataMax      = 1_500_000
 	logoPixelsMax    = 40_000_000
-	appRepoURL       = "https://github.com/ayuayue/PiDeck-V2"
+	appRepoURL       = "https://github.com/ayuayue/PiDeck/tree/nsgo"
 )
 
 // These are pi's official 4×4 TUI pixels and fixed brand colors. Keep the
