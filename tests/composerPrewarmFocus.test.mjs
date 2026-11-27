@@ -47,6 +47,10 @@ const timeline = compile("src/renderer/src/hooks/useSessionTimelineController.ts
 	// 分批扩窗的纯函数（2026-11 从 controller 提出）：编译真模块而不是 stub ——
 	// 这层逻辑自己有行为测试，stub 掉等于让本测试跑在假实现上。
 	"../components/session/timeline/windowExpandPlan": windowExpandPlan,
+	// 一次取页的 hook（2026-11 本片新增）：controller 在 pendingJump 分支里调它。
+	// 本测试只驱动 composer 预热焦点，不驱动跳转取页，所以给「不取页」的最小 stub；
+	// 缺失时 loader 会回落到以 tests/ 为基准的 nodeRequire，解析 .ts 必掉 —— 与上面两条同因。
+	"../components/session/timeline/useJumpPageFetch": { useJumpPageFetch: () => () => false },
 	// 流式跳转仲裁的纯判定（2026-11 新增）：同样编译真模块，别 stub 成恒 false。
 	"./timelineJumpGuard": timelineJumpGuard,
 	// 控制器用 t() 播报「DSH 已停止」文案，而 i18n.ts 会拉起整份字典 → 给最小 stub；
