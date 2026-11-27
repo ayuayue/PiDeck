@@ -1,10 +1,7 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import test from "node:test";
-import ts from "typescript";
-import vm from "node:vm";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
 
@@ -38,39 +35,19 @@ function resolveUnstubbedRequire(specifier) {
 	return piSandbox(target);
 }
 
-function transpile(filePath) {
-	return ts.transpileModule(readFileSync(filePath, "utf8"), {
-		compilerOptions: {
-			module: ts.ModuleKind.CommonJS,
-			target: ts.ScriptTarget.ES2022,
-		},
-	}).outputText;
-}
-
+/** 生产模块一律经统一沙箱加载：相对 import 按源文件目录解析，模块缓存保证同一实例。 */
 function loadWslPaths() {
-	const sandbox = { exports: {}, require };
-	vm.runInNewContext(transpile("src/main/wsl/WslPaths.ts"), sandbox, { filename: "WslPaths.ts" });
-	return sandbox.exports;
+	return piSandbox("src/main/wsl/WslPaths.ts");
 }
 
 function loadAgentManager(existsPredicate = () => false) {
 	const wslPaths = loadWslPaths();
 	// AgentManager 新增 streamGate 依赖（abort 流式封印）；与 WslPaths 一样显式沙箱加载。
-	const streamGate = (() => {
-		const sandbox = { exports: {}, require };
-		vm.runInNewContext(transpile("src/main/pi/streamGate.ts"), sandbox, { filename: "streamGate.ts" });
-		return sandbox.exports;
-	})();
+	const streamGate = piSandbox("src/main/pi/streamGate.ts");
 	// cacheHitStats：标准 loader 真实加载——该模块依赖 node:fs/promises 与 ../tokenEstimate，
 	// 裸 require 沙箱会把相对 specifier 按 tests/ 解析致 MODULE_NOT_FOUND（见 createTsSandbox 顶部注释）。
 	const cacheHitStats = loadTsCommonJs("src/main/pi/cacheHitStats.ts");
-	const sessionEntryIds = (() => {
-		const sandbox = { exports: {}, require };
-		vm.runInNewContext(transpile("src/main/pi/sessionEntryIds.ts"), sandbox, {
-			filename: "sessionEntryIds.ts",
-		});
-		return sandbox.exports;
-	})();
+	const sessionEntryIds = piSandbox("src/main/pi/sessionEntryIds.ts");
 	const calls = {
 		copyFile: [],
 		existsSync: [],
@@ -118,48 +95,166 @@ function loadAgentManager(existsPredicate = () => false) {
 			calls.writeFile.push(args);
 		},
 	};
-	const historyReaderModule = { exports: {} };
-	vm.runInNewContext(
-		transpile("src/main/pi/SessionHistoryReader.ts"),
-		{
-			Buffer,
-			console: { log() {}, warn() {}, error() {} },
-			exports: historyReaderModule.exports,
-			module: historyReaderModule,
-			Promise,
-			require: (id) =>
-				id === "node:fs/promises"
-					? fsPromises
-					: // 停止身份缓存（72fe93da 起 SessionHistoryReader 依赖）：真实加载保持身份核对行为
-						id === "./stoppedMessageIdentity"
-						? loadTsCommonJs("src/main/pi/stoppedMessageIdentity.ts")
-						: // entryId 槽位判定（isRoleMessageRole）：真实加载，0.86 system 条目对齐依赖它
-							id === "./sessionEntryIds"
-							? loadTsCommonJs("src/main/pi/sessionEntryIds.ts")
-							: id === "../../shared/sessionTodo"
-								? // todo 快照解析纯函数：本测试不覆盖，空实现满足依赖契约
-									{ parseTodoSnapshotData: () => undefined }
-								: // 工具推导纯函数：本测试不覆盖（另有 sessionAcpDelegateDerive.test.mjs），空实现满足依赖契约
-									id === "./derivedSubagents"
-									? { deriveToolSubagentEntries: () => [] }
-									: // 会话 JSONL 流式行扫描器：真实加载，但注入被断言的 fs 替身（读到 host 路径）
-										id === "../sessions/jsonlLineStream"
-										? loadTsCommonJs("src/main/sessions/jsonlLineStream.ts", { stubs: { "node:fs/promises": fsPromises } })
-										: // 有界历史分页（宿主插件投影 readBoundedEntryPage）：真实加载，
-											// 注入同一套 fs 替身——open 按 position 读 host 路径，路径断言依赖它
-											id === "../sessions/boundedEntryPage"
-											? loadTsCommonJs("src/main/sessions/boundedEntryPage.ts", { stubs: { "node:fs/promises": fsPromises } })
-											: // 拆分后的协作者（纯解析/分页算术）：真实加载，宿主只做转发
-												id.startsWith("./sessionReader/")
-												? loadTsCommonJs(`src/main/pi/sessionReader/${id.slice("./sessionReader/".length)}.ts`)
-												: // 其余相对 import 按**源文件目录**解析：手写 require 桥以 tests/ 为基准，
-													// 生产代码一旦新增本地依赖就整片 MODULE_NOT_FOUND（2026-11-25 连踩两次）。
-													id.startsWith(".")
-													? loadTsCommonJs(path.resolve("src/main/pi", id) + ".ts")
-													: require(id),
+	// 整片依赖图交给统一沙箱：相对 import 按源文件目录解析（含 sessionReader 协作者与新增本地模块），
+	// 只有真正要替身的三类才写进 stubs —— fs、纯函数桩、需要单独断言行为的外部模块。
+	const loadReader = createTsSandbox({
+		stubs: {
+			"node:fs/promises": fsPromises,
+			"./stoppedMessageIdentity": loadTsCommonJs("src/main/pi/stoppedMessageIdentity.ts"),
+			"./sessionEntryIds": loadTsCommonJs("src/main/pi/sessionEntryIds.ts"),
+			"../../shared/sessionTodo": { parseTodoSnapshotData: () => undefined },
+			"./derivedSubagents": { deriveToolSubagentEntries: () => [] },
+			"../sessions/jsonlLineStream": loadTsCommonJs("src/main/sessions/jsonlLineStream.ts", { stubs: { "node:fs/promises": fsPromises } }),
+			"../sessions/boundedEntryPage": loadTsCommonJs("src/main/sessions/boundedEntryPage.ts", { stubs: { "node:fs/promises": fsPromises } }),
 		},
-		{ filename: "SessionHistoryReader.ts" },
-	);
+	});
+	/** AgentManager 的依赖替身表：只替身外部包与被断言的 fs，其余交给统一沙箱按源文件目录解析。 */
+	const agentManagerStubs = (id) => {
+		// 停止身份缓存（72fe93da 起 AgentManager 依赖）：真实加载保持身份核对行为
+		if (id === "./stoppedMessageIdentity") return loadTsCommonJs("src/main/pi/stoppedMessageIdentity.ts");
+		// 项目信任闸（Wave 4C 迁出）：真实加载，但注入被断言的 fs/path/os 替身与 WslPaths 沙箱实例
+		if (id === "./projectTrustGate") {
+			return loadTsCommonJs("src/main/pi/projectTrustGate.ts", {
+				stubs: {
+					"node:fs": {
+						existsSync: (filePath) => {
+							calls.existsSync.push(filePath);
+							return existsPredicate(filePath);
+						},
+					},
+					"node:path": path.win32,
+					"node:os": { homedir: () => "C:\\Users\\tester" },
+					"../../shared/ipc": { ipcChannels: {} },
+					"../wsl/WslPaths": wslPaths,
+				},
+			});
+		}
+		if (id === "electron") return { app: {}, Notification: class {} };
+		if (id === "node:fs/promises") return fsPromises;
+		if (id === "node:fs") {
+			return {
+				existsSync: (filePath) => {
+					calls.existsSync.push(filePath);
+					return existsPredicate(filePath);
+				},
+				readdirSync: (dir) => {
+					calls.readdirSync.push(dir);
+					return ["session.jsonl.100.edit-backup", "session.jsonl.200.edit-backup"];
+				},
+				statSync: (filePath) => {
+					calls.statSync.push(filePath);
+					return { size: 128 };
+				},
+			};
+		}
+		if (id === "node:path") return path.win32;
+		if (id === "node:os") return { homedir: () => "C:\\Users\\tester" };
+		if (id === "../../shared/ipc") return { ipcChannels: {} };
+		if (id === "./PiProcess") return { PiProcess: class {} };
+		if (id === "./bashResult") return { formatBashToolMessage: () => ({}) };
+		if (id === "./messageContent") return { extractMessageText: (value) => String(value ?? "") };
+		if (id === "./historyMessages") return { mergeHistoryWithPreservedMessages: (value) => value };
+		if (id === "./agentSessionIdentity") return { buildAgentSessionKey: () => undefined };
+		if (id === "./SessionFileEditor") return { SessionFileEditor };
+		if (id === "./SessionHistoryReader") return historyReaderModule.exports;
+		if (id === "./AgentMessageProjector") {
+			return {
+				AgentMessageProjector: class {},
+				buildActiveBranchEntryIds: () => [],
+			};
+		}
+		if (id === "./sessionEntryIds") return sessionEntryIds;
+		if (id === "./agentUtils") {
+			return {
+				stripAnsi: (text) => text,
+				pickNumber: (...values) => {
+					for (const v of values) if (typeof v === "number") return v;
+				},
+				clampPercent: (v) => v,
+				trimHistoryMessages: (msgs) => msgs,
+				cleanTitle: (t) => t,
+				inferTitleFromMessages: () => undefined,
+				isDefaultAgentTitle: () => false,
+			};
+		}
+		if (id === "./LatestByKeyEmitter") return { LatestByKeyEmitter };
+		if (id === "./extensionStartupFallback") {
+			return {
+				shouldRetryWithoutExtensions: () => false,
+				formatExtensionFallbackDebug: () => "",
+			};
+		}
+		if (id === "./extensionError") {
+			return { formatExtensionErrorReason: (error) => String(error) };
+		}
+		// 工具推导纯函数：本测试不覆盖（另有 sessionAcpDelegateDerive.test.mjs），空实现满足依赖契约
+		if (id === "./derivedSubagents") {
+			return { mergeSubagentSources: (records) => records };
+		}
+		if (id === "./thinkingLevels") {
+			return { parseAvailableThinkingLevelsResponse: (response) => response?.data?.levels };
+		}
+		if (id === "./compactRpc") {
+			return {
+				createCompactRpcRequest: (prompt) => (prompt ? { type: "compact", prompt, customInstructions: prompt } : { type: "compact" }),
+			};
+		}
+		// 上下文接管探测：本测试不涉及压缩归属，按「没有接管者」透传（会退回原生 compact RPC）
+		if (id === "./compactionOwner") return noCompactionOwner;
+		if (id === "./streamGate") return streamGate;
+		if (id === "./cacheHitStats") return cacheHitStats;
+		if (id === "../../shared/toolRuntimeState") return { updateActiveToolCalls: () => new Map() };
+		if (id === "../wsl/WslPaths") return wslPaths;
+		// 25fd516 起 AgentManager 引入内置扩展参数拼接；WSL 路径测试不涉及扩展加载，透传即可
+		if (id === "../extensions/builtInExtensions") {
+			return { appendBuiltInExtensionArgs: (args) => [...args] };
+		}
+		// 扩展白名单解析器（禁用功能）；本测试不涉及，返回 null（关闭白名单）
+		if (id === "../extensions/enabledExtensionResolver") {
+			return { resolveEnabledExtensionPaths: () => null };
+		}
+		// 共享扩展 resolver（issue #181）：本测试不涉及扩展加载，透传空实现即可
+		if (id === "../extensions/piProcessExtensionResolvers") {
+			return {
+				createPiProcessExtensionResolvers: () => ({
+					resolveBuiltInExtensionPaths: () => [],
+					resolveEnabledExtensionPaths: () => null,
+				}),
+			};
+		}
+		// 技能白名单 resolver：本测试不涉及技能加载，透传空实现即可
+		if (id === "../skills/piProcessSkillResolvers") {
+			return {
+				createPiProcessSkillResolvers: () => ({
+					resolveEnabledSkillPaths: () => null,
+				}),
+			};
+		}
+		// 提示词模板白名单 resolver：本测试不涉及模板加载，透传空实现即可
+		if (id === "../prompts/piProcessPromptResolvers") {
+			return {
+				createPiProcessPromptResolvers: () => ({
+					resolveEnabledPromptPaths: () => null,
+				}),
+			};
+		}
+		// rewind checkpoint 纯 git 模块：WSL 路径测试不涉及回退，空桩满足依赖契约
+		// （桩返回空对象即可——命名导入在调用时才取属性，本测试不触发 rewind 方法）。
+		if (id === "../rewind/index.ts") return {};
+		// 相对 import 按 src/main/pi 解析后交给 Node 原生 TS 加载（见 helper 注释）；
+		// 直接交 require(id) 会以 tests/ 为基准，生产新增本地模块（#213 的
+		// ./messagePayloadSize）就会让本文件整片 MODULE_NOT_FOUND。
+		// 未显式打桩的相对 import：交给统一沙箱按**源文件目录**（src/main/pi）解析。
+		return undefined;
+	};
+	const sandbox = createTsSandbox({
+		resolve: agentManagerStubs,
+		globals: {
+			console: { log() {}, warn() {}, error() {} },
+			process: { ...process, platform: "win32" },
+		},
+	});
+	const historyReaderModule = { exports: loadReader("src/main/pi/SessionHistoryReader.ts") };
 	class SessionFileEditor {
 		async truncateForResend({ file }) {
 			const content = await fsPromises.readFile(file.hostPath, "utf8");
@@ -171,154 +266,8 @@ function loadAgentManager(existsPredicate = () => false) {
 		flush() {}
 		cancel() {}
 	}
-	const sandbox = {
-		Buffer,
-		clearTimeout,
-		console: { log() {}, warn() {}, error() {} },
-		exports: {},
-		process: { ...process, platform: "win32" },
-		setTimeout,
-		require: (id) => {
-			// 停止身份缓存（72fe93da 起 AgentManager 依赖）：真实加载保持身份核对行为
-			if (id === "./stoppedMessageIdentity") return loadTsCommonJs("src/main/pi/stoppedMessageIdentity.ts");
-			// 项目信任闸（Wave 4C 迁出）：真实加载，但注入被断言的 fs/path/os 替身与 WslPaths 沙箱实例
-			if (id === "./projectTrustGate") {
-				return loadTsCommonJs("src/main/pi/projectTrustGate.ts", {
-					stubs: {
-						"node:fs": {
-							existsSync: (filePath) => {
-								calls.existsSync.push(filePath);
-								return existsPredicate(filePath);
-							},
-						},
-						"node:path": path.win32,
-						"node:os": { homedir: () => "C:\\Users\\tester" },
-						"../../shared/ipc": { ipcChannels: {} },
-						"../wsl/WslPaths": wslPaths,
-					},
-				});
-			}
-			if (id === "electron") return { app: {}, Notification: class {} };
-			if (id === "node:fs/promises") return fsPromises;
-			if (id === "node:fs") {
-				return {
-					existsSync: (filePath) => {
-						calls.existsSync.push(filePath);
-						return existsPredicate(filePath);
-					},
-					readdirSync: (dir) => {
-						calls.readdirSync.push(dir);
-						return ["session.jsonl.100.edit-backup", "session.jsonl.200.edit-backup"];
-					},
-					statSync: (filePath) => {
-						calls.statSync.push(filePath);
-						return { size: 128 };
-					},
-				};
-			}
-			if (id === "node:path") return path.win32;
-			if (id === "node:os") return { homedir: () => "C:\\Users\\tester" };
-			if (id === "../../shared/ipc") return { ipcChannels: {} };
-			if (id === "./PiProcess") return { PiProcess: class {} };
-			if (id === "./bashResult") return { formatBashToolMessage: () => ({}) };
-			if (id === "./messageContent") return { extractMessageText: (value) => String(value ?? "") };
-			if (id === "./historyMessages") return { mergeHistoryWithPreservedMessages: (value) => value };
-			if (id === "./agentSessionIdentity") return { buildAgentSessionKey: () => undefined };
-			if (id === "./SessionFileEditor") return { SessionFileEditor };
-			if (id === "./SessionHistoryReader") return historyReaderModule.exports;
-			if (id === "./AgentMessageProjector") {
-				return {
-					AgentMessageProjector: class {},
-					buildActiveBranchEntryIds: () => [],
-				};
-			}
-			if (id === "./sessionEntryIds") return sessionEntryIds;
-			if (id === "./agentUtils") {
-				return {
-					stripAnsi: (text) => text,
-					pickNumber: (...values) => {
-						for (const v of values) if (typeof v === "number") return v;
-					},
-					clampPercent: (v) => v,
-					trimHistoryMessages: (msgs) => msgs,
-					cleanTitle: (t) => t,
-					inferTitleFromMessages: () => undefined,
-					isDefaultAgentTitle: () => false,
-				};
-			}
-			if (id === "./LatestByKeyEmitter") return { LatestByKeyEmitter };
-			if (id === "./extensionStartupFallback") {
-				return {
-					shouldRetryWithoutExtensions: () => false,
-					formatExtensionFallbackDebug: () => "",
-				};
-			}
-			if (id === "./extensionError") {
-				return { formatExtensionErrorReason: (error) => String(error) };
-			}
-			// 工具推导纯函数：本测试不覆盖（另有 sessionAcpDelegateDerive.test.mjs），空实现满足依赖契约
-			if (id === "./derivedSubagents") {
-				return { mergeSubagentSources: (records) => records };
-			}
-			if (id === "./thinkingLevels") {
-				return { parseAvailableThinkingLevelsResponse: (response) => response?.data?.levels };
-			}
-			if (id === "./compactRpc") {
-				return {
-					createCompactRpcRequest: (prompt) => (prompt ? { type: "compact", prompt, customInstructions: prompt } : { type: "compact" }),
-				};
-			}
-			// 上下文接管探测：本测试不涉及压缩归属，按「没有接管者」透传（会退回原生 compact RPC）
-			if (id === "./compactionOwner") return noCompactionOwner;
-			if (id === "./streamGate") return streamGate;
-			if (id === "./cacheHitStats") return cacheHitStats;
-			if (id === "../../shared/toolRuntimeState") return { updateActiveToolCalls: () => new Map() };
-			if (id === "../wsl/WslPaths") return wslPaths;
-			// 25fd516 起 AgentManager 引入内置扩展参数拼接；WSL 路径测试不涉及扩展加载，透传即可
-			if (id === "../extensions/builtInExtensions") {
-				return { appendBuiltInExtensionArgs: (args) => [...args] };
-			}
-			// 扩展白名单解析器（禁用功能）；本测试不涉及，返回 null（关闭白名单）
-			if (id === "../extensions/enabledExtensionResolver") {
-				return { resolveEnabledExtensionPaths: () => null };
-			}
-			// 共享扩展 resolver（issue #181）：本测试不涉及扩展加载，透传空实现即可
-			if (id === "../extensions/piProcessExtensionResolvers") {
-				return {
-					createPiProcessExtensionResolvers: () => ({
-						resolveBuiltInExtensionPaths: () => [],
-						resolveEnabledExtensionPaths: () => null,
-					}),
-				};
-			}
-			// 技能白名单 resolver：本测试不涉及技能加载，透传空实现即可
-			if (id === "../skills/piProcessSkillResolvers") {
-				return {
-					createPiProcessSkillResolvers: () => ({
-						resolveEnabledSkillPaths: () => null,
-					}),
-				};
-			}
-			// 提示词模板白名单 resolver：本测试不涉及模板加载，透传空实现即可
-			if (id === "../prompts/piProcessPromptResolvers") {
-				return {
-					createPiProcessPromptResolvers: () => ({
-						resolveEnabledPromptPaths: () => null,
-					}),
-				};
-			}
-			// rewind checkpoint 纯 git 模块：WSL 路径测试不涉及回退，空桩满足依赖契约
-			// （桩返回空对象即可——命名导入在调用时才取属性，本测试不触发 rewind 方法）。
-			if (id === "../rewind/index.ts") return {};
-			// 相对 import 按 src/main/pi 解析后交给 Node 原生 TS 加载（见 helper 注释）；
-			// 直接交 require(id) 会以 tests/ 为基准，生产新增本地模块（#213 的
-			// ./messagePayloadSize）就会让本文件整片 MODULE_NOT_FOUND。
-			// 未显式打桩的相对 import：交给统一沙箱按**源文件目录**（src/main/pi）解析。
-			return resolveUnstubbedRequire(id);
-		},
-	};
-	vm.runInNewContext(transpile("src/main/pi/AgentManager.ts"), sandbox, { filename: "AgentManager.ts" });
-	return { ...sandbox.exports, calls, wslPaths };
+
+	return { ...sandbox("src/main/pi/AgentManager.ts"), calls, wslPaths };
 }
 
 function createManager(AgentManager, configManager = {}) {

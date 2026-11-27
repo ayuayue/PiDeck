@@ -1,98 +1,26 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
-import { createRequire } from "node:module";
-import { dirname, resolve } from "node:path";
 import test from "node:test";
-import ts from "typescript";
-import vm from "node:vm";
 import { createStore } from "jotai/vanilla";
-import { loadSessionAtoms } from "./helpers/sessionAtomsSources.mjs";
+import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
 
-const nodeRequire = createRequire(import.meta.url);
-
-function compileModule(filePath, imports = {}) {
-	const source = readFileSync(filePath, "utf8");
-	const output = ts.transpileModule(source, {
-		compilerOptions: {
-			module: ts.ModuleKind.CommonJS,
-			target: ts.ScriptTarget.ES2022,
-			esModuleInterop: true,
-		},
-		fileName: filePath,
-	}).outputText;
-	const module = { exports: {} };
-	// 相对 import 必须按**被编译源文件所在目录**解析，不能用 tests/ 作基准：
-	// 生产代码拆出一个本地模块（如 atoms/historyPageCursor），这里就会整片
-	// MODULE_NOT_FOUND，而报错指向测试文件本身 —— 症状是「原子层全红」，
-	// 病因却在一行 import。根因是解析基准，不是缺一条桩，所以在这里统一修。
-	const localRequire = (specifier) => {
-		const stubbed = imports[specifier];
-		if (stubbed !== undefined) return stubbed;
-		if (specifier.startsWith(".")) {
-			const base = resolve(dirname(filePath), specifier);
-			const candidate = [/\.tsx?$/.test(base) ? base : base + ".ts", base + ".tsx", base].find((item) => existsSync(item));
-			if (candidate) return compileModule(candidate, imports);
-		}
-		return nodeRequire(specifier);
-	};
-	vm.runInNewContext(
-		output,
-		{
-			module,
-			exports: module.exports,
-			require: localRequire,
-			console,
-			Date,
-			Set,
-			Map,
-		},
-		{ filename: filePath },
-	);
-	return module.exports;
-}
-
+/**
+ * 一个沙箱实例 = 一份模块图。
+ *
+ * 相对 import 由它按源文件目录解析（含 .ts/.tsx 与目录 index），模块缓存在求值前入表，
+ * 所以循环依赖（session-atoms 与 composer-atoms 互引）和菱形依赖（两个分支引同一个 leaf）
+ * 拿到的都是同一份 exports。手写 require 桥做不到这两点：维护者实测目录导入报 EISDIR、
+ * 菱形依赖的引用比较为 false。
+ *
+ * 需要替身的只有生产里会碰 IO 的探针：分段计时在关闭态是空函数，桩掉即可。
+ */
 function loadAtoms() {
-	const runtimeState = compileModule("src/renderer/src/utils/agentRuntimeState.ts");
-	const sessionRecordIdentity = compileModule("src/renderer/src/utils/sessionRecordIdentity.ts");
-	const liveTextHandoff = compileModule("src/renderer/src/utils/liveTextHandoff.ts");
-	const outlineRevision = compileModule("src/renderer/src/atoms/outlineRevision.ts");
-	const outlineProjectionCache = compileModule("src/renderer/src/atoms/outlineProjectionCache.ts");
-	// 侧栏计时点：session-atoms 在回合边界推进它（见 utils/sessionActivityClock.ts）。
-	const sessionActivityClock = compileModule("src/renderer/src/utils/sessionActivityClock.ts");
-	const sessionActivityAtoms = compileModule("src/renderer/src/atoms/sessionActivityAtoms.ts", {
-		"../utils/sessionActivityClock": sessionActivityClock,
-	});
-	// session-atoms ⇄ composer-atoms 是模块级循环：双方都只在惰性 action 体内用对方导出。
-	// 先给 session-atoms 一个可后填的桥对象，两模块都编译完后再回填真实导出。
-	const composerExports = {};
-	// 会话级 atomFamily 释放登记表（2027-02）：两个 atoms 模块都 import 它，
-	// 手写映射必须显式提供，否则 require 会以 tests/ 为基准解析失败。
-	const familyRegistry = compileModule("src/renderer/src/atoms/session-family-registry.ts");
-	// 域模块（session-atoms 拆出的 session-*.ts）由 helper 惰性编译并回填循环依赖，
-	// 其余 specifier 仍走下面的手写桩。
-	const sessions = loadSessionAtoms({
-		compileModule,
-		imports: {
-			"./recent-session-atoms": compileModule("src/renderer/src/atoms/recent-session-atoms.ts"),
-			"./composer-atoms": composerExports,
-			"../utils/agentRuntimeState": runtimeState,
-			"../utils/sessionRecordIdentity": sessionRecordIdentity,
-			"../utils/liveTextHandoff": liveTextHandoff,
-			"./outlineRevision": outlineRevision,
-			"./outlineProjectionCache": outlineProjectionCache,
-			"./sessionActivityAtoms": sessionActivityAtoms,
-			"../utils/sessionActivityClock": sessionActivityClock,
-			"./session-family-registry": familyRegistry,
-			// 分段计时探针（Phase 4）：关闭态是空函数，stub 掉即可，不必加载真实 perfProbe。
-			"../utils/perfProbe": { perfSpan: () => () => undefined },
-		},
-	});
-	const composer = compileModule("src/renderer/src/atoms/composer-atoms.ts", {
-		"./session-atoms": sessions,
-		"./session-family-registry": familyRegistry,
-	});
-	Object.assign(composerExports, composer);
-	return { ...sessions, ...composer, outlineProjectionCache, ...sessionActivityAtoms };
+	const load = createTsSandbox({ stubs: { "../utils/perfProbe": { perfSpan: () => () => undefined } } });
+	return {
+		...load("src/renderer/src/atoms/session-atoms.ts"),
+		...load("src/renderer/src/atoms/composer-atoms.ts"),
+		outlineProjectionCache: load("src/renderer/src/atoms/outlineProjectionCache.ts"),
+		...load("src/renderer/src/atoms/sessionActivityAtoms.ts"),
+	};
 }
 
 function session(id, projectId = "project-1", overrides = {}) {

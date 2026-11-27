@@ -1,78 +1,14 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
-import { createRequire } from "node:module";
-import { dirname, resolve } from "node:path";
 import test from "node:test";
-import ts from "typescript";
-import vm from "node:vm";
 import { atom, createStore } from "jotai/vanilla";
-
-const nodeRequire = createRequire(import.meta.url);
-
-let sharedFamilyRegistry = null;
-function getSharedFamilyRegistry() {
-	sharedFamilyRegistry ??= compileModule("src/renderer/src/atoms/session-family-registry.ts");
-	return sharedFamilyRegistry;
-}
-
-function compileModule(filePath, imports = {}) {
-	const output = ts.transpileModule(readFileSync(filePath, "utf8"), {
-		compilerOptions: {
-			module: ts.ModuleKind.CommonJS,
-			target: ts.ScriptTarget.ES2022,
-			esModuleInterop: true,
-		},
-		fileName: filePath,
-	}).outputText;
-	const module = { exports: {} };
-	// 会话级 atomFamily 释放登记表（2027-02）：被编译的 atoms 模块都 import 它，
-	// 手写映射不会预先列出，这里按需惰性编译同一实例（否则 require 以 tests/ 为基准解析失败）。
-	// 相对 import 必须按**被编译源文件所在目录**解析，不能用 tests/ 作基准：
-	// 生产代码每新增一个本地依赖，这里就整片 MODULE_NOT_FOUND（2026-11-26 加
-	// mergeHistoryWindow 时复现；同一根因在 #613 里修过另外两个文件）。
-	const fromDir = dirname(filePath);
-	const resolveLocal = (specifier) => {
-		const base = resolve(fromDir, specifier);
-		return [base, `${base}.ts`, `${base}.tsx`, `${base}.js`, resolve(base, "index.ts"), resolve(base, "index.js")].find((candidate) => existsSync(candidate));
-	};
-	const localCache = new Map();
-	const loadLocal = (specifier) => {
-		if (localCache.has(specifier)) return localCache.get(specifier);
-		const file = resolveLocal(specifier);
-		if (!file) throw new Error(`cannot resolve ${specifier} from ${fromDir}`);
-		const mod = compileModule(file);
-		localCache.set(specifier, mod);
-		return mod;
-	};
-	const localRequire = (specifier) => imports[specifier] ?? (specifier === "./session-family-registry" ? getSharedFamilyRegistry() : specifier.startsWith(".") ? loadLocal(specifier) : nodeRequire(specifier));
-	vm.runInNewContext(
-		output,
-		{
-			module,
-			exports: module.exports,
-			require: localRequire,
-			Map,
-		},
-		{ filename: filePath },
-	);
-	return module.exports;
-}
+import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
 
 function loadOutlineAtoms(buildOutline, toolStubs = {}) {
 	const currentSessionIdAtom = atom(undefined);
 	const sessionMessagesCacheAtom = atom({});
-	const projectionCache = compileModule("src/renderer/src/atoms/outlineProjectionCache.ts");
-	const outlineAtoms = compileModule("src/renderer/src/atoms/session-outline-atoms.ts", {
-		"./session-atoms": { currentSessionIdAtom, sessionMessagesCacheAtom },
-		"./outlineProjectionCache": projectionCache,
-		"../components/app/AppUtils": {
-			buildOutline,
-			getToolChangedLineCount: () => 0,
-			getToolFilePath: () => undefined,
-			getToolNewContent: () => undefined,
-			...toolStubs,
-		},
-	});
+	const load = createTsSandbox({ stubs: { "./session-atoms": { currentSessionIdAtom, sessionMessagesCacheAtom }, "../components/app/AppUtils": { buildOutline, getToolChangedLineCount: () => 0, getToolFilePath: () => undefined, getToolNewContent: () => undefined, ...toolStubs } } });
+	const projectionCache = load("src/renderer/src/atoms/outlineProjectionCache.ts");
+	const outlineAtoms = load("src/renderer/src/atoms/session-outline-atoms.ts");
 	return { ...outlineAtoms, currentSessionIdAtom, sessionMessagesCacheAtom, projectionCache };
 }
 
