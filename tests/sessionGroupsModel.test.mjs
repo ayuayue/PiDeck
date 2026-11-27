@@ -19,6 +19,37 @@ test("分组引用解析成分组→会话两层列表；失效引用丢弃、�
 	assert.equal(nodes[0].projectCount, 2);
 });
 
+test("身份合并后旧 ID 仍留在分组，存活会话从普通列表隐藏且不重复展示", () => {
+	const groups = [
+		{ id: "g1", name: "G1", color: "blue", createdAt: 1, sessionIds: ["retired", "current", "older"], dirs: [] },
+		{ id: "g2", name: "G2", color: "red", createdAt: 2, sessionIds: ["retired"], dirs: [] },
+	];
+	const current = { ...RECORD("current", "p1", 100), mergedSessionIds: ["retired", "older"] };
+	const nodes = buildSessionGroupNodes(groups, { current }, { p1: PROJECT("p1", "P", "D:\\p") }, "project");
+	assert.equal(nodes.length, 2);
+	for (const node of nodes) {
+		assert.equal(node.total, 1);
+		assert.deepEqual(ids(node.sessions), ["current"]);
+	}
+	const grouped = collectGroupedSessionIds(nodes);
+	assert.equal(grouped.size, 1);
+	assert.equal(shouldHideGroupedSession("current", grouped, ""), true);
+	// 侧栏只读解析，不依赖插件页已加载，也不修改持久化引用。
+	assert.deepEqual(groups[0].sessionIds, ["retired", "current", "older"]);
+});
+
+test("旧 ID 解析仍遵守栏目范围，且不能遮蔽真实存在的另一条会话", () => {
+	const groups = [{ id: "g", name: "G", color: "blue", createdAt: 1, sessionIds: ["old-chat", "old-project", "real"], dirs: [] }];
+	const records = {
+		chat: { ...RECORD("chat", "pc", 10), mergedSessionIds: ["old-chat", "real"] },
+		current: { ...RECORD("current", "p1", 20), mergedSessionIds: ["old-project"] },
+		real: RECORD("real", "p1", 30),
+	};
+	const projects = { pc: { ...PROJECT("pc", "Chat", "chat://"), kind: "chat" }, p1: PROJECT("p1", "P", "D:\\p") };
+	assert.deepEqual(ids(buildSessionGroupNodes(groups, records, projects, "chat")[0].sessions), ["chat"]);
+	assert.deepEqual(ids(buildSessionGroupNodes(groups, records, projects, "project")[0].sessions), ["real", "current"]);
+});
+
 test("组内会话按 updatedAt 降序（跨项目混排）；组顺序 = groups 原序（用户拖拽顺序）", () => {
 	const nodes = buildSessionGroupNodes(
 		[

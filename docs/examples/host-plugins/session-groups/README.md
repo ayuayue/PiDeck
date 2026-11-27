@@ -1,8 +1,8 @@
-# 会话分组（PiDeck 内置宿主插件）
+# 会话分组（PiDeck 宿主插件示例）
 
 把**整个工作区**的会话整理成分组：可以按目录一键建组，也可以手动挑选；不同项目的会话能放进同一个组，点一下就切到那个项目打开。
 
-上游：[Lamb-Yang/pideck-plugin](https://github.com/Lamb-Yang/pideck-plugin) 的 `session-groups/`（本目录是它的随包内置副本，已扩成工作区级 v2）。
+源自 [Lamb-Yang/pideck-plugin](https://github.com/Lamb-Yang/pideck-plugin) 的 `session-groups/`，本目录是已扩展为工作区范围、接入宿主分组存储的示例副本，不随 PiDeck 安装包分发。插件市场的官方安装源是 [ayuayue/pideck-plugins](https://github.com/ayuayue/pideck-plugins/tree/main/plugins/session-groups)；本目录更新后仍需同步到该仓库，用户才能从市场安装到新版本。
 
 ## 功能
 
@@ -21,7 +21,7 @@
 - **视觉跟随宿主**：颜色、圆角、阴影、控件高度、字号、字体全部消费 PiDeck 注入的 token，按钮 / 输入框 / 下拉 / 列表 / 弹层与系统同一套语汇；亮暗主题、自定义主题色与自定义字体自动生效
 - 每条会话带 ⓘ 详情弹层：所属目录/项目/后端/模型/所属分组/创建与更新时间/状态/会话 ID
 - 活跃标记：`updatedAt` ≤ 10 分钟的会话显示绿点（事件驱动 + 每分钟静默重绘）
-- 会话被删除/替代后自动清理失效引用，改名后标题自动同步（监听 `sessions.changed`）
+- 会话身份合并后经宿主解析旧 ID，更新分组引用并去重；目录中暂时不可用或已删除的会话仅隐藏，保留其引用，避免误清分组归属。改名后标题自动同步（监听 `sessions.changed`）
 
 ## 权限
 
@@ -44,7 +44,7 @@
 | 宿主 store `groups[]` | `{ id, name, color, createdAt, sessionIds, dirs }`，数组顺序即显示顺序；`dirs` 是目录范围（空数组 = 不限目录） |
 | 本机 `localStorage["session-groups.collapsed"]` | 折叠的分组 id 列表（纯 UI 偏好，不进宿主数据） |
 
-历史迁移：PiDeck 启动时把 v2 插件私有 storage（`host-plugin-storage/session-groups.json` 的 `ws.meta` / `ws.g.*` 分片键）一次性导入宿主 store（只读、不删旧文件，回退旧版插件不丢分组）。更早的 v1 按项目 `grp.<projectId>` 键未迁移——需要先跑一次 v2 插件完成并组。会话被删除/替代后的失效引用由插件页与侧栏各自按 catalog 过滤，store 不追删。
+历史迁移：PiDeck 启动时把 v2 插件私有 storage（`host-plugin-storage/session-groups.json` 的 `ws.meta` / `ws.g.*` 分片键）一次性导入宿主 store（只读、不删旧文件，回退旧版插件不丢分组）。更早的 v1 按项目 `grp.<projectId>` 键未迁移——需要先跑一次 v2 插件完成并组。会话被删除/替代后只在展示时过滤失效引用，不自动从分组数据中删除；宿主仍能解析的合并旧 ID 由插件更新成存活 ID。
 
 ## 面板形态
 
@@ -62,6 +62,8 @@
 - v2.1.0 / v2.1.1 只改界面与分页，未新增权限，但内容变了仍需重新授权。
 - **v3.0.0 新增 `sessionGroups.manage` 权限**（分组数据搬到宿主 store，侧栏分组树实时同步）：指纹变化，升级后需要在设置里重新授权一次。
 - **v3.1.0 只改新建分组弹层**（目录下钻勾选会话 + 标题搜索），未新增权限；内容变了仍需重新授权一次。
+- **v3.1.1 修复身份合并后会话掉出分组**：通过现有 `sessions.get(旧 ID)` 解析当前会话，保留原分组并保存新 ID；读取失败或暂时不可见时保留引用，批量修正遇到宿主限流时等待后重试一次。未新增权限，也不需要新增宿主 API。
+- 更新 v3.1.1 并重新授权启用后，**打开一次会话分组页**，插件会校正尚未被旧版清除的引用，保存后侧栏自动同步。插件页未加载时不会后台运行，旧版 PiDeck 若再次合并会话身份，仍需打开分组页才能校正侧栏；包含侧栏旧 ID 解析修复的 PiDeck 可直接显示原分组，无需打开插件页。已被旧版永久移出分组的会话需手动添加一次，无法凭空恢复原分组。
 - 样式 token 由宿主 `hostPluginTokens.ts` 的 `HOST_PLUGIN_THEME_TOKENS` 注入（颜色 / 圆角 / 阴影 / 控件高度 / 字号 / 字体）；新增 token 需同步 `docs/host-plugin-dev-guide.md` §5.7。
 
 ## 改这个插件

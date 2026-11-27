@@ -3,7 +3,7 @@
 	"apiVersion": 1,
 	"id": "session-groups",
 	"name": "会话分组",
-	"version": "3.1.0",
+	"version": "3.1.1",
 	"description": "把整个工作区的会话整理成分组：新建分组时可以整目录入组，也可以展开目录只挑几个会话（目录自动记入范围）；跨项目会话可同组，行上显示所属目录与后端，点击自动切项目打开。分组数据存宿主 store，侧栏分组树实时同步。",
 	"permissions": [
 		"sessions.read",

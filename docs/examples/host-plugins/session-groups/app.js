@@ -1,6 +1,6 @@
-// 会话分组 / Session Groups — PiDeck 宿主插件（v2.1，工作区级）
-// 只用 window.pideck 能力面：context / sessions / storage / workbench / onEvent。
-// 会话数据只读；分组关系存插件私有 storage，范围是整个工作区（storage 单键 ≤64KB，所以分组与 id 列表分键存）。
+// 会话分组 / Session Groups — PiDeck 宿主插件（v3，工作区级）
+// 只用 window.pideck 能力面：context / sessions / sessionGroups / workbench / onEvent。
+// 会话数据只读；分组关系存宿主 store，范围是整个工作区。
 // 视觉只用宿主注入的 --color-* / --radius-* / --font-* 等 token（见 useHostPluginView.ts），
 // 与 PiDeck 的按钮、输入框、下拉、列表、弹层保持同一套语汇；每个 token 都带兜底值。
 "use strict";
@@ -453,6 +453,17 @@ function queue(fn) {
 	return ioChain;
 }
 
+/** rate-limited 在宿主执行动作前返回；等请求窗口结束后只重试一次，不重放其他写入错误。 */
+async function retryRateLimited(fn) {
+	try {
+		return await fn();
+	} catch (err) {
+		if (!err || err.message !== "rate-limited") throw err;
+	}
+	await new Promise((resolve) => setTimeout(resolve, 1100));
+	return fn();
+}
+
 function normalizeIds(value) {
 	return Array.isArray(value) ? [...new Set(value.filter((id) => typeof id === "string" && id))] : [];
 }
@@ -472,8 +483,7 @@ let persistedSigs = new Map();
 function persistGroup(group) {
 	const sig = groupSig(group);
 	if (persistedSigs.get(group.id) === sig) return Promise.resolve();
-	return pideck.sessionGroups
-		.save(groupPayload(group))
+	return retryRateLimited(() => pideck.sessionGroups.save(groupPayload(group)))
 		.then(() => {
 			persistedSigs.set(group.id, sig);
 		})
@@ -490,7 +500,7 @@ function saveMeta() {
 		try {
 			localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...state.collapsed]));
 		} catch {}
-		if (state.groups.length > 0) await pideck.sessionGroups.reorder(state.groups.map((g) => g.id));
+		if (state.groups.length > 0) await retryRateLimited(() => pideck.sessionGroups.reorder(state.groups.map((g) => g.id)));
 	});
 }
 
@@ -546,15 +556,28 @@ async function loadCatalog() {
 	state.sessions = map;
 }
 
-/** 会话被删/替代后清掉失效引用；分组/折叠集合随之收敛（只写有变化的部分）。 */
-function pruneState() {
+/** 列表只含存活 ID：先经宿主解析旧引用，暂不可用的引用保留，避免恢复期间误删归属。 */
+async function reconcileState() {
+	const resolvedIds = new Map();
+	for (const group of state.groups) {
+		for (const id of group.ids) {
+			if (state.sessions.has(id) || resolvedIds.has(id)) continue;
+			resolvedIds.set(id, id);
+			try {
+				const session = await retryRateLimited(() => pideck.sessions.get(id));
+				resolvedIds.set(id, session.id);
+				state.sessions.set(session.id, session);
+			} catch {
+				// 不存在、范围暂不可见与读取失败均不能证明用户要移出分组；渲染时自然过滤。
+			}
+		}
+	}
 	let changed = false;
 	for (const group of state.groups) {
-		const before = group.ids.length;
-		group.ids = group.ids.filter((id) => state.sessions.has(id));
-		if (group.ids.length !== before) {
+		const ids = normalizeIds(group.ids.map((id) => resolvedIds.get(id) || id));
+		if (ids.length !== group.ids.length || ids.some((id, index) => id !== group.ids[index])) {
+			group.ids = ids;
 			changed = true;
-			void saveGroup(group);
 		}
 	}
 	const valid = new Set([UNGROUPED, ...state.groups.map((group) => group.id)]);
@@ -564,14 +587,14 @@ function pruneState() {
 			changed = true;
 		}
 	}
-	if (changed) void saveMeta();
+	if (changed) await saveMeta();
 	return changed;
 }
 
 async function reloadCatalog() {
 	try {
 		await loadCatalog();
-		pruneState();
+		await reconcileState();
 		render();
 	} catch (err) {
 		setStatus(L.loadError + (err && err.message ? err.message : ""), true);
@@ -1411,8 +1434,9 @@ function groupCard(group, index, forceExpand) {
 	const titles = el("div", "card-titles");
 	const nameRow = el("div", "card-name-row");
 	nameRow.append(el("h2", "card-name", group.name));
-	const dirs = new Set(group.ids.map((id) => dirKeyOf(state.sessions.get(id))));
-	nameRow.append(el("span", "card-meta", group.ids.length + " " + L.sessionsUnit + L.statsSep + dirs.size + " " + L.dirsUnit));
+	const availableIds = group.ids.filter((id) => state.sessions.has(id));
+	const dirs = new Set(availableIds.map((id) => dirKeyOf(state.sessions.get(id))));
+	nameRow.append(el("span", "card-meta", availableIds.length + " " + L.sessionsUnit + L.statsSep + dirs.size + " " + L.dirsUnit));
 	titles.append(nameRow);
 	const scope = groupScope(group);
 	if (scope.length > 0) {

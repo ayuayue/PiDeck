@@ -7,6 +7,7 @@
  * - 不再按项目插一层文件夹：项目信息只作为行内标签（多项目分组才显示），避免三层缩进把
  *   会话标题挤到窄侧栏放不下。
  */
+import { buildSessionIdAliasMap } from "../../../../shared/sessionIdAliases";
 import type { Project, SessionGroup, SessionRecord } from "../../../../shared/types";
 import type { HostPluginCatalog } from "../../../../shared/types/hostPlugin";
 import { isChatProject } from "../../rendererUtils";
@@ -59,13 +60,17 @@ export function projectDirectoryLabel(project: Project | undefined, projectId: s
  * 误读成数据损坏。scope 省略 = 全量（简洁壳侧栏与单测）。
  */
 export function buildSessionGroupNodes(groups: readonly SessionGroup[], records: Readonly<Record<string, SessionRecord>>, projectsById: Readonly<Record<string, Project>>, scope?: SessionGroupScope): SessionGroupNode[] {
+	if (groups.length === 0) return [];
+	const aliases = buildSessionIdAliasMap(Object.values(records));
 	const nodes = groups.map((group) => {
 		const seen = new Set<string>();
 		const sessions: SessionRecord[] = [];
 		for (const sessionId of group.sessionIds) {
-			if (seen.has(sessionId)) continue;
-			seen.add(sessionId);
-			const record = records[sessionId];
+			// 身份合并不改变分组归属；插件页未加载时也须能解析历史引用。
+			const canonicalId = aliases.get(sessionId) ?? sessionId;
+			if (seen.has(canonicalId)) continue;
+			seen.add(canonicalId);
+			const record = records[canonicalId];
 			// 会话已删/项目已移除（含虚拟会话）：引用失效，直接丢弃——点了也打不开。
 			if (!record || record.noSession) continue;
 			const project = projectsById[record.projectId];
