@@ -26,7 +26,7 @@ const { AppearanceTab } = loadTsCommonJs("src/renderer/src/components/app/settin
 			SelectTrigger: hidden,
 			SelectValue: hidden,
 			SelectContent: passthrough,
-			SelectItem: ({ value, children }) => createElement("div", { "data-option": value }, children),
+			SelectItem: ({ value, children }) => createElement("section", { "data-option": value }, children),
 		},
 	},
 });
@@ -50,16 +50,16 @@ function renderOptions(draftStyle = "pi-tui", savedStyle = "pi-tui") {
 		),
 	);
 	return (value) => {
-		const content = html.match(new RegExp(`<div data-option="${value}">([\\s\\S]*?)</div>`))?.[1];
+		const content = html.match(new RegExp(`<section data-option="${value}">([\\s\\S]*?)</section>`))?.[1];
 		assert.ok(content, `缺少 ${value} 选项`);
 		return content;
 	};
 }
 
-test("经典 Logo 选项使用不透明黑底，银灰图形不会融入浅色菜单", () => {
+test("经典 Logo 选项使用白底深灰主体，与正式图标一致", () => {
 	const classic = renderOptions()("classic");
-	assert.match(classic, /<svg\b[^>]*class="[^"]*\bbg-black\b/u);
-	assert.doesNotMatch(classic, /opacity(?:=|-)|fill="(?:transparent|none)"/u);
+	assert.match(classic, /class="[^"]*\bbg-white\b/u);
+	assert.doesNotMatch(classic, /\bbg-black\b|opacity(?:=|-)|fill="(?:transparent|none)"/u);
 	assert.match(classic, /aria-hidden="true"/u);
 });
 
@@ -67,8 +67,9 @@ test("经典 Logo 预览保留完整 π 轮廓和镂空，不再用两个矩形�
 	const classic = renderOptions()("classic");
 	assert.equal((classic.match(/<path\b/gu) ?? []).length, 2);
 	assert.match(classic, /fill-rule="evenodd"/u);
-	assert.match(classic, /fill="#f4f4f5"/u);
-	assert.match(classic, /fill="#a7a8ab"/u);
+	assert.match(classic, /fill="#18181b"/u);
+	assert.match(classic, /viewBox="165\.29 165\.29 469\.43 469\.43"/u);
+	assert.match(classic, /width="10\.4" height="10\.4"/u);
 	assert.doesNotMatch(classic, /<rect\b/u);
 });
 

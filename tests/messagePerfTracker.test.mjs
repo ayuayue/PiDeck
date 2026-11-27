@@ -24,20 +24,24 @@ function fixture() {
 			message,
 			(message2, detail) => logs.push({ message: message2, detail }),
 		);
-	const reply = ({ agentId = "a", start = 1000, delta = 2000, end = 3000, usage = { output: 100 } } = {}) => {
+	const deltas = (agentId, count) => {
+		for (let index = 0; index < count; index++) tracker.noteDelta(agentId);
+	};
+	const reply = ({ agentId = "a", start = 1000, delta = 2000, deltas: deltaCount = 120, end = 3000, usage = { output: 100 } } = {}) => {
 		at(start, () => tracker.ensureTimer(agentId));
-		if (delta !== null) at(delta, () => tracker.markFirstDelta(agentId));
+		// 一次回复会收到很多 delta（真增量流式）；delta 数也是「整段送达」判据的分子，见 hasIncrementalDeltaStream。
+		if (delta !== null) at(delta, () => deltas(agentId, deltaCount));
 		at(end, () => settle(agentId, { usage }));
 		return tracker.getLast(agentId);
 	};
-	return { tracker, at, settle, reply, events, logs };
+	return { tracker, at, settle, reply, deltas, events, logs };
 }
 
 test("reply pairs both TPS values with the same usage, independently of text-only TTFT", () => {
 	const f = fixture();
 	f.tracker.notePromptRequested("a", 1000);
 	f.at(2000, () => f.tracker.ensureTimer("a"));
-	f.at(6000, () => f.tracker.markFirstDelta("a"));
+	f.at(6000, () => f.deltas("a", 1000));
 	f.at(9000, () => f.tracker.markFirstText("a"));
 	f.at(16000, () => f.settle("a", { usage: { output: 1000 } }));
 	const result = f.tracker.getLast("a");
@@ -58,6 +62,21 @@ test("a buffered reply contributes only to end-to-end throughput", () => {
 	assert.equal(streamed.tps, 500);
 	assert.equal(streamed.sessionTps, 500);
 	assert.equal(streamed.sessionEndToEndTps, 962 / 6.138);
+});
+
+test("整段送达的回复不产生物理不可能的流式速度，也不拉高会话均速", () => {
+	// #602：上游把正文分两批送到（1481 token / 2 个 delta）。窗口 264 ms 量到的是传输/刷新延迟，
+	// 按它算会得到 5610 tok/s，而同一回复的端到端速度只有 1481 ÷ 1.264 ≈ 1172。
+	const f = fixture();
+	const lump = f.reply({ start: 1000, delta: 2000, deltas: 2, end: 2264, usage: { output: 1481 } });
+	assert.equal(lump.tps, undefined, "非增量流式窗口不得输出流式速度");
+	assert.equal(lump.sessionTps, undefined, "会话平均同样跳过该窗口");
+	assert.equal(lump.endToEndTps, 1481 / 1.264);
+
+	// 真增量流式（400 token / 400 delta）仍按流式窗口统计，不能被一刀切掉。
+	const streamed = f.reply({ start: 4000, delta: 5000, deltas: 400, end: 6000, usage: { output: 400 } });
+	assert.equal(streamed.tps, 400);
+	assert.equal(streamed.sessionTps, 400);
 });
 
 test("continuation timer starts before provider waiting and excludes preceding tool execution", () => {
@@ -132,7 +151,7 @@ test("phase breakdown attributes agent_start/turn_start/message_start/firstDelta
 	f.at(2000, () => f.tracker.ensureTimer("a"));
 	f.at(2000, () => f.tracker.noteTurnStart("a"));
 	f.at(3000, () => f.tracker.noteMessageStart("a"));
-	f.at(6000, () => f.tracker.markFirstDelta("a"));
+	f.at(6000, () => f.tracker.noteDelta("a"));
 	f.at(9000, () => f.settle("a", { usage: { output: 10 } }));
 	const entry = f.logs.at(-1);
 	assert.equal(entry.message, "Model reply phase breakdown");
@@ -147,7 +166,7 @@ test("discarded in-flight epoch leaves no stale agent_start for the next one", (
 	f.at(1500, () => f.tracker.noteAgentStart("a"));
 	f.tracker.discardInFlight("a");
 	f.at(8000, () => f.tracker.ensureTimer("a"));
-	f.at(8200, () => f.tracker.markFirstDelta("a"));
+	f.at(8200, () => f.tracker.noteDelta("a"));
 	f.at(9000, () => f.settle("a", { usage: { output: 10 } }));
 	const entry = f.logs.at(-1);
 	// 中止轮的 agent_start 不能串进下一轮的归因（相对偏移会变成负数/错值）
@@ -214,7 +233,7 @@ test("latest reply metrics record the provider and model that actually served th
 	f.tracker.bindRuntimeModelSource(() => runtimeModel);
 	// assistant 消息自带 model（pi）：优先于运行时快照；供应商只来自运行时快照。
 	f.at(1000, () => f.tracker.ensureTimer("a"));
-	f.at(2000, () => f.tracker.markFirstDelta("a"));
+	f.at(2000, () => f.tracker.noteDelta("a"));
 	f.at(3000, () => f.tracker.settle("a", (channel, payload) => f.events.push({ channel, payload }), { model: "claude-opus-4", usage: { output: 100 } }));
 	const facts = f.tracker.getLastReplyModel("a");
 	assert.deepEqual({ provider: facts.provider, modelId: facts.modelId, modelName: facts.modelName }, { provider: "anthropic", modelId: "claude-opus-4", modelName: undefined });
@@ -226,7 +245,7 @@ test("latest reply metrics record the provider and model that actually served th
 	// assistant 消息没带 model 时退回运行时快照的 modelId / modelName。
 	runtimeModel = { provider: "openai", modelId: "gpt-5", modelName: "GPT-5" };
 	f.at(4000, () => f.tracker.ensureTimer("a"));
-	f.at(5000, () => f.tracker.markFirstDelta("a"));
+	f.at(5000, () => f.tracker.noteDelta("a"));
 	f.at(6000, () => f.tracker.settle("a", () => {}, { usage: { output: 10 } }));
 	assert.equal(f.tracker.getLastReplyModel("a").modelId, "gpt-5");
 	assert.equal(f.tracker.getLastReplyModel("a").modelName, "GPT-5");

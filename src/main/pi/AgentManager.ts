@@ -3994,7 +3994,7 @@ export class AgentManager {
 			this.streamingAgents.add(agentId);
 			const delta = String(assistantEvent.delta ?? "");
 			if (delta.length > 0) {
-				this.messagePerf.markFirstDelta(agentId);
+				this.messagePerf.noteDelta(agentId);
 				this.messagePerf.markFirstText(agentId);
 			}
 			// Live 正文唯一热路径：累积后经 textEmitter（100ms）推送，不增长 messages。
@@ -4011,7 +4011,7 @@ export class AgentManager {
 		if (eventType === "thinking_delta") {
 			this.liveStream.ensureThinkingSegment(agentId);
 			const delta = String(assistantEvent.delta ?? "");
-			if (delta.length > 0) this.messagePerf.markFirstDelta(agentId);
+			if (delta.length > 0) this.messagePerf.noteDelta(agentId);
 			this.liveStream.pushThinkingDelta(agentId, delta);
 			this.streamingAgents.add(agentId);
 			// Live 思考唯一热路径：不 upsert messages，避免 50ms timeline 重组。
@@ -4056,7 +4056,7 @@ export class AgentManager {
 		}
 	}
 
-	// 流式性能计时（markFirstDelta/markFirstText/ensureTimer/settle）收口在 MessagePerfTracker。
+	// 流式性能计时（noteDelta/markFirstText/ensureTimer/settle）收口在 MessagePerfTracker。
 
 	/** 首 thinking_delta 的 History 挂载点（LiveStreamChannel.ensureThinkingSegment 的 host 回调）：
 	 *  建立 assistant 身份、保证骨架 upsert + flush，并返回 assistantMessageId 供段 id 铸造。 */

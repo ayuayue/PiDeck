@@ -1,7 +1,7 @@
 import { Fragment, isValidElement, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { messageEntryId } from "../../utils/sessionCommands";
-import { toBlob } from "html-to-image";
-import { writeClipboard, writeClipboardImage } from "../../utils/clipboard";
+import { writeClipboard } from "../../utils/clipboard";
+import { copyElementAsPng as copyElementAsPngImpl } from "../../utils/exportImageCopy";
 import { MarkdownStream } from "./MarkdownStream";
 import { SettledLongAnswer } from "./SettledLongAnswer";
 import { shouldCollapseSettledText } from "./markdownStreamPolicy";
@@ -480,40 +480,9 @@ export function EmptyState(props: {
 }
 
 async function copyElementAsPng(element: HTMLElement) {
+	// 实现搬进 utils/exportImageCopy（与多选分享共用）：字号固化与折叠搠除的坑见该文件注释。
 	// 截图后走 writeClipboardImage（Electron nativeImage），不依赖 ClipboardItem。
-	// 使用 toBlob 而非 toPng+fetch 避免 CSP 拒绝连接 data: URL。
-	// 克隆节点 + 内边距 + 临时注入 body 的方式与分享为图片（handleMultiSelectCopy）保持一致，
-	// 避免直接截图导致图片紧贴内容边缘、缺少留白。
-	const clone = element.cloneNode(true) as HTMLElement;
-	clone.style.padding = "24px";
-	clone.style.background = getComputedStyle(document.documentElement).getPropertyValue("--color-bg-panel") || "#fff";
-	// 将 clone 插入到原元素旁边，确保 CSS 样式正确继承（父层选择器、CSS 变量、rem 等）
-	if (element.parentElement) {
-		// 克隆节点不能参与原布局，否则插入时会短暂撑开时间线导致闪动。
-		// 复用多选分享的隐藏方式（.multi-select-image-export：absolute + left/top 归零 + z-index:-1）：
-		// absolute 脱离文档流、不撑开布局；不能用 left:-100000px 把节点推出视口——
-		// html-to-image 会把 clone 的 computed style 复制进 SVG foreignObject，负偏移会让
-		// 内容整体渲染到 viewBox 之外，导致截图空白（「复制为图片空白」的根因）。
-		clone.classList.add("multi-select-image-export");
-		clone.style.width = `${element.getBoundingClientRect().width}px`;
-		element.parentElement.insertBefore(clone, element.nextSibling);
-	}
-	let blob: Blob | null = null;
-	try {
-		blob = await toBlob(clone, {
-			cacheBust: true,
-			pixelRatio: Math.min(2, window.devicePixelRatio || 1),
-			backgroundColor: getComputedStyle(document.documentElement).getPropertyValue("--color-bg-panel") || undefined,
-			filter: (node) => !(node instanceof HTMLElement) || (!node.classList.contains("turn-row-actions") && !node.classList.contains("user-turn-actions") && !node.classList.contains("copy-menu-popover")),
-		});
-	} finally {
-		clone.remove();
-	}
-	// html-to-image 在 oklch / canvas / 失焦时可能返回 null 且不抛错；
-	// 这里必须失败给调用方，否则 CopyMenu 会 toast「已复制」但剪贴板是空的。
-	if (!blob) throw new Error("Unable to capture message as PNG");
-	const written = await writeClipboardImage(blob);
-	if (!written) throw new Error("Unable to write PNG to clipboard");
+	await copyElementAsPngImpl(element);
 }
 
 /**

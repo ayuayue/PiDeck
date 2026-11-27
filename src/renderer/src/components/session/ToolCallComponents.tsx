@@ -237,9 +237,9 @@ export const ToolCard = memo(function ToolCard(props: {
 	// 按需读取（运行期走主进程内存缓存，历史会话定位读会话文件）。
 	const isTruncated = props.message.meta?.truncated === true;
 	// pi 侧截断（pi 0.99 起 bash/powershell 输出 >1 MiB 时 result.details.truncation）：
-	// 丢的是 pi 没进上下文的内容，完整文件在 resultTruncation.fullOutputPath，与上面
-	// 展示层截断是两件事，因此单独给一行可复制路径而不是复用「查看完整输出」。
-	const piTruncation = props.message.meta?.resultTruncation as { fullOutputPath?: string } | undefined;
+	// 丢的是 pi 没进上下文的内容，完整文件在 resultTruncation.fullOutputPath；pi 1.6.1
+	// 起没能落盘时改为 fullOutputError（原因），与上面展示层截断是两件事，因此单独给一行。
+	const piTruncation = props.message.meta?.resultTruncation as { fullOutputPath?: string; fullOutputError?: string } | undefined;
 	const [fullText, setFullText] = useState<string | null>(null);
 	const [fullLoading, setFullLoading] = useState(false);
 	const [fullError, setFullError] = useState(false);
@@ -512,6 +512,15 @@ export const ToolCard = memo(function ToolCard(props: {
 												{t("tool.openFile")}
 											</Button>
 										)}
+									</div>
+								) : null}
+								{piTruncation && !piTruncation.fullOutputPath && piTruncation.fullOutputError ? (
+									// pi 1.6.1：完整输出没能落临时文件（磁盘满/配额/不可写）时只给原因，没有路径可点
+									<div className="flex items-center gap-2 pl-1 pb-1">
+										<Scissors size={12} className="shrink-0 text-text-tertiary" aria-hidden="true" />
+										<span className="min-w-0 flex-1 truncate text-chat-detail text-text-tertiary" title={piTruncation.fullOutputError}>
+											{t("tool.piOutputNotSaved", { reason: piTruncation.fullOutputError })}
+										</span>
 									</div>
 								) : null}
 								{isTruncated && !fullText && (

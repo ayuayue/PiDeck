@@ -98,8 +98,11 @@ function createHarness(options = {}) {
 		uiResponse: 0,
 	};
 	const tabs = options.tabs ? [...options.tabs] : [];
+	// options.extraEntries：额外会话（只读，供「多条绑定」类用例）。
+	// 本 harness 原本只认一条 entry，需要多会话时不必再复制一整份桩。
+	const extraEntries = new Map((options.extraEntries ?? []).map((item) => [item.id, item]));
 	const catalog = {
-		get: (sessionId) => (sessionId === entry.id ? { ...entry } : undefined),
+		get: (sessionId) => (sessionId === entry.id ? { ...entry } : extraEntries.has(sessionId) ? { ...extraEntries.get(sessionId) } : undefined),
 		getRecord: (sessionId) =>
 			sessionId === entry.id
 				? {
@@ -1239,6 +1242,62 @@ test("session runtime inventory and target expose the stable binding triple", ()
 	]);
 });
 
+test("catalog 归并后 listRuntimes 不留旧 ID 的重复行（同一会话两个运行时条目）", () => {
+	// 现场（用户反馈「关联子会话在嵌套显示一个、父同级也显示一个」）：
+	// 开子会话先有草稿 ID，首条 prompt 后 catalog 按会话文件把草稿条目归并吸收进存活条目，
+	// 旧 ID 进 mergedSessionIds。但绑定表仍以旧 ID 为键 → listRuntimes 吐两条、指向同一个
+	// 会话文件 → 渲染层把它们画成两行。归一化必须落到**读取路径**上（catalog 的别名表是权威）。
+	const { SessionRuntimeCoordinator } = loadCoordinator();
+	const harness = createHarness({
+		entry: catalogEntry({ id: "session-alive", filePath: "C:/sessions/child.jsonl", status: "active", mergedSessionIds: ["session-stale"] }),
+		tabs: [{ id: "agent-a", projectId: "project-1", cwd: "C:/project", status: "idle", sessionPath: "C:/sessions/child.jsonl", createdAt: 1 }],
+	});
+	// catalog 声称 session-stale 已被 session-alive 吸收：主进程所有读取都走这个归一化
+	// （生产里 SessionCatalog.get 自己也先 resolveSessionId，桩这里补上同一语义）。
+	harness.catalog.resolveSessionId = (id) => (id === "session-stale" ? "session-alive" : id);
+	const rawGet = harness.catalog.get;
+	harness.catalog.get = (sessionId) => rawGet(harness.catalog.resolveSessionId(sessionId));
+	const coordinator = new SessionRuntimeCoordinator(harness.catalog, harness.agents, harness.sender);
+	// 绑定记在旧 ID 上（归并发生在绑之后，真实时序就是这样）。
+	coordinator.bindExistingAgent("session-stale", "agent-a");
+
+	const listed = coordinator.listRuntimes();
+	assert.deepEqual(
+		[...listed].map((runtime) => runtime.sessionId),
+		["session-alive"],
+		"旧 ID 归一化到存活 ID，不能两条都吐",
+	);
+});
+
+test("listRuntimes 跳过终态 agent，不因为惰性解绑把自己弄挂", () => {
+	// 现场：渲染层启动时拉 sessions:runtime-list（唯一的运行时快照入口），主进程直接回
+	// 「Session runtime binding changed while building runtime state」，整份快照失败。
+	// 根因：listRuntimes 遍历 agentIdBySession 时调 runtimeInfo()，后者经 getTarget → getAgentId
+	// 对终态 agent 做惰性解绑（副作用），随后 runtimeInfo 发现自己刚查的绑定没了就抛错。
+	// 遍历必须用无副作用的绑定读取，终态/已解绑的条目直接跳过。
+	const { SessionRuntimeCoordinator } = loadCoordinator();
+	const harness = createHarness({
+		entry: catalogEntry({ filePath: "C:/sessions/session-1.jsonl", status: "active" }),
+		extraEntries: [catalogEntry({ id: "session-2", filePath: "C:/sessions/session-2.jsonl", status: "active" })],
+		tabs: [
+			{ id: "agent-live", projectId: "project-1", cwd: "C:/project", status: "idle", sessionPath: "C:/sessions/session-1.jsonl", createdAt: 10 },
+			{ id: "agent-dead", projectId: "project-1", cwd: "C:/project", status: "error", sessionPath: "C:/sessions/session-2.jsonl", createdAt: 20 },
+		],
+	});
+	const coordinator = new SessionRuntimeCoordinator(harness.catalog, harness.agents, harness.sender);
+	coordinator.bindExistingAgent("session-1", "agent-live");
+	// 终态 agent 也登记进绑定表（现场：进程已 error/closed，但绑定还没收）。
+	// listRuntimes 必须当成「已经没了」跳过，而不是在遍历中途触发惰性解绑然后自己抛错。
+	coordinator.bindExistingAgent("session-2", "agent-dead");
+	const listed = coordinator.listRuntimes();
+	// 沙箱 realm 的数组与本进程不是同一构造器：展开成本 realm 的普通数组再比较。
+	assert.deepEqual(
+		[...listed].map((runtime) => runtime.sessionId),
+		["session-1"],
+		"终态 agent 不出现，且整份快照不报错",
+	);
+});
+
 test("anonymous runtime binds an existing --no-session process without attaching a file", async () => {
 	const { SessionRuntimeCoordinator } = loadCoordinator();
 	const harness = createHarness({
@@ -1842,6 +1901,38 @@ test("releaseRuntimeForDelete unbinds immediately and waits for the process exit
 	assert.equal(released, true);
 });
 
+test("releaseRuntimeForDelete 推 detach：非侧栏入口删除后渲染层不能留下幽灵行", async () => {
+	// 现场（用户反馈）：删掉父会话后，它开出的关联子会话「自己并列在左侧」，右键删除毫无反应、
+	// 「关闭 Agent」只回「会话已不存在，请刷新会话列表」，而刷新也消不掉。
+	// 根因：删除只解绑主进程自己的绑定，从不推 detach。渲染层快照于是停在「有运行时」，
+	// 而 catalog 里已经没有这条记录：删除项解析不到记录→静默无反应；关闭走
+	// resolveStopTarget→catalog.get 为空→SESSION_NOT_FOUND；目录刷新只重拉记录、不碰运行时表。
+	// 侧栏删除路径自己清了渲染层状态，所以缺口只在 Web API / 自动化 / 扫描清理等入口暴露。
+	const { SessionRuntimeCoordinator } = loadCoordinator();
+	const harness = createHarness({
+		tabs: [{ id: "agent-a", projectId: "project-1", cwd: "C:/project", title: "Session", status: "idle", sessionPath: "C:/sessions/session-1.jsonl", createdAt: 1 }],
+		stopAndWait: async () => true,
+	});
+	const coordinator = new SessionRuntimeCoordinator(harness.catalog, harness.agents, harness.sender);
+	const runtimeGeneration = coordinator.bindExistingAgent("session-1", "agent-a");
+	const detached = collectDetachedBindings(coordinator);
+
+	await coordinator.releaseRuntimeForDelete("session-1");
+
+	assert.deepEqual(detached, [{ sessionId: "session-1", agentId: "agent-a", runtimeGeneration }]);
+});
+
+test("releaseRuntimeForDelete 无绑定时不推 detach（幂等，不惊动别的会话）", async () => {
+	const { SessionRuntimeCoordinator } = loadCoordinator();
+	const harness = createHarness({ tabs: [] });
+	const coordinator = new SessionRuntimeCoordinator(harness.catalog, harness.agents, harness.sender);
+	const detached = collectDetachedBindings(coordinator);
+
+	await coordinator.releaseRuntimeForDelete("session-1");
+
+	assert.deepEqual(detached, []);
+});
+
 test("releaseRuntimeForDelete resolves after a bounded wait when the process exit times out", async () => {
 	const { SessionRuntimeCoordinator } = loadCoordinator();
 	const warnings = [];
@@ -2437,9 +2528,12 @@ test("main 装配把惰性解绑接成 sessions:runtime-detach 推送", () => {
 
 	// 装配层必须注入通知器，且走既有的 detach 信封（渲染层只认这一条协议）
 	assert.match(mainSource, /sessionRuntimeCoordinator\.setDetachedNotifier\(\(binding\)\s*=>\s*emitSessionRuntimeDetach\(binding\)\)/);
-	// 只在终态惰性解绑这一处推：stop/restart/删除的解绑由调用方推送，重复推会打乱代际判定
+	// 只在终态惰性解绑这一处推：stop/restart 的解绑由调用方推送，重复推会打乱代际判定
 	assert.match(coordinatorSource, /this\.unbindTerminalAgent\(agentId\);\s*\/\/[^\n]*\n\s*if \(binding\) this\.notifyRuntimeDetached\(\{ \.\.\.binding, agentId \}\);/);
-	assert.equal(coordinatorSource.match(/notifyRuntimeDetached\(/g).length, 2, "notifyRuntimeDetached 只应有定义 + 终态解绑一处调用");
+	// 删除路径是第二个例外：它自己解绑，而且**没有任何调用方**会补发 detach（Web API /
+	// 自动化 / 扫描清理都直接调它），漏推就留下删不掉的幽灵行（见 releaseRuntimeForDelete 用例）。
+	assert.match(coordinatorSource, /this\.unbindAgentUnchecked\(target\.agentId\);\s*\n\s*this\.notifyRuntimeDetached\(target\);/);
+	assert.equal(coordinatorSource.match(/notifyRuntimeDetached\(/g).length, 3, "notifyRuntimeDetached 应只有定义 + 终态解绑 + 删除释放两处调用");
 });
 
 /**

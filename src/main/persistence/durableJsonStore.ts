@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { copyFile, mkdir, open, unlink, type FileHandle } from "node:fs/promises";
+import { copyFile, mkdir, open, readFile, unlink, type FileHandle } from "node:fs/promises";
 import { dirname } from "node:path";
 import { renameWithRetry } from "../utils/fsRetry";
 
@@ -13,6 +13,22 @@ export type DurableJsonWriteResult = {
 	backupError?: unknown;
 	directorySynced: boolean;
 };
+
+/** 缺失或 JSON 损坏时交给调用方重建；读取失败时无法判断内容，必须保留原文件。 */
+export async function readRepairableJsonFile(filePath: string): Promise<unknown> {
+	let text: string;
+	try {
+		text = await readFile(filePath, "utf8");
+	} catch (error) {
+		if (isMissingFileError(error)) return undefined;
+		throw error;
+	}
+	try {
+		return JSON.parse(text);
+	} catch {
+		return undefined;
+	}
+}
 
 /** Flushes a temp snapshot before replacing the primary and optionally rotating its backup. */
 export async function writeDurableJsonFile(filePath: string, content: string, options: DurableJsonWriteOptions = {}): Promise<DurableJsonWriteResult> {

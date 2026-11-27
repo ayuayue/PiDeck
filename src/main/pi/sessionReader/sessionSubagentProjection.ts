@@ -179,12 +179,14 @@ export class SessionSubagentProjection {
 		try {
 			// 流式扫描新增的尾部（首次/失效回退为全量），避免逐次轮询重复读旧内容。
 			// 不整文件 readFile，避免大会话撞 V8 字符串上限/堆上限。
-			// 行级预检保留：不含 "acp_delegate" / "\"subagent\"" 的行直接跳过 JSON.parse。
+			// 行级预检保留：不含委托类关键字的行直接跳过 JSON.parse。
+			// 新增 "delegate" 与 "orchestrator" 是为了覆盖裸 delegate 与编排结果（#598）：
+			// 多扫几行 JSON.parse 的代价远小于漏掉整条委托链。
 			const summary = await this.host.scanLines(
 				hostPath,
 				(line) => {
 					const jsonLine = line.endsWith("\r") ? line.slice(0, -1) : line;
-					if (!jsonLine.includes("acp_delegate") && !jsonLine.includes('"subagent"')) return;
+					if (!jsonLine.includes("acp_delegate") && !jsonLine.includes('"subagent"') && !jsonLine.includes("delegate") && !jsonLine.includes("orchestrator")) return;
 					try {
 						const parsed: unknown = JSON.parse(jsonLine);
 						if (isSubagentDerivationInput(parsed)) rawEntries.push(parsed);

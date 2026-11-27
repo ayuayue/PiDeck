@@ -19,9 +19,8 @@ test("in-app brand surfaces use the Pi glyph, not the spider mark", () => {
 	assert.match(mark, /export function LogoMark/);
 	assert.match(mark, PI_GLYPH);
 	assert.doesNotMatch(mark, /brandMarkSrc/);
-	assert.match(lockup, /<PiLogoCanvas size=\{18\}/);
-	// 侧栏 π logo：只点击播官方积木拼装，不挂载自播、不跟会话启动。
-	assert.match(lockup, /<PiLogoCanvas size=\{18\} playOnClick \/>/);
+	assert.match(lockup, /<BrandLogoMark size=\{18\} variant="inline" playOnClick \/>/);
+	// 侧栏 π logo：仍只点击播动画，背景与风格判定统一交给 LogoMark。
 	assert.doesNotMatch(lockup, /autoPlay/);
 	assert.doesNotMatch(lockup, /replayToken/);
 	assert.doesNotMatch(app, /brandLogoReplayToken/);
@@ -31,7 +30,7 @@ test("in-app brand surfaces use the Pi glyph, not the spider mark", () => {
 	assert.doesNotMatch(canvas, /autoPlay !== false/);
 	assert.doesNotMatch(canvas, /replayToken/);
 	assert.match(canvas, /event\?\.stopPropagation\(\)/);
-	assert.match(about, /<PiLogoCanvas size=\{40\} playOnClick \/>/);
+	assert.match(about, /<LogoMark size=\{56\} playOnClick \/>/);
 	assert.doesNotMatch(about, /autoPlay/);
 	// beUI 两行字标（5fcca0b8）：wordmark 由 TextShimmer 承载，不再用 aria-hidden span；
 	// 文本改为「应用显示名称」（设置项 appDisplayName，缺省 PiDeck），不再写死字面量。
@@ -51,10 +50,10 @@ test("in-app brand surfaces use the Pi glyph, not the spider mark", () => {
 	assert.match(shimmer, /enabled \? <style>\{TEXT_SHIMMER_KEYFRAMES\}<\/style> : null/);
 	assert.match(shimmer, /enabled \? textShimmerStyle\(duration\) : undefined/);
 	assert.match(app, PI_GLYPH);
-	assert.match(boot, /id="boot-logo-silver"/);
+	assert.match(boot, /fill="#18181b"/);
 	assert.match(boot, PI_GLYPH);
-	// Web 品牌位与桌面同构：按 logoStyle 分支（Web 无人写入 → 恒取默认 pi-tui 三色像素标）。
-	assert.match(webBrand, /logoStyle === "pi-tui"\s*\?\s*<PiTuiLogoCanvas size=\{18\} playOnClick \/>\s*:\s*<PiLogoCanvas size=\{18\} playOnClick \/>/);
+	// Web 品牌位与桌面同构，标题栏只展示紧凑主体。
+	assert.match(webBrand, /<LogoMark size=\{18\} variant="inline" playOnClick \/>/);
 	assert.doesNotMatch(webBrand, /autoPlay/);
 	assert.match(webBrand, />\s*PiDeck\s*</);
 	assert.match(webTimeline, /<LogoMark size=\{40\} \/>/);

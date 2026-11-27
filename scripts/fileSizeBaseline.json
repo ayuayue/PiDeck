@@ -57,7 +57,7 @@
 		"src/main/web/WebServiceManager.ts": 674,
 		"src/main/wechat/WeChatBridge.ts": 1054,
 		"src/renderer/src/App.tsx": 2169,
-		"src/renderer/src/atoms/session-atoms.ts": 896,
+		"src/renderer/src/atoms/session-atoms.ts": 892,
 		"src/renderer/src/components/app/FileDiffViewer.tsx": 834,
 		"src/renderer/src/components/app/git/GitGraph.tsx": 874,
 		"src/renderer/src/components/app/GitPanel.tsx": 1079,

@@ -380,3 +380,56 @@ test("合成 starting 事件不产生空 agentId 的侧栏 agent 行", () => {
 	assert.equal(agents.length, 0);
 	assert.equal(store.get(atoms.sessionRuntimeByIdAtom)["deck-act-3"].status, "starting", "加载态数据源不受影响");
 });
+
+test("目录对账：目录里已消失的会话，实际上没有运行时的条目不写回", () => {
+	// 前置边界：对账只清「确实存在」的条目，不能凭空造条目。
+	const store = createStore();
+	store.set(atoms.dropSessionRuntimesAtom, ["没有的会话"]);
+	assert.equal(Object.keys(store.get(atoms.sessionRuntimeByIdAtom)).length, 0);
+});
+
+test("dropSessionRuntimesAtom 收敛已删会话残留的运行态与运行时 UI", () => {
+	// 现场（用户反馈）：删掉父会话后，它开出的关联子会话「自己并列在左侧」，右键删除毫无反应、
+	// 「关闭 Agent」只回「会话已不存在，请刷新会话列表」，而刷新也消不掉。
+	// 幽灵行的判据：目录记录已无、运行时表还在（渲染层据此画行，但删除项解析不到记录）。
+	// 主进程 detach 正常收敛；这一层是「事件丢了 / 静默拉取先到」时刷新也能修好的兜底。
+	const store = createStore();
+	store.set(atoms.replaceProjectSessionsAtom, { projectId: "project-a", sessions: [session("keep", "project-a"), session("ghost", "project-a")] });
+	store.set(atoms.replaceSessionRuntimesAtom, [runtime("keep", "agent-keep", "project-a"), runtime("ghost", "agent-ghost", "project-a")]);
+	// 幽灵会话挂着一条运行时 UI（审批/提问在等回答）：不收掉会一直亮着待答徽标。
+	store.set(atoms.applySessionRuntimeEventAtom, runtimeEvent("ghost", "agent-ghost", 1, "agents:ui-request", { method: "select", requestId: "req-ghost", title: "pick", options: ["A"] }));
+	assert.ok(store.get(atoms.sessionRuntimeUiByIdAtom).ghost, "前置：幽灵会话有运行时 UI");
+
+	store.set(atoms.dropSessionRuntimesAtom, ["ghost"]);
+
+	assert.equal(store.get(atoms.sessionRuntimeByIdAtom).ghost, undefined, "已消失会话的运行态必须收敛");
+	assert.equal(store.get(atoms.sessionRuntimeUiByIdAtom).ghost, undefined, "运行时 UI 一并收敛");
+	assert.ok(store.get(atoms.sessionRuntimeByIdAtom).keep, "别的会话不受影响");
+	// 沙箱 realm 的数组与本进程不是同一个构造器：展开成本 realm 的普通数组再比较。
+	assert.deepEqual(
+		[...store.get(atoms.agentInventoryAtom)].map((agent) => agent.id),
+		["agent-keep"],
+		"侧栏 agent 清单只剩真实存在的会话",
+	);
+});
+
+test("agent 清单不把「已归并的旧会话 ID」当成独立一行（同一会话两行的根因）", () => {
+	// 现场（用户反馈）：关联子会话在父会话下面嵌套显示一个，父会话同级又显示一个。
+	// 判据：运行时表里残留了 catalog 已吸收的旧 ID（mergedSessionIds），它与存活 ID 指向同
+	// 一个会话文件。agent 清单按「runtime 的每个 key 一行」构建，于是同一会话被画成两行。
+	// 主进程已按 catalog 别名归一化；这里守住渲染层不再复现同一形状。
+	const store = createStore();
+	store.set(atoms.replaceProjectSessionsAtom, {
+		projectId: "project-a",
+		sessions: [{ ...session("session-alive", "project-a", "补登录页单测"), mergedSessionIds: ["session-stale"] }],
+	});
+	// 旧 ID 的运行时条目（归并发生在绑定之后，事件流仍以旧 ID 写进来）。
+	store.set(atoms.replaceSessionRuntimesAtom, [runtime("session-stale", "agent-stale", "project-a")]);
+
+	const agents = [...store.get(atoms.agentInventoryAtom)];
+	assert.deepEqual(
+		agents.map((agent) => agent.id),
+		[],
+		"旧 ID 不是现存会话，不能单独占一行 agent",
+	);
+});

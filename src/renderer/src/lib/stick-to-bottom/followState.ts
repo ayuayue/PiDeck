@@ -120,8 +120,9 @@ export function resolveGestureOwner(chain: readonly ScrollChainLink[]): GestureO
 }
 
 export type FollowDirection = "up" | "down";
+export type ScrollUserIntent = FollowDirection | "relock";
 
-export type FollowDecision = { action: "none" } | { action: "escape"; report: "up" } | { action: "relock"; report: "down" } | { action: "intent"; report: FollowDirection };
+export type FollowDecision = { action: "none" } | { action: "escape"; report: "up" } | { action: "relock"; report: "relock" } | { action: "intent"; report: FollowDirection };
 
 /** wheel 在位移前触发：用这次 delta 将到达的距底做下滚重锁。 */
 export function distanceAfterWheelDelta(distanceFromBottom: number, deltaY: number): number {
@@ -182,7 +183,7 @@ export function decideFollowFromUserInput(input: { direction: FollowDirection; r
 		return { action: "none" };
 	}
 	if (shouldRelockFromDownInput(input.distanceFromBottom)) {
-		return { action: "relock", report: "down" };
+		return { action: "relock", report: "relock" };
 	}
 	return { action: "intent", report: "down" };
 }

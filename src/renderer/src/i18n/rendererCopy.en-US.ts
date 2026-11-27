@@ -5553,7 +5553,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"settings.piUpdateDetails": "Release notes",
 	"settings.piUpdateVersions": "Current: {current} · Latest: {latest}",
 	"settings.updatePi": "Update Pi",
-	"settings.piUpdateDone": "Pi update command completed",
+	"settings.piUpdateRestartAgents": "Pi is updated. Sessions that were already running still use the pre-update pi process; restart them to use the new version.",
 	"settings.piUpdateChecked": "Pi is already up to date",
 	"settings.catalogSectionTitle": "Model Catalog",
 	"settings.catalogSectionDesc":
@@ -6755,6 +6755,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"tool.loadingFullOutput": "Loading full output…",
 	"tool.fullOutputLoadFailed": "Failed to load full content",
 	"tool.piOutputTruncated": "Output truncated by Pi; full output at: {path}",
+	"tool.piOutputNotSaved": "Output truncated by Pi; the full output could not be saved: {reason}",
 	"tool.copyOutput": "Copy output",
 	"tool.copyPath": "Copy path",
 	"tool.retry": "Retry",

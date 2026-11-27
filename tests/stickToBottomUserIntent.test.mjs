@@ -35,7 +35,7 @@ test("engine reports user intent only from confirmed input", () => {
 test("MessageScroller wires user scroll intent from engine to the timeline controller", () => {
 	const scrollerSource = readFileSync("src/renderer/src/components/agents/message-scroller.tsx", "utf8");
 	const timelineSource = readFileSync("src/renderer/src/components/session/SessionMessageTimeline.tsx", "utf8");
-	assert.match(scrollerSource, /onUserScrollIntent\?: \(intent: "up" \| "down", source: "scroll" \| "input"\) => void/);
+	assert.match(scrollerSource, /onUserScrollIntent\?: \(intent: ScrollUserIntent, source: ScrollIntentSource\) => void/);
 	assert.match(scrollerSource, /onUserIntent: onUserScrollIntent,/);
 	assert.match(scrollerSource, /engineNoteWheel\(event\.deltaY, event\.target\)/);
 	assert.match(timelineSource, /onUserScrollIntent=\{controller\.setUserScrollIntent\}/);

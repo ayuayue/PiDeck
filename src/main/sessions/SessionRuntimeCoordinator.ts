@@ -49,6 +49,7 @@ export type { RemoteSessionMessageMutationResolver, SessionAgentGateway, Session
 import { type AppliedSessionPreferences, SessionRuntimePreferences, snapshotPreferences } from "./runtime/sessionRuntimePreferences";
 import { RemoteMessageMutation } from "./runtime/remoteMessageMutation";
 import { RuntimeBinding } from "./runtime/runtimeBinding";
+import { buildRuntimeInfo } from "./runtime/runtimeInfo";
 import { SessionRuntimeCommandError } from "./runtime/sessionRuntimeCommandError";
 
 type DeliveryCacheEntry = {
@@ -376,12 +377,19 @@ export class SessionRuntimeCoordinator {
 		return projectLocator?.kind === "ssh" ? projectLocator.hostId : undefined;
 	}
 
+	/** 运行时快照：同一会话一条（会话 ID 按 catalog 别名归一化，终态条目跳过、不触发解绑）。 */
 	listRuntimes(): SessionRuntimeInfo[] {
 		const result: SessionRuntimeInfo[] = [];
-		for (const [sessionId, agentId] of this.agentIdBySession) {
+		const seen = new Set<string>();
+		for (const [rawSessionId, agentId] of this.agentIdBySession) {
+			const sessionId = this.canonicalSessionId(rawSessionId);
+			if (seen.has(sessionId)) continue;
 			const tab = this.agents.list().find((candidate) => candidate.id === agentId);
 			if (!tab || isTerminalAgent(tab)) continue;
-			result.push(this.runtimeInfo(sessionId, tab));
+			const binding = this.getRuntimeBinding(agentId);
+			if (!binding || binding.sessionId !== sessionId) continue;
+			seen.add(sessionId);
+			result.push(buildRuntimeInfo({ sessionId, agentId, runtimeGeneration: binding.runtimeGeneration }, tab));
 		}
 		return result.sort((left, right) => right.createdAt - left.createdAt);
 	}
@@ -475,8 +483,9 @@ export class SessionRuntimeCoordinator {
 	}
 
 	/**
-	 * 删除前强制释放运行时：先解绑让侧栏立刻可删，再停进程并等它真的退出。
-	 * 运行中会话也允许删——用户不必先点停止。停进程失败/超时也不挡 catalog 删除。
+	 * 删除前强制释放运行时：先解绑让侧栏立刻可删，再停进程并等它真的退出（停进程失败/超时也不挡
+	 * catalog 删除）。解绑必须推 detach（同终态惰性解绑协议），否则非侧栏入口删掉的会话会留
+	 * 「运行时还在、catalog 已无」的幽灵行，见 docs/host-boundaries.md 例外九。
 	 */
 	async releaseRuntimeForDelete(sessionId: string): Promise<void> {
 		const requestedSessionId = this.canonicalSessionId(sessionId);
@@ -489,16 +498,15 @@ export class SessionRuntimeCoordinator {
 		const mappedGeneration = mappedAgentId ? (this.getRuntimeBinding(mappedAgentId)?.runtimeGeneration ?? 0) : 0;
 		const liveTarget = this.getTarget(requestedSessionId);
 		const target = liveTarget ?? (mappedAgentId ? { sessionId: requestedSessionId, agentId: mappedAgentId, runtimeGeneration: mappedGeneration } : undefined);
-		// 会话删除 = 代数作废：generationBySession 按 sessionId 累积且仅随删除回收，
-		// 否则反复创建/删除会话会让键集无界增长（2026 内存排查：慢泄漏）。
-		// 注意不能放到 unbindAgentUnchecked：restart 流程 unbind 旧 agent 后要
-		// bind 新 agent 并代数 +1，提前删会导致旧 runtime 的迟到结果被误接受。
+		// 会话删除 = 代数作废（generationBySession 仅随删除回收，否则键集无界增长）。
+		// 不能放进 unbindAgentUnchecked：restart 会 unbid 旧 agent 后 bind 新的并代数 +1。
 		this.generationBySession.delete(requestedSessionId);
 		if (!target) {
 			this.deletingSessions.delete(requestedSessionId);
 			return;
 		}
 		this.unbindAgentUnchecked(target.agentId);
+		this.notifyRuntimeDetached(target); // 用解绑前那代的身份：渲染层按「代际不旧于当前」接受
 		// 先解绑（侧栏立刻可删），但停进程必须等到真的退出：pi 还握着会话文件句柄时，
 		// 后续 shell.trashItem 会失败（issue #364）。等待有上限，超时放行。
 		try {
@@ -1137,8 +1145,16 @@ export class SessionRuntimeCoordinator {
 		return this.bindings.currentRuntimeGeneration(sessionId);
 	}
 
+	/**
+	 * 运行实例 → 它当前归属的会话 ID；已按 catalog 别名归一化。
+	 * 归并（草稿条目被带会话文件的那条吸收）发生在绑定之后，不归一化就会让旧 ID 与存活 ID
+	 * 各占一行（事件信封 / detach / 运行时快照共用这个出口）。
+	 */
 	getRuntimeBinding(agentId: string): { sessionId: string; runtimeGeneration: number } | undefined {
-		return this.bindings.getRuntimeBinding(agentId);
+		const binding = this.bindings.getRuntimeBinding(agentId);
+		if (!binding) return undefined;
+		const sessionId = this.canonicalSessionId(binding.sessionId);
+		return sessionId === binding.sessionId ? binding : { ...binding, sessionId };
 	}
 
 	async replaceBoundRuntime<T extends { cancelled?: boolean }>(input: {
@@ -1917,23 +1933,7 @@ export class SessionRuntimeCoordinator {
 		if (!target || target.agentId !== tab.id) {
 			throw new SessionRuntimeCommandError("SESSION_RUNTIME_CHANGED", "Session runtime binding changed while building runtime state");
 		}
-		return {
-			...target,
-			projectId: tab.projectId,
-			cwd: tab.cwd,
-			status: tab.status,
-			sessionPath: tab.sessionPath,
-			createdAt: tab.createdAt,
-			compactionCount: tab.compactionCount,
-			noSession: tab.noSession,
-			// 远端 trust 现状随 runtime 快照一起给：渲染层重载/首次渲染就能显示提示，不用等下一条
-			// `agents:state`（那条推送只在该会话发生状态变化时才来）。本机会话不带该字段。
-			...(tab.remoteTrustUnhandled === true ? { remoteTrustUnhandled: true } : {}),
-			// 远端注入面同样随 runtime 快照下发：重载后 UI 的能力门不能退化成“应该能”。
-			...(tab.remoteExtensions === undefined ? {} : { remoteExtensions: tab.remoteExtensions }),
-			// PiDeck 会话身份透传：渲染层侧栏 ACP「agent↔会话」配对依赖它（见 SessionRuntimeInfo.deckSessionId）。
-			deckSessionId: tab.deckSessionId,
-		};
+		return buildRuntimeInfo(target, tab);
 	}
 
 	private requireTarget(target: SessionRuntimeTarget): SessionRuntimeBinding {

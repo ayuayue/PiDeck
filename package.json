@@ -1,6 +1,6 @@
 {
   "name": "pideck",
-  "version": "0.14.0",
+  "version": "0.14.1",
   "dshRuntimeVersion": "0.2.1-rc.5",
   "packageManager": "npm@11.6.2",
   "engines": {
@@ -151,6 +151,7 @@
     "proper-lockfile": "^4.1.2",
     "smol-toml": "^1.8.0",
     "sql.js": "^1.14.1",
+    "stream-json": "3.9.0",
     "tar": "^7.5.15",
     "undici": "^6.28.0",
     "webdav": "^5.10.0",
@@ -467,7 +468,7 @@
     "@deepseek-ai/dsh-web-app": "0.2.1-rc.5",
     "@deepseek-ai/dsh-workflow": "0.2.1-rc.5",
     "@deepseek-ai/dsh-workspace": "0.2.1-rc.5",
-    "@earendil-works/pi-ai": "1.6.0",
+    "@earendil-works/pi-ai": "1.6.1",
     "@fiahfy/icns": "^0.0.7",
     "@lezer/highlight": "^1.2.3",
     "@pierre/diffs": "^1.3.5",

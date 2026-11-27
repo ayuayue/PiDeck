@@ -60,7 +60,7 @@ export interface TimelineScrollOwnership {
 	pinViewportAfterPrepend: (nextTop: number) => void;
 	captureBrowsePin: (freeze: boolean) => void;
 	pinBrowseRow: () => void;
-	setAutoScrollFromScroller: (following: boolean) => void;
+	setAutoScrollFromScroller: (following: boolean, userRelock?: boolean) => void;
 }
 
 /**
@@ -239,11 +239,9 @@ export function useTimelineScrollOwnership(options: TimelineScrollOwnershipOptio
 	}, [pinViewportAfterPrepend]);
 
 	const setAutoScrollFromScroller = useCallback(
-		(following: boolean) => {
-			// 跳转事务进行中：不接受引擎的跟底上报（见 pendingJumpRef 注释）。
-			// 第三维是浏览 pin：跳转落位后目标行已在 DOM、没有 pendingJump，此时若不看 pin，
-			// 引擎在流式期间的 following=true 上报会把 autoScroll 拉回 true，下一帧就滚回底部（「跳了又弹回」）。
-			if (shouldIgnoreFollowReport(following, Boolean(pendingJumpRef.current), browsePinRef.current !== null)) return;
+		(following: boolean, userRelock = false) => {
+			// 普通跟随快照不能覆盖跳转或浏览钉。引擎确认读者主动回底后，才允许结束这些事务。
+			if (!userRelock && shouldIgnoreFollowReport(following, Boolean(pendingJumpRef.current), browsePinRef.current !== null)) return;
 			// stopScroll 的迟到 onFollowChange(false) 不得覆盖发送动画的恢复跟随。
 			if (sendScrollRef.current.isAnimating) return;
 			// 从历史浏览回到跟随时，先同步关闭旧浏览事务；不能等 autoScroll effect，

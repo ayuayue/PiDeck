@@ -14,8 +14,8 @@ const { PI_TUI_COLORS, PI_TUI_LOGO_CELLS } = loadTsCommonJs("src/renderer/src/co
 /**
  * 应用图标 pi-tui 风格资源契约：
  * 1) build/icon-pi-tui.svg 与 renderer 的 piTuiLogoData 位图逐格一致（三色像素标），
- *    且容器规格与 classic build/icon.svg 同款（rx 228 深色渐变底 + shine），中心高 520 等高；
- * 2) scripts/make-icon.js 产出的 build/icon-pi-tui.png 是 256×256 透明留白 PNG（运行时 setIcon 用）；
+ *    且容器沿用 classic 的 rx 228 圆角，系统图标固定白底，三色主体占底板宽高的 65%；
+ * 2) scripts/make-icon.js 生成带 Dock 留白的 icon-pi-tui.png，以及不加外层留白的 Windows 运行时图标；
  * 3) 打包静态图标（icon.ico / icon.icns / icons/*.png）底图是 pi-tui，而运行时 classic 选项用的
  *    build/icon.png 仍是 pi 字标——两者混淆会让「Logo 风格」切到 classic 时显示成 pi-tui 标。
  * 4) 官网顶栏 logo / favicon（docs-site/public/icon.svg）已换成同一枚 pi-tui 位图，
@@ -67,8 +67,6 @@ test("icon-pi-tui.svg keeps the classic container spec and stays vector-only", (
 	const svg = fs.readFileSync(path.join(root, "build", "icon-pi-tui.svg"), "utf8");
 	assert.match(svg, /rx="228"/, "container corner radius must match classic icon.svg");
 	assert.match(svg, /viewBox="0 0 4 4"/, "bitmap viewport must be 4x4");
-	assert.match(svg, /width="693" height="520"/, "bitmap height 520 matches classic wordmark; width is 4:3");
-	assert.match(svg, /translate\(166, 252\)/, "bitmap centered horizontally and vertically in the icon container");
 	assert.ok(!svg.includes("data:image/png"), "must not embed raster data");
 });
 
@@ -117,6 +115,141 @@ test("packaging icons (ico/icns/icons dir) are rendered from the pi-tui mark", a
 	assert.ok(ico.readUInt16LE(4) >= 7, "ico must embed the full size ladder");
 	const icns = await fs.promises.readFile(path.join(root, "build", "icon.icns"));
 	assert.equal(icns.subarray(0, 4).toString("ascii"), "icns", "icns header");
+});
+
+/** 解码生成器使用的 32-bit DIB ICO 帧，检查 Windows 实际读取的像素。 */
+function decodeIcoFrames(ico) {
+	assert.equal(ico.readUInt16LE(0), 0);
+	assert.equal(ico.readUInt16LE(2), 1);
+	return Array.from({ length: ico.readUInt16LE(4) }, (_, index) => {
+		const entry = 6 + index * 16;
+		const width = ico[entry] || 256;
+		const height = ico[entry + 1] || 256;
+		const offset = ico.readUInt32LE(entry + 12);
+		assert.equal(ico.readUInt32LE(offset), 40, "must use a BITMAPINFOHEADER");
+		assert.equal(ico.readUInt16LE(offset + 14), 32, "must preserve 32-bit alpha");
+		const data = Buffer.alloc(width * height * 4);
+		for (let y = 0; y < height; y += 1) {
+			for (let x = 0; x < width; x += 1) {
+				const source = offset + 40 + ((height - y - 1) * width + x) * 4;
+				const target = (y * width + x) * 4;
+				data[target] = ico[source + 2];
+				data[target + 1] = ico[source + 1];
+				data[target + 2] = ico[source];
+				data[target + 3] = ico[source + 3];
+			}
+		}
+		return { data, info: { width, height, channels: 4 } };
+	});
+}
+
+/** 检查圆角底板的直边像素；避开字模和阴影，不把白底误判成灰色。 */
+function assertWhitePlate({ data, info }, inset) {
+	for (const [x, y] of [
+		[Math.floor(info.width / 2), inset],
+		[Math.floor(info.width / 2), info.height - inset - 1],
+		[inset, Math.floor(info.height / 2)],
+		[info.width - inset - 1, Math.floor(info.height / 2)],
+	]) {
+		const pixel = (y * info.width + x) * info.channels;
+		assert.ok(data[pixel + 3] >= 128, `plate must reach (${x}, ${y}) in ${info.width}px icon`);
+		assert.ok(
+			[0, 1, 2].every((channel) => data[pixel + channel] >= 250),
+			`plate must be white at (${x}, ${y})`,
+		);
+	}
+	assert.equal(data[3], 0, "rounded corners must stay transparent");
+}
+
+test("系统图标采用白底，macOS 和 Linux 继续保留外层留白", async () => {
+	for (const file of ["icon-pi-tui.png", "icons/256x256.png"]) {
+		const decoded = await sharp(path.join(root, "build", file))
+			.ensureAlpha()
+			.raw()
+			.toBuffer({ resolveWithObject: true });
+		assertWhitePlate(decoded, 16);
+		const topCenter = 128 * 4;
+		assert.equal(decoded.data[topCenter + 3], 0, `${file} must keep its Dock padding`);
+	}
+	const svg = await sharp(path.join(root, "build", "icon-pi-tui.svg"))
+		.ensureAlpha()
+		.raw()
+		.toBuffer({ resolveWithObject: true });
+	assertWhitePlate(svg, 0);
+});
+
+/** 从渲染像素测量三色主体，避免 SVG 视口留白让声明尺寸与实际占比不一致。 */
+function assertCenteredGlyph({ data, info }, plateSize, isClassic = false) {
+	let left = info.width;
+	let top = info.height;
+	let right = -1;
+	let bottom = -1;
+	for (let y = 0; y < info.height; y += 1) {
+		for (let x = 0; x < info.width; x += 1) {
+			const pixel = (y * info.width + x) * info.channels;
+			const rgb = [data[pixel], data[pixel + 1], data[pixel + 2]];
+			const isGlyph = isClassic ? Math.max(...rgb) < 160 : Math.max(...rgb) - Math.min(...rgb) > 45;
+			if (data[pixel + 3] < 128 || !isGlyph) continue;
+			left = Math.min(left, x);
+			top = Math.min(top, y);
+			right = Math.max(right, x);
+			bottom = Math.max(bottom, y);
+		}
+	}
+	const expected = plateSize * 0.65;
+	assert.ok(Math.abs(right - left + 1 - expected) <= 1, `glyph width must be 65% of ${plateSize}px plate`);
+	assert.ok(Math.abs(bottom - top + 1 - expected) <= 1, `glyph height must be 65% of ${plateSize}px plate`);
+	assert.ok(Math.abs((left + right + 1) / 2 - info.width / 2) <= 0.5, "glyph must stay horizontally centered");
+	assert.ok(Math.abs((top + bottom + 1) / 2 - info.height / 2) <= 0.5, "glyph must stay vertically centered");
+}
+
+test("三色主体在 SVG 与运行时 PNG 中均居中占底板宽高的 65%", async () => {
+	for (const [file, plateSize] of [
+		["icon-pi-tui.svg", 1024],
+		["icon-pi-tui-windows.png", 256],
+		["icon-pi-tui.png", 224],
+	]) {
+		const decoded = await sharp(path.join(root, "build", file))
+			.ensureAlpha()
+			.raw()
+			.toBuffer({ resolveWithObject: true });
+		assertCenteredGlyph(decoded, plateSize);
+	}
+});
+
+test("Windows ICO 全尺寸帧使用白底且不再带 Dock 外层留白", () => {
+	const frames = decodeIcoFrames(fs.readFileSync(path.join(root, "build", "icon.ico")));
+	assert.deepEqual(
+		frames.map(({ info }) => info.width),
+		[16, 24, 32, 48, 64, 128, 256],
+	);
+	for (const frame of frames) {
+		assertWhitePlate(frame, 0);
+		assertCenteredGlyph(frame, frame.info.width);
+	}
+});
+
+test("Windows 运行时图标采用同样的无额外留白白底", async () => {
+	const decoded = await sharp(path.join(root, "build", "icon-pi-tui-windows.png"))
+		.ensureAlpha()
+		.raw()
+		.toBuffer({ resolveWithObject: true });
+	assert.equal(decoded.info.width, 256);
+	assert.equal(decoded.info.height, 256);
+	assertWhitePlate(decoded, 0);
+});
+
+test("经典资源同样使用白底、深灰 65% 主体及各平台对应留白", async () => {
+	for (const [file, plateSize, inset] of [
+		["build/icon.svg", 1024, 0],
+		["build/icon.png", 448, 32],
+		["build/icon-classic-windows.png", 256, 0],
+		["src/renderer/src/assets/brand-mark.png", 256, 0],
+	]) {
+		const decoded = await sharp(path.join(root, file)).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+		assertWhitePlate(decoded, inset);
+		assertCenteredGlyph(decoded, plateSize, true);
+	}
 });
 
 test("runtime classic icon stays the Pi lettermark, not a copy of the pi-tui packaging set", async () => {

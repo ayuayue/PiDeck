@@ -1,10 +1,10 @@
 import { Activity, Bolt, ChevronRight, CirclePlus, Clock, Folder, Globe, MessageSquare, Monitor, Moon, Search, Sun } from "lucide-react";
-import { useEffect, useReducer, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
 import type { AgentBackend, AgentTab, AppThemeMode, ArchivedDshSession, ArchivedPiSession, Project, SessionRecord, SessionSummary, WorktreeEntry } from "../../../../shared/types";
 import { AgentContextMenu, DraftSessionContextMenu, ProjectContextMenu, SessionContextMenu, SessionManagerModal, SessionSourceFilterMenu, WorktreeCreateDialog } from "./SidebarParts";
-import { automationModuleHiddenAtom, sessionRecordToSummary, sidebarRevealProjectRequestAtom } from "../../atoms";
+import { automationModuleHiddenAtom, pendingMessageJumpAtom, sessionRecordToSummary, sessionRecordsAtom, sidebarRevealProjectRequestAtom } from "../../atoms";
 import { hasPendingUpdateAtom, pendingAppUpdateAtom, pendingCatalogUpdateAtom, pendingPiUpdateAtom, updateStatusAtom } from "../../atoms/update-atoms";
-import { useAtomValue } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
 import { isManagerSessionSummary, worktreeFamilyProjects } from "../../sessionManagerModel";
 import { t } from "../../i18n";
 import { cn } from "../../lib/utils";
@@ -16,6 +16,8 @@ import type { SidebarRunControl } from "./SidebarComponents";
 import { sessionDisplayName } from "../../utils/sessionDisplayName";
 import { DshSearchResults } from "./DshSearchResults";
 import { SessionContentSearchResults } from "./SessionContentSearchResults";
+import { useSessionContentSearch } from "../../hooks/useSessionContentSearch";
+import { buildSessionContentSearchHits } from "../../utils/sessionContentSearchHits";
 import { ProjectTree } from "./ProjectTree";
 import type { BatchProjectRemovalOutcome } from "./BatchRemoveProjectsDialog";
 import { Button } from "../ui-shadcn/button";
@@ -28,7 +30,8 @@ import { AutomationDockButton } from "../automation/AutomationDockButton";
 import { AgentMarketDockButton } from "../agents/AgentMarketDockButton";
 import { FavoritesDockButton } from "./FavoritesDockButton";
 import { HostPluginDockButtons } from "../plugins/HostPluginDockButtons";
-import { MorphingSearch, type MorphingSearchItem } from "../motion/morphing-search";
+import { MorphingSearch } from "../motion/morphing-search";
+import { buildSidebarSearchItems } from "./sidebarSearchItems";
 import { parseSidebarNavTab } from "../../utils/sidebarNavTab";
 import { ensurePinyinTable, pinyinKeys } from "../../utils/pinyinSearch";
 import { displayProjectDirectoryName, isChatProject } from "../../rendererUtils";
@@ -332,39 +335,34 @@ export function SidebarContent(props: SidebarContentProps) {
 		revealProjectRow(project);
 	}, [revealRequest, controller]);
 
+	// 跨会话正文搜索（Go session-index sidecar）：命令面板与会话结果块共用一份结果——面板也要它才能
+	// 把正文命中变成可跳转的会话项（#610）。hook 自带 300ms debounce，只能一处调用，否则双倍 IPC。
+	const sessionRecords = useAtomValue(sessionRecordsAtom);
+	const setPendingMessageJump = useSetAtom(pendingMessageJumpAtom);
+	const contentSearchResult = useSessionContentSearch(controller.search);
+	const contentHits = useMemo(() => buildSessionContentSearchHits(contentSearchResult, sessionRecords), [contentSearchResult, sessionRecords]);
+	const contentHitBySessionId = useMemo(() => new Map(contentHits.map((hit) => [hit.record.id, hit])), [contentHits]);
+
 	// MorphingSearch 检索项：扁平化所有项目 + 会话，供命令面板跳转。
-	// 项目项用目录名（chat 用「Chat」），会话项用标题 + 预览；选中即打开/选中目标。
-	// pinyin：中文标题的首字母/全拼键（纯字母查询才能命中，键按标题缓存）。
-	const searchItems: MorphingSearchItem[] = [];
-	for (const project of controller.catalog.projects) {
-		const projectTitle = displayProjectDirectoryName(project);
-		searchItems.push({
-			id: `project:${project.id}`,
-			title: projectTitle,
-			// 远端项目没有本机 path：描述用远端根路径，避免空串让搜索结果看起来没有位置。
-			description: isLocalProject(project) ? project.path : project.locator.remotePath,
-			pinyin: pinyinKeys(projectTitle),
-			icon: isChatProject(project) ? MessageSquare : Folder,
-			onSelect: () => {
-				actions.projects.select(project.id);
-				revealProjectRow(project);
-			},
-		});
-		for (const session of controller.catalog.sessionsByProject[project.id] ?? []) {
-			const sessionTitle = sessionDisplayName(session.title, session.forked) ?? session.title;
-			searchItems.push({
-				id: `session:${session.id}`,
-				title: sessionTitle,
-				description: session.preview,
-				context: { label: projectTitle, title: isLocalProject(project) ? project.path : project.locator.remotePath },
-				pinyin: pinyinKeys(sessionTitle),
-				icon: MessageSquare,
-				onSelect: () => {
-					void actions.sessions.open(project.id, session.id);
+	// 条目构造与「正文命中时带跳转」的规则在 sidebarSearchItems（可单测）；这里只注入动作。
+	const searchItems = useMemo(
+		() =>
+			buildSidebarSearchItems({
+				projects: controller.catalog.projects,
+				sessionsByProject: controller.catalog.sessionsByProject,
+				contentHits: contentHitBySessionId,
+				onSelectProject: (project) => {
+					actions.projects.select(project.id);
+					revealProjectRow(project);
 				},
-			});
-		}
-	}
+				onOpenSession: (projectId, sessionId, jumpMessageId) => {
+					// 先挂跳转再打开：目标 pane 聚焦后消费一次（与侧栏正文结果同一链路）。
+					if (jumpMessageId) setPendingMessageJump({ sessionId, messageId: jumpMessageId });
+					void actions.sessions.open(projectId, sessionId);
+				},
+			}),
+		[contentHitBySessionId, controller.catalog.projects, controller.catalog.sessionsByProject, actions.projects, actions.sessions, revealProjectRow, setPendingMessageJump],
+	);
 
 	return (
 		<aside
@@ -487,7 +485,8 @@ export function SidebarContent(props: SidebarContentProps) {
 				    点击打开并定位到首个命中消息（pendingMessageJump 链路）；无 sidecar 时隐藏 */}
 				{controller.search.trim() && (
 					<SessionContentSearchResults
-						query={controller.search}
+						result={contentSearchResult}
+						hits={contentHits}
 						onOpen={(projectId, sessionId) => {
 							void actions.sessions.open(projectId, sessionId);
 						}}

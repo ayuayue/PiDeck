@@ -1,6 +1,35 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { calculateTokensPerSecond, calculateIntervalUnionDurationMs, calculateSessionTokensPerSecond } from "../src/shared/tps.ts";
+import { calculateTokensPerSecond, calculateIntervalUnionDurationMs, calculateSessionTokensPerSecond, hasIncrementalDeltaStream } from "../src/shared/tps.ts";
+
+test("hasIncrementalDeltaStream distinguishes incremental streaming from one-shot delivery", () => {
+	// 真增量流式：一个 delta 几个 token
+	assert.equal(hasIncrementalDeltaStream(1481, 1481), true);
+	assert.equal(hasIncrementalDeltaStream(1000, 20), true);
+	// 整段送达（#602 实测 1481 token / 2 个 delta = 5610 tok/s）：窗口不反映解码速度
+	assert.equal(hasIncrementalDeltaStream(1481, 2), false);
+	assert.equal(hasIncrementalDeltaStream(1917, 3), false);
+	// delta 数未知（子代理区间等外部来源）按旧口径放行
+	assert.equal(hasIncrementalDeltaStream(500, undefined), true);
+	assert.equal(hasIncrementalDeltaStream(500, 0), true);
+	assert.equal(hasIncrementalDeltaStream(undefined, 2), true);
+});
+
+test("calculateSessionTokensPerSecond skips windows that were not incremental streaming", () => {
+	const spans = [
+		// 整段送达：窗口 264 ms、1481 token → 不得进流式分母
+		{ startedAt: 1000, firstDeltaAt: 2000, completedAt: 2264, outputTokens: 1481, deltaCount: 2 },
+		// 真增量流式：1.0 s、400 token / 400 delta
+		{ startedAt: 4000, firstDeltaAt: 5000, completedAt: 6000, outputTokens: 400, deltaCount: 400 },
+	];
+	const res = calculateSessionTokensPerSecond(spans);
+	// 流式只统计第二段（端到端两段都算）
+	assert.equal(res.activeStreamingDurationMs, 1000);
+	assert.equal(Math.round(res.sessionTps), 400);
+	// 端到端两段都算：1881 token ÷ union([1000,2264],[4000,6000]) = 1881 / 3.264 ≈ 576
+	assert.equal(res.activeDurationMs, 3264);
+	assert.equal(Math.round(res.sessionEndToEndTps), Math.round(1881 / 3.264));
+});
 
 test("calculateIntervalUnionDurationMs handles empty or invalid intervals", () => {
 	assert.equal(calculateIntervalUnionDurationMs([]), 0);

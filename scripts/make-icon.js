@@ -15,7 +15,7 @@ if (!svg.includes("165.29 165.29")) {
 	throw new Error("build/icon.svg must keep the Pi lettermark geometry");
 }
 
-// 安装包/exe/Dock/Linux 的静态图标底图：pi-tui 三色像素标（与 pi 官方终端同款）。
+// 安装包/exe/Dock/Linux 的静态图标底图：白底 pi-tui 三色像素标。
 // 这些格式在构建期烘进二进制，运行时改不了——所以打包身份固定取 pi-tui；
 // 设置里的「Logo 风格」只切运行时的窗口/任务栏/托盘图标（见 src/main/appWindowLogo.ts）。
 // classic 一套仍然生成：它是运行时切换的另一个选项，也是应用内品牌位的来源。
@@ -50,14 +50,14 @@ const icnsSources = [
 	[1024, "ic10"],
 ];
 
-async function renderPng(size, target, sourceSvg = piTuiSvg) {
-	let innerSize = Math.max(1, Math.round(size * iconContentRatio));
+/** 渲染圆角图标；Dock/Linux 默认保留边距，Windows 传 1；省略 target 时直接供 ICO 编码。 */
+async function renderPng(size, target, sourceSvg = piTuiSvg, contentRatio = iconContentRatio) {
+	let innerSize = Math.max(1, Math.round(size * contentRatio));
 	if (innerSize > 1) innerSize -= innerSize % 2;
 	const icon = await sharp(Buffer.from(sourceSvg)).resize(innerSize, innerSize).png().toBuffer();
 
-	// Dock/Finder 会优先使用 icns 内的小尺寸图；如果小尺寸直接铺满画布，
-	// 视觉上会比系统应用图标大一圈。所有平台图标都统一保留 6.25% 留白。
-	await sharp({
+	// macOS Dock/Finder 需要每边 6.25% 留白；Windows 直接铺满画布，避免图标比同排软件小一圈。
+	const png = await sharp({
 		create: {
 			width: size,
 			height: size,
@@ -73,7 +73,9 @@ async function renderPng(size, target, sourceSvg = piTuiSvg) {
 			},
 		])
 		.png()
-		.toFile(target);
+		.toBuffer();
+	if (target) await fs.promises.writeFile(target, png);
+	return png;
 }
 
 async function writeIcns(target) {
@@ -101,7 +103,8 @@ async function main() {
 	// 这三者都是打包静态图标 → 统一取 pi-tui 底图（renderPng 的 sourceSvg 默认值）。
 	await Promise.all(pngSizes.map((size) => renderPng(size, path.join(iconsDir, `${size}x${size}.png`))));
 
-	const ico = await pngToIco([16, 24, 32, 48, 64, 128, 256].map((size) => path.join(iconsDir, `${size}x${size}.png`)));
+	// ICO 独立渲染，不能复用带 Dock 留白的 PNG；Windows 各档图标均铺满画布。
+	const ico = await pngToIco(await Promise.all([16, 24, 32, 48, 64, 128, 256].map((size) => renderPng(size, undefined, piTuiSvg, 1))));
 	await fs.promises.writeFile(path.join(out, "icon.ico"), ico);
 	await writeIcns(path.join(out, "icon.icns"));
 
@@ -109,13 +112,16 @@ async function main() {
 	// icon.png 必须独立按 classic SVG 渲染，不能再从 icons/512x512.png 拷贝——
 	// 那套现在是 pi-tui 底图，拷过来会让 classic 选项显示成 pi-tui 标。
 	await renderPng(512, path.join(out, "icon.png"), svg);
+	await renderPng(256, path.join(out, "icon-classic-windows.png"), svg, 1);
 	await renderPng(256, path.join(out, "icon-pi-tui.png"), piTuiSvg);
+	// Windows 运行时窗口/任务栏/托盘同样取消外层留白，避免启动后又缩回 Dock 尺寸。
+	await renderPng(256, path.join(out, "icon-pi-tui-windows.png"), piTuiSvg, 1);
 
 	// 应用内侧栏/空态用同一枚正式标；不要直接拷系统 512（含 Dock 留白），按 SVG 铺满导出。
 	const rendererMark = path.join(__dirname, "..", "src", "renderer", "src", "assets", "brand-mark.png");
 	await sharp(Buffer.from(svg)).resize(256, 256).png().toFile(rendererMark);
 
-	console.log("wrote build/icon.svg, build/icon.png (classic), build/icon-pi-tui.png, build/icon.ico + icon.icns + icons/*.png (pi-tui) and src/renderer/src/assets/brand-mark.png");
+	console.log("wrote white classic/pi-tui PNGs (Dock/Windows), icon.ico + icon.icns + icons/*.png and src/renderer/src/assets/brand-mark.png");
 }
 
 main().catch((error) => {

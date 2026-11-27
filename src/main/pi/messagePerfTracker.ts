@@ -1,6 +1,6 @@
 import type { AgentRuntimeState } from "../../shared/types";
 import { agentEventTags } from "../../shared/ipc";
-import { calculateTokensPerSecond, calculateSessionTokensPerSecond, hasMeasurableStreamingWindow, type TaskPerfSpan } from "../../shared/tps";
+import { calculateTokensPerSecond, calculateSessionTokensPerSecond, hasIncrementalDeltaStream, hasMeasurableStreamingWindow, type TaskPerfSpan } from "../../shared/tps";
 
 /** 最近一次 assistant 回复及会话级性能指标（结算后保留，供 getRuntimeState 合并展示）。 */
 export interface MessagePerfSnapshot {
@@ -45,8 +45,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * pi 不暴露耗时字段，只能由本地事件时间戳推算。
  */
 export class MessagePerfTracker {
-	/** 进行中的计时器（per agent）。agentStartAt/turnStartAt/messageStartAt 是阶段边界（首遇即记，0=未到）。 */
-	private readonly perfByAgent = new Map<string, { startedAt: number; firstDeltaAt: number; firstTextAt: number; agentStartAt: number; turnStartAt: number; messageStartAt: number }>();
+	/** 进行中的计时器（per agent）。agentStartAt/turnStartAt/messageStartAt 是阶段边界（首遇即记，0=未到）。
+	 * deltaCount 累加本次回复收到的 delta 数：判断上游是否真的增量流式（见 hasIncrementalDeltaStream）。 */
+	private readonly perfByAgent = new Map<string, { startedAt: number; firstDeltaAt: number; firstTextAt: number; deltaCount: number; agentStartAt: number; turnStartAt: number; messageStartAt: number }>();
 	/** sendPrompt 发出的请求时刻（毫秒），供首个 message_start 起表时优先使用（含排队时间）。 */
 	private readonly promptRequestedAtByAgent = new Map<string, number>();
 	/** 计时器创建前到达的 agent_start 时刻（per agent）：agent_start 先于 turn_start/message_start，
@@ -138,14 +139,15 @@ export class MessagePerfTracker {
 	}
 
 	/**
-	 * 记录首个内容 delta 时刻（text/thinking 均算首 token，用户最先感知到的是二者之一）。
-	 * 只记一次：思考切正文时 text_delta 不会覆盖已有的 firstDeltaAt。
+	 * 记录内容 delta（text/thinking 均算首 token，用户最先感知到的是二者之一）。
+	 * 首 delta 只记一次（思考切正文时 text_delta 不会覆盖已有的 firstDeltaAt），
+	 * delta 数每次都累加——它是「增量流式还是整段送达」的判据。
 	 */
-	markFirstDelta(agentId: string): void {
+	noteDelta(agentId: string): void {
 		const perf = this.perfByAgent.get(agentId);
-		if (perf && perf.firstDeltaAt === 0) {
-			perf.firstDeltaAt = Date.now();
-		}
+		if (!perf) return;
+		perf.deltaCount += 1;
+		if (perf.firstDeltaAt === 0) perf.firstDeltaAt = Date.now();
 	}
 
 	/**
@@ -175,6 +177,7 @@ export class MessagePerfTracker {
 				startedAt: requestedAt ?? Date.now(),
 				firstDeltaAt: 0,
 				firstTextAt: 0,
+				deltaCount: 0,
 				agentStartAt,
 				turnStartAt: 0,
 				messageStartAt: 0,
@@ -204,7 +207,7 @@ export class MessagePerfTracker {
 		// message_end 携带完整 assistant 消息，usage 兼容多种命名提取 output tokens
 		const usage = isRecord(message) && isRecord(message.usage) ? message.usage : undefined;
 		const outputTokens = [usage?.output, usage?.outputTokens, usage?.completion, usage?.completionTokens].find((value): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0);
-		const streamingMs = hasMeasurableStreamingWindow(perf.firstDeltaAt, now) ? now - perf.firstDeltaAt : undefined;
+		const streamingMs = hasMeasurableStreamingWindow(perf.firstDeltaAt, now) && hasIncrementalDeltaStream(outputTokens, perf.deltaCount) ? now - perf.firstDeltaAt : undefined;
 		const tps = calculateTokensPerSecond(outputTokens, streamingMs);
 		const endToEndTps = calculateTokensPerSecond(outputTokens, totalMs);
 
@@ -214,6 +217,7 @@ export class MessagePerfTracker {
 				firstDeltaAt: perf.firstDeltaAt > 0 ? perf.firstDeltaAt : undefined,
 				completedAt: now,
 				outputTokens,
+				...(perf.deltaCount > 0 ? { deltaCount: perf.deltaCount } : {}),
 			};
 			let spans = this.spansByAgent.get(agentId);
 			if (!spans) {

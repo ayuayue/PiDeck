@@ -12,7 +12,7 @@
  *
  * 2026-11-18：桌面端四个技能（image-gen / usage-probe / pideck-doctor / pideck-web-api）
  * 合并成一个 `pideck` 路由入口，正文拆到它的 references/ 下按需读取；旧副本按
- * RETIRED_BUNDLED_SKILLS 退役，`getBundledSkillLoadPaths` 同时按名单跳过，清不掉也不会重新注入。
+ * RETIRED_BUNDLED_SKILLS 退役，`getBundledSkillLoadPaths` 只注入当前随包清单，清不掉也不会重新注入。
  */
 import type { SkillManager } from "./SkillManager";
 import { BUNDLED_SKILLS, RETIRED_BUNDLED_SKILLS } from "./bundledSkills";

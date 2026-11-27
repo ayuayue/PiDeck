@@ -34,11 +34,11 @@ export interface PiSubagentEntry {
 	source: "record" | "bridge" | "toolcall";
 	/**
 	 * 产出来源通道：acp-delegate = billion-context-pi 的 acp_delegate 委托链；
-	 * pi-subagents-tool = nicobailon pi-subagents 的 subagent 工具链。
-	 * 两条链都不落插件 record/事件（acp 不落任何东西，subagent 后台链不落会话文件），
-	 * 条目由工具调用推导或桥接产生，无插件子会话目录等完整上下文。
+	 * pi-subagents-tool = nicobailon pi-subagents 的 subagent 工具链；
+	 * delegate-tool = 裸 delegate / 其它编排插件的委托工具（终态由 orchestrator-run-result 归并，#598）。
+	 * 这些链都不落插件 record/事件，条目由工具调用推导或桥接产生，无插件子会话目录等完整上下文。
 	 */
-	via?: "acp-delegate" | "pi-subagents-tool";
+	via?: "acp-delegate" | "pi-subagents-tool" | "delegate-tool";
 	/**
 	 * 关联的子会话文件路径（主进程按 `${type}#${id 前 8 位}` 匹配 catalog 后回填）。
 	 * 不存在时降级展示 record.result 文本。

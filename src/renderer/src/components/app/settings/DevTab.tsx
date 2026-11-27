@@ -271,6 +271,8 @@ export const DevTab = memo(function DevTab(props: DevTabProps) {
 						{props.piUpdateResult.output}
 					</pre>
 				)}
+				{/* 升级只换可执行文件：已开的会话仍跑旧 pi 进程（toast 一闪而过，这里留一行常驻提示）。 */}
+				{props.piUpdateResult?.updated ? <p className="mt-1.5 text-chat-detail text-text-tertiary">{t("settings.piUpdateRestartAgents")}</p> : null}
 
 				{/* Pi 来源：Windows 原生 / WSL（仅 Windows 可见）。
 				    分隔线由本块自己带（mt/pt + border-t）：写成独立元素的话，

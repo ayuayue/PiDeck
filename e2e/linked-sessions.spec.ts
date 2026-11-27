@@ -68,7 +68,13 @@ test("offer 卡片 → 新会话 → 侧栏嵌套 + 状态 → 子会话回报�
 	await expect(card.getByRole("button", { name: "打开" })).toBeVisible();
 
 	// ── 侧栏：子会话挂在父会话行下面，带关联状态 ──
-	const childRow = window.locator(".linked-session-sidebar-row").filter({ hasText: "补登录页单测" });
+	// 两类子项默认收起（utils/childGroupState）：先点开父行右侧的关联会话计数按钮。
+	// 行本身用 data-linked-state 定位（b8d26e6f3 的子项分组改版后不再有 linked-session-sidebar-row）。
+	await window
+		.getByRole("button", { name: /展开或收起关联会话/ })
+		.first()
+		.click();
+	const childRow = window.locator("[data-linked-state]").filter({ hasText: "补登录页单测" }).first();
 	await expect(childRow).toBeVisible({ timeout: 20_000 });
 	await snap(window, "2-child-in-sidebar");
 
@@ -83,7 +89,8 @@ test("offer 卡片 → 新会话 → 侧栏嵌套 + 状态 → 子会话回报�
 	// ── 「活动」视图：子会话紧跟在父会话行下面并缩进一层 ──
 	await window.getByRole("tab", { name: "活动" }).click();
 	const activeRows = window.locator('.active-sessions-list [class*="group/row"]');
-	const nestedChild = window.locator('.active-sessions-list .linked-session-sidebar-row[data-linked-depth="1"]');
+	// 活动页用 data-linked-depth 表达缩进层级（ActivitySessionsTree 的行级判据）。
+	const nestedChild = window.locator('.active-sessions-list [data-linked-depth="1"]');
 	await expect(nestedChild).toContainText("补登录页单测", { timeout: 20_000 });
 	const order = await activeRows.evaluateAll((rows) => rows.map((row) => ({ text: row.textContent ?? "", depth: row.getAttribute("data-linked-depth") })));
 	const childIndex = order.findIndex((row) => row.text.includes("补登录页单测"));
@@ -112,11 +119,11 @@ test("own_initiative 只出卡片不开会话；点「不要」后卡片失效�
 	await expect(card).toBeVisible({ timeout: 20_000 });
 	await expect(card).toContainText("建议的后续任务");
 	await expect(card).toHaveAttribute("data-proposal-status", "pending", { timeout: 20_000 });
-	await expect(window.locator(".linked-session-sidebar-row")).toHaveCount(0);
+	await expect(window.locator("[data-linked-state]")).toHaveCount(0);
 	await snap(window, "5-own-initiative-card");
 
 	await card.getByRole("button", { name: "不要", exact: true }).click();
 	await expect(card).toHaveAttribute("data-proposal-status", "dismissed", { timeout: 10_000 });
 	await expect(card.getByRole("button", { name: "新会话", exact: true })).toHaveCount(0);
-	await expect(window.locator(".linked-session-sidebar-row")).toHaveCount(0);
+	await expect(window.locator("[data-linked-state]")).toHaveCount(0);
 });

@@ -118,6 +118,7 @@ import {
 	removeSessionStateAtom,
 	requestSidebarRevealProjectAtom,
 	replaceProjectInventoryAtom,
+	dropSessionRuntimesAtom,
 	replaceProjectSessionsAtom,
 	sessionStatusInSidebarAtom,
 	sessionRecordByIdAtomFamily,
@@ -211,16 +212,9 @@ export function App() {
 			<div className="boot-screen root-loading">
 				{/* 与 EmptyState / index.html 启动标同一套 π path */}
 				<div className="boot-logo root-loading-logo" aria-hidden="true">
-					<svg viewBox="140 140 520 520" width="48" height="48">
-						<defs>
-							<linearGradient id="root-loading-logo-silver" x1="0.2" y1="0" x2="0.8" y2="1">
-								<stop stopColor="#ffffff" />
-								<stop offset="0.5" stopColor="#f4f4f5" />
-								<stop offset="1" stopColor="#a7a8ab" />
-							</linearGradient>
-						</defs>
-						<path fill="url(#root-loading-logo-silver)" fillRule="evenodd" d="M165.29 165.29H517.36V400H400V517.36H282.65V634.72H165.29ZM282.65 282.65V400H400V282.65Z" />
-						<path fill="url(#root-loading-logo-silver)" d="M517.36 400H634.72V634.72H517.36Z" />
+					<svg viewBox="165.29 165.29 469.43 469.43">
+						<path fill="#18181b" fillRule="evenodd" d="M165.29 165.29H517.36V400H400V517.36H282.65V634.72H165.29ZM282.65 282.65V400H400V282.65Z" />
+						<path fill="#18181b" d="M517.36 400H634.72V634.72H517.36Z" />
 					</svg>
 				</div>
 				<strong className="text-[40px] font-bold tracking-[0.06em]">PiDeck</strong>
@@ -246,6 +240,8 @@ export function App() {
 	const settingsPageActive = useAtomValue(settingsOpenAtom);
 	const setCurrentSessionId = useSetAtom(currentSessionIdAtom);
 	const replaceProjectSessions = useSetAtom(replaceProjectSessionsAtom);
+	// 目录对账：目录里已不存在的会话，运行态一并收敛（详见 useProjectSyncInput.dropSessionRuntimes）。
+	const dropSessionRuntimes = useSetAtom(dropSessionRuntimesAtom);
 	const openAutomationPage = useSetAtom(openAutomationPageAtom);
 	const openAgentMarketPage = useSetAtom(openAgentMarketPageAtom);
 	const openFavoritesPage = useSetAtom(openFavoritesPageAtom);
@@ -507,6 +503,7 @@ export function App() {
 		setProjects,
 		setActiveProjectId,
 		replaceProjectSessions,
+		dropSessionRuntimes,
 		api: {
 			projects: { list: api.projects.list },
 			settings: { get: api.settings.get },

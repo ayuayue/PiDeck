@@ -1,6 +1,6 @@
 # Pi CLI 兼容性记录
 
-> **Status: Current（2026-11-20 核对；以代码与测试为准）**
+> **Status: Current（2026-11-26 核对；以代码与测试为准）**
 
 
 > 这是一份**兼容账本**，不是 PiDeck 的功能设计文档。每次升级 Pi CLI 时，先把上游行为、PiDeck 处理方式和兼容代码的移除条件记在这里。
@@ -9,8 +9,8 @@
 
 ## 当前基线
 
-- 最近核对版本：`pi 1.6.0`（2026-11-20 发布；依据：npm 包 CHANGELOG + `npm pack` 完整包与 `1.5.1` 的 `dist` 逐文件 diff + 本机 pi 1.6.0 探针）
-- 核对方式：静态 diff + 源码核对（`npm pack @earendil-works/pi-coding-agent@1.5.1` 与 `@1.6.0`，排除 `bundle/` 的 chunk 哈希噪声）。RPC 类型面（`rpc-types.js`/`rpc-types.d.ts`/`rpc-mode.d.ts`）与 1.5.1 **逐字节相同**；`rpc-mode.js` 只改替换会话的重绑时机与 stderr 诊断（协议不变，见 1.6.0 矩阵）；`CURRENT_SESSION_VERSION` 仍为 **3**；`dist/index.js`、`index.d.ts`、`settings-manager.js`、`settings-defaults.js`、`mcp-servers.js`、`extensions/mcp/{cli,config}.js`、`prompt-templates.js` 相同；有差异的契约面逐条记在 1.6.0 矩阵。**1.6.0 只在零成本探针上跑过（RPC/会话/目录），真实模型会话回归仍未做**（见 1.6.0 矩阵「待真实回归」）
+- 最近核对版本：`pi 1.6.1`（2026-11-25 发布；依据：npm 包 CHANGELOG + `npm pack` 完整包与 `1.6.0` 的 `dist` 逐文件 diff + 本机 pi 1.6.1 探针）
+- 核对方式：静态 diff + 源码核对（`npm pack @earendil-works/pi-coding-agent@1.6.0` 与 `@1.6.1`，排除 `bundle/` 的 chunk 哈希噪声）。RPC 类型面（`rpc-types.js`/`rpc-types.d.ts`/`rpc-mode.d.ts`）、`dist/index.js`、`index.d.ts`、`mcp-servers.js`、`extensions/mcp/{cli,config}.js`、`prompt-templates.js`、`resource-loader.js`、`package-manager.js` 与 1.6.0 **逐字节相同**；`CURRENT_SESSION_VERSION` 仍为 **3**；有差异的契约面是 settings 的 `notices` 迁移、`after_provider_response` 的 1:N 语义、bash 的 `fullOutputError`，逐条记在 1.6.1 矩阵。**真机跑过：零成本探针、本地假 provider 的重试/孤儿链路、真实 `pi-auth-host`、settings 迁移、Windows 结束 RPC 时的 bash 子进程**（见 1.6.1 矩阵末尾）；真实模型会话（真 provider、真 AK）仍未跑
 - PiDeck 通信方式：`pi --mode rpc`，stdio JSON-RPC
 - 本记录范围：Pi 后端（`src/main/pi/`）以及 PiDeck 对 Pi 配置/事件的适配
 - 不包含：DSH 后端工具（原持久 pwsh 工具已于 0.2.1 下线）、Electron 自带终端、PiDeck 自己的应用更新器
@@ -36,6 +36,44 @@
 真实冒烟证据（`scripts/smoke-pi-native-resources.mjs`，对 pi 0.99.2 与 1.0.0 各 19/19）：
 无白名单启动下，原生 `+/-` 规则真实控制技能/扩展加载、`-builtin:mcp` 生效、项目层覆盖生效、
 未信任项目不读项目配置、旧禁用记录迁移后 pi 真的不加载该资源。
+
+## 1.6.1 审计矩阵（2026-11-25 发布；npm 包完整 dist 与 1.6.0 逐文件 diff）
+
+核对方式：`npm pack @earendil-works/pi-coding-agent@1.6.0` 与 `@1.6.1`，解包后对契约面逐个 `cmp`（排除 `bundle/` 的 chunk 哈希噪声），有差异的再读源码与 `CHANGELOG` 确认语义；另加一轮本机 pi 1.6.1 的零成本 CLI/RPC 探针（见本节末）。
+
+| 上游变化 | PiDeck 处理 | 状态 | 代码/验证 | 移除条件 |
+|---|---|---|---|---|
+| RPC 命令面与事件面 | `rpc-types.js` / `rpc-types.d.ts` / `rpc-mode.d.ts` 与 1.6.0 **逐字节相同**：无新增命令、无事件形状变化 | **已核对无变化** | 逐文件 `cmp` | — |
+| `rpc-mode.js` 关闭语义：① `SIGTERM` 与 `SIGHUP` 都触发优雅关闭（`win32` 不再排除 SIGHUP）；② `dispose()` 之后再补一次 `killTrackedDetachedChildren()`，Windows 上正在跑的 `bash` 子进程不会因为进程退出赢下竞态而残留 | PiDeck 的停止顺序（stdin EOF → 宽限期等待 → `taskkill`/SIGKILL）与新的信号语义兼容；关控制台/标签不再跳过 `session_shutdown`，对 PiDeck 的删除会话/重启 pi 路径是净改善 | **已核对无变化**（本机实测：EOF 结束 RPC 时有长命令在跑 → pi 自己退出、8s 内子进程清零、`session_shutdown` 仍执行） | `cmp` + `src/main/pi/PiProcess.ts` 停止路径 | — |
+| `modes/rpc/jsonl.js`：RPC 行读取不再每块重扫未完成的长行（含图片的消息不再二次耗时）；llama.cpp 事件接受孤立 CR 与跨块 CRLF | PiDeck 通过 stdio 发大消息（长 prompt / 图片）正是这条路径，属性能净改善；事件形状不变 | 无需改动 | `cmp` + CHANGELOG #12224 | — |
+| 扩展 API（`core/extensions/types.d.ts`）：`ctx.ui.select/confirm/input` 新增可选 `blockedKind`（OSC 7501 程序状态，`permission`/`question`/`auth`）；`after_provider_response` 的文档改为「每个 HTTP 响应，含错误与重试」 | PiDeck 内置扩展走 GUI 桥，不实现 TUI 渲染、不传 `blockedKind`；语义变化见下一行 | 无需改动 | 类型 diff + `grep blockedKind resources/` 零命中 | — |
+| **`after_provider_response` 由「只报成功」变「每次尝试都报」（行为面，Breaking）**：1.6.1 起**每个 provider HTTP 响应**都触发，含 4xx/5xx 错误响应与每次重试尝试（OpenAI / Azure / Anthropic / Google；此前只有 OpenAI Codex 等少数 provider 如此）。源码：`pi-ai` 的 `onErrorResponse → options.onResponse`（`retryProviderRequest` 内）是 1.6.1 新增，此前只有成功响应那一条 `onResponse`。**注意另一半前提也容易被误判**：`before_provider_request`（`onPayload`）是**每次 stream 调用各一次**，而 pi 的重试发生在 stream 之上，所以重试时每次尝试都会重建 payload（本机实测：503×2→200 得 3 条请求帧 + 3 条响应帧严格交替）——1.6.0 下这种情形是「多请求帧 + 1 响应帧」，FIFO 会把这条响应配到**第一次尝试**的 traceId（错配）；1:2 仍可能出现（Anthropic 线程回退：一次 payload 发两次） | `pi-deck-model-trace` 原实现是 FIFO「一条请求配一条响应，响应即出队」：重试时配到首次尝试、终态失败（网络级失败无 HTTP 响应）留下的孤儿请求还会把**下一条**响应的 traceId 错配。已改为「同会话当前请求单槽 + 每个响应各发一行」：新的 `before_provider_request` 直接替换未完成旧项（孤儿不再累积），`durationMs` 按上一次响应（本次尝试）计 | **本轮已适配（本机实测双探针）** | `resources/extensions/pi-deck-model-trace.ts`（文件头约束 5）、`src/shared/types/modelTrace.ts`、`tests/modelTraceExtension.test.mjs`（「重试多响应」「孤儿请求不错配」两例） | 无 |
+| **settings：`showCacheMissNotices` → `notices.{cacheMisses,cacheWarming,compactionCosts,reasoningDrops}`（Breaking）**：`settings-manager.js` 读取时自动迁移（已存在的 `notices.*` 优先）并删除旧键，`getShowCacheMissNotices()` / `setShowCacheMissNotices()` 移除，改为 `getNotices()` / `setNotice()`；`settings.schema.json` 里旧键标 `deprecated` | PiDeck 零引用 `showCacheMissNotices`（设置页没有该控件，未知键随读-改-写往返保留）→ 迁移由 pi 自己完成，PiDeck 不写也不展示显式控件 | 无需改动（本机实测：pi 落盘后旧键消失、四项就位；PiDeck `writePiConfigFile` 写入不复活旧键） | `grep showCacheMissNotices src/ resources/` 零命中；`ConfigManager` 读-改-写保未知键 | 若要给「提示条」做 GUI 开关，改用 `notices.*` 四键（三态语义由 pi 承担） |
+| `settings-schema.js` / `settings-defaults.js` 同步 `notices` 默认值（四项均 `false`） | PiDeck 不消费 pi 的 settings schema（无 schema 驱动表单） | 无需改动 | `grep settings.schema src/` 只命中 DSH 相关注释 | — |
+| `models.schema.json`（文档性）：`thinkingLevelMap` 描述改为「字符串=发给 provider 的值，`null`=隐藏该档；`off`–`high` 缺省走 provider 默认，**`xhigh`/`max` 是 opt-in，只在映射为字符串时才提供**」；`compat.supportsStrictMode` 适用面扩到 `google-generative-ai` / `google-vertex`（Gemini 3+ 无版本号前缀 id 也算） | PiDeck 的档位可用性来自 catalog `thinkingLevelMap` + RPC `get_available_thinking_levels`，`ThinkingLevelMap` 类型已把 `xhigh`/`max` 当普通档位（`null` 即不提供）；compat 面 spread 合并、`supportsStrictMode` 三态处理 → 语义变化穿透到运行时，表单无需改 | 无需改动 | `src/shared/types/modelSpecs.ts`、`addProviderDraft.ts`、`ProviderConnectionForm.tsx` | — |
+| **bash 工具结构化输出新增 `full_output_error`（`details.fullOutputError` / `BashResult` / `BashExecutionMessage`）**：截断后的完整输出**无法**落临时文件（`/tmp` 满、配额、不可写）时给出原因；顺修「结尾是 >50KB 长行 + 空行时显示 `(no output)`」与写文件失败导致的崩溃；`core/extensions/runner.js` 的 result 校验同步放行该字段 | PiDeck 原来只读 `details.truncation` / `details.fullOutputPath` 渲染「完整输出已保存到 <路径>」，新字段被安全忽略；此前的空白提示与崩溃都是 pi 进程内行为 | **本轮已适配**（补消费：没落盘时给「完整输出未能保存：<原因>」，不再只显示截断） | `src/shared/formatToolDetail.ts`（`PiToolTruncation.fullOutputError`，与 `fullOutputPath` 互斥、_path 优先）、`ToolCallComponents.tsx`、`tests/formatToolDetail.test.mjs`、`tests/toolFullTextDelivery.test.mjs`、`tests/binaryPreview.test.mjs`、i18n `tool.piOutputNotSaved` | 无 |
+| 会话文件（`core/session-manager.js`）：读取路径修复——长行不再逐块重扫（只扫新增文本）、`contextEntries` 用索引循环代替大数组展开；`CURRENT_SESSION_VERSION` 仍 **3** | PiDeck 自己扫描/投影会话（`SessionScanner`/`SessionHistoryReader`），不调 pi 的 list；写路径与条目形状不变。附带修复「压缩后 >12 万条历史加载 `Maximum call stack size exceeded`」对 PiDeck 的超长会话是净改善 | **已核对无变化** | `cmp` + 常量核对 + `SessionHistoryReader` 不受影响 | — |
+| `core/auth-storage.js`：`auth.json` 里存的是解析失败的 `!command` 时，`/login` 不再误报「已配置」，`getProviderAuthStatus()` 返回 `{ configured: false, source: "stored" }`，同一 `!command` 再次输入会重跑 | PiDeck 的 `pi-auth-host` 只在 `status.configured` 为真时写 `credential` 字段（取不到就省略，宿主按「未知=保留」），新返回值下登录列表会如实显示未配置 | 无需改动（本机实测已确认） | `resources/pi-auth-host.mjs` 的 `describeProvider` | — |
+| 模型目录与默认值：mistral 默认 `devstral-medium-latest` → `mistral-medium-latest`（Devstral 退役）；新增 GitHub Copilot `gpt-6-luna-decisions` 与 Radius 的 decision models，可从 codemode `models.classify()` 调用、结果带 `responseId`（OpenRouter System One 用真实计费替换估算）；Copilot 只列账号可用的 decision models | PiDeck 不硬编码默认模型、不使用 codemode `classify()`（decision/classifier 条目只作为 catalog 能力数据存在，随 pi-ai 重新生成） | 无需改动 | `grep classify src/` 零命中（同名函数均为 PiDeck 自有分类器） | — |
+| 其余 pi 修复（CHANGELOG 列）：Windows 上按 `git var GIT_SHELL_PATH` 找 Git Bash（不再误用 WSL `System32\\bash.exe`）；`pi update` 从 WSL 跑 Windows 安装时直接拒绝；Gemini 4 Hydrogen/Neon 的 `xhigh` 映射；`openai-codex` 的 GPT-6 不再固定从 `medium` 起；Codex WebSocket 过期丢 reasoning；Cloudflare 525 / gateway 暂时不可用 / Anthropic `api_error` / OpenRouter 空响应 / `finish_reason: error` / 限流等重试覆盖；`request_too_large` 子串误判触发压缩；Bedrock `HTTPS_PROXY` + AWS SSO；OpenAI Decisions 计费漏算缓存 token；Wayland `wl-copy` 误判 MIME；Tabby 右键重复粘贴；Mermaid 宽度提示；`/tree` 历史重复、`!` 输出折叠、`/login` 首次设置 logo 与主题 | 均为 pi 进程内/TUI/安装器行为，RPC 事件形状与会话 JSONL 格式不变；重试覆盖变宽只影响 PiDeck 看到的重试次数（诊断行会多，见上一行） | 无需改动 | `diff -rq` 文件清单 | — |
+| **pi-ai 1.6.0 → 1.6.1**：1853 → **1851** 条（chat 1698→1696 / classifier 81 / image 74），新增 54 / 移除 55 / 字段变更 188；`baseUrl` 或 `api` 变更 11 条（HuggingFace ↔ Together 路由条目互换、Cloudflare AI Gateway 补 `openai-responses` 三条、opencode `inference/go/openai/v1` → `inference/openai/v1`、typesafe-system-one 两条改走 OpenRouter），**新增/下线 host 各 0**；pi-ai 新增依赖 `@aws-sdk/credential-provider-node@3.972.82`、`@google/genai` 2.32.0 → **3.6.1**（连带 `protobufjs` 7.6.6） | 重锁 pi-ai 1.6.1（连带 `pi-schema` / `pi-telemetry` 1.6.1）、重生成 catalog、更新 packaging 断言；端点 host 集合未变 → 用量探针 host 白名单与 `KNOWN_PROVIDER_ENDPOINTS` 无需改 | **本轮已适配** | `package.json`/lock（只留 pi 相关 hunk）、`resources/pi-ai-catalog*.json`；`npm run check:pi-ai-catalog` → up to date（1851 条）、`check:pi-ai-catalog-drift` → 无漂移 | 无 |
+
+**本机实测（2026-11-26，pi 1.6.1，零模型调用）**
+
+- `node scripts/probe-pi-1.4-regression.mjs --pi <安装目录>/pi.cmd` → **5 通过 / 0 失败 / 2 跳过**（`--live` 项为真实模型调用，本轮未跑）：扩展工具恢复、截断响应成对排除、恢复会话工具集合一致、`/share` 目标三种取值、opencode 端点仍为 `opencode.ai/inference`。与 1.6.0 轮同结果。
+- **真实重试链路已实测（本地假 provider，不需要真实模型）**：
+  - 探针 A（OpenAI 兼容假 provider 前两次回 503、第三次 SSE，`retry.baseDelayMs=60`）：provider 侧真的收到 3 次请求；扩展推来 **3 条请求帧 + 3 条响应帧**，状态码依次 `503,503,200`，时序严格交替（请求→响应→下一请求），**第 i 条响应配到第 i 次尝试的 traceId**，`durationMs` 分别是 21ms / 2ms / 3ms（单次尝试，非累计）。→ 证明 1.6.1 的「错误响应也报」让重试链路回到成对，且新配对口径在每个尝试上均正确。
+  - 探针 B（假 provider 直接销毁连接 → 网络级失败；下一次 prompt 正常返回）：prompt 1 留下 **2 条请求帧、0 条响应帧**（孤儿），prompt 2 的响应 traceId 属于 prompt 2 自己的请求，**没有挂到孤儿请求上**。→ 证明新的「新请求替换旧项」确实治好了 FIFO 时代的错配。
+- **认证例外通道（真实 pi SDK + 真实 `pi-auth-host.mjs`）**：`auth.json` 里 `openrouter` 存 `!exit 1`、`anthropic` 存 `!echo sk-probe-test`，`list` 返回里 openrouter **没有 `credential` 字段**（未配置）、anthropic 是 `{type:"api_key"}` → PiDeck 登录列表如实跟随 `getProviderAuthStatus()` 新语义，不需版本判断。
+- **settings 迁移（真实 pi `SettingsManager`）**：旧 `showCacheMissNotices: true` + `defaultThinkingLevel: "low"` + 用户自写未知键 → 加载后内存是四项全 `true`；`setNotice("cacheMisses", false)` 落盘后文件里**旧键消失**、四项为 `false/true/true/true`、未知键保留。再用 PiDeck 的 `writePiConfigFile`（只改目标键）写一个 `theme` → 旧键**没有复活**、`notices.*` 与未知键均保留。
+- **Windows 结束 RPC 时 bash 子进程（真实 pi 1.6.1，Git Bash）**：RPC `bash` 起一条 60s 长命令（进程表里看到 2× `bash.exe` + 1× `node.exe`），关 stdin 后 pi **在宽限内自己退出**（exit 0，非超时被杀），8s 内带标记进程 **清零**，同时 `session_shutdown` 扩展的标记文件已写出。
+
+**仍未验证/不适用（1.6.1）**：
+
+- 真实 provider（带鉴权/网关/流式中断）上的同一路径：上面的重试与孤儿探针用的是本地假 provider，覆盖了 HTTP 状态码分支与 SSE 解析，没跑真实 AK 与网关侧故障；
+- “关控制台窗口/终端标签页触发 SIGHUP”那条：PiDeck spawn 的 pi 没有控制台窗口，走的是 stdin EOF + 宽限 + `taskkill`，那条路径不适用；
+- OpenAI 兼容之外的真实 provider（Anthropic / Google / Bedrock）上 `onErrorResponse` 的覆盖度（源码确认已接入，未逐个跑）；
+- 登录弹框里“重新输入同一条 `!command` 会重跑而不是复用缓存失败”：本轮只验了状态展示。
 
 ## 1.6.0 审计矩阵（2026-11-20 发布；npm 包完整 dist 与 1.5.1 逐文件 diff）
 
@@ -448,8 +486,10 @@ PiDeck 曾内置 DSH 持久 pwsh 工具（`pwsh_persistent`，本地 file: 包 `
 ### P1 / 建议
 
 - [ ] 在真实 pi 1.2.0 上回归 goal/plan 模式、安全档位提示与 todo 压缩后补注（`before_agent_start` 触发范围扩大，见 1.2.0 矩阵第 6 行）。
+- [x] 消费 bash 工具新增的 `details.fullOutputError`（pi 1.6.1；2026-11-26）：`extractPiToolTruncation` 读原因，渲染层在「没有路径」时给一行「完整输出未能保存：<原因>」（i18n `tool.piOutputNotSaved`），路径存在时仍以路径为准。
 - [ ] `compaction_end` 失败形成用户可见提示。
-- [ ] 更新完成后失效 `PiProcess.versionCache` 和 `ExtensionManager.piVersion`，并提示已有 Agent 需重启。
+- [x] 更新完成后失效 `PiProcess.versionCache` 和 `ExtensionManager.piVersion`，并提示已有 Agent 需重启（2026-11-26）：两份缓存的失效早在 `PiSelfUpdateRunner.update()` 的 finally 里（成功/失败都清）；本轮补上缺的那一半——更新成功后 toast + 设置页更新结果下常驻一行「已开的会话要重启才用新版本」（`settings.piUpdateRestartAgents`，三份词典）。不做“几个会话要重启”的计数：预热池与其他窗口的会话会让数字偏差。
+- [ ] pi 升级后回收 standby 预热池里的旧版进程（`StandbyAgentPool` 池条目是更新前的 pi，新会话可能被分到旧版本）；需要给 `AgentManager` 加一个回收方法，但它是只准降的巨文件（`check:file-size` 基线 4785，当前已到顶），先拆一块出来再加。
 - [x] 评估 `pi update --self`：pi 1.5.0 起提供 `selfUpdateCommand` / `PI_SELF_UPDATE_COMMAND`，让 `pi update` 走包装器或其它包管理器。PiDeck 不改写该键（用户在 `settings.json` 自行配置，未知键保留），PiDeck 自己的更新器仍独立。
 - [ ] 评估消费 pi 1.5.0 的扩展更新 changelog（`extensionChangelogVersions` + `collapseChangelog`）：PiDeck 商店/扩展页是否展示包内 `changelogPath`，先定 GUI 呈现再动手。
 - [x] Pi 后端调用 `get_available_thinking_levels`，按 sessionId + agentId + runtimeGeneration 读取，旧 Pi 回退静态列表。
@@ -489,7 +529,7 @@ PiDeck 当前有三条不同的 pi-ai 使用路径，不能混为一谈：
 
 这份 catalog artifact **不是 Pi 后端 runtime 使用的那一份**。PiDeck 通过 `PiLocator` 执行用户已经安装的 `pi` CLI；Pi CLI 自己携带/解析自己的 pi-ai。PiDeck 不打包 `pi-coding-agent`，也不把 catalog 来源版本注入外部 Pi 进程。
 
-升级记录：PiDeck 主进程 catalog artifact 的来源从 `0.84.4` 起，随上游 pi-ai 发布逐版跟进：`0.85.0` → `0.85.1` → `0.86.0` → `0.86.1` → `0.99.1`（2026-09；0.99.1 对应 42 个源 JSON、1592 条模型，含 OpenAI Codex 默认模型 gpt-6.1-sol）→ `1.0.4` → `1.2.0`（1649 条）→ `1.3.0`（2026-10-15，1714 条，chat 1614 / image 60 / classifier 40；随目录带入 MiMo 档位、Claude `off`、gpt-6.1-sol 500K 与 OpenCode 新端点）→ `1.4.0`（2026-10-26，**1713 条**，chat 1599 / image 63 / classifier 51；相对 1.3.0 新增 59、移除 60、字段变更 185，**`baseUrl` 与 `api` 零变化**；带入 MiniMax-M3.1-Flash、xai `xhigh` 档、classifier 图像输入（`input` 含 `image`）、grok-4.3/4.5 `xhigh`，并移除 `openai-codex` 的 gpt-5.5 / gpt-5.3-codex-spark 与 copilot 的 claude-opus-4.7 / gemini-3.5/3.6-flash）→ `1.5.0`（2026-11-02，1712 条；见 1.5.0 矩阵）→ `1.5.1`（2026-11-09，**1768 条**，chat 1639 / classifier 63 / image 66；新增 77 / 移除 21，新 provider `qwen-token-plan-individual-cn`；**`baseUrl` 与 `api` 零变化**）→ `1.5.2`（2026-11-12，1773 条；见 1.5.1 矩阵补记）→ `1.6.0`（2026-11-20，**1853 条**，chat 1698 / classifier 81 / image 74；新增 129 / 移除 49；**`baseUrl` 变更 58 条**＝Qwen Token Plan 四个 provider 换网关（`token-plan.maas.qwencloudapi.com` / `token-plan.maas.qianwenaiapi.com`，旧 aliyuncs host 仍可用）；带入 gpt-6.2-sol（openai/azure/openai-codex 新默认）/gpt-6.2-astra、gemini-4 系列、`qwen4-max-preview`、`deepseek-v4.1-flash*`）；DSH 仍保留 adapter 兼容的嵌套 `0.82.1`。catalog 与运行时的 Pi 版本解耦——补的是能力字段（contextWindow/maxTokens/thinkingLevelMap），权威闸门仍是 `pi --list-models` 与 RPC `set_model`。只有当 `@deepseek-ai/dsh-llm-pi-ai` 发布明确兼容 `@earendil-works/pi-ai 0.86.x` 的版本后，才升级 DSH adapter/runtime 依赖树，并完成 typecheck、catalog/迁移测试、DSH host smoke、thinking effort、流式请求和 provider catalog 回归。
+升级记录：PiDeck 主进程 catalog artifact 的来源从 `0.84.4` 起，随上游 pi-ai 发布逐版跟进：`0.85.0` → `0.85.1` → `0.86.0` → `0.86.1` → `0.99.1`（2026-09；0.99.1 对应 42 个源 JSON、1592 条模型，含 OpenAI Codex 默认模型 gpt-6.1-sol）→ `1.0.4` → `1.2.0`（1649 条）→ `1.3.0`（2026-10-15，1714 条，chat 1614 / image 60 / classifier 40；随目录带入 MiMo 档位、Claude `off`、gpt-6.1-sol 500K 与 OpenCode 新端点）→ `1.4.0`（2026-10-26，**1713 条**，chat 1599 / image 63 / classifier 51；相对 1.3.0 新增 59、移除 60、字段变更 185，**`baseUrl` 与 `api` 零变化**；带入 MiniMax-M3.1-Flash、xai `xhigh` 档、classifier 图像输入（`input` 含 `image`）、grok-4.3/4.5 `xhigh`，并移除 `openai-codex` 的 gpt-5.5 / gpt-5.3-codex-spark 与 copilot 的 claude-opus-4.7 / gemini-3.5/3.6-flash）→ `1.5.0`（2026-11-02，1712 条；见 1.5.0 矩阵）→ `1.5.1`（2026-11-09，**1768 条**，chat 1639 / classifier 63 / image 66；新增 77 / 移除 21，新 provider `qwen-token-plan-individual-cn`；**`baseUrl` 与 `api` 零变化**）→ `1.5.2`（2026-11-12，1773 条；见 1.5.1 矩阵补记）→ `1.6.0`（2026-11-20，**1853 条**，chat 1698 / classifier 81 / image 74；新增 129 / 移除 49；**`baseUrl` 变更 58 条**＝Qwen Token Plan 四个 provider 换网关（`token-plan.maas.qwencloudapi.com` / `token-plan.maas.qianwenaiapi.com`，旧 aliyuncs host 仍可用）；带入 gpt-6.2-sol（openai/azure/openai-codex 新默认）/gpt-6.2-astra、gemini-4 系列、`qwen4-max-preview`、`deepseek-v4.1-flash*`）→ `1.6.1`（2026-11-25，**1851 条**，chat 1696 / classifier 81 / image 74；新增 54 / 移除 55 / 字段变更 188；`baseUrl`/`api` 变更 11 条全在 HF↔Together、Cloudflare AI Gateway、opencode 路径与 typesafe-system-one，新增/下线 host 各 0；pi-ai 依赖 `@google/genai` 2.32.0 → 3.6.1、新增 `@aws-sdk/credential-provider-node@3.972.82`）；DSH 仍保留 adapter 兼容的嵌套 `0.82.1`。catalog 与运行时的 Pi 版本解耦——补的是能力字段（contextWindow/maxTokens/thinkingLevelMap），权威闸门仍是 `pi --list-models` 与 RPC `set_model`。只有当 `@deepseek-ai/dsh-llm-pi-ai` 发布明确兼容 `@earendil-works/pi-ai 0.86.x` 的版本后，才升级 DSH adapter/runtime 依赖树，并完成 typecheck、catalog/迁移测试、DSH host smoke、thinking effort、流式请求和 provider catalog 回归。
 
 ## 兼容代码移除规则
 

@@ -4,6 +4,7 @@
  */
 import { ipcMain } from "electron";
 import { ipcChannels } from "../../shared/ipc";
+import { canonicalizeSessionPath, getSessionEnvironment } from "../../shared/sessionIdentity";
 import { createSessionModelPreference } from "../../shared/modelDisplayName";
 import type { SessionRecord, SessionBranchTree, SessionMessagePage, SessionModelPreference } from "../../shared/types";
 import { dshUnavailablePageFor } from "../dsh/dshManualStop";
@@ -202,14 +203,25 @@ export function registerSessionMessageReadIpc(deps: SessionMessageReadIpcDeps): 
 		}
 		// 回填 childSessionPath：按 parentSessionPath === 本会话 filePath 收集所有子会话，
 		// 再按子会话名 `${type}#${id前8位}` 精确匹配。
+		// 编排插件的条目 id 是派发 toolCallId（call_xxx），名字匹配永远不中；但它会在
+		// tasks[].sessionFile 里直接给出子会话文件，所以再按 filePath 补一轮精确匹配（#598）。
 		const children = sessionCatalog
 			.listEntries()
 			.filter((e) => e.parentSessionPath === entry.filePath)
 			.map((e) => sessionCatalog.getRecord(e.id))
 			.filter((r): r is NonNullable<typeof r> => r != null);
+		const childByFilePath = new Map<string, (typeof children)[number]>();
+		for (const child of children) {
+			const filePath = child.locator?.kind === "local" ? child.locator.filePath : undefined;
+			if (!filePath) continue;
+			childByFilePath.set(canonicalizeSessionPath(filePath, getSessionEnvironment(child)), child);
+		}
+		// 提示路径来自父会话的编排结果，环境也按父会话算（WSL 项目的子会话同样是 WSL 路径）。
+		const parentEnvironment = getSessionEnvironment({ wsl: entry.environment === "wsl" });
 		for (const record of records) {
 			const namePrefix = `${record.type}#${record.id.slice(0, 8)}`;
-			const child = children.find((s) => (s.title ?? "").startsWith(namePrefix));
+			const hintedChild = record.childSessionPath ? childByFilePath.get(canonicalizeSessionPath(record.childSessionPath, parentEnvironment)) : undefined;
+			const child = children.find((s) => (s.title ?? "").startsWith(namePrefix)) ?? hintedChild;
 			const childSessionPath = child?.locator?.kind === "local" ? child.locator.filePath : undefined;
 			if (childSessionPath) record.childSessionPath = childSessionPath;
 			if (child) record.childSessionId = child.id;

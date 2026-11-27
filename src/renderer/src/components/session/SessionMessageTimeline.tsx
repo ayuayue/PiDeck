@@ -21,7 +21,7 @@ import {
 	sessionSendStateByIdAtom,
 	type PendingHistoryMutation,
 } from "../../atoms";
-import { writeClipboardImage } from "../../utils/clipboard";
+import { copySelectedMessagesAsPng } from "../../utils/exportImageCopy";
 import { useTimelineSelection } from "../../hooks/useTimelineSelection";
 import { useMessageContextMenu } from "../../hooks/useMessageContextMenu";
 import { useFavorites } from "../../hooks/useFavorites";
@@ -737,37 +737,12 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 						resolve();
 					});
 				});
-				const { toBlob } = await import("html-to-image");
 				const source = timelineRef.current?.querySelector(".message-list") as HTMLElement | null;
 				if (!source) throw new Error("Timeline capture target is missing");
 
 				const captureIds = getMultiSelectImageCaptureIds(reconciledRuns, selectedIds);
-				const clone = source.cloneNode(true) as HTMLElement;
-				for (const item of Array.from(clone.children)) {
-					if (!(item instanceof HTMLElement)) continue;
-					// 虚拟化的包装 div 没有 data-message-id：唯一 id 落在 data-solid-run-id / data-virtual-run-id 上。
-					// 只认 dataset.messageId 会把包装层全部判成「未选中」删掉，导出空白图。
-					const id = item.dataset.messageId ?? item.dataset.solidRunId ?? item.dataset.virtualRunId;
-					if (!id || !captureIds.has(id)) item.remove();
-				}
-				clone.classList.add("multi-select-image-export");
-				clone.style.width = `${Math.max(source.clientWidth, source.scrollWidth)}px`;
-				clone.style.padding = "24px";
-				clone.style.background = getComputedStyle(document.documentElement).getPropertyValue("--color-bg-panel") || "#fff";
-				document.body.appendChild(clone);
-				let blob: Blob | null = null;
-				try {
-					blob = await toBlob(clone, {
-						pixelRatio: Math.min(2, window.devicePixelRatio || 1),
-						backgroundColor: getComputedStyle(document.documentElement).getPropertyValue("--color-bg-panel") || undefined,
-						filter: (node) => !(node instanceof HTMLElement) || (!node.classList.contains("turn-row-actions") && !node.classList.contains("user-turn-actions") && !node.classList.contains("copy-menu-popover")),
-					});
-				} finally {
-					clone.remove();
-				}
-				if (!blob) throw new Error("Unable to capture selected messages as PNG");
-				const written = await writeClipboardImage(blob);
-				if (!written) throw new Error("Unable to write PNG to clipboard");
+				// 克隆/摘除折叠栏/固化字号/出图全部在 utils/exportImageCopy（与单轮复制同一套，#601）。
+				await copySelectedMessagesAsPng(source, captureIds);
 				props.onToast(t("copy.asImageCopied"));
 			} catch (error) {
 				props.onToast(t("copy.failed"));

@@ -82,7 +82,7 @@ test("down input relocks only inside the physical bottom band", () => {
 			distanceFromBottom: 10,
 		}),
 		"relock",
-		"down",
+		"relock",
 	);
 	assertDecision(
 		follow.decideFollowFromUserInput({
@@ -140,7 +140,7 @@ test("wheel decisions use the distance the gesture will land on for relock", () 
 			distanceFromBottom: follow.distanceAfterWheelDelta(10, 160),
 		}),
 		"relock",
-		"down",
+		"relock",
 	);
 });
 

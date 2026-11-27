@@ -89,9 +89,12 @@ test("pi-side truncation is surfaced as resultTruncation meta with copyable path
 	assert.match(projector, /const piTruncation = extractSharedPiTruncation\(result\);/);
 	assert.match(projector, /\? \{ resultTruncation: piTruncation \}/);
 	// 渲染层：单独一行展示路径 + 复制按钮（不代读 pi 的截断文件）
-	assert.match(toolCard, /resultTruncation as \{ fullOutputPath\?: string \} \| undefined/);
+	assert.match(toolCard, /resultTruncation as \{ fullOutputPath\?: string; fullOutputError\?: string \} \| undefined/);
 	assert.match(toolCard, /piOutputTruncated/);
 	assert.match(toolCard, /copyTextWithCopiedNotice\(piTruncation\.fullOutputPath/);
+	// pi 1.6.1：完整输出没能落盘 → 只给原因，没有路径/复制/打开入口
+	assert.match(toolCard, /tool\.piOutputNotSaved/);
+	assert.match(toolCard, /!piTruncation\.fullOutputPath && piTruncation\.fullOutputError/);
 	// 中英文案同步（含参数占位）
 	const zh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 	const en = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
@@ -99,4 +102,6 @@ test("pi-side truncation is surfaced as resultTruncation meta with copyable path
 	assert.match(en, /"tool\.piOutputTruncated": ".*\{path\}"/);
 	assert.match(zh, /"tool\.copyPath": "/);
 	assert.match(en, /"tool\.copyPath": "/);
+	assert.match(zh, /"tool\.piOutputNotSaved": ".*\{reason\}"/);
+	assert.match(en, /"tool\.piOutputNotSaved": ".*\{reason\}"/);
 });

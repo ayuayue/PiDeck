@@ -11,7 +11,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-43.8.7-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.14.0-blue)
+![Version](https://img.shields.io/badge/version-0.14.1-blue)
 
 <!-- star-history:start -->
 <picture>
@@ -42,7 +42,7 @@
   - [📑 Table of Contents](#-table-of-contents)
   - [✨ Highlights](#-highlights)
   - [📋 Changelog](#-changelog)
-    - [v0.13.2 Release Highlights](#v0132-release-highlights)
+    - [v0.14.1 Release Highlights](#v0141-release-highlights)
   - [🧩 Features](#-features)
     - [Workspace & Projects](#workspace--projects)
     - [Sessions & Conversation](#sessions--conversation)
@@ -83,17 +83,13 @@
 
 ## 📋 Changelog
 
-> **Latest: v0.14.0** (2026-11-23)
+> **Latest: v0.14.1** (2026-11-27)
 
-### v0.14.0 Release Highlights
-- 🚀 **Remote files over SFTP with version-checked commits**
-- 🚀 **Remote session history maintained on the host**
-- 🚀 **Remote settings and MCP reuse the local forms**
-- 🚀 **Markdown previews jump to headings from their table of contents**
-- ✨ **The WSL session list no longer freezes (#588)**
-- ✨ **Commands in the Windows sandbox no longer fail with `0xC0000142` (#591, #582)**
-- ✨ **The remote Git graph works again**
-- ✨ **Archived session restore regressions fixed (#581, #579)**
+### v0.14.1 Release Highlights
+- ✨ **Renaming and copying large sessions preserve complete messages (#615)**
+- ✨ **Read failures no longer overwrite favorites or session groups (#617)**
+- ✨ **More complete Kimi Code and Codex imports**
+- ✨ **Imports follow the current project and filter**
 
 [View Full Changelog →](CHANGELOG.md)
 

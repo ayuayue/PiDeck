@@ -1,30 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
-    <!-- 深色底和银白主体保持高对比，确保小尺寸系统图标仍然清晰可辨。 -->
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop stop-color="#161719"/>
-      <stop offset="0.58" stop-color="#050506"/>
-      <stop offset="1" stop-color="#000000"/>
-    </linearGradient>
-    <linearGradient id="logo" x1="0.2" y1="0" x2="0.8" y2="1">
-      <stop stop-color="#ffffff"/>
-      <stop offset="0.48" stop-color="#f4f4f5"/>
-      <stop offset="1" stop-color="#a7a8ab"/>
-    </linearGradient>
-    <linearGradient id="shine" x1="0.3" y1="0" x2="0.7" y2="1">
-      <stop stop-color="#ffffff" stop-opacity="0.18" offset="0"/>
-      <stop stop-color="#ffffff" stop-opacity="0" offset="0.52"/>
-    </linearGradient>
     <filter id="logo-shadow" x="-25%" y="-25%" width="150%" height="150%">
-      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#000000" flood-opacity="0.48"/>
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000000" flood-opacity="0.16"/>
     </filter>
   </defs>
-  <rect width="1024" height="1024" rx="228" fill="url(#bg)"/>
-  <rect width="1024" height="512" rx="228" fill="url(#shine)"/>
-  <g transform="translate(160, 170) scale(1.4)" filter="url(#logo-shadow)">
-    <svg viewBox="140 140 520 520" width="520" height="520">
-      <!-- 保留项目现有 pi 几何字标，仅将主体改为银白渐变。 -->
-      <path fill="url(#logo)" fill-rule="evenodd" d="
+  <!-- 与三色标共用白底、圆角及 65% 主体占比；经典几何改为深灰以保持对比。 -->
+  <rect width="1024" height="1024" rx="228" fill="#ffffff"/>
+  <g transform="translate(179.2, 179.2)" filter="url(#logo-shadow)">
+    <svg viewBox="165.29 165.29 469.43 469.43" width="665.6" height="665.6">
+      <path fill="#18181b" fill-rule="evenodd" d="
         M165.29 165.29
         H517.36
         V400
@@ -40,8 +24,7 @@
         V282.65
         Z
       "/>
-      <path fill="url(#logo)" d="M517.36 400 H634.72 V634.72 H517.36 Z"/>
+      <path fill="#18181b" d="M517.36 400 H634.72 V634.72 H517.36 Z"/>
     </svg>
   </g>
-  <!-- PURE 方案不加入外部彩色装饰，避免借用其他品牌的识别元素。 -->
 </svg>

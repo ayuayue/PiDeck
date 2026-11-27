@@ -33,7 +33,7 @@ const COLORS: Record<ColorKey, string> = {
 	orange: "#D4904E",
 	flash: "#fff5b4",
 	white: "#ffffff",
-	ink: "#09090B",
+	ink: "#18181b",
 	// 可选品牌绿（侧栏默认不用；保留给其他场景）
 	logoGreen: "#14b814",
 };
@@ -327,13 +327,12 @@ export type PiLogoCanvasProps = {
 	autoPlay?: boolean;
 	/** 点击是否重播；默认 true，这是侧栏品牌位的唯一触发 */
 	playOnClick?: boolean;
+	/** 白底品牌容器固定用 ink；透明画布省略时继续按主题选择黑白。 */
+	foreground?: "ink" | "white";
 	className?: string;
 };
 
-/**
- * 官方 pi 风格 canvas logo。
- * 侧栏品牌位：默认定格静态，点击才播 tetromino 拼装动画。
- */
+/** 默认静态定格，点击才播放拼装动画；白底容器可显式指定前景色。 */
 export function PiLogoCanvas(props: PiLogoCanvasProps) {
 	const size = props.size ?? 32;
 	const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -350,8 +349,8 @@ export function PiLogoCanvas(props: PiLogoCanvasProps) {
 	const showStatic = useCallback(() => {
 		const canvas = canvasRef.current;
 		if (!canvas) return;
-		paintCells(canvas, finalLogoCells(settledLogoColor()), size);
-	}, [size]);
+		paintCells(canvas, finalLogoCells(props.foreground ?? settledLogoColor()), size);
+	}, [props.foreground, size]);
 
 	const playIntro = useCallback(async () => {
 		const canvas = canvasRef.current;
@@ -419,7 +418,7 @@ export function PiLogoCanvas(props: PiLogoCanvasProps) {
 			if (!isAlive()) return;
 
 			// 消行闪烁 → 其余块下沉定格为 monochrome pi
-			const finalColor = settledLogoColor();
+			const finalColor = props.foreground ?? settledLogoColor();
 			for (let i = 0; i < LOGO_TIMING.clearFlashCount; i++) {
 				if (!isAlive()) return;
 				const flash = i % 2 === 0;
@@ -460,7 +459,7 @@ export function PiLogoCanvas(props: PiLogoCanvasProps) {
 				});
 			}
 		}
-	}, [showStatic, size]);
+	}, [props.foreground, showStatic, size]);
 
 	useEffect(() => {
 		showStatic();

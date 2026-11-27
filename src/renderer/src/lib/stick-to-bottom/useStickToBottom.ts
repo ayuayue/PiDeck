@@ -36,6 +36,7 @@ import {
 	STICK_TO_BOTTOM_OFFSET_PX,
 	type FollowDirection,
 	type ScrollChainLink,
+	type ScrollUserIntent,
 } from "./followState";
 import { clearResizeScrollGuard, markResizeScrollGuard } from "./resizeScrollGuard";
 
@@ -84,13 +85,6 @@ function collectScrollChain(scroll: HTMLElement, target: EventTarget | null, dir
 	return chain;
 }
 
-/** 用户真实滚动意图：向上浏览历史 / 向下回到尾部。
- *  与 layout 滚动（resize/动画/程序化定位）严格区分：意图只由用户
- *  wheel/触摸/滚动条等真实输入产生；内容收缩导致的 scrollTop clamp 不上报。
- *  时间线 controller 的历史扩窗只消费该意图，修复「clamp 被误判为用户上滑」，
- *  导致运行中脱离吸底、回底按钮连点无效的问题（见 scrollHistoryPolicy）。 */
-export type ScrollUserIntent = "up" | "down";
-
 /**
  * 用户意图的来源：
  * - "input"：真实 wheel/touch 输入（浏览器默认滚动尚未发生），unambiguous；
@@ -118,7 +112,7 @@ export interface StickToBottomOptions extends SpringAnimation {
 	 */
 	instantResizeThreshold?: number;
 	/**
-	 * 用户滚动意图回调（上滚/下滚）。每个符合逃逸/重锁语义的输入事件都会上报；
+	 * 用户滚动意图回调（上滚/下滚/重锁）。只有引擎确认已到或将到近底带时才上报重锁；
 	 * resize、引擎动画和通过原子 API 的程序化定位不会上报。
 	 * 时间线 controller 据此把「用户浏览历史」与「布局滚动」分开，
 	 * 修复 clamp scrollTop 被误判为上滑导致运行中脱离吸底的问题。

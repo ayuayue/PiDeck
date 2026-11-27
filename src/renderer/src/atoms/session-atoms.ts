@@ -10,6 +10,7 @@ import { mergeAgentRuntimeState } from "../utils/agentRuntimeState";
 import { isSessionTurnRunning } from "../utils/sessionActivityClock";
 import { shouldRefreshOutlineForRuntimeUpsert } from "./outlineRevision";
 import { releaseSessionOutlineProjection } from "./outlineProjectionCache";
+import { dropSessionRuntimesAtom } from "./vanished-session-runtimes";
 import { perfSpan } from "../utils/perfProbe";
 import { historyHasCurrentAssistantText, resolveStreamingTextUpdate, shouldHoldLiveText, shouldReleaseHeldLiveText } from "../utils/liveTextHandoff";
 import type { SessionRuntimeViewState, StreamingThinkingEntry } from "./session-atoms-types";
@@ -731,6 +732,7 @@ export const bindSessionRuntimeAtom = atom(
 );
 
 export const removeSessionStateAtom = atom(null, (get, set, sessionId: string) => {
+	set(dropSessionRuntimesAtom, [sessionId]);
 	set(forgetRecentSessionAtom, sessionId);
 	set(forgetSessionActivityAnchorAtom, sessionId);
 	const records = { ...get(sessionRecordsAtom) };
@@ -743,12 +745,6 @@ export const removeSessionStateAtom = atom(null, (get, set, sessionId: string) =
 			[session.projectId]: (get(sessionIdsByProjectAtom)[session.projectId] ?? []).filter((id) => id !== sessionId),
 		});
 	}
-	const runtime = { ...get(sessionRuntimeByIdAtom) };
-	delete runtime[sessionId];
-	set(sessionRuntimeByIdAtom, runtime);
-	const runtimeUi = { ...get(sessionRuntimeUiByIdAtom) };
-	delete runtimeUi[sessionId];
-	set(sessionRuntimeUiByIdAtom, runtimeUi);
 	const cacheStats = { ...get(sessionCacheStatsAtom) };
 	delete cacheStats[sessionId];
 	set(sessionCacheStatsAtom, cacheStats);

@@ -1,9 +1,14 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { SessionImportCopy } from "./SessionImportCopy";
-import { importedContentHasToolCall, importedUnknownBlockAsText, normalizeImportedStopReason, safeIsoTimestamp } from "./importNormalize";
-import { normalizeImportedToolArguments } from "./importToolArguments";
+import { safeIsoTimestamp } from "./importNormalize";
+import { kimiAssistantSegments, kimiSnapshotEvents, makeId, type KimiAssistantEvent, type KimiLoopResult, type PiContent } from "./kimiAssistantSegments";
+import { KimiCodeLoop, type KimiLoopStep } from "./kimiCodeLoop";
 import { asArray, readNumber, readRecord, readString, type KimiRecord, type ParsedKimiSession } from "./kimiSessionSource";
 import { cleanImportTitle as cleanKimiTitle, zeroUsage } from "./importShared";
+
+export const KIMI_IMPORT_VERSION = 3;
+const KIMI_CODE_MODEL = "kimi code";
+export { convertKimiAssistantContent } from "./kimiAssistantSegments";
 
 // 标题清洗与 usage 占位实现统一在 importShared；仍从本模块转出旧名字。
 export { cleanKimiTitle, zeroUsage };
@@ -22,17 +27,18 @@ export type ConvertKimiInput = {
 	translate: SessionImportCopy;
 };
 
-type PiContent = Record<string, unknown>;
-
 /**
  * 两种 wire 记录归一后的消息视图。
  * - `context.append_message`：消息进入上下文时的快照（无 usage/meta）；
  * - `agent.message.appended`：agent 产出消息时的事件（带 usage/finish，**优先采用**）。
- * 同一条消息常以两种记录各出现一次，去重策略见 collectKimiAppendedKeys。
+ * 同一条消息常以两种记录各出现一次，去重策略见 indexKimiMessages。
  */
 export type NormalizedKimiMessage = {
 	kind: "context" | "appended";
 	id: string;
+	/** agent.message.appended 可能把 step 的消息 ID 放在 meta，独立于旧快照去重键。 */
+	wireId?: string;
+	origin?: string;
 	role: string;
 	time: number;
 	content: unknown[];
@@ -54,6 +60,7 @@ export function extractKimiMessage(record: KimiRecord): NormalizedKimiMessage | 
 		return {
 			kind: "context",
 			id: readString(message.id),
+			origin: readString(readRecord(message.origin).kind),
 			role,
 			time,
 			content: asArray(message.content),
@@ -70,29 +77,39 @@ export function extractKimiMessage(record: KimiRecord): NormalizedKimiMessage | 
 		const role = readString(message.role);
 		if (!role) return null;
 		const meta = readRecord(envelope.meta);
-		const usageRaw = readRecord(meta.usage);
-		const hasUsage = Object.keys(usageRaw).length > 0;
 		return {
 			kind: "appended",
-			id: readString(message.id),
+			id: readString(message.id) || (role === "user" ? readString(meta.userMessageId) : ""),
+			wireId: readString(meta.messageId),
+			origin: readString(readRecord(message.origin).kind) || readString(readRecord(meta.origin).kind),
 			role,
 			time,
 			content: asArray(message.content),
 			toolCalls: asArray(message.toolCalls),
 			toolCallId: readString(message.toolCallId),
-			usage: hasUsage
-				? {
-						inputOther: readNumber(usageRaw.inputOther),
-						output: readNumber(usageRaw.output),
-						inputCacheRead: readNumber(usageRaw.inputCacheRead),
-						inputCacheCreation: readNumber(usageRaw.inputCacheCreation),
-					}
-				: undefined,
+			usage: readKimiUsage(meta.usage),
 			finishReason: readString(readRecord(meta.finish).finishReason),
 		};
 	}
 
 	return null;
+}
+
+function readKimiUsage(value: unknown): NormalizedKimiMessage["usage"] {
+	const usage = readRecord(value);
+	if (Object.keys(usage).length === 0) return;
+	return {
+		inputOther: readNumber(usage.inputOther),
+		output: readNumber(usage.output),
+		inputCacheRead: readNumber(usage.inputCacheRead),
+		inputCacheCreation: readNumber(usage.inputCacheCreation),
+	};
+}
+
+const INTERNAL_USER_ORIGINS = new Set(["injection", "task", "skill_activation"]);
+
+function isInternalUserMessage(message: NormalizedKimiMessage): boolean {
+	return message.role === "user" && INTERNAL_USER_ORIGINS.has(message.origin ?? "");
 }
 
 /**
@@ -108,22 +125,38 @@ export function kimiMessageKey(message: NormalizedKimiMessage): string {
 	return `sig:${message.role}:${message.toolCallId}:${hash}`;
 }
 
-/**
- * 第一遍扫描：收集所有 `agent.message.appended` 记录的去重键。
- *
- * 去重策略（可单测的纯函数）：同一条消息若两种记录都存在，**只保留 appended 版本**
- *（带 usage/finish 元数据）。做法是转换前先收集 appended 键集合，转换主循环里
- * 遇到键命中集合的 context 记录直接跳过；appended 自身重复出现则靠 seen 集合挡掉。
- *
- * 流式导入时由调用方先以本函数消费一遍流，再重新开流做转换（读两遍但内存 O(单行)）。
- */
-export async function collectKimiAppendedKeys(entries: Iterable<KimiRecord> | AsyncIterable<KimiRecord>): Promise<Set<string>> {
-	const keys = new Set<string>();
+type KimiMessageIndex = {
+	appendedKeys: Set<string>;
+	assistantIds: Set<string>;
+	assistantCallIds: Set<string>;
+	toolResultIds: Set<string>;
+	loopResultIds: Set<string>;
+};
+
+/** 第一遍只索引消息键和 ID。第二遍优先写直接消息，循环事件用来补缺。 */
+export async function indexKimiMessages(entries: Iterable<KimiRecord> | AsyncIterable<KimiRecord>): Promise<KimiMessageIndex> {
+	const index: KimiMessageIndex = { appendedKeys: new Set(), assistantIds: new Set(), assistantCallIds: new Set(), toolResultIds: new Set(), loopResultIds: new Set() };
 	for await (const entry of entries) {
+		if (entry.type === "context.append_loop_event") {
+			const event = readRecord(entry.event);
+			const id = readString(event.toolCallId);
+			if (event.type === "tool.result" && id && event.result && typeof event.result === "object") index.loopResultIds.add(id);
+			continue;
+		}
 		const message = extractKimiMessage(entry);
-		if (message?.kind === "appended") keys.add(kimiMessageKey(message));
+		if (!message || isInternalUserMessage(message)) continue;
+		if (message.kind === "appended") index.appendedKeys.add(kimiMessageKey(message));
+		if (message.role === "assistant") {
+			if (message.id) index.assistantIds.add(message.id);
+			if (message.wireId) index.assistantIds.add(message.wireId);
+			for (const call of message.toolCalls) {
+				const id = readString(readRecord(call).id);
+				if (id) index.assistantCallIds.add(id);
+			}
+		}
+		if (message.role === "tool" && message.toolCallId) index.toolResultIds.add(message.toolCallId);
 	}
-	return keys;
+	return index;
 }
 
 /** Kimi usage 四字段 → pi usage 形状；缺省时全零（与 zeroUsage 同口径）。 */
@@ -146,10 +179,6 @@ function extractPiText(content: PiContent[]): string {
 		.join(" ");
 }
 
-function makeId(sessionId: string, sequence: number): string {
-	return createHash("sha1").update(`${sessionId}:${sequence}`).digest("hex").slice(0, 8);
-}
-
 /** content 数组里的文本块拼接（user/tool 消息的 text 块）；Kimi Work 导入器共用。 */
 export function joinKimiTextBlocks(content: unknown[]): string {
 	return asArray(content)
@@ -163,64 +192,6 @@ export function joinKimiTextBlocks(content: unknown[]): string {
 }
 
 /**
- * assistant 消息的 content + toolCalls → pi content 块。
- * think → thinking；text → text；toolCalls 追加为 toolCall 块
- * （arguments 是 JSON 字符串，经 normalizeImportedToolArguments 解析成对象，失败保留原文）。
- * 返回内容块与该轮的工具名表（toolCallId → name，供 tool 结果消息配对）。
- */
-export function convertKimiAssistantContent(message: NormalizedKimiMessage): { content: PiContent[]; toolNames: Array<{ id: string; name: string }> } {
-	const content: PiContent[] = [];
-	const toolNames: Array<{ id: string; name: string }> = [];
-
-	for (const block of message.content) {
-		if (typeof block === "string") {
-			if (block) content.push({ type: "text", text: block });
-			continue;
-		}
-		const record = readRecord(block);
-		const type = readString(record.type);
-
-		if (type === "think" || type === "thinking" || type === "reasoning") {
-			const thinking = readString(record.think) || readString(record.thinking) || readString(record.text);
-			if (thinking) {
-				content.push({
-					type: "thinking",
-					thinking,
-					thinkingSignature: "kimi_thinking",
-				});
-			}
-			continue;
-		}
-
-		if (type === "text") {
-			const text = readString(record.text);
-			if (text) content.push({ type: "text", text });
-			continue;
-		}
-
-		// 未知块原样序列化：宁可多一段 JSON，也不要在转写时丢掉。
-		content.push(importedUnknownBlockAsText(record));
-	}
-
-	for (const call of message.toolCalls) {
-		const record = readRecord(call);
-		// 兼容两种形态：{id, name, arguments} 与 OpenAI 风格 {id, function:{name, arguments}}
-		const fn = readRecord(record.function);
-		const name = readString(record.name) || readString(fn.name) || "tool";
-		const id = readString(record.id) || `kimi_${makeId(name, toolNames.length)}`;
-		toolNames.push({ id, name });
-		content.push({
-			type: "toolCall",
-			id,
-			name,
-			arguments: normalizeImportedToolArguments(record.arguments ?? fn.arguments),
-		});
-	}
-
-	return { content, toolNames };
-}
-
-/**
  * 内存版转换：把结果拼成完整文本返回。
  *
  * 仅供**扫描**使用（entries 是头部小数组，体积有上界）；
@@ -228,11 +199,11 @@ export function convertKimiAssistantContent(message: NormalizedKimiMessage): { c
  */
 export async function convertKimiSession(input: ConvertKimiInput): Promise<ConvertedKimiSession> {
 	const lines: string[] = [];
-	const appendedKeys = await collectKimiAppendedKeys(input.session.entries);
+	const messageIndex = await indexKimiMessages(input.session.entries);
 	const result = await convertKimiSessionTo({
 		...input,
 		entries: input.session.entries,
-		appendedKeys,
+		messageIndex,
 		sink: (line) => {
 			lines.push(line);
 		},
@@ -243,21 +214,10 @@ export async function convertKimiSession(input: ConvertKimiInput): Promise<Conve
 /**
  * 把 Kimi Code wire.jsonl 记录流转成 pi 原生 JSONL 会话文件。
  *
- * 转写原则：user/assistant/tool 三种角色各成一条 pi message；assistant 的
- * think/text/toolCalls 合并在同一 content 数组；tool 结果单独一条 toolResult，
- * toolName 从前面已发出的 toolCall 配对查得（查不到回退 "tool"）。
+ * 文本独立成段，首个结果之前的连续调用共用一条 toolUse，供 pi 继续聊天时按 ID 配对。
  */
-export async function convertKimiSessionTo(input: {
-	projectPath: string;
-	session: ParsedKimiSession;
-	translate: SessionImportCopy;
-	entries: Iterable<KimiRecord> | AsyncIterable<KimiRecord>;
-	/** collectKimiAppendedKeys 的预扫描结果；缺省时 context 记录不做降级跳过 */
-	appendedKeys?: Set<string>;
-	sink: (line: string) => Promise<void> | void;
-}): Promise<ConvertedKimiSession> {
-	const { projectPath, session, translate, entries, sink } = input;
-	const appendedKeys = input.appendedKeys ?? new Set<string>();
+export async function convertKimiSessionTo(input: { projectPath: string; session: ParsedKimiSession; translate: SessionImportCopy; entries: Iterable<KimiRecord> | AsyncIterable<KimiRecord>; messageIndex: KimiMessageIndex; sink: (line: string) => Promise<void> | void }): Promise<ConvertedKimiSession> {
+	const { projectPath, session, translate, entries, messageIndex, sink } = input;
 	const sessionId = session.meta.sessionId;
 	const timestamp = safeIsoTimestamp(session.meta.firstTimestamp);
 	// 标题回退链：state.title → state.lastPrompt → 首条 user 消息（见 titleState 更新处）
@@ -303,7 +263,7 @@ export async function convertKimiSessionTo(input: {
 	await pushEntry({ type: "session", version: 3, id: sessionId, timestamp, cwd: projectPath });
 	await pushEntry({
 		type: "kimi_import",
-		version: 1,
+		version: KIMI_IMPORT_VERSION,
 		sourceSessionId: sessionId,
 		sourcePath: session.sourcePath,
 		sourceMtime: session.sourceMtime,
@@ -319,64 +279,147 @@ export async function convertKimiSessionTo(input: {
 		parentId,
 		timestamp,
 		provider: "kimi",
-		modelId: "kimi-import",
+		modelId: KIMI_CODE_MODEL,
 	});
 	parentId = modelChangeId;
 
+	const loop = new KimiCodeLoop();
+	const deferredResults = new Map<string, { result: KimiLoopResult; order: number }>();
+	let resultOrder = 0;
+	const emittedLoopResults = new Set<string>();
+	type AssistantEntry = { content: PiContent[]; time: number; stopReason: string; usage: ReturnType<typeof kimiUsageToPi> };
+	const writeAssistant = ({ content, time, stopReason, usage }: AssistantEntry) => pushMessage("assistant", content, { api: "kimi-import", provider: "kimi", model: KIMI_CODE_MODEL, stopReason, usage }, time);
+	let calls: AssistantEntry | undefined;
+	const waiting = new Set<string>();
+	const afterCalls: AssistantEntry[] = [];
+
+	// 跨快照/step 合并尚未收到结果的连续调用。pi 在每个新 assistant 上重置待配对 ID。
+	function bufferCall(id: string, entry: AssistantEntry) {
+		if (messageIndex.loopResultIds.has(id) || messageIndex.toolResultIds.has(id)) waiting.add(id);
+		if (!calls) {
+			calls = entry;
+			return;
+		}
+		calls.content.push(...entry.content);
+		for (const field of ["input", "output", "cacheRead", "cacheWrite", "totalTokens"] as const) calls.usage[field] += entry.usage[field];
+	}
+	async function flushCalls() {
+		if (calls) await writeAssistant(calls);
+		calls = undefined;
+	}
+	async function finishCalls() {
+		await flushCalls();
+		waiting.clear();
+		for (const text of afterCalls) await writeAssistant(text);
+		afterCalls.length = 0;
+	}
+	async function writeResult(result: KimiLoopResult) {
+		const { toolCallId, output, isError, time } = result;
+		await flushCalls();
+		const text = typeof output === "string" ? output : joinKimiTextBlocks(asArray(output)) || (output == null ? "" : JSON.stringify(output));
+		await pushMessage("toolResult", [{ type: "text", text }], { toolCallId, toolName: toolNameById.get(toolCallId) || "tool", isError }, time || lastTimestamp);
+		waiting.delete(toolCallId);
+		if (!waiting.size) await finishCalls();
+	}
+
+	async function emitResult(result: KimiLoopResult, snapshot = false) {
+		const { toolCallId } = result;
+		if (!snapshot) {
+			if (messageIndex.toolResultIds.has(toolCallId) || emittedLoopResults.has(toolCallId)) return;
+			emittedLoopResults.add(toolCallId);
+		}
+		if (!toolNameById.has(toolCallId)) {
+			// 混合格式可能先给结果，再给带调用的完整快照。
+			if (messageIndex.assistantCallIds.has(toolCallId)) {
+				deferredResults.set(toolCallId, { result, order: resultOrder++ });
+				return;
+			}
+			if (!snapshot) return;
+		}
+		await writeResult(result);
+	}
+
+	async function emitSegments(events: Iterable<KimiAssistantEvent>, usage: NormalizedKimiMessage["usage"], finishReason: string, fallbackTime: number) {
+		for (const segment of kimiAssistantSegments(events, finishReason)) {
+			if (segment.type === "snapshot") {
+				await emitSnapshot(segment.message);
+				continue;
+			}
+			if (segment.type === "result") {
+				await emitResult(segment.result);
+				continue;
+			}
+			const at = segment.time || fallbackTime || lastTimestamp;
+			lastTimestamp = at;
+			const entry = { content: segment.content, time: at, stopReason: segment.stopReason, usage: kimiUsageToPi(usage) };
+			usage = undefined;
+			if (segment.type === "call") {
+				toolNameById.set(segment.call.id, segment.call.name);
+				bufferCall(segment.call.id, entry);
+			} else if (waiting.size) {
+				// 调用后、结果前的文本仍独立可见，写在成对结果之后，保留原始时间戳。
+				afterCalls.push(entry);
+			} else {
+				await flushCalls();
+				await writeAssistant(entry);
+			}
+		}
+	}
+
+	async function emitSnapshot(message: NormalizedKimiMessage) {
+		const at = message.time || lastTimestamp;
+		if (message.role === "assistant") {
+			await emitSegments(kimiSnapshotEvents(message), message.usage, message.finishReason, at);
+			// 一组调用都已登记，再按结果抵达顺序（可以与调用顺序相反）释放。
+			const ready = message.toolCalls
+				.flatMap((call) => {
+					const id = readString(readRecord(call).id);
+					const value = deferredResults.get(id);
+					if (!value) return [];
+					deferredResults.delete(id);
+					return [value];
+				})
+				.sort((a, b) => a.order - b.order);
+			for (const { result } of ready) await writeResult(result);
+			return;
+		}
+		lastTimestamp = at;
+		const text = joinKimiTextBlocks(message.content);
+		if (message.role === "user") {
+			await finishCalls();
+			if (text) await pushMessage("user", [{ type: "text", text }], {}, at);
+		} else if (message.role === "tool") {
+			await emitResult({ toolCallId: message.toolCallId, output: text, isError: false, time: at }, true);
+		}
+	}
+
+	async function emitLoopStep(step?: KimiLoopStep) {
+		if (!step) return;
+		const { end, events } = step;
+		const hasSnapshot = messageIndex.assistantIds.has(readString(end?.messageId)) || [...step.callPositions.keys()].some((id) => messageIndex.assistantCallIds.has(id));
+		const remaining = hasSnapshot ? events.filter((event) => event.type === "snapshot" || event.type === "result") : events;
+		await emitSegments(remaining, readKimiUsage(end?.usage), readString(end?.finishReason), step.time);
+	}
+
 	for await (const entry of entries) {
 		const message = extractKimiMessage(entry);
-		if (!message) continue;
+		if (!message) {
+			await emitLoopStep(loop.feed(entry));
+			continue;
+		}
+		if (isInternalUserMessage(message)) continue;
 
 		const key = kimiMessageKey(message);
-		// 两种记录都存在的消息只留 appended 版本（带 usage/meta）
-		if (message.kind === "context" && appendedKeys.has(key)) continue;
+		if (message.kind === "context" && messageIndex.appendedKeys.has(key)) continue;
 		if (seen.has(key)) continue;
 		seen.add(key);
 
-		const at = message.time > 0 ? message.time : lastTimestamp;
-		if (at > 0) lastTimestamp = at;
-
-		if (message.role === "user") {
-			const text = joinKimiTextBlocks(message.content);
-			if (text) await pushMessage("user", [{ type: "text", text }], {}, at);
-			continue;
-		}
-
-		if (message.role === "assistant") {
-			const converted = convertKimiAssistantContent(message);
-			for (const tool of converted.toolNames) toolNameById.set(tool.id, tool.name);
-			await pushMessage(
-				"assistant",
-				converted.content,
-				{
-					usage: kimiUsageToPi(message.usage),
-					api: "kimi-import",
-					provider: "kimi",
-					model: "kimi-import",
-					stopReason: normalizeImportedStopReason({
-						raw: message.finishReason,
-						hasToolCall: importedContentHasToolCall(converted.content),
-					}),
-				},
-				at,
-			);
-			continue;
-		}
-
-		if (message.role === "tool") {
-			const text = joinKimiTextBlocks(message.content);
-			await pushMessage(
-				"toolResult",
-				[{ type: "text", text }],
-				{
-					toolCallId: message.toolCallId,
-					toolName: toolNameById.get(message.toolCallId) || "tool",
-					isError: false,
-				},
-				at,
-			);
-		}
+		if (message.role === "user") await emitLoopStep(loop.flush());
+		else if (loop.bufferSnapshot(message)) continue;
+		await emitSnapshot(message);
 	}
+	await emitLoopStep(loop.flush());
+	await finishCalls();
 
 	const title = cleanKimiTitle(titleState.title) || translate("session.importedTitle", { source: "Kimi" });
 	// 使用 pi 原生 session_info 格式追加在末尾，避免旧版 sessionName 行（无 type 字段）

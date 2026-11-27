@@ -76,6 +76,26 @@ test("extractPiToolTruncation 读取 pi 0.99 的 details.truncation/fullOutputPa
 	assert.equal(info?.fullOutputPath, "/tmp/pi-bash-xx.log");
 });
 
+test("extractPiToolTruncation 读取 pi 1.6.1 的 details.fullOutputError（完整输出没能落盘）", () => {
+	// 磁盘满/配额/不可写时 pi 不再给路径，只给原因
+	const info = extractPiToolTruncation({
+		details: {
+			truncation: { truncated: true, truncatedBy: "bytes", totalBytes: 3_000_000 },
+			fullOutputError: "ENOSPC: no space left on device, open '/tmp/pi-bash-xx.log'",
+		},
+	});
+	assert.equal(info?.fullOutputError, "ENOSPC: no space left on device, open '/tmp/pi-bash-xx.log'");
+	assert.equal("fullOutputPath" in (info ?? {}), false, "没有路径时不该出现幽灵字段");
+});
+
+test("fullOutputPath 与 fullOutputError 同时出现时以路径为准", () => {
+	const info = extractPiToolTruncation({
+		details: { truncation: { truncated: true }, fullOutputPath: "/tmp/ok.log", fullOutputError: "stale reason" },
+	});
+	assert.equal(info?.fullOutputPath, "/tmp/ok.log");
+	assert.equal("fullOutputError" in (info ?? {}), false, "有路径就不必再给失败原因");
+});
+
 test("extractPiToolTruncation 无截断信息时返回 undefined（普通结果/DSH 平铺结果）", () => {
 	assert.equal(extractPiToolTruncation({ content: [{ type: "text", text: "ok" }] }), undefined);
 	assert.equal(extractPiToolTruncation("plain string"), undefined);

@@ -12,6 +12,8 @@ import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
 const read = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), "utf8");
 const trash = read("main/fs/trash.ts");
 const gitIpc = read("main/ipc/gitIpc.ts");
+// push / pull / fetch 拆到 gitSyncIpc（#603 按仓库串行化），审计日志跟着搬过去，仍属同一注册边界。
+const gitSyncIpc = read("main/ipc/gitSyncIpc.ts");
 const skillManager = read("main/skills/SkillManager.ts");
 const logViewer = read("renderer/src/components/app/settings/LogViewer.tsx");
 const zh = read("renderer/src/i18n/rendererCopy.zh-CN.ts");
@@ -67,8 +69,10 @@ test("destructive git operations leave audit traces", () => {
 	assert.match(gitIpc, /appLogger\.info\("git", "Commit created", \{ projectId, message, repoPath: cwd \}\)/);
 	assert.match(gitIpc, /appLogger\.info\("git", "Commit cherry-picked", \{ projectId, hash, repoPath: cwd \}\)/);
 	assert.match(gitIpc, /appLogger\.info\("git", "Commit reverted", \{ projectId, hash, repoPath: cwd \}\)/);
-	assert.match(gitIpc, /appLogger\.info\("git", "Pushed", \{ projectId, repoPath: cwd \}\)/);
-	assert.match(gitIpc, /appLogger\.info\("git", "Pulled", \{ projectId, repoPath: cwd \}\)/);
+	assert.match(gitSyncIpc, /appLogger\.info\("git", "Pushed", \{ projectId, repoPath: cwd \}\)/);
+	assert.match(gitSyncIpc, /appLogger\.info\("git", "Pulled", \{ projectId, repoPath: cwd \}\)/);
+	// 失败也留痕：面板只弹 8 秒通知，事后靠日志回查根因（#603）。
+	assert.match(gitSyncIpc, /appLogger\.warn\("git", "Pull failed", \{ projectId, repoPath: cwd, error:/);
 });
 
 test("LogViewer uses paginated listPage with table and pagination components", () => {

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import type { JsonlLineContext } from "../jsonlLineStream";
+import { pipeline } from "node:stream/promises";
+import type { Token } from "stream-json/parser.js";
 
 /** rename / copy 追加 session_info 需要的纯函数：pi 兼容性判定由调用方注入。 */
 export type SessionInfoAppenderOptions = {
@@ -20,31 +21,34 @@ export type SessionInfoAppenderOptions = {
  * 位于文件头时会破坏首行校验导致整个会话无法加载（#114 的存量受损文件）。
  *
  * 这里是**流式版**（唯一实现，本地与 WSL 共用）：逐行消费、不把整文件读成字符串。
- * 用法：`rewriteJsonlLines(src, tmp, appender.transform)`
+ * 用法：`rewriteJsonlLines(src, tmp, appender.transform, { keepOversizedLine: appender.keepOversizedLine })`
  * → `appendFile(tmp, appender.build(name) + "\n")` → 原子改名覆盖源文件。
  */
 export function createSessionInfoAppender(options: SessionInfoAppenderOptions) {
 	const { isLegacySessionNameEntry, extra } = options;
 	const ids = new Set<string>();
 	let lastId: string | null = null;
-	const transform = (line: string, context: JsonlLineContext | null): string | null => {
-		// context === null：超长行未 decode（jsonlLineStream 语义），无从变换 → 丢弃
-		if (context === null) return null;
+	const keepEntry = (parsed: unknown): boolean => {
+		if (!parsed || typeof parsed !== "object") return true;
+		if (isLegacySessionNameEntry(parsed)) return false;
+		if ("id" in parsed && typeof parsed.id === "string" && parsed.id) {
+			ids.add(parsed.id);
+			lastId = parsed.id;
+		}
+		return true;
+	};
+	const transform = (line: string): string | null => {
 		const trimmed = line.trim();
 		if (!trimmed) return null;
-		let parsed: unknown = null;
+		let parsed: unknown;
 		try {
 			parsed = JSON.parse(trimmed);
 		} catch {
-			// 不可解析的行原样保留，不做破坏性清理
+			return trimmed;
 		}
-		if (parsed !== null && isLegacySessionNameEntry(parsed)) return null;
-		if (parsed !== null && typeof (parsed as { id?: unknown }).id === "string" && (parsed as { id?: string }).id) {
-			ids.add((parsed as { id: string }).id);
-			lastId = (parsed as { id: string }).id;
-		}
-		return trimmed;
+		return keepEntry(parsed) ? trimmed : null;
 	};
+	const keepOversizedLine = async (chunks: AsyncIterable<Buffer>): Promise<boolean> => keepEntry(await readSessionEntryMetadata(chunks));
 	const build = (name: string): string => {
 		// 与 pi appendSessionInfo 相同的清洗规则：换行折叠为空格，避免破坏 JSONL 行结构。
 		const sanitized = name.replace(/[\r\n]+/g, " ").trim();
@@ -60,5 +64,44 @@ export function createSessionInfoAppender(options: SessionInfoAppenderOptions) {
 			...extra,
 		});
 	};
-	return { transform, build };
+	return { transform, keepOversizedLine, build };
+}
+
+// 只读取顶层 id 以及 type/sessionName 是否为字符串。附件正文和嵌套 id 不参与命名。
+async function readSessionEntryMetadata(chunks: AsyncIterable<Buffer>) {
+	const metadata: { id?: string; type?: string; sessionName?: string } = {};
+	let depth = 0;
+	let key: keyof typeof metadata | undefined;
+	const maxMetadataChars = 64 * 1024;
+	const { parser } = await import("stream-json/parser.js");
+	const tokens = parser.asStream({ packValues: false, packKeys: true, streamKeys: false, maxPackedLength: maxMetadataChars });
+	await pipeline(chunks, tokens, async (source: AsyncIterable<Token>) => {
+		for await (const token of source) {
+			switch (token.name) {
+				case "startObject":
+				case "startArray":
+					depth++;
+					break;
+				case "endObject":
+				case "endArray":
+					depth--;
+					break;
+				case "keyValue":
+					if (depth !== 1) break;
+					key = token.value === "id" || token.value === "type" || token.value === "sessionName" ? token.value : undefined;
+					if (key) delete metadata[key];
+					break;
+				case "startString":
+					if (depth === 1 && key) metadata[key] = "";
+					break;
+				case "stringChunk":
+					if (depth === 1 && key === "id") {
+						metadata.id = (metadata.id ?? "") + token.value;
+						if (metadata.id.length > maxMetadataChars) throw new Error("Oversized session entry ID");
+					}
+					break;
+			}
+		}
+	});
+	return metadata;
 }

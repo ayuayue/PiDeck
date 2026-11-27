@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { downgradeRunningStartedBefore, downgradeStaleRunning } from "../src/main/pi/derivedSubagents.ts";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+
+// 用仓库统一的 TS 加载器，而不是 node 原生的类型剥离：derivedSubagents 现在有运行时
+// 依赖（orchestratorRunResult，#598），原生 ESM 解析器不认无扩展名的相对导入。
+const { downgradeRunningStartedBefore, downgradeStaleRunning } = loadTsCommonJs("src/main/pi/derivedSubagents.ts");
 
 const entry = (overrides = {}) => ({
 	id: "a1",

@@ -7,7 +7,7 @@ import { readLogoImageFile } from "../../../utils/brandLogoImage";
 import { Button } from "../../ui-shadcn/button";
 import { Input } from "../../ui-shadcn/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui-shadcn/select";
-import { PiTuiLogoMark } from "../PiTuiLogo";
+import { BuiltinLogoMark } from "../LogoMark";
 import { resolveLogoStyle } from "../piTuiLogoData";
 import { DirtyMarker, SettingRow } from "./SettingRows";
 
@@ -66,17 +66,13 @@ export const BrandingSection = memo(function BrandingSection({ draft, updateDraf
 					<SelectContent>
 						<SelectItem value="classic">
 							<span className="flex items-center gap-2">
-								{/* 经典银灰标需要黑底承托，不能直接放在浅色菜单上；保留完整 π 轮廓与镂空。 */}
-								<svg viewBox="140 140 520 520" width="16" height="16" className="size-4 shrink-0 rounded-xs bg-black p-px" aria-hidden="true" shapeRendering="crispEdges">
-									<path fill="#f4f4f5" fillRule="evenodd" d="M165.29 165.29H517.36V400H400V517.36H282.65V634.72H165.29ZM282.65 282.65V400H400V282.65Z" />
-									<path fill="#a7a8ab" d="M517.36 400H634.72V634.72H517.36Z" />
-								</svg>
+								<BuiltinLogoMark style="classic" size={16} />
 								<span>{t("settings.logoStyleClassic")}</span>
 							</span>
 						</SelectItem>
 						<SelectItem value="pi-tui">
 							<span className="flex items-center gap-2">
-								<PiTuiLogoMark size={16} />
+								<BuiltinLogoMark style="pi-tui" size={16} />
 								<span>{t("settings.logoStylePiTui")}</span>
 							</span>
 						</SelectItem>

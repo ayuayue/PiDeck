@@ -83,13 +83,16 @@ test("ToolCard: exposes open-file entry points and an output context menu", () =
 	// pi 截断提示行同时提供「复制路径」与「打开文件」
 	assert.match(tools, /void copyTextWithCopiedNotice\(\s*piTruncation\.fullOutputPath \?\? "",?\s*\)/);
 	assert.match(tools, /props\.onOpenFile\?\.\(piTruncation\.fullOutputPath \?\? ""\)/);
+	// pi 1.6.1：完整输出没能落盘时改为展示原因（没有路径可点、也没有复制/打开按钮）
+	assert.match(tools, /piTruncation\.fullOutputError/);
+	assert.match(tools, /t\("tool\.piOutputNotSaved", \{ reason: piTruncation\.fullOutputError \}\)/);
 });
 
 test("preview i18n keys exist in zh-CN / en-US and survive into generated zh-TW", () => {
 	const zh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 	const en = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
 	const tw = readFileSync("src/renderer/src/i18n/rendererCopy.zh-TW.ts", "utf8");
-	for (const key of ["editor.previewFailed", "editor.previewUnavailable", "editor.mediaUnsupported", "editor.archiveEmpty", "editor.archiveSummary", "editor.sheetTruncated", "editor.sheetEmpty", "tool.copyOutput"]) {
+	for (const key of ["editor.previewFailed", "editor.previewUnavailable", "editor.mediaUnsupported", "editor.archiveEmpty", "editor.archiveSummary", "editor.sheetTruncated", "editor.sheetEmpty", "tool.copyOutput", "tool.piOutputNotSaved"]) {
 		assert.match(zh, new RegExp(`"${key.replace(/\./g, "\\.")}":`), `${key} missing in zh-CN`);
 		assert.match(en, new RegExp(`"${key.replace(/\./g, "\\.")}":`), `${key} missing in en-US`);
 		assert.match(tw, new RegExp(`"${key.replace(/\./g, "\\.")}":`), `${key} missing in generated zh-TW`);

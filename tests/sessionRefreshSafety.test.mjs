@@ -33,6 +33,12 @@ function runProjectSessionRefreshBlock() {
 	return match[0];
 }
 
+function applyCatalogSessionsBlock() {
+	const match = projectSync.match(new RegExp(`function applyCatalogSessions\\(projectId: string, records: SessionRecord\\[\\]\\): void \\{[\\s\\S]*?${BLOCK_END}const setCatalogLoadStateGuarded`));
+	assert.ok(match, "applyCatalogSessions implementation should be discoverable");
+	return match[0];
+}
+
 function withTimeoutBlock() {
 	const match = projectSync.match(/function withTimeout<T>\([\s\S]*?\n[\t ]*\}\n/);
 	assert.ok(match, "withTimeout implementation should be discoverable");
@@ -141,12 +147,26 @@ test("preserves request gate, stale records, replace ordering, and canonical sor
 			"sessionRequestByProjectRef.current[projectId] = request;",
 			"if (sessionRequestByProjectRef.current[projectId] !== request)",
 			"result = records;",
-			"replaceProjectSessions({ projectId, sessions: records });",
+			"applyCatalogSessions(projectId, records);",
 			".map(sessionRecordToSummary)",
 			".filter((session): session is SessionSummary => Boolean(session))",
 			".sort((a, b) => b.updatedAt - a.updatedAt);",
 		],
 		"refresh result pipeline",
+	);
+});
+
+/**
+ * 目录写入唯一的入口：替换记录 + 收敛已消失会话的运行时。
+ * 先前是本函数体里直接 `replaceProjectSessions(...)`，2027-02 目录对账后改为经
+ * `applyCatalogSessions` 统一收口（否则强制刷新会漏掉幽灵行清理）。
+ */
+test("writes the refreshed catalog once through applyCatalogSessions", () => {
+	const block = applyCatalogSessionsBlock();
+	assertInOrder(
+		block,
+		["const previous = lastAppliedSessionIdsByProjectRef.current[projectId] ?? [];", "lastAppliedSessionIdsByProjectRef.current[projectId] = records.map((record) => record.id);", "replaceProjectSessions({ projectId, sessions: records });", "dropSessionRuntimes(previous.filter((sessionId) => !next.has(sessionId)));"],
+		"catalog write + vanished runtime reconciliation",
 	);
 });
 
