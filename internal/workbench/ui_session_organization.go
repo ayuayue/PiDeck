@@ -78,7 +78,11 @@ func (a *app) sessionGroupPanel(cx *core.Scope, state sessionOrganizationDialog)
 	}
 	invalid := func() bool {
 		input := strings.TrimSpace(a.organizationInput.Get())
-		return input != "" && sessionGroupPath(input) == ""
+		path := sessionGroupPath(input)
+		if input != "" && path == "" {
+			return true
+		}
+		return state.kind == "rename" && !a.canChangeGroupPath(state.ws, state.path, path)
 	}
 	save := func() {
 		if invalid() {
