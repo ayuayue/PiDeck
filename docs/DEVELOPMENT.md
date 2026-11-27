@@ -90,6 +90,12 @@ go test ./internal/<包名> -run <测试名> -count=1
 
 工作台 UI 按需使用 `go tool nsgo test -- -run <测试名> -count=1`；结构和跨包变更按贡献指南补充检查。文档改动核对事实、链接与 `git diff --check`，无需触发应用构建。
 
+Git 变更数跟随当前项目：启动或切换项目时立即读取状态，之后每 4 秒检查一次，即使右侧面板收起或切到其他标签也继续检查。应用内提交完成后立即刷新；终端或其他工具产生的变更、提交由定时检查更新。针对这条路径的回归验证：
+
+```sh
+go test ./internal/workbench -run '^TestGitCount' -count=1
+```
+
 同一工作区内的 NSGo build / check / test 必须串行：Windows 构建会临时写入并删除模块根的 `.syso`，并发执行会互相干扰。只构建本次涉及的目标；不要为局部改动运行全仓库或全平台构建。
 
 ## 打包与发布

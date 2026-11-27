@@ -134,16 +134,20 @@ func (a *app) allSessions() []*session {
 	return out
 }
 
-// tick keeps a clock for elapsed labels, and rereads an open Git panel
-// every few seconds.
+// tick keeps a clock for elapsed labels and the active project's Git
+// status current, even while its drawer is closed or showing another tab.
 func (a *app) tick() {
+	a.cx.Effect(func() {
+		ws := a.activeWorkspace()
+		a.cx.Untrack(func() { a.git.attach(ws) })
+	})
 	beats := 0
 	var loop func()
 	loop = func() {
 		beats++
 		now := a.cx.Now()
 		a.clock.Set(now)
-		if beats%4 == 0 && a.drawer.GetUntracked() && a.drawerTab.GetUntracked() == "git" {
+		if beats%4 == 0 {
 			a.git.poll()
 		}
 		// GitHub is not ours to push from: reread the review pane while it

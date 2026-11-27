@@ -37,6 +37,7 @@ func (a *app) openGit() {
 
 // openGitFor shows the Git drawer on one project.
 func (a *app) openGitFor(ws *workspace) {
+	a.activeWS.Set(projectWireKey(ws))
 	if !a.drawer.GetUntracked() || a.drawerTab.GetUntracked() != "git" {
 		a.animateNextLayout()
 	}
