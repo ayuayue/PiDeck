@@ -7,6 +7,7 @@ import { ipcMain } from "electron";
 import { ipcChannels } from "../../shared/ipc";
 import { convertStoreVarsToPiVars } from "../../shared/promptStoreVariables";
 import type { CreatePiPromptTemplateInput, PiPromptTemplateSummary, PromptStoreItem, PromptStoreRawItem, PromptStoreSearchResponse, PromptStoreSearchResult, SkillHubInstallProgress, SkillHubSearchOptions } from "../../shared/types";
+import { listProjectPrompts } from "../projects/projectPromptsListing";
 import type { AppLogger } from "../logging/AppLogger";
 import type { PromptManager } from "../prompts/PromptManager";
 import type { SkillManager } from "../skills/SkillManager";
@@ -145,10 +146,7 @@ export function registerStoreIpc({ promptManager, skillManager, xuePromptManager
 		}
 		return manager.readContent(validPath);
 	});
-	ipcMain.handle(ipcChannels.promptsListByProject, async (_event, projectId: unknown) => {
-		const root = projectRoot(projectId);
-		return promptManager.listByProject(root, (projectId as string).trim());
-	});
+	ipcMain.handle(ipcChannels.promptsListByProject, async (_event, projectId: unknown) => listProjectPrompts({ projectResourceManager, promptManager, chatUnsupportedMessage: mainCopy("mainProjectResource.chatUnsupported") }, projectId));
 	ipcMain.handle(ipcChannels.promptsCreateInProject, async (_event, projectId: unknown, input: unknown) => {
 		const validInput = promptInput(input);
 		const root = projectRoot(projectId);
