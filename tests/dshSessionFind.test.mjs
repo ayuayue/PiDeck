@@ -71,7 +71,14 @@ test("命中按消息顺序返回（上一条/下一条导航），超过上限�
 		Array.from(hit.matches, (match) => match.snippet),
 		["needle 1", "needle 2"],
 	);
-	assert.equal(DSH_SESSION_FIND_MAX_MATCHES, 100);
+	// 上限不钉字面量（它属于「UI 能渲染多少」，会随真机调）——判两件事：
+	// hitCount 报真实总数、列表按上限截断。旧值 100 时第 200 条命中在列表里根本滚不到
+	// （2026-11-25 真机：面板写「共 724 条」，列表只有 100 条）。
+	assert.ok(DSH_SESSION_FIND_MAX_MATCHES >= 1000, `上限要能覆盖长会话，现在是 ${DSH_SESSION_FIND_MAX_MATCHES}`);
+	const many = Array.from({ length: DSH_SESSION_FIND_MAX_MATCHES + 5 }, (_, index) => message({ text: `needle ${index}` }));
+	const capped = findDshSessionMatches(many, "needle");
+	assert.equal(capped.hitCount, many.length, "hitCount 必须是真实总数");
+	assert.equal(capped.matches.length, DSH_SESSION_FIND_MAX_MATCHES, "列表按上限截断");
 });
 
 test("snippet 是有界单行窗口：换行/制表折叠成空格，且只截命中附近", () => {

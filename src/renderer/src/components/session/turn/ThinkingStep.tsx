@@ -2,6 +2,7 @@ import { memo } from "react";
 import { streamingThinkingEntryByIdAtomFamily } from "../../../atoms/session-atoms";
 import { ThinkingBlock } from "../TimelineEventCards";
 import { usePacedAtomValue, useSessionPaneRenderMode } from "../sessionPaneActive";
+import { resolveLiveThinkingKey } from "../timeline/liveMount";
 import type { ThinkingGroupItem } from "../timeline/types";
 
 /**
@@ -13,11 +14,13 @@ import type { ThinkingGroupItem } from "../timeline/types";
  * 打字机只认 live.streaming：禁止用「整轮 isStreaming」回退，否则上一则已落盘的
  * 思考会在下一则 live 思考期间被当成仍在流式，出现「两段一起打字」。
  */
-export const ThinkingStep = memo(function ThinkingStep(props: { group: ThinkingGroupItem; hidden: boolean; showThinking?: boolean; onOpenExternal: (url: string) => void; onOpenFile?: (path: string) => void }) {
+export const ThinkingStep = memo(function ThinkingStep(props: { group: ThinkingGroupItem; hidden: boolean; showThinking?: boolean; liveId?: string; onOpenExternal: (url: string) => void; onOpenFile?: (path: string) => void }) {
 	// 按渲染模式读 atom：active 正常订阅；background 1s 粗采样；折叠行直接按 hidden 冻结。
 	// 数据仍进 atom，展开/聚焦时一次追平。
 	const renderMode = useSessionPaneRenderMode();
-	const live = usePacedAtomValue(streamingThinkingEntryByIdAtomFamily(props.group.id), props.hidden ? "hidden" : renderMode);
+	// live 段 id 优先用条目带来的 liveId：与本条消息 id 不同形时（运行期 uuid vs 投影 id），
+	// 拿 group.id 去查永远取不到，挂上了也是空行（2026-11-26 真机「思考不见了」）。
+	const live = usePacedAtomValue(streamingThinkingEntryByIdAtomFamily(resolveLiveThinkingKey({ liveId: props.liveId, groupId: props.group.id })), props.hidden ? "hidden" : renderMode);
 	const text = live?.text ?? props.group.text;
 	const startedAt = live?.startedAt ?? props.group.startedAt;
 	const endedAt = live ? live.endedAt : props.group.endedAt;

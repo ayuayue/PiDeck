@@ -1,3 +1,9 @@
+import { useSetAtom } from "jotai";
+import { mergeSessionJumpPageAtom } from "../../../atoms/session-jump-page-atoms";
+import type { PrependResult } from "../../../atoms/session-history-atoms";
+import { pickJumpAnchorEntryId } from "../../../components/session/timeline/jumpTarget";
+import { jumpEntryKey } from "../../../../../shared/sessionJumpAnchor";
+import { mergeInterleavedHistory } from "../../../components/session/timeline/mergeHistoryWindow";
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { readSessionFirstScreenPage } from "../../../components/session/sessionSubagentTranscript";
 import { resolveEarlierHistoryCursor, resolveHistoryPageSize, resolvePageWindowGrowth } from "../../../components/session/timeline/historyPagePolicy";
@@ -7,6 +13,7 @@ import type { SessionLoadState, SessionMessageCacheEntry } from "../../../atoms"
 import type { TranslationKey } from "../../../i18n";
 import { sessionHistoryUnavailableState } from "../../../utils/sessionHistoryAvailability";
 import { sessionDiskPageCursor } from "../../../utils/sessionDiskPageCursor";
+import { logFromRenderer } from "../../../utils/rendererLog";
 import { planLoadMorePinSteps, shouldApplyDelayedHistoryResult } from "../../timeline/scrollHistoryPolicy";
 /** 顶部插入锚点（数据翻页 / turn 窗口展开共用）：主 hook 的消费 effect 读它补位移。 */
 export type TimelinePrependAnchor = {
@@ -32,8 +39,10 @@ export interface TimelineHistoryPagingPorts {
 	startDshHost: () => Promise<boolean>;
 	setLoadState: (input: { sessionId: string; state: SessionLoadState }) => void;
 	cacheMessages: (input: { sessionId: string; messages: ChatMessage[]; source: "disk"; expectedRevision: number; page: SessionMessageCacheEntry["page"]; force?: boolean }) => void;
-	prependMessagePage: (input: { sessionId: string; before: number; expectedRevision: number; page: SessionMessagePage }) => boolean;
-	prependHistoryPage: (input: { sessionId: string; expectedRevision: number; before?: number | null; page: SessionMessagePage }) => boolean;
+	/** 一次性取「包含该 entryId 的一页」：跳转专用，600 轮会话不必逐页往前补。 */
+	readPageAroundEntry: (sessionId: string, entryId: string, pageSize?: number) => Promise<SessionMessagePage>;
+	prependMessagePage: (input: { sessionId: string; before: number; expectedRevision: number; page: SessionMessagePage }) => PrependResult;
+	prependHistoryPage: (input: { sessionId: string; expectedRevision: number; before?: number | null; page: SessionMessagePage }) => PrependResult;
 	clearHistory: (sessionId: string) => boolean;
 	translate: (key: TranslationKey) => string;
 }
@@ -68,6 +77,24 @@ export interface TimelineHistoryPagingOptions {
 }
 
 export interface TimelineHistoryPagingState {
+	/** 一次性把目标所在页拉进来（跳转专用，见实现处注释）。true = 已合并进缓存。 */
+	/**
+	 * 一次性把目标页拉进来。返回三态：
+	 *  "exact"      目标条目就在这一页里（可以精确落位）
+	 *  "positioned" 只定位到「该时间段」，目标本身不在活动分支（被 compaction/context_edit 移出）
+	 *  "missing"    文件里没有这个 entryId
+	 * 用三态而不是 boolean：后两种都返回 false 的话，用户得到的提示是一样的，
+	 * 而它们的原因与后续处理完全不同（一个是「看得到但不在窗口」，一个是「真没有」）。
+	 */
+	/**
+	 * 一次性把目标页拉进来。
+	 *
+	 * outcome："exact" 目标就在页里 / "positioned" 只定位到时间段（目标不可显示）/ "missing" 文件里没有。
+	 * anchorEntryId：**一定能命中**的锚点 id。exact 时是目标自己；positioned 时退到页里离目标
+	 * 最近的那一条。渲染层只能拿它当锚点 —— 拿一个匹配不上的 id 去设锚点，会让窗口退成有界
+	 * 尾部（用户以为跳错了位置），报告里的「跳过去但没看到」都是这么来的。
+	 */
+	loadPageAroundEntry: (entryId: string, isCurrent?: () => boolean) => Promise<{ outcome: "exact" | "positioned" | "missing"; anchorEntryId?: string }>;
 	diskPage: SessionMessageCacheEntry["page"] | undefined;
 	earlierHistoryCursor: ReturnType<typeof resolveEarlierHistoryCursor>;
 	historyHasMore: boolean;
@@ -77,7 +104,11 @@ export interface TimelineHistoryPagingState {
 	setIsLoadingMessagePage: (loading: boolean) => void;
 	loadMoreError: string | null;
 	setLoadMoreError: (error: string | null) => void;
-	loadMoreMessages: (source?: "scroll" | "button" | "backfill") => void;
+	/** 返回是否**真的发出了**请求：false = 游标耗尽/无页可翻，调用方不得据此消耗补页预算。 */
+	loadMoreMessages: (source?: "scroll" | "button" | "backfill") => boolean;
+	/** 上一次补页提交的具名结果（"committed" / "rejected-*" / "unsent"）。 */
+	readLastPrependResult: () => PrependResult | "unsent" | null;
+	readLastJumpOutcome: () => "exact" | "positioned" | "missing" | "idle";
 	reloadFromDisk: () => Promise<void>;
 	startDshHostAndReload: () => Promise<boolean>;
 }
@@ -115,7 +146,9 @@ export function useTimelineHistoryPaging(options: TimelineHistoryPagingOptions):
 		isTimelineAtBottom,
 		ports,
 	} = options;
-	const { readRecordMessagePage, startDshHost, setLoadState, cacheMessages, prependMessagePage, prependHistoryPage, clearHistory, translate: t } = ports;
+	const { readRecordMessagePage, readPageAroundEntry, startDshHost, setLoadState, cacheMessages, prependMessagePage, prependHistoryPage, clearHistory, translate: t } = ports;
+	// 跳转页提交在钩子内绑定：控制器不必为此多一行装配，测试也只需桩掉这一个 atom。
+	const commitJumpPage = useSetAtom(mergeSessionJumpPageAtom);
 
 	const reloadFromDisk = useCallback(async () => {
 		if (!sessionId) return;
@@ -197,13 +230,43 @@ export function useTimelineHistoryPaging(options: TimelineHistoryPagingOptions):
 	const visibleMessages = combinedMessages;
 	const [isLoadingMessagePage, setIsLoadingMessagePage] = useState(false);
 	/**
+	 * 「有补页请求在飞」的计数 —— loading 必须是它的像，不能是「最新请求的像」。
+	 *
+	 * 2026-11 真机：636 轮会话顶部永久显示「加载中…」，跳转一路失败。原因是 finally 写成
+	 * if (getLatestLoad(sessionId) === sequence) setIsLoadingMessagePage(false)：第二个请求
+	 * 发起后 sequence 变新，第一个请求的 finally 就跳过了复位，loading 永远停在 true。而
+	 * loadMoreMessages 开头的 in-flight 守卫据此直接 return —— 之后每次补页都被吞掉，
+	 * 表现为「加载不完整 + 跳不到顶部 + 一直转圈」。
+	 *
+	 * 用计数而不是布尔：两个请求并发时，先结束的那个不能把还在飞的说成已结束。
+	 */
+	const pendingPageLoadsRef = useRef(0);
+	const beginPageLoad = useCallback(() => {
+		pendingPageLoadsRef.current += 1;
+		setIsLoadingMessagePage(true);
+	}, []);
+	const endPageLoad = useCallback(() => {
+		pendingPageLoadsRef.current = Math.max(0, pendingPageLoadsRef.current - 1);
+		setIsLoadingMessagePage(pendingPageLoadsRef.current > 0);
+	}, []);
+	/**
 	 * 「加载更多对话」失败态：IPC 抛错（DSH host 不可用 / 会话文件失效）原先没人接，
 	 * finally 只复位 loading，表现为「点了没反应」。这里留原始文案给时间线出错误行。
 	 */
 	const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
+	/**
+	 * 上一次补页提交的拒绝原因（"committed" 表示成功）。
+	 *
+	 * 为什么需要它：跳转链现在能判断「数据没长」（stalledAttempts），但说不出**为什么**没长。
+	 * 把 prepend 的具名结果留在这里，H4 就能直接告诉我们被哪种前置拒了 ——
+	 * revision（可重试）/ cursor（可重试一次）/ source（走错 atom）/ generation（不可重试）。
+	 */
+	const lastPrependResultRef = useRef<PrependResult | "unsent" | null>(null);
+	// 跳转取页结果：提示里必须报**本次**这一步的结果，不能报上一次 loadMore 的残留值。
+	const lastJumpOutcomeRef = useRef<"exact" | "positioned" | "missing" | "idle">("idle");
 
 	const loadMoreMessages = useCallback(
-		(source: "scroll" | "button" | "backfill" = "scroll") => {
+		(source: "scroll" | "button" | "backfill" = "scroll"): boolean => {
 			const pageSize = resolveHistoryPageSize(source);
 			const requestOwnerKey = ownerKey;
 			const timeline = timelineRef.current;
@@ -230,7 +293,10 @@ export function useTimelineHistoryPaging(options: TimelineHistoryPagingOptions):
 			if (diskPage) {
 				const before = diskPage.nextBefore;
 				// 0 是文件头而不是「还有更早」：放过会发出一次空页请求，界面毫无变化。
-				if (!sessionId || typeof before !== "number" || before <= 0 || isLoadingMessagePage) return;
+				if (!sessionId || typeof before !== "number" || before <= 0 || isLoadingMessagePage) {
+					lastPrependResultRef.current = "unsent";
+					return false;
+				}
 				const browseGeneration = historyBrowseGenerationRef.current;
 				const sequence = allocateLoadSequence();
 				trackLatestLoad(sessionId, sequence);
@@ -244,7 +310,7 @@ export function useTimelineHistoryPaging(options: TimelineHistoryPagingOptions):
 				const needsSolid = source === "scroll";
 				if (needsSolid) beginPrependSolid();
 				let insertionCommitted = false;
-				setIsLoadingMessagePage(true);
+				beginPageLoad();
 				// 重试时先清掉上一次的错误行
 				setLoadMoreError(null);
 				// 续页锚点：`nextBeforeEntryId` 跨下标空间稳定（主进程缓存命中路径靠它），远端页还用它
@@ -260,9 +326,15 @@ export function useTimelineHistoryPaging(options: TimelineHistoryPagingOptions):
 							setLoadMoreError(t("timeline.dshHostStopped"));
 							return;
 						}
-						if (prependMessagePage({ sessionId, before, expectedRevision, page })) {
-							insertionCommitted = true;
+						const prependResult = prependMessagePage({ sessionId, before, expectedRevision, page });
+						lastPrependResultRef.current = prependResult;
+						if (prependResult === "committed") {
 							// 历史消息页最多只开放一个 3 轮 cohort；数据页可能按消息数返回很多轮，
+
+							insertionCommitted = true;
+							// 落地标记：与下面 runtime 分支同一行规则。少了它，finally 会在**成功**时也关整表渲染——
+							// 那一刻 layout effect 的 pin 补偿还没跑完，整表渲染的 1.5s 兜底窗口被压到 0，
+							// 行高从实测回退估算、总高度突变 → 重排 → 视口抖（tests/sessionTimeline.test.mjs 揪出的正是这行）。
 							// 不能再固定 +10 把 DOM 一次性解锁，剩余已加载数据交给本地扩窗。
 							// 回底/切会话后到达（跟随或代数过期）只写缓存，不得扩窗——否则
 							// 迟到分页会把刚回底的视口重新拉进历史模式。
@@ -297,19 +369,22 @@ export function useTimelineHistoryPaging(options: TimelineHistoryPagingOptions):
 						setLoadMoreError(error instanceof Error ? error.message : String(error));
 					})
 					.finally(() => {
-						if (getLatestLoad(sessionId) === sequence) setIsLoadingMessagePage(false);
+						endPageLoad();
 						// 插入没落地（早退 / 失败 / 空页 / prepend 被拒）：useLayoutEffect 依赖 visibleMessages.length，
 						// 没插入就不跑，也就没人关整表渲染 —— 它只能等 1.5s 兜底，超时那刻虚拟化接管、
 						// 未挂载行从实测高度回退估算、总高度突变 -> 重排 -> 抖。点几次就种几次跳。
 						if (needsSolid && !insertionCommitted) endPrependSolid();
 					});
-				return;
+				return true;
 			}
 			// runtime 窗口会话：直接按轮次补历史（2026-11 轮次模型，不再有 100 条渲染窗口）。
 			// 首次加载以运行时窗口段首条消息的 entryId 为锚点（两个下标空间唯一的对齐点），
 			// 续页用上一页最旧条目的 entryId（nextBeforeEntryId）——主进程缓存命中路径依赖它。
 			if (earlierHistoryCursor) {
-				if (!sessionId || isLoadingMessagePage) return;
+				if (!sessionId || isLoadingMessagePage) {
+					lastPrependResultRef.current = "unsent";
+					return false;
+				}
 				// 游标由 resolveEarlierHistoryCursor 统一给出（与 historyHasMore 同一判断）：
 				// 续页用上一页最旧条目的 entryId（nextBeforeEntryId），首次用窗口段首条带 entryId
 				// 的消息，大历史窗口退化为 windowStartFilePos。这里不再自己找锚点——两处各写一份
@@ -328,7 +403,7 @@ export function useTimelineHistoryPaging(options: TimelineHistoryPagingOptions):
 				const needsSolid = source === "scroll";
 				if (needsSolid) beginPrependSolid();
 				let insertionCommitted = false;
-				setIsLoadingMessagePage(true);
+				beginPageLoad();
 				// 重试时先清掉上一次的错误行
 				setLoadMoreError(null);
 				void readRecordMessagePage(sessionId, before ?? undefined, pageSize, { beforeEntryId })
@@ -339,7 +414,9 @@ export function useTimelineHistoryPaging(options: TimelineHistoryPagingOptions):
 							setLoadMoreError(t("timeline.dshHostStopped"));
 							return;
 						}
-						if (prependHistoryPage({ sessionId, expectedRevision, before, page })) {
+						const prependResult = prependHistoryPage({ sessionId, expectedRevision, before, page });
+						lastPrependResultRef.current = prependResult;
+						if (prependResult === "committed") {
 							insertionCommitted = true;
 							// runtime history 页与 DOM 使用同一 3 轮 cohort；缓存命中和文件回退
 							// 都只开放实际带回的轮数，避免数据 +3、窗口却 +10。
@@ -375,14 +452,16 @@ export function useTimelineHistoryPaging(options: TimelineHistoryPagingOptions):
 						setLoadMoreError(error instanceof Error ? error.message : String(error));
 					})
 					.finally(() => {
-						if (getLatestLoad(sessionId) === sequence) setIsLoadingMessagePage(false);
+						endPageLoad();
 						// 插入没落地（早退 / 失败 / 空页 / prepend 被拒）：useLayoutEffect 依赖 visibleMessages.length，
 						// 没插入就不跑，也就没人关整表渲染 —— 它只能等 1.5s 兜底，超时那刻虚拟化接管、
 						// 未挂载行从实测高度回退估算、总高度突变 -> 重排 -> 抖。点几次就种几次跳。
 						if (needsSolid && !insertionCommitted) endPrependSolid();
 					});
-				return;
+				return true;
 			}
+			// 两个分支都没进（无 diskPage 也无 earlierHistoryCursor）= 没有可发的请求。
+			return false;
 		},
 		[
 			allocateLoadSequence,
@@ -428,6 +507,8 @@ export function useTimelineHistoryPaging(options: TimelineHistoryPagingOptions):
 				// 清理后丢弃在途历史页响应：迟到页会把已释放的 history 复活并携带旧滚动锚点
 				const sequence = allocateLoadSequence();
 				trackLatestLoad(sessionId, sequence);
+				// 清理时强制归零：在途请求的 finally 仍会 endPageLoad，计数不能为负。
+				pendingPageLoadsRef.current = 0;
 				setIsLoadingMessagePage(false);
 			};
 			historyClearTimerRef.current = window.setTimeout(() => {
@@ -465,6 +546,36 @@ export function useTimelineHistoryPaging(options: TimelineHistoryPagingOptions):
 		loadMoreError,
 		setLoadMoreError,
 		loadMoreMessages,
+		/**
+		 * 一次性把目标所在页拉进来（跳转专用）。
+		 *
+		 * 与 loadMoreMessages 的区别：那个是「往前翻一页」，目标是 600 轮里的第 1 轮时要翻 3~4 次；
+		 * 这个按 entryId 定位后只读一次，页内右端就是目标 —— 用户要的「一次性跳过去」。
+		 *
+		 * 返回 true = 页已合并进缓存；false = 目标不在活动分支上（被 context_edit 移出/已删除），
+		 * 这时不该再补页，而应直接告诉用户「这里没有它」。
+		 */
+		loadPageAroundEntry: useCallback(
+			async (entryId: string, isCurrent: () => boolean = () => true): Promise<{ outcome: "exact" | "positioned" | "missing"; anchorEntryId?: string }> => {
+				if (!sessionId || !controllerEnabled) return { outcome: "missing" };
+				const requestedVersion = cachedEntry?.source === "runtime" ? cachedEntry.history?.version : cachedEntry?.page?.indexVersion;
+				const page = await readPageAroundEntry(sessionId, entryId, resolveHistoryPageSize("jump")).catch(() => null);
+				if (!isCurrent() || ownerKeyRef.current !== ownerKey || !page || page.messages.length === 0) return { outcome: "missing" };
+				// 在atom事务内取最新缓存；不再把闭包里的visibleMessages作为权威快照force覆盖runtime。
+				const cacheWrite = commitJumpPage({ sessionId, page, requestedVersion });
+				logFromRenderer("info", "jump", "merge", { entryId, pageMessages: page.messages.length, cacheWrite });
+				if (!cacheWrite) return { outcome: "missing" };
+				const hit = page.messages.some((message) => jumpEntryKey(message) === jumpEntryKey({ id: entryId }));
+				const outcome = hit ? "exact" : "positioned";
+				lastJumpOutcomeRef.current = outcome;
+				return { outcome, anchorEntryId: pickJumpAnchorEntryId(page.messages, entryId) };
+			},
+			[cachedEntry, commitJumpPage, controllerEnabled, ownerKey, ownerKeyRef, readPageAroundEntry, sessionId],
+		),
+		/** 上一次补页提交的具名结果：跳转链据此把「被哪种前置拒了」写进提示。 */
+		readLastPrependResult: () => lastPrependResultRef.current,
+		/** 跳转取页的具名结果："exact" / "positioned" / "missing" / "idle"（本次没走这条路）。 */
+		readLastJumpOutcome: () => lastJumpOutcomeRef.current,
 		reloadFromDisk,
 		startDshHostAndReload,
 	};

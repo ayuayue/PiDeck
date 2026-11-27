@@ -59,7 +59,7 @@ export const TurnStepRow = memo(function TurnStepRow(props: TurnStepRowProps) {
 	}
 	if (item.kind !== "process-entry") return null;
 	const entry = item.entry;
-	if (entry.kind === "thinking-entry") return <ThinkingStep group={entry.group} hidden={!stepsVisible} showThinking={props.showThinking} onOpenExternal={props.onOpenExternal} onOpenFile={props.onOpenFile} />;
+	if (entry.kind === "thinking-entry") return <ThinkingStep group={entry.group} hidden={!stepsVisible} showThinking={props.showThinking} liveId={entry.liveId} onOpenExternal={props.onOpenExternal} onOpenFile={props.onOpenFile} />;
 	// 自动重试过程行：与工具/思考同层，失败红、运行中旋转（见 RetryStep 注释）
 	if (entry.kind === "retry-entry") return <RetryStep group={{ kind: "retry-group", id: entry.id, message: entry.message }} hidden={!stepsVisible} />;
 	// 错误诊断过程行：429 等错误并入工具调用，可点开看具体错误（见 ErrorStep 注释）

@@ -19,8 +19,17 @@ import type { ChatMessage, SessionSearchMatch } from "../../shared/types";
  * 不参与），与 host session.search 的面一致。
  */
 
-/** 会话内查找的命中上限（与 pi 的 DEFAULT_IN_SESSION_LIMIT 一致：单会话、按时间线导航）。 */
-export const SESSION_FIND_MAX_MATCHES = 100;
+/**
+ * 会话内查找的命中上限。
+ *
+ * 为什么从 100 提到 10000：面板显示的是 hitCount（全量命中数），但列表渲染的是 matches。
+ * 上限 100 时，面板写着「共 724 条」而列表只有 100 条 —— 用户要跳到第 200 / 600 条聊天记录，
+ * 在列表里根本滚不到，看起来就是「中间那些跳不过去」（2026-11-25 真机，用户报的正是这个）。
+ *
+ * 10000 条 × 每条 ~200B ≈ 2MB，比一次 rescan 便宜；长会话（实测 12754 条消息、660 命中）
+ * 也完整覆盖。真要更大的会话，瓶颈在渲染层列表，不在这个数组。
+ */
+export const SESSION_FIND_MAX_MATCHES = 10000;
 
 /** 超过该词数就把整个查询当一句（对齐 Go 的 maxQueryTerms）。 */
 const MAX_QUERY_TERMS = 16;

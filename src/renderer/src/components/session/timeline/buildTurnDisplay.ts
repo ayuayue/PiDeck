@@ -35,6 +35,32 @@ function isRetryStatusMessage(message: ChatMessage): boolean {
 	return typeof key === "string" && RETRY_STATUS_I18N_KEYS.has(key);
 }
 
+/**
+ * live 思考段挂到哪条消息上。
+ *
+ * 判据两路，顺序有意义：
+ * ① id 全等（`msg-thinking-<消息 id>` === liveThinkingId）—— 正常情形，取这一条；
+ * ② 本轮还没结束、且本轮有 assistant 消息 —— 归到**最后一条**。
+ *
+ * 为什么需要 ②：主进程 live 段 id 用运行期 uuid，渲染层的消息 id 可能是投影 id
+ * （`<agentId>-history-<entryId>`）。两条通道不同形时，① 永远不命中，于是流式期间
+ * 思考整段不挂载、只剩一行空思考（2026-11-26 真机「会话思考不见了」）。
+ *
+ * 为什么 ② 只在未结束时生效：run.items 只含本轮，但 live 段可能是上一轮残留未释放；
+ * 轮次已结束时硬挂会把别人的正文显示成这一轮的思考。宁可不显示，也不显示错的。
+ */
+export function resolveLiveThinkingMessageId(items: ReadonlyArray<{ kind: string; message?: { id: string; role?: string } }>, liveThinkingId: string, options: { isComplete?: boolean } = {}): string | undefined {
+	const exact = items.find((item) => item.message && `msg-thinking-${item.message.id}` === liveThinkingId);
+	if (exact?.message) return exact.message.id;
+	if (options.isComplete ?? true) return undefined;
+	let last: string | undefined;
+	for (const item of items) {
+		if (item.kind !== "message" || item.message?.role !== "assistant") continue;
+		if (item.message.id) last = item.message.id;
+	}
+	return last;
+}
+
 export function buildTurnDisplay(
 	run: AgentRunItem,
 	options: {
@@ -53,13 +79,19 @@ export function buildTurnDisplay(
 
 	const items: TurnDisplayItem[] = [];
 	// 已有 thinking-group 始终保留；消息自带 thinking 受 showThinking 控制。
-	const pushThinking = (group: ThinkingGroupItem, respectShowThinking: boolean) => {
+	/**
+	 * 挂一条思考步。liveId 只在 live 段命中时给：叶子（ThinkingStep）优先按它查流式正文。
+	 * 两种 id 通道（运行期 uuid / 投影 -history-）不同形时，只有这条通路能让正文显示出来。
+	 */
+	const pushThinking = (group: ThinkingGroupItem, respectShowThinking: boolean, liveId?: string) => {
 		if (respectShowThinking && !showThinking) return;
 		items.push({
 			kind: "process-entry",
-			entry: { kind: "thinking-entry", id: group.id, group },
+			entry: liveId ? { kind: "thinking-entry", id: group.id, group, liveId } : { kind: "thinking-entry", id: group.id, group },
 		});
 	};
+	// live 段挂到哪条消息：id 全等优先，否则本轮最后一条 assistant。
+	const liveTargetMessageId = liveThinkingId ? resolveLiveThinkingMessageId(run.items, liveThinkingId, { isComplete }) : undefined;
 
 	// 防御旧缓存中的成功 retry-group：隐藏后不能占用 run 的收尾位置。
 	const visibleItems = run.items.filter((item) => item.kind !== "retry-group" || item.message.meta?.i18nKey !== "diagnostic.retrySucceeded");
@@ -95,10 +127,13 @@ export function buildTurnDisplay(
 			return;
 		}
 		if (item.kind !== "message" || item.message.role !== "assistant") return;
-		// 消息自带的思考 / live 同 id：插到该回答之前（思考→回答时序）。
+		// 消息自带的思考 / live 段：插到该回答之前（思考→回答时序）。
 		// Live 时 text 可空，叶子 ThinkingStep 从 streamingThinkingByIdAtom 填。
 		const thinkingId = `msg-thinking-${item.message.id}`;
-		const isLive = Boolean(liveThinkingId && liveThinkingId === thinkingId);
+		// live 段归属：id 全等命中就是它；不同形时（运行期 uuid vs 投影 id 两条通道）
+		// 归到本轮**最后一条** assistant —— run.items 只含本轮，所以这个兜底不会串轮。
+		// 旧实现只认全等，于是流式期间思考整段不挂载、只剩一行空思考（2026-11-26 真机）。
+		const isLive = Boolean(liveThinkingId && liveTargetMessageId === item.message.id);
 		const thinking = showThinking && item.message.thinking?.trim() ? stripAnsi(item.message.thinking) : "";
 		if (thinking || (showThinking && isLive)) {
 			pushThinking(
@@ -112,6 +147,8 @@ export function buildTurnDisplay(
 					endedAt: isLive ? 0 : (item.message.thinkingEndedAt ?? item.message.timestamp ?? run.endedAt),
 				},
 				true,
+				// liveId 交给叶子：它按这个 id 查流式正文，不靠 thinkingId 拼。
+				isLive ? liveThinkingId : undefined,
 			);
 		}
 		// 空文本消息：始终保留 interim 挂载点（Live 正文走独立通道，骨架可为空）。

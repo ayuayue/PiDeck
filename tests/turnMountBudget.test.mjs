@@ -1,35 +1,14 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import ts from "typescript";
-import vm from "node:vm";
+import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
 
 // boundMountedSteps：单轮步骤的挂载预算（2026-08 #213）。
 // 回归背景：turnRenderWindow 只按轮数裁剪，极端会话里「一轮」可以含上百个
 // 工具/思考条目，一次全挂进 DOM 就是上千个 ToolStep 子树 → 渲染进程 OOM。
 // 契约：默认只挂尾部预算条，更早的靠「显示更早 N 条步骤」显式展开（内容不丢）。
 
-function compile(filePath) {
-	const output = ts.transpileModule(readFileSync(filePath, "utf8"), {
-		compilerOptions: {
-			module: ts.ModuleKind.CommonJS,
-			target: ts.ScriptTarget.ES2022,
-			esModuleInterop: true,
-		},
-		fileName: filePath,
-	}).outputText;
-	const module = { exports: {} };
-	vm.runInNewContext(
-		output,
-		{
-			module,
-			exports: module.exports,
-			require: () => ({}),
-		},
-		{ filename: filePath },
-	);
-	return module.exports;
-}
+const compile = (filePath) => createTsSandbox()(filePath);
 
 const { boundMountedSteps, TIMELINE_MOUNTED_STEP_LIMIT } = compile("src/renderer/src/components/session/timeline/turnMountBudget.ts");
 

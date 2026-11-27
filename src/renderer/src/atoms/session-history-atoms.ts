@@ -17,6 +17,7 @@ import type { SessionMessageCacheEntry } from "./session-atoms-types";
 import { allocateSessionMessageOutlineRevision } from "./session-message-cache-atoms";
 import { sessionMessagesCacheAtom } from "./session-state-atoms";
 
+import { resolveHistoryPageCursorDecision } from "./historyPageCursor";
 /**
  * disk 来源历史消息数组的驻留上限（2026 内存排查：浏览历史时 atom 数组无界增长）。
  * 预算口径是**消息条数**，不是轮数：一轮（提问 + 回答 + 工具调用）在本机长会话实测约 33 条
@@ -46,6 +47,35 @@ function firstHistoryEntryId(messages: ChatMessage[]): string | undefined {
 	return undefined;
 }
 
+/**
+ * 补页提交的结果。**不再用 boolean**：false 把「会话是 runtime 源」「revision 过期」
+ * 「游标已前进」「远端代际不符」四种完全不同的情况压成一个值，跳转链因此只能看到
+ * 「没进去」，无法区分「该重试」与「该放弃」——40 次空转烧断保险丝（H3，2026-11 真机）。
+ */
+export type PrependResult =
+	| "committed"
+	/** 不是 disk/remote 源（runtime 会话走 prependHistoryPage） */
+	| "rejected-source"
+	/** 请求期间 revision 被抬高（常见于流式输出）：可重试 */
+	| "rejected-revision"
+	/** 游标已前进（别处已补过这一页）：可重试一次 */
+	| "rejected-cursor"
+	/** 远端文件代际不符：不可重试 */
+	| "rejected-generation";
+
+/**
+ * 被拒之后**还值不值得重试** —— 这个判断必须由类型自己回答，不能靠调用方猜。
+ *
+ * 2026-11 真机：跳转链把四种拒绝一视同仁地重试，于是 revision 抬高（可自愈）和
+ * 远端代际不符（永不自愈）走同一条路，前者的重试淹没了后者。分成两类之后，
+ * 不可重试的那两种第一次被拒就报出来，不再空耗 stalledAttempts。
+ */
+export function isRetryablePrepend(result: PrependResult): boolean {
+	// revision 抬高与游标前进都是暂时状态：下次读到的 diskPage/cachedEntry 已经更新，重读即可。
+	// source 走错了 atom、generation 变了，重试一万次也是同一个结果。
+	return result === "rejected-revision" || result === "rejected-cursor";
+}
+
 export const prependSessionMessagePageAtom = atom(
 	null,
 	(
@@ -59,14 +89,14 @@ export const prependSessionMessagePageAtom = atom(
 		},
 	) => {
 		const current = get(sessionMessagesCacheAtom)[input.sessionId];
-		if (!current || (current.source !== "disk" && current.source !== "remote") || current.revision !== input.expectedRevision || current.page?.nextBefore !== input.before) {
-			return false;
-		}
+		if (!current || (current.source !== "disk" && current.source !== "remote")) return "rejected-source";
+		if (current.revision !== input.expectedRevision) return "rejected-revision";
+		if (current.page?.nextBefore !== input.before) return "rejected-cursor";
 		const remotePage = current.source === "remote";
 		// 远端非空页必须带版本；无版本的消息无法证明与已缓存内容同代。
-		if (remotePage && input.page.messages.length > 0 && !input.page.indexVersion) return false;
+		if (remotePage && input.page.messages.length > 0 && !input.page.indexVersion) return "rejected-generation";
 		// 远端页按 inode、mtime 与体积识别代际：原子替换、同体积原位重写或截断都拒绝；普通追加允许继续。
-		if (remotePage && current.page?.indexVersion && input.page.indexVersion && !isSameSessionFileGeneration(current.page.indexVersion, input.page.indexVersion)) return false;
+		if (remotePage && current.page?.indexVersion && input.page.indexVersion && !isSameSessionFileGeneration(current.page.indexVersion, input.page.indexVersion)) return "rejected-generation";
 		// 重叠防御：游标回退/并发翻页返回的页与已驻留段重复时按 entryId 滤掉页尾重叠部分
 		// （正常路径无重叠，过滤是幂等保险）。
 		const existingKeys = new Set(current.messages.map(messageEntryKey));
@@ -116,7 +146,7 @@ export const prependSessionMessagePageAtom = atom(
 				outlineLastUserIndex: findLastUserMessageIndex(messages),
 			},
 		});
-		return true;
+		return "committed";
 	},
 );
 /** 历史前缀/窗口段的去重键：优先 pi entryId（跨下标空间稳定），缺省回退消息 id。 */
@@ -310,14 +340,26 @@ export const prependSessionHistoryPageAtom = atom(
 		},
 	) => {
 		const current = get(sessionMessagesCacheAtom)[input.sessionId];
-		if (!current || current.source !== "runtime" || current.revision !== input.expectedRevision) {
-			return false;
-		}
-		if (current.history && current.history.nextBefore !== input.before) return false;
+		if (!current || current.source !== "runtime") return "rejected-source";
+		if (current.revision !== input.expectedRevision) return "rejected-revision";
+		if (current.history && current.history.nextBefore !== input.before) return "rejected-cursor";
 		// 首屏历史页的游标：pi 是「文件头/entryId 锚点」（before 缺省），ACP 没有会话文件，
 		// 首屏游标就是投递窗口起点（数组下标）。两种都接受，其余数值一律拒绝，
 		// 否则一次错游标会把「窗口前那段」以外的消息拼进来。
-		if (!current.history && input.before !== undefined && input.before !== current.windowStart) return false;
+		// 首屏与续页的游标准入抽成纯函数（atoms/historyPageCursor）：判定写在 atom 里时
+		// 只有整条 IPC 组装起来才跑得到，而它错一次的症状是「加载更早历史永远失败」。
+		// 首屏接受 windowStart 与 page.nextBefore 两种游标——runtime 给的是后者，
+		// 只认 windowStart 会让首次点击就 rejected-cursor（2026-11-25 真机）。
+		if (
+			resolveHistoryPageCursorDecision({
+				hasHistory: Boolean(current.history),
+				historyNextBefore: current.history?.nextBefore,
+				windowStart: current.windowStart,
+				pageNextBefore: current.page?.nextBefore,
+				before: input.before,
+			}) === "rejected-cursor"
+		)
+			return "rejected-cursor";
 
 		const segmentKeys = new Set(current.messages.map(messageEntryKey));
 		const pageMessages = input.page.messages.filter((message) => !segmentKeys.has(messageEntryKey(message)));
@@ -364,7 +406,7 @@ export const prependSessionHistoryPageAtom = atom(
 				outlineLastUserIndex: current.outlineLastUserIndex ?? findLastUserMessageIndex(current.messages),
 			},
 		});
-		return true;
+		return "committed";
 	},
 );
 /**

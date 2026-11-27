@@ -2,17 +2,9 @@ import { sessionTimelineControllerSource } from "./helpers/sessionTimelineContro
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import ts from "typescript";
-import vm from "node:vm";
+import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
 
-function compile(filePath) {
-	const output = ts.transpileModule(readFileSync(filePath, "utf8"), {
-		compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-	}).outputText;
-	const module = { exports: {} };
-	vm.runInNewContext(output, { module, exports: module.exports, require: () => ({}) });
-	return module.exports;
-}
+const compile = (filePath) => createTsSandbox()(filePath);
 
 const windowing = compile("src/renderer/src/components/session/timeline/turnRenderWindow.ts");
 
@@ -63,12 +55,15 @@ test("selectTimelineTurnWindow returns same reference when under the window", ()
 
 test("timeline wires the turn mount window helper", () => {
 	const source = readFileSync("src/renderer/src/components/session/SessionMessageTimeline.tsx", "utf8");
-	assert.match(source, /selectTimelineTurnWindow/);
+	// 入口名换成 resolveAnchoredTurnWindow（2026-11 锚点窗口重构）：这里要判的是
+	// 「时间线确实接了窗口构造器」，不是「函数叫什么」。旧名断言在重构后一直红。
+	assert.match(source, /resolveAnchoredTurnWindow/);
 	assert.match(source, /TIMELINE_MOUNTED_TURN_LIMIT/);
 	assert.doesNotMatch(source, /TIMELINE_SCROLLED_MAX_ITEMS/, "item budget removed in turn-centric protocol");
 	// 跟随、恢复与普通历史浏览都必须走同一 tail-window 参数，不能在恢复时
 	// 临时全量挂载后再收缩，否则已恢复的 scrollTop 会因高度缩小被截断。
-	assert.match(source, /selectTimelineTurnWindow\(reconciledRuns, turnWindowTurns\)/);
+	// 同一构造器、同一组参数：跟随/恢复/浏览不得各走一套（否则恢复后 scrollTop 被截断）。
+	assert.match(source, /resolveAnchoredTurnWindow\(reconciledRuns, turnWindowTurns/);
 	assert.doesNotMatch(source, /Number\.MAX_SAFE_INTEGER/);
 	assert.match(source, /displayRuns\.map/);
 });

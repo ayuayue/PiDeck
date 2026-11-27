@@ -1,25 +1,21 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import test from "node:test";
-import ts from "typescript";
-import vm from "node:vm";
+import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
 
-const nodeRequire = createRequire(import.meta.url);
+const nodeRequire = (await import("node:module")).createRequire(import.meta.url);
 
+/**
+ * 加载生产模块：依赖解析交给共享沙箱（按**被加载文件所在目录**），调用方只给要替身的 specifier。
+ *
+ * 这里原本是手写 `ts.transpileModule + vm.runInNewContext`，未识别的 import 落到
+ * `nodeRequire(id)` —— 它的基准是 tests/，于是生产代码新增一个本地依赖（本次是
+ * `shared/sessionJumpAnchor`）就整片 MODULE_NOT_FOUND，报错还指向测试文件。
+ * 沙箱同时给每个加载器实例一份模块缓存，注入的替身在实例内共享。
+ */
+const sandbox = createTsSandbox();
 function compile(filePath, imports = {}, globals = {}) {
-	const output = ts.transpileModule(readFileSync(filePath, "utf8"), {
-		compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-	}).outputText;
-	const module = { exports: {} };
-	vm.runInNewContext(output, {
-		module,
-		exports: module.exports,
-		require: (id) => imports[id] ?? nodeRequire(id),
-		Date,
-		...globals,
-	});
-	return module.exports;
+	return createTsSandbox({ stubs: imports, globals })(filePath);
 }
 
 const browsePin = compile("src/renderer/src/hooks/timeline/browsePin.ts");
@@ -38,6 +34,9 @@ const timeline = compile("src/renderer/src/hooks/useSessionTimelineController.ts
 	jotai: { atom: (value) => ({ _mockInit: value }) },
 	"jotai/utils": {},
 	"../atoms": {},
+	// 渲染层日志：真模块只依赖 window.piDesktop 且自己 try/catch（非 Electron 下静默丢弃），
+	// 编译真模块即可 —— stub 成空实现会让「日志有没有打」这类断言永远绿在假实现上。
+	"../utils/rendererLog": compile("src/renderer/src/utils/rendererLog.ts"),
 	// 轨道揭示（2026-10 新增）：控制器只存/取标量 atom，stub 成稳定占位即可。
 	"../atoms/timeline-reveal-atoms": { clearTimelineRevealAtom: {}, requestTimelineRevealAtom: {} },
 	"../lib/pinTurnScroll": { animateScrollTop: () => () => undefined, pinScrollDurationMs: () => 320 },
@@ -70,9 +69,31 @@ const timeline = compile("src/renderer/src/hooks/useSessionTimelineController.ts
 	},
 	// useSessionTimelineController 引入 jumpWindowPolicy（策略函数），loader 缺此 stub 时
 	// 回落到 nodeRequire 解析 .ts 失败。其自身依赖 ./turnRenderWindow，用同名 mock 即可。
-	"../components/session/timeline/jumpWindowPolicy": compile("src/renderer/src/components/session/timeline/jumpWindowPolicy.ts", { "./turnRenderWindow": { TIMELINE_WINDOW_EXPAND_STEP: 3 } }),
+	// jumpWindowPolicy 自身还依赖 ./windowExpandPlan（分批扩窗常量）。缺这条时 loader 回落到
+	// 以 tests/ 为基准的 nodeRequire，解析 .ts 必失败 —— 整个文件在加载阶段就红（2026-11-25 实测）。
+	"../components/session/timeline/jumpWindowPolicy": compile("src/renderer/src/components/session/timeline/jumpWindowPolicy.ts", {
+		"./turnRenderWindow": { TIMELINE_WINDOW_EXPAND_STEP: 3 },
+		"./windowExpandPlan": compile("src/renderer/src/components/session/timeline/windowExpandPlan.ts"),
+	}),
+	// 前缀/窗口拼接（2026-11-25 新增）：纯函数，编译真模块（本测试要看真实拼接结果）。
+	"../components/session/timeline/mergeHistoryWindow": compile("src/renderer/src/components/session/timeline/mergeHistoryWindow.ts"),
+	// 跳转链状态机（2026-11-25 从控制器提出）：本文件只驱动输入框与焦点，不驱动跳转，
+	// 给最小 stub；真判定由 tests/jumpRouteHonesty 与 jumpTargetWait 覆盖。
+	"./session/timeline/useTimelineJumpChain": { useTimelineJumpChain: () => ({ jumpWindowRuns: 6, growJumpWindowRuns: () => {} }) },
+	// 等待目标挂上 DOM 的循环（2026-11-25 从控制器提出）：本测试只驱动输入框与焦点，
+	// 不驱动跳转等待，给最小 stub。真行为由 tests/jumpTargetWait.test.mjs 覆盖。
+	"./session/timeline/useJumpRowWait": { useJumpRowWait: () => ({ waitForRow: () => {}, cancel: () => {} }) },
+	// 跳转状态机（2026-11 单一状态机）：只 import type 自 jumpWindowPolicy，转译后无 require，
+	// 直接编译真模块 —— 这里要的正是它真实的判定（stub 掉等于让控制器测试跑在假状态机上）。
+	"../components/session/timeline/jumpMachine": compile("src/renderer/src/components/session/timeline/jumpMachine.ts"),
+	// 取页后盯 DOM 的纯判据（2026-11-25 新增）：无内部依赖，编译真模块。
+	"../components/session/timeline/jumpTargetWait": compile("src/renderer/src/components/session/timeline/jumpTargetWait.ts"),
 	// 会话内查找落位归一（1055e794b 引入）：纯函数 + DOM 兜底，无内部 import。
-	"../components/session/timeline/jumpTarget": compile("src/renderer/src/components/session/timeline/jumpTarget.ts"),
+	// 会话内查找落位归一（1055e794b 引入）：纯函数 + DOM 兜底。它依赖 shared/sessionJumpAnchor
+	// （注入标记判定），少了这一条同样会回落到 tests/ 基准的 require 而红。
+	"../components/session/timeline/jumpTarget": compile("src/renderer/src/components/session/timeline/jumpTarget.ts", {
+		"../../../../../shared/sessionJumpAnchor": compile("src/shared/sessionJumpAnchor.ts"),
+	}),
 	// 子代理首屏分页读取（dev 引入）：控制器只调用 readSessionFirstScreenPage，stub 成空实现。
 	"../components/session/sessionSubagentTranscript": { readSessionFirstScreenPage: () => undefined },
 	"./timeline/browsePin": browsePin,

@@ -1386,6 +1386,7 @@ function ConversationOutlineView(props: ConversationOutlineProps) {
 	const railLimit = useMemo(() => {
 		const capacity = railCapacity(availableHeight);
 		const hasHead = props.items.length > RAIL_RECENT_TICK_ITEMS;
+		// 顶端占位项（更早 N 条）要从容量里扣掉一格。
 		return Math.max(1, capacity - (hasHead ? 1 : 0));
 	}, [availableHeight, props.items.length]);
 	// 刻度条只覆盖最近 N 条用户提问，更早的交给展开态面板。
@@ -1405,17 +1406,7 @@ function ConversationOutlineView(props: ConversationOutlineProps) {
 	// 顶端占位项标出「上面还有更早的」；点击它打开面板，不走消息跳转。
 	const railItems = useMemo<PreviewRailItem[]>(
 		() => [
-			...(windowStart > 0
-				? [
-						{
-							id: OUTLINE_WINDOW_HEAD_ID,
-							label: t("outline.earlier", { count: windowStart }),
-							ariaLabel: t("outline.earlierAria", { count: windowStart }),
-							description: "",
-							muted: true,
-						},
-					]
-				: []),
+			...(windowStart > 0 ? [{ id: OUTLINE_WINDOW_HEAD_ID, label: t("outline.earlier", { count: windowStart }), ariaLabel: t("outline.earlierAria", { count: windowStart }), description: "", muted: true }] : []),
 			...plan.items.map((item) => {
 				return {
 					id: item.id,
@@ -1471,7 +1462,6 @@ function ConversationOutlineView(props: ConversationOutlineProps) {
 							highlightActive={visibleRailActiveId !== undefined}
 							onItemSelect={(item) => {
 								// 顶端占位项不是消息：交给 pendingRailJump 会走 jumpToMessage 查不到节点、
-								// 弹「跳转失败」。它代表「更早的那 N 条」，点了就打开面板。
 								if (item.id === OUTLINE_WINDOW_HEAD_ID) {
 									setExpanded(true);
 									return;

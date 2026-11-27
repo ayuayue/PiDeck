@@ -147,3 +147,13 @@ export function boundTurnWindowStart(entries: ReadonlyArray<{ role?: string; byt
 	}
 	return bounded;
 }
+
+/** 跳转的右边界必须落在完整回合之后。24条工具不是24轮，按条补齐会把最终回答截掉。 */
+export function resolveJumpPageBefore(entries: ReadonlyArray<{ role?: string; byteLength: number }>, targetIndex: number, followingTurns = 2): number {
+	const starts = collectTurnStartIndices(entries, entries.length);
+	const position = Math.min(Math.max(0, targetIndex), Math.max(0, entries.length - 1));
+	let turn = -1;
+	for (let index = 0; index < starts.length && starts[index] <= position; index += 1) turn = index;
+	const following = Number.isFinite(followingTurns) ? Math.max(0, Math.floor(followingTurns)) : 2;
+	return starts[Math.max(0, turn) + following + 1] ?? entries.length;
+}

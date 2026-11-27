@@ -3,7 +3,7 @@ import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 import { readFileSync } from "node:fs";
 
-const { VIRTUAL_MIN_TURNS, VIRTUAL_SOLID_TAIL_TURNS, VIRTUAL_ESTIMATED_RUN_HEIGHT, shouldVirtualizeTurnList, resolveRunHeight, splitVirtualRunsByTail, isRenderableRunItem } = loadTsCommonJs("src/renderer/src/components/session/timeline/virtualTimelinePolicy.ts");
+const { VIRTUAL_MIN_TURNS, VIRTUAL_SOLID_TAIL_TURNS, VIRTUAL_ESTIMATED_RUN_HEIGHT, shouldVirtualizeTurnList, resolveRunHeight, splitVirtualRunsByTail, isRenderableRunItem, maxScrollTop } = loadTsCommonJs("src/renderer/src/components/session/timeline/virtualTimelinePolicy.ts");
 
 test("常量是有限正数", () => {
 	for (const v of [VIRTUAL_MIN_TURNS, VIRTUAL_SOLID_TAIL_TURNS, VIRTUAL_ESTIMATED_RUN_HEIGHT]) {
@@ -12,9 +12,22 @@ test("常量是有限正数", () => {
 });
 
 test("短会话不虚拟化", () => {
-	assert.equal(shouldVirtualizeTurnList(VIRTUAL_MIN_TURNS), false);
-	assert.equal(shouldVirtualizeTurnList(VIRTUAL_MIN_TURNS + 1), true);
-	assert.equal(shouldVirtualizeTurnList(Number.NaN), false);
+	// 阈值写字面数，不写 VIRTUAL_MIN_TURNS——后者会让常量本身没有判据：
+	// 8 改成 1 时两边一起变，测试照样绿（2026-11-22 变异实测）。
+	assert.equal(VIRTUAL_MIN_TURNS, 8, "8 轮以下不虚拟化；改成 1 时每个短会话都进虚拟列表");
+	assert.equal(shouldVirtualizeTurnList(8), false, "等于阈值不虚拟化（严格大于）");
+	assert.equal(shouldVirtualizeTurnList(9), true);
+	assert.equal(shouldVirtualizeTurnList(Number.NaN), false, "NaN 不是「很多轮」，必须判否");
+	assert.equal(shouldVirtualizeTurnList(Number.POSITIVE_INFINITY), false, "Infinity 也不是有限轮数，判否（Number.isFinite 守卫）");
+});
+
+test("scrollTop 上限：内容短于视口时截成 0，不能是负数", () => {
+	// maxScrollTop 曾经是 VirtualRunList.tsx 的内部函数，没有任何测试——
+	// 把 Math.max 改成 Math.min，全套测试仍然绿（2026-11-22 变异实测）。
+	// 上限为负会让所有滚动补偿反向。现已挪到 virtualTimelinePolicy.ts 成为可测的纯函数。
+	assert.equal(maxScrollTop({ scrollHeight: 1000, clientHeight: 400 }), 600);
+	assert.equal(maxScrollTop({ scrollHeight: 400, clientHeight: 400 }), 0, "刚好装满时上限是 0，不是负的");
+	assert.equal(maxScrollTop({ scrollHeight: 100, clientHeight: 400 }), 0, "内容比视口短时也截成 0");
 });
 
 test("高度：实测优先，未测量回落估值，非法值不采信", () => {

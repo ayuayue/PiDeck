@@ -22,9 +22,11 @@ function loadTimelineHelpers() {
 	return createTsSandbox({
 		stubs: {
 			react: {},
-			jotai: { atom: (value) => ({ _mockInit: value }) },
-			"jotai/utils": {},
+			jotai: { atom: (value) => ({ _mockInit: value }), useSetAtom: () => () => undefined },
+			"jotai/utils": { atomFamily: (factory) => factory, selectAtom: (key) => key },
 			"../atoms": {},
+			// 跳转页事务（控制器直接引入）：桩掉即不加载它的 jotai 依赖链。
+			"../atoms/session-jump-page-atoms": { mergeSessionJumpPageAtom: { _mockInit: null } },
 			"../lib/pinTurnScroll": { animateScrollTop: () => () => undefined, pinScrollDurationMs: () => 320 },
 			"../desktopApi": {},
 			// i18n 只用到 t()：测试不校验文案，桩成直返 key（避免加载真实词典）。

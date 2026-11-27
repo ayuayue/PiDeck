@@ -234,7 +234,7 @@ export const ProcessGroupStep = memo(function ProcessGroupStep(props: ProcessGro
 	const renderMember = (entry: TurnProcessEntry): ReactNode => {
 		// 组员有思考/工具/扩展输出三类（重试/错误是组边界，由分组层挡在外面）；其余分支兜底跳过。
 		if (entry.kind === "thinking-entry") {
-			return <ThinkingStep group={entry.group} hidden={false} showThinking={props.showThinking} onOpenExternal={props.onOpenExternal} onOpenFile={props.onOpenFile} />;
+			return <ThinkingStep group={entry.group} hidden={false} showThinking={props.showThinking} liveId={entry.liveId} onOpenExternal={props.onOpenExternal} onOpenFile={props.onOpenFile} />;
 		}
 		if (entry.kind === "tool-entry") {
 			return <ToolStep group={entry.group} hidden={false} stopped={!props.running} sessionId={props.sessionId} onOpenFile={props.onOpenFile} />;

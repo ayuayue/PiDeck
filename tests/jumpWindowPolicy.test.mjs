@@ -2,36 +2,14 @@ import { sessionTimelineControllerSource } from "./helpers/sessionTimelineContro
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import ts from "typescript";
-import vm from "node:vm";
+import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
 
 const controllerPath = "src/renderer/src/hooks/useSessionTimelineController.ts";
 
-function compile(filePath) {
-	const output = ts.transpileModule(readFileSync(filePath, "utf8"), {
-		compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-	}).outputText;
-	const module = { exports: {} };
-	vm.runInNewContext(output, { module, exports: module.exports, require: () => ({}) });
-	return module.exports;
-}
+const compile = (filePath) => createTsSandbox()(filePath);
 
-// jumpWindowPolicy 依赖 turnRenderWindow 的步长常量，require 需要能解析到同域模块
-const turnRenderWindow = compile("src/renderer/src/components/session/timeline/turnRenderWindow.ts");
+// 两条模块都走统一沙箱：相对 import 由它按源文件目录解析（原手写 vm 的 require 一律给 {}）。
 const policy = compile("src/renderer/src/components/session/timeline/jumpWindowPolicy.ts");
-const sandboxRequire = (spec) => (spec.includes("turnRenderWindow") ? turnRenderWindow : {});
-
-// 重新在带 require 解析的沙箱里执行 policy
-{
-	const output = ts.transpileModule(readFileSync("src/renderer/src/components/session/timeline/jumpWindowPolicy.ts", "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
-	const module = { exports: {} };
-	vm.runInNewContext(output, { module, exports: module.exports, require: sandboxRequire });
-	policy.resolveJumpPendingAction = module.exports.resolveJumpPendingAction;
-	policy.JUMP_MAX_LOAD_ATTEMPTS = module.exports.JUMP_MAX_LOAD_ATTEMPTS;
-	policy.JUMP_EXPAND_MAX_MULTIPLIER = module.exports.JUMP_EXPAND_MAX_MULTIPLIER;
-	policy.JUMP_MAX_EXPAND_ATTEMPTS = module.exports.JUMP_MAX_EXPAND_ATTEMPTS;
-	policy.estimateJumpExpandTurns = module.exports.estimateJumpExpandTurns;
-}
 
 const STEP = 3; // turnRenderWindow.TIMELINE_WINDOW_EXPAND_STEP
 
@@ -190,19 +168,23 @@ test("estimateJumpExpandTurns：目标不在数据中时返回基础步长（走
 	assert.equal(policy.estimateJumpExpandTurns([], 0), STEP);
 });
 
-test("补页失败不得吃掉跳转预算：失败短路必须排在 resolveJumpPendingAction 之前", () => {
+test("补页失败不得吃掉跳转预算：失败短路必须排在状态机之前", () => {
 	// loadAttempts 是「补页防呆」的保险丝（JUMP_MAX_LOAD_ATTEMPTS = 40）。
-	// 旧实现先 resolve 再 +
-	// 1，失败也照算 —— 用户连点几次就把保险丝烧断，之后彻底跳不动。
-	// 真值判据：失败短路（loadMoreError）必须先于 action 的计算出现。
+	// 旧实现先 resolve 再 +1，失败也照算 —— 用户连点几次就把保险丝烧断，之后彻底跳不动。
+	// 2026-11 重构后判据换成 nextJumpTick（单一状态机），同一条顺序要求照旧。
 	const source = sessionTimelineControllerSource;
 	const start = source.indexOf("const stillInData = targetIndex >= 0;");
 	assert.ok(start > 0, "找不到 pendingJump effect 主体");
-	const body = source.slice(start, start + 3000);
+	const body = source.slice(start, start + 6000);
 	const failGuardAt = body.indexOf("if (!stillInData && loadMoreError) return;");
-	const actionAt = body.indexOf("const action = resolveJumpPendingAction(");
+	const actionAt = body.indexOf("const action = toPendingAction(");
 	assert.ok(failGuardAt > 0, "找不到补页失败短路");
-	assert.ok(actionAt > 0, "找不到 resolveJumpPendingAction 调用");
-	assert.ok(failGuardAt < actionAt, "失败短路必须在 resolveJumpPendingAction 之前");
-	assert.match(body, /loadAttempts: action\.kind === "load-page"/, "推进点仍存在（只是失败时到不了这里）");
+	assert.ok(actionAt > 0, "找不到 nextJumpTick 调用");
+	assert.ok(failGuardAt < actionAt, "失败短路必须在状态机之前");
+	// 判断窗口跟着 actionAt 走，不跟「effect 开头 + 固定长度」走：effect 主体会随注释变长，
+	// 用固定窗口会在没改行为的情况下假红（2026-11-25 实际发生过）。
+	// 从 source 取而不是从 body 取：body 只有 6000 字符，actionAt 已经接近它的尾部，
+	// 在 body 上再开窗口只会拿到几百字符（2026-11-25 就是这么假红的）。
+	const afterAction = source.slice(start + actionAt, start + actionAt + 8000);
+	assert.match(afterAction, /loadAttempts: action\.kind === "load-page"/, "推进点仍存在（只是失败时到不了这里）");
 });

@@ -152,7 +152,11 @@ function loadAgentManager(existsPredicate = () => false) {
 											: // 拆分后的协作者（纯解析/分页算术）：真实加载，宿主只做转发
 												id.startsWith("./sessionReader/")
 												? loadTsCommonJs(`src/main/pi/sessionReader/${id.slice("./sessionReader/".length)}.ts`)
-												: require(id),
+												: // 其余相对 import 按**源文件目录**解析：手写 require 桥以 tests/ 为基准，
+													// 生产代码一旦新增本地依赖就整片 MODULE_NOT_FOUND（2026-11-25 连踩两次）。
+													id.startsWith(".")
+													? loadTsCommonJs(path.resolve("src/main/pi", id) + ".ts")
+													: require(id),
 		},
 		{ filename: "SessionHistoryReader.ts" },
 	);

@@ -46,7 +46,7 @@ import { resolveFreshTailIds } from "../../lib/pinTurnScroll";
 import { chatContentWidthStyle } from "./chatContentWidth";
 import { useSessionVisionBridgeExpected } from "../../hooks/useSessionVisionBridgeExpected";
 import { useAcpHistoryRestorePending } from "../../hooks/useAcpRestoreHint";
-import { countAgentRunItems, selectTimelineTurnWindow, shouldWindowTimelineTurns, TIMELINE_MOUNTED_TURN_LIMIT } from "./timeline/turnRenderWindow";
+import { countAgentRunItems, findAgentRunIndexByItemId, resolveAnchoredTurnWindow, shouldWindowTimelineTurns, TIMELINE_MOUNTED_TURN_LIMIT } from "./timeline/turnRenderWindow";
 import { VirtualRunList } from "./timeline/VirtualRunList";
 import { isRenderableRunItem } from "./timeline/virtualTimelinePolicy";
 import { REVEAL_TIMELINE_ENTRY_EVENT, REVEAL_TIMELINE_ENTRY_TIMEOUT_MS } from "../../hooks/timeline/timelineRevealChannel";
@@ -474,20 +474,18 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 			frozenAt: last.askPending ? last.askPendingAt : undefined,
 		};
 	}, [isTurnRunning, reconciledRuns]);
-	// 渲染窗口（2026-08 黑屏治理）：贴底只挂尾部 3 轮；上滚查看历史也裁剪
-	// （controller.scrolledWindowTurns，初始 3 轮，接近顶部按 3 轮 cohort 自动扩大）——
-	// 历史全量放开挂载是大会话渲染进程内存峰值/黑屏的来源。数据仍在 atoms。
-	//
-	// 关键不变量：锚点保存和恢复必须使用同一轮次窗口。恢复期若临时全量物化、
-	// restoreAt 后又收回尾部窗口，文档高度收缩会把已恢复的 scrollTop 截断，造成
-	// 切回位置漂移。锚点不在已保存窗口时，controller 会逐步扩窗后重试；跳转也走
-	// 同一扩窗策略，而不是绕过窗口约束。
-	// 跳转在途时不许按「贴底」压缩窗口：目标在更早的轮次，而流式输出期间贴底引擎每帧都把
-	// autoScroll 拉回 true；此时按贴底取 3 轮上限，扩窗结果立刻被忽略，目标轮永远挂不上
-	// （2026-11 真机：吐 token 时点刻度没反应）。
+	// 渲染窗口（2026-08 黑屏治理）：贴底只挂尾部 3 轮，上滚也裁剪（controller.scrolledWindowTurns，
+	// 接近顶部按 3 轮 cohort 扩大）—— 全量放开是大会话内存峰值/黑屏来源。锚点保存与恢复必须用同一窗口，
+	// 否则文档高度收缩会截断 scrollTop（切回位置漂移）。跳转在途时不按贴底压缩：流式期间贴底引擎每帧
+	// 把 autoScroll 拉回 true，按 3 轮取上限会把扩窗结果忽略掉（2026-11 真机：吐 token 时点刻度没反应）。
 	const followingForTurnWindow = controller.autoScroll && !controller.jumpPending;
 	const turnWindowTurns = followingForTurnWindow ? TIMELINE_MOUNTED_TURN_LIMIT : controller.scrolledWindowTurns;
-	const displayRuns = useMemo(() => selectTimelineTurnWindow(reconciledRuns, turnWindowTurns), [reconciledRuns, turnWindowTurns]);
+	const windowAnchorId = props.controller.jumpAnchorMessageId ?? props.controller.readPinnedMessageId?.() ?? null;
+	const displayRuns = useMemo(
+		() => resolveAnchoredTurnWindow(reconciledRuns, turnWindowTurns, windowAnchorId, props.controller.jumpWindowRuns),
+		// biome-ignore lint/correctness/useExhaustiveDependencies: windowAnchorId 已包含 state 与 ref 两路
+		[reconciledRuns, turnWindowTurns, props.controller.jumpPending, props.controller.jumpAnchorMessageId, props.controller.jumpWindowRuns],
+	);
 	useEffect(() => {
 		// 多选关闭且回到底部后才允许缩回 turn 窗口：回底时锚点必在尾部窗口内，缩回不会丢行。
 		if (!multiSelectOpen && followingForTurnWindow) setRetainFullRuns(false);
@@ -784,15 +782,6 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 	// 与 renderRunItem 首行、VirtualRunList 的 entries 共用同一份「是否产出 DOM」判据：
 	// 判定放宽会为空行多吃一条行距，收紧会把卡片从虚拟区静默丢掉（#401 评审）。
 	const isRenderableItem = useCallback((item: RenderMessage) => isRenderableRunItem(item), []);
-	/** 这一轮是否包含指定消息：钉行的 messageId 要映射到它所在的 run。 */
-	const runContainsMessageId = useCallback((item: RenderMessage, messageId: string): boolean => {
-		if (item.kind === "agent-run") {
-			// MessageItem 用 message.id；其余 group 类型的 id 与触发它的消息 id 一致（见 AppUtils）。
-			return item.items.some((sub) => (sub.kind === "message" ? sub.message.id === messageId : sub.id === messageId));
-		}
-		if (item.kind === "message") return item.message.id === messageId;
-		return item.id === messageId;
-	}, []);
 	// 恢复锚点 / 挂起跳转在途：这两条路径按 [data-message-id] 查 DOM，虚拟区外的行不在 DOM 里。
 	// 交给 VirtualRunList 的 solid 模式（同一组件内整表真实渲染），不换组件类型 ——
 	// 换类型会整棵卸载，heightsRef 的高度缓存丢失，恢复完成后按估值重排会跳位。
@@ -802,7 +791,7 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 	const pinnedRunKeys: readonly string[] = (() => {
 		const pinnedId = props.controller.readPinnedMessageId?.();
 		if (!pinnedId) return [];
-		const hit = displayRuns.find((item) => runContainsMessageId(item, pinnedId));
+		const hit = displayRuns[findAgentRunIndexByItemId(displayRuns, pinnedId)];
 		return hit ? [virtualRunId(hit)] : [];
 	})();
 	// 宿主插件按 entryId 导航：目标轮可能在虚拟区外（没有 DOM）。hook 派发渲染层事件，

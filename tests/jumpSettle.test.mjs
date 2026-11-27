@@ -48,8 +48,14 @@ test("用户动手优先于一切：哪怕已经对齐也不再补", () => {
 	assert.deepEqual(step({ driftPx: 500, frames: 99, elapsedMs: 9999, interrupted: true }), { kind: "give-up", reason: "interrupted" }, "动手判断必须排在上限判断之前，否则 600ms 后会先报 timeout，用户看到的提示就错了");
 });
 
-test("目标行不在 DOM（null）→ 放弃，不空转", () => {
-	assert.deepEqual(step({ driftPx: null }), { kind: "give-up", reason: "target-missing" });
+test("目标行不在 DOM（null）→ 先给 3 帧布局宽限，之后放弃，不空转", () => {
+	// 反例（2026-11-25 日志）：目标行刚挂载那一帧没有布局盒，rect 全 0 → 旧实现立刻判
+	// target-missing 并静默收手（frames=0 连 settle-end 都不打）。用户看到「点一次没反应、
+	// 再点一次才到」。宽限 3 帧覆盖虚拟列表挂行 + 布局。
+	assert.deepEqual(step({ driftPx: null }), { kind: "wait" }, "第 0 帧应等待");
+	assert.deepEqual(step({ driftPx: null, frames: 2 }), { kind: "wait" }, "第 2 帧仍在宽限内");
+	assert.deepEqual(step({ driftPx: null, frames: 3 }), { kind: "give-up", reason: "target-missing" }, "宽限用尽必须放弃");
+	assert.deepEqual(step({ driftPx: null, frames: 3, interrupted: true }), { kind: "give-up", reason: "interrupted" }, "用户动手仍最优先");
 });
 
 test("漂移很小时收敛而不是给 up：3 帧内不会无限循环", () => {

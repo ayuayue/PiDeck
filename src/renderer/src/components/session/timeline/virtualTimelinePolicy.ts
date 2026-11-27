@@ -155,3 +155,13 @@ export function assertRangeIndexes(indexes: readonly number[], limit: number): v
 		}
 	}
 }
+
+/** 滚动容器的 scrollTop 上限（负值截成 0）。
+ *
+ * 从 VirtualRunList.tsx 挪到这里：留在组件里它是模块内部函数，没有测试——
+ * 把 Math.max 改成 Math.min，全套测试仍然绿（2026-11-22 变异实测）。
+ * 上限为负会让所有滚动补偿反向。
+ */
+export function maxScrollTop(scroller: { scrollHeight: number; clientHeight: number }): number {
+	return Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+}
