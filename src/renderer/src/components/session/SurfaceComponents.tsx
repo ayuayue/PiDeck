@@ -144,7 +144,7 @@ import { imageContentSrc } from "../../../../shared/imageContentSrc";
 import { parseRichInputChips, unwrapFileChipPath, formatChipDisplayLabel, isDirectoryFileChip } from "./composer/chips";
 import { buildBubbleRefSegments, replaceExpandedRefBlocksWithLabels } from "./composer/quoteChip";
 import type { BubbleRefSegment } from "./composer/quoteChip";
-import removeMarkdown from "remove-markdown";
+import { stripMarkdown } from "../../utils/markdownPlainText";
 
 import type { WorkspaceDrawerPanel } from "../../hooks/useWorkspacePanels";
 import { formatDuration, formatTime, stripAnsi, formatPercent } from "./TimelineFormat";
@@ -153,6 +153,8 @@ import { visionImageHashes } from "../../utils/visionImageHash";
 import { ToolCard, ToolGroupCard, type DiffFileHandler } from "./ToolCallComponents";
 import { DiagnosticMessageCard, RespondingIndicator, ThinkingBlock } from "./TimelineEventCards";
 import { MultiSelectModal } from "./MessageShareModal";
+
+export { stripMarkdown };
 
 // ============================================================
 // Surface & Workspace domain components
@@ -489,7 +491,7 @@ async function copyElementAsPng(element: HTMLElement) {
  * 复制菜单。
  *
  * `text`/`markdown` 与 `resolveText`/`resolveMarkdown` 各组二选一（惰性版优先）：
- * `stripMarkdown`、`replaceExpandedRefBlocksWithLabels` 都是多趟正则，代价正比于正文长度，
+ * `stripMarkdown`、`replaceExpandedRefBlocksWithLabels` 都需要处理完整正文，
  * 而结果只有点「复制」那一刻才需要。正文在流式期间每 50ms 增长一次，把它们挂在 render 上
  * 等于每帧对整段正文跑一遍正则——调用方因此改传惰性版（配 `useLazyValue`，返回的函数
  * 引用稳定，不会击穿本组件或上游 memo）。
@@ -829,7 +831,7 @@ export const UserBubble = memo(function UserBubble(props: {
 	// 气泡片段（正文 + 引用/会话/skill chip）严格按原文顺序渲染：
 	// 多个引用各有自己的描述时，顺序就是「引用1 描述1 引用2 描述2」，不能全部提到顶部。
 	const bubbleSegments = buildBubbleRefSegments(cleanText);
-	// 复制用的两个文本都是多趟正则（`replaceExpandedRefBlocksWithLabels` + `stripMarkdown`），
+	// 复制用的两个文本都要处理完整正文（`replaceExpandedRefBlocksWithLabels` + `stripMarkdown`），
 	// 原来在 render 期要算三次。只有点「复制」那一刻才需要，走 useLazyValue 推迟；
 	// 返回的函数引用稳定，`CopyMenu` 的 memo 不受影响。
 	const resolveMarkdown = useLazyValue(() => replaceExpandedRefBlocksWithLabels(message.text), [message.text]);
@@ -1176,20 +1178,6 @@ export function ImagePreviewModal(props: { image: ImageContent; onClose: () => v
 // ANSI 转义码正则:匹配 \x1b[...m 等终端颜色/样式序列
 function stripThinkingTags(text: string): string {
 	return text.replace(/<thinking>[\s\S]*?<\/thinking>/gi, "").trim();
-}
-
-/** 将 Markdown 语法转换为纯文本，保留可读的文字内容 */
-export function stripMarkdown(text: string): string {
-	return removeMarkdown(text, {
-		// 保留列表项文本，移除列表标记符号
-		stripListLeaders: true,
-		// 使用 Unicode 字符替换列表标记
-		listUnicodeChar: "",
-		// 启用 GFM 表格/任务列表等处理
-		gfm: true,
-		// 图片保留 alt 文本
-		useImgAltText: true,
-	});
 }
 
 /** 引用 chip 图标：与输入框（mentionChip 内联 SVG）同 path 同 stroke 参数，视觉逐像素一致。

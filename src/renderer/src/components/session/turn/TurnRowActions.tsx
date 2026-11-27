@@ -15,7 +15,7 @@ export type TurnRowActionsProps = {
 	replyText: string;
 	editing: boolean;
 	containsImageGen: boolean;
-	/** 惰性求值的纯文本（`stripMarkdown` 走正则，只在点「复制为文本」时才跑）。 */
+	/** 惰性求值的纯文本（只在点「复制为文本」时解析 Markdown）。 */
 	resolvePlainText: () => string;
 	/** 复制为图片的截取目标（整轮 `<article>`）。 */
 	targetRef: RefObject<HTMLElement | null>;
