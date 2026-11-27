@@ -70,7 +70,7 @@ func (a *app) projectHeader() core.Node {
 		colors := ui.ColorsOf(cx)
 		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6,
 			Padding: core.Edges{Top: 4, Right: 4, Bottom: 2, Left: 8}}, Children: []core.Node{
-			ui.Text(apptext.T("项目"), 11, ui.Semibold, colors.Faint),
+			ui.Text(apptext.T("项目"), viewkit.PanelCaptionSize, ui.Medium, colors.Faint),
 			core.View{Style: core.Style{FlexGrow: 1}},
 			core.Text{ContentFunc: func() string { return fmt.Sprint(a.projectTotal()) }, TestID: "project-total",
 				Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 11}, StyleFunc: ui.Colored(colors.Faint)},
@@ -173,7 +173,7 @@ func (a *app) workspaceBlock(w func() *workspace) core.Node {
 						return lucide.Folder()
 					}, 14, colors.Muted),
 					core.Text{ContentFunc: func() string { return w().label() }, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-						Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 13.5, LineHeight: 19, FontWeight: ui.Medium},
+						Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: viewkit.PanelTextSize, LineHeight: viewkit.PanelLineHeight, FontWeight: ui.Medium},
 						StyleFunc: ui.Colored(colors.Text)},
 					core.Show{When: func() bool { return w().Target.remote() }, Then: func(*core.Scope) core.Node {
 						return core.View{StyleFunc: func() core.Style {
@@ -360,7 +360,7 @@ func (a *app) projectMoreRow(ws *workspace, hidden int) core.Node {
 					Padding: core.Symmetric(0, 6), CornerRadius: 5, Transition: viewkit.PressMotion,
 					Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
 			},
-			Children: []core.Node{ui.Icon(icon, 11, colors.Faint), ui.Text(label, 10.5, ui.Medium, colors.Muted)}}
+			Children: []core.Node{ui.Icon(icon, 11, colors.Faint), ui.Text(label, viewkit.PanelCaptionSize, ui.Medium, colors.Muted)}}
 	}
 	var children []core.Node
 	if hidden > 0 {
@@ -372,7 +372,7 @@ func (a *app) projectMoreRow(ws *workspace, hidden int) core.Node {
 			}
 			ws.Visible.Set(n + projectSessionStep)
 		})
-		more.Children = append(more.Children, ui.Text(fmt.Sprintf("(%d)", hidden), 9, ui.Regular, colors.Faint))
+		more.Children = append(more.Children, ui.Text(fmt.Sprintf("(%d)", hidden), viewkit.PanelMicroSize, ui.Regular, colors.Faint))
 		children = append(children, more)
 	}
 	if ws.Visible.GetUntracked() > 0 {

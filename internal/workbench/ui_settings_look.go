@@ -123,9 +123,9 @@ func (a *app) lookFontSettings(cx *core.Scope, colors ui.Colors) core.Node {
 	field := func(draft *core.Signal[string], label, id string) core.Node {
 		return core.Input{Value: draft.Get, OnChange: draft.Set, OnSubmit: func(string) { commit() }, OnBlur: commit,
 			Placeholder: apptext.T("留空跟随主题"), Label: apptext.T(label), TestID: id,
-			Style: core.Style{Width: core.Pt(230), MaxWidth: core.Pct(100), Height: core.Pt(28), Padding: core.Symmetric(0, 8), FontSize: 11.5,
+			Style: settingsSelectStyle().Merge(core.Style{Padding: core.Symmetric(0, 8),
 				Color: colors.Text(), Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6,
-				CaretColor: colors.Text(), SelectionColor: colors.Now().Selection, FocusVisible: ui.FocusRing(cx, 2)}}
+				CaretColor: colors.Text(), SelectionColor: colors.Now().Selection, FocusVisible: ui.FocusRing(cx, 2)})}
 	}
 	return setGroup("字体",
 		setRow("界面字体", "填写已安装的字体名称；留空跟随主题。回车或移开焦点后应用并保存。", field(uiDraft, "界面字体", "ui-font")),

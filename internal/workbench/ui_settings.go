@@ -65,7 +65,7 @@ func (a *app) settingsPane() core.Node {
 				OnPress:  func(core.PressEvent) { a.openSettingsSection(s.ID) },
 				Selected: on, Label: apptext.T(s.Label), TestID: "settings-tab-" + s.ID,
 				StyleFunc: func() core.Style {
-					st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Height: core.Pt(30),
+					st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Height: core.Pt(viewkit.PanelControlSize),
 						Padding: core.Symmetric(0, 9), CornerRadius: 7, Hover: &core.Style{Background: colors.Hover()},
 						FocusVisible: ui.FocusRing(cx, -2)}
 					if on() {
@@ -81,13 +81,9 @@ func (a *app) settingsPane() core.Node {
 						return colors.Muted()
 					}),
 					core.Text{Content: apptext.T(s.Label), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-						Style: core.Style{FontSize: 12.5, FlexShrink: 1, MinWidth: core.Pt(0)},
+						Style: core.Style{FontSize: viewkit.PanelTextSize, LineHeight: viewkit.PanelLineHeight, FlexShrink: 1, MinWidth: core.Pt(0)},
 						StyleFunc: func() core.Style {
-							w := ui.Regular
-							if on() {
-								w = ui.Semibold
-							}
-							return core.Style{Color: colors.Text(), FontWeight: w}
+							return core.Style{Color: colors.Text(), FontWeight: ui.Regular}
 						}},
 				},
 			}
@@ -100,7 +96,7 @@ func (a *app) settingsPane() core.Node {
 	group := func(label string, rows []core.Node) core.Node {
 		return core.View{Style: core.Style{Gap: 2}, Children: append([]core.Node{
 			core.Text{Content: apptext.T(label), Role: core.RoleHeader,
-				Style:     core.Style{FontSize: 11, FontWeight: ui.Semibold, Padding: core.Edges{Left: 9, Top: 6, Bottom: 4}},
+				Style:     core.Style{FontSize: viewkit.PanelCaptionSize, LineHeight: 18, FontWeight: ui.Medium, Padding: core.Edges{Left: 9, Top: 6, Bottom: 4}},
 				StyleFunc: ui.Colored(colors.Muted)},
 		}, rows...)}
 	}
@@ -118,7 +114,7 @@ func (a *app) settingsPane() core.Node {
 				Background: colors.Inset(), Borders: core.Edges{Right: 1}, BorderColors: core.EdgeColors{Right: colors.Now().Line}}
 		}, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Left: 9, Top: 4, Bottom: 8}}, Children: []core.Node{
-				ui.Text(apptext.T("设置"), 13, ui.Semibold, colors.Text),
+				ui.Text(apptext.T("设置"), viewkit.PanelTextSize, ui.Medium, colors.Text),
 			}},
 			core.View{Style: core.Style{Padding: core.Edges{Left: 1, Right: 1, Bottom: 8}}, Children: []core.Node{
 				a.settingsSearchField(colors),
@@ -136,8 +132,8 @@ func (a *app) settingsPane() core.Node {
 					}
 				}
 				return core.View{Style: core.Style{Gap: 2, Padding: core.Edges{Top: 16, Right: 20, Bottom: 8, Left: 20}}, Children: []core.Node{
-					ui.Text(apptext.T(sec.Title), 15, ui.Semibold, colors.Text),
-					core.Text{Content: apptext.T(sec.Summary), Style: core.Style{FontSize: 11.5, LineHeight: 17}, StyleFunc: ui.Colored(colors.Muted)},
+					ui.Text(apptext.T(sec.Title), viewkit.PanelTitleSize, ui.Semibold, colors.Text),
+					core.Text{Content: apptext.T(sec.Summary), Style: core.Style{FontSize: viewkit.PanelCaptionSize, LineHeight: 18}, StyleFunc: ui.Colored(colors.Muted)},
 				}}
 			}),
 			core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), MinHeight: core.Pt(0), Padding: core.Edges{Right: 20, Left: 20}}, Children: []core.Node{
@@ -205,13 +201,13 @@ func (a *app) loadSettingsSection(id string) {
 // settingsSearchField finds a setting by name: the icon, the query, and a
 // clear button once there is something to clear.
 func (a *app) settingsSearchField(colors ui.Colors) core.Node {
-	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, Height: core.Pt(26),
+	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, Height: core.Pt(viewkit.PanelControlSize),
 		Padding: core.Symmetric(0, 6), CornerRadius: 6, Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder()},
 		Children: []core.Node{
 			ui.Icon(lucide.Search, 11, colors.Faint),
 			core.Input{Ref: a.settingsFieldRef(), Value: a.settingsQuery.Get, OnChange: a.settingsQuery.Set, OnSubmit: a.submitSettingsSearch,
 				Role: core.RoleSearchField, Placeholder: apptext.T("搜索设置"), Label: apptext.T("搜索设置"), TestID: "settings-search",
-				Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0), Height: core.Pt(20), FontSize: 11, LineHeight: 16, Color: colors.Text()},
+				Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0), Height: core.Pt(viewkit.PanelLineHeight), FontSize: viewkit.PanelTextSize, LineHeight: viewkit.PanelLineHeight, Color: colors.Text()},
 				StyleFunc: func() core.Style {
 					return core.Style{PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}
 				}},
@@ -278,13 +274,13 @@ func (a *app) settingsRail(nav []core.Node) core.Node {
 				Role:    core.RoleButton, Label: apptext.T(entry.Label),
 				TestID: fmt.Sprintf("settings-hit-%s-%d", entry.Section, n),
 				StyleFunc: func() core.Style {
-					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Height: core.Pt(26),
+					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Height: core.Pt(viewkit.PanelRowHeight),
 						Padding: core.Symmetric(0, 8), CornerRadius: 6, Hover: &core.Style{Background: colors.Hover()}}
 				},
 				Children: []core.Node{
 					core.Text{Content: apptext.T(entry.Label), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-						Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11.5}, StyleFunc: ui.Colored(colors.Text)},
-					core.Text{Content: hint, MaxLines: 1, Style: core.Style{FontSize: 9.5, FlexShrink: 0},
+						Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: viewkit.PanelTextSize, LineHeight: viewkit.PanelLineHeight}, StyleFunc: ui.Colored(colors.Text)},
+					core.Text{Content: hint, MaxLines: 1, EllipsizeMode: core.EllipsizeTail, Style: core.Style{FontSize: viewkit.PanelMicroSize, MaxWidth: core.Pct(44), FlexShrink: 0},
 						StyleFunc: ui.Colored(colors.Faint)},
 				},
 			})

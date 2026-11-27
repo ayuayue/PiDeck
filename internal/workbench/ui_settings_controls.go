@@ -8,6 +8,7 @@ package workbench
 
 import (
 	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -18,7 +19,7 @@ func setGroup(title string, rows ...core.Node) core.Node {
 		colors := ui.ColorsOf(cx)
 		return core.View{Style: core.Style{Gap: 6, Margin: core.Edges{Bottom: 14}}, Children: []core.Node{
 			core.Text{Content: apptext.T(title), Role: core.RoleHeader,
-				Style: core.Style{FontSize: 11, FontWeight: ui.Semibold}, StyleFunc: ui.Colored(colors.Muted)},
+				Style: core.Style{FontSize: viewkit.PanelCaptionSize, LineHeight: 18, FontWeight: ui.Medium}, StyleFunc: ui.Colored(colors.Muted)},
 			core.View{StyleFunc: func() core.Style {
 				return core.Style{Gap: 2, Padding: core.Symmetric(4, 10), CornerRadius: 9,
 					BorderWidth: 1, BorderColor: colors.Now().Line, Background: colors.Surface()}
@@ -32,11 +33,11 @@ func setRow(label, help string, control core.Node) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
 		texts := []core.Node{
-			core.Text{Content: apptext.T(label), Style: core.Style{FontSize: 12.5, LineHeight: 18}, StyleFunc: ui.Colored(colors.Text)},
+			core.Text{Content: apptext.T(label), Style: core.Style{FontSize: viewkit.PanelTextSize, LineHeight: viewkit.PanelLineHeight}, StyleFunc: ui.Colored(colors.Text)},
 		}
 		if help != "" {
 			texts = append(texts, core.Text{Content: apptext.T(help),
-				Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: ui.Colored(colors.Muted)})
+				Style: core.Style{FontSize: viewkit.PanelCaptionSize, LineHeight: 18}, StyleFunc: ui.Colored(colors.Muted)})
 		}
 		children := []core.Node{core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, FlexBasis: core.Pt(260), MinWidth: core.Pt(0), Gap: 1}, Children: texts}}
 		if control != nil {
@@ -81,7 +82,7 @@ func choiceChips[V comparable](options []choice[V], value func() V, onPick func(
 					}
 					return st
 				},
-				Children: []core.Node{ui.Text(apptext.T(opt.Label), 11.5, ui.Regular, colors.Text)},
+				Children: []core.Node{ui.Text(apptext.T(opt.Label), viewkit.PanelTextSize, ui.Regular, colors.Text)},
 			})
 		}
 		return core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 5}, Children: chips}
@@ -96,7 +97,7 @@ func setDivider() core.Node {
 }
 
 func settingsSelectStyle() core.Style {
-	return core.Style{Width: core.Pt(230), MaxWidth: core.Pct(100), Height: core.Pt(28), FontSize: 11.5}
+	return core.Style{Width: core.Pt(230), MaxWidth: core.Pct(100), Height: core.Pt(viewkit.PanelControlSize), FontSize: viewkit.PanelTextSize, LineHeight: viewkit.PanelLineHeight}
 }
 
 // settingsSlider gives each slider the same track, readout and endpoint columns.
@@ -107,12 +108,12 @@ func settingsSlider(slider ui.Slider, value func() string, low, high string) cor
 			core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0), Gap: 2}, Children: []core.Node{
 				slider,
 				core.View{Style: core.Style{Direction: core.Row, JustifyContent: core.JustifySpaceBetween}, Children: []core.Node{
-					ui.Text(apptext.T(low), 10, ui.Regular, colors.Muted),
-					ui.Text(apptext.T(high), 10, ui.Regular, colors.Muted),
+					ui.Text(apptext.T(low), viewkit.PanelMicroSize, ui.Regular, colors.Muted),
+					ui.Text(apptext.T(high), viewkit.PanelMicroSize, ui.Regular, colors.Muted),
 				}},
 			}},
 			core.Text{ContentFunc: value, TestID: slider.TestID + "-value",
-				Style:     core.Style{Width: core.Pt(76), FlexShrink: 0, TextAlign: core.TextAlignRight, FontSize: 11, LineHeight: 20},
+				Style:     core.Style{Width: core.Pt(76), FlexShrink: 0, TextAlign: core.TextAlignRight, FontSize: viewkit.PanelCaptionSize, LineHeight: viewkit.PanelLineHeight},
 				StyleFunc: ui.Colored(colors.Text)},
 		}}
 	})

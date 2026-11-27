@@ -84,7 +84,7 @@ func (a *app) groupLabel(text string) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
 		return core.View{Style: core.Style{Padding: core.Edges{Top: 10, Right: 8, Bottom: 2, Left: 8}}, Children: []core.Node{
-			core.Text{Content: apptext.T(text), Style: core.Style{FontSize: 11, FontWeight: ui.Medium}, StyleFunc: ui.Colored(colors.Faint)},
+			core.Text{Content: apptext.T(text), Style: core.Style{FontSize: viewkit.PanelCaptionSize, LineHeight: 18, FontWeight: ui.Medium}, StyleFunc: ui.Colored(colors.Faint)},
 		}}
 	})
 }
@@ -94,7 +94,7 @@ func (a *app) railHeader(title, count string) core.Node {
 	colors := ui.ColorsOf(a.cx)
 	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Padding: core.Edges{Top: 6, Right: 8, Bottom: 3, Left: 8}},
 		Children: []core.Node{
-			ui.Text(title, 11, ui.Semibold, colors.Faint),
+			ui.Text(title, viewkit.PanelCaptionSize, ui.Medium, colors.Faint),
 			core.View{Style: core.Style{FlexGrow: 1}},
 			ui.Text(count, 11, ui.Regular, colors.Faint),
 		}}
@@ -121,7 +121,7 @@ func (a *app) piSessionRow(s *session) core.Node {
 				ui.Icon(lucide.Clock, 12, colors.Faint),
 				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 1}, Children: []core.Node{
 					core.Text{ContentFunc: func() string { return s.title.Get() }, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-						Style: core.Style{FontSize: 13.5, LineHeight: 19}, StyleFunc: ui.Colored(colors.Text)},
+						Style: core.Style{FontSize: viewkit.PanelTextSize, LineHeight: 19}, StyleFunc: ui.Colored(colors.Text)},
 					core.Text{ContentFunc: func() string { return shorten(filepath.Base(s.WS), 34) }, MaxLines: 1,
 						Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9, LineHeight: 12}, StyleFunc: ui.Colored(colors.Faint)},
 				}},
@@ -165,7 +165,7 @@ func (a *app) newSessionButton() core.Node {
 		},
 		Children: []core.Node{
 			ui.Icon(lucide.CirclePlus, 15, colors.Muted),
-			core.Text{Content: apptext.T("新建会话"), Style: core.Style{FontSize: 13.5, LineHeight: 19, FontWeight: ui.Medium, FlexGrow: 1}, StyleFunc: ui.Colored(colors.Text)},
+			core.Text{Content: apptext.T("新建会话"), Style: core.Style{FontSize: viewkit.PanelTextSize, LineHeight: viewkit.PanelLineHeight, FontWeight: ui.Medium, FlexGrow: 1}, StyleFunc: ui.Colored(colors.Text)},
 			core.Text{Content: modKey() + "N", Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
 		},
 	}
@@ -186,7 +186,7 @@ func (a *app) searchField() core.Node {
 		},
 		Children: []core.Node{
 			ui.Icon(lucide.Search, 15, colors.Muted),
-			core.Text{Content: apptext.T("搜索会话"), Style: core.Style{FontSize: 13.5, LineHeight: 19, FlexGrow: 1}, StyleFunc: ui.Colored(colors.Muted)},
+			core.Text{Content: apptext.T("搜索会话"), Style: core.Style{FontSize: viewkit.PanelTextSize, LineHeight: viewkit.PanelLineHeight, FlexGrow: 1}, StyleFunc: ui.Colored(colors.Muted)},
 			core.Text{Content: modKey() + "F", Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
 		},
 	}

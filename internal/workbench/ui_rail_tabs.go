@@ -61,7 +61,7 @@ func (a *app) railMore() core.Node {
 					}
 					return lucide.ChevronRight()
 				}, 15, colors.Faint),
-				core.Text{Content: apptext.T("更多"), Style: core.Style{FontSize: 13.5, LineHeight: 19, FontWeight: ui.Medium}, StyleFunc: ui.Colored(colors.Text)},
+				core.Text{Content: apptext.T("更多"), Style: core.Style{FontSize: viewkit.PanelTextSize, LineHeight: viewkit.PanelLineHeight, FontWeight: ui.Medium}, StyleFunc: ui.Colored(colors.Text)},
 			},
 		})
 		if !open {
@@ -115,7 +115,7 @@ func (a *app) railTabBar() core.Node {
 				Selected: func() bool { return on(id) },
 				StyleFunc: func() core.Style {
 					st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 6,
-						Height: core.Pt(30), FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), CornerRadius: 15,
+						Height: core.Pt(viewkit.PanelControlSize), FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), CornerRadius: 15,
 						Transition: a.navigationPressMotion(cx), Hover: &core.Style{Background: colors.Hover()},
 						Active: &core.Style{Background: colors.Pressed()}}
 					if on(id) {
@@ -131,7 +131,7 @@ func (a *app) railTabBar() core.Node {
 						return colors.Muted()
 					}),
 					core.Text{Content: apptext.T(label), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-						Style:     core.Style{FontSize: 12, FontWeight: ui.Medium, FlexShrink: 1, MinWidth: core.Pt(0)},
+						Style:     core.Style{FontSize: viewkit.PanelTextSize, LineHeight: viewkit.PanelLineHeight, FontWeight: ui.Regular, FlexShrink: 1, MinWidth: core.Pt(0)},
 						StyleFunc: func() core.Style { return labelColor(id) }},
 				},
 			}, Children: a.railTabMenuItems(id), PopupStyle: a.menuPopup(cx),

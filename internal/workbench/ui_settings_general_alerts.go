@@ -61,7 +61,7 @@ func (a *app) generalSoundChoice(kind, id string) core.Node {
 	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Width: core.Pt(230), MaxWidth: core.Pct(100)}, Children: []core.Node{
 		ui.Select[string]{Options: options, Value: func() string { return a.alertChoice(kind) },
 			OnChange: func(v string) { a.setAlertKind(kind, v) }, Label: apptext.T("提示音"), TestID: id,
-			Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0), Width: core.Pt(160), Height: core.Pt(28), FontSize: 11.5}},
+			Style: settingsSelectStyle().Merge(core.Style{FlexGrow: 1, MinWidth: core.Pt(0), Width: core.Pt(160)})},
 		ui.Button{Text: apptext.T("试听"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: previewID,
 			Disabled: func() bool { return a.alertVolumePct() == 0 }, OnPress: func() { a.soundAlert(kind) }},
 	}}

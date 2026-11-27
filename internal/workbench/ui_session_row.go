@@ -83,7 +83,7 @@ func (a *app) sessionRowWith(s func() *session, opts sessionRowOpts) core.Node {
 						Background: statusDot(colors, s()), FlexShrink: 0}
 				}},
 				core.Text{ContentFunc: func() string { return s().title.Get() }, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-					Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 13.5, LineHeight: 19},
+					Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: viewkit.PanelTextSize, LineHeight: viewkit.PanelLineHeight},
 					StyleFunc: func() core.Style {
 						w := ui.Regular
 						if selected() {

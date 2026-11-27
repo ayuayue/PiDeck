@@ -138,7 +138,7 @@ func (a *app) projectGroupHeading(g projectGroup) core.Node {
 			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Padding: core.Edges{Top: 8, Right: 4, Left: 8}},
 			Children: []core.Node{
 				core.Text{Content: g.Name, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-					Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11, FontWeight: ui.Medium}, StyleFunc: ui.Colored(colors.Faint)},
+					Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: viewkit.PanelCaptionSize, LineHeight: 18, FontWeight: ui.Medium}, StyleFunc: ui.Colored(colors.Faint)},
 				ui.Menu{Trigger: ui.Button{Icon: lucide.Ellipsis, Label: apptext.T("更多项目操作"), Variant: ui.ButtonGhost,
 					Size: ui.SizeSmall, Side: 20, IconSize: 12, Tint: func() core.Color { return colors.Faint() }},
 					TestID: "project-group-menu-" + g.Name, Placement: core.PlaceBottom, Align: core.AlignEnd, Children: actions()},
