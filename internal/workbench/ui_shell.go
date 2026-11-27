@@ -178,12 +178,14 @@ func (a *app) toggleDrawer() {
 }
 
 // workArea is the chat, with the terminal panel under it when it shows.
+// Clip animated descendants so their native pointer search cannot reach
+// the header above and swallow its window-drag region.
 func (a *app) workArea() core.Node {
 	return base.ResizablePanelGroup{
 		Axis:                 base.Vertical,
 		TestID:               "work-area",
 		HandleLabel:          apptext.T("调整终端高度"),
-		Style:                core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), MinWidth: core.Pt(0)},
+		Style:                core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), MinWidth: core.Pt(0), Overflow: core.Hidden},
 		HandleStyleFunc:      ui.HandleLine(a.cx),
 		HandleThumbStyle:     ui.HandleThumb(a.cx),
 		HandleThumbStyleFunc: ui.HandleThumbColor(a.cx),
