@@ -97,6 +97,7 @@ export const integrationsApi = {
 		/** 在系统默认浏览器中打开外部链接。
 		 *  用于 webview 不支持或需要另开浏览器查看的场景。 */
 		openExternal: (url: string, forceSystem?: boolean) => ipcRenderer.invoke(ipcChannels.browserOpenExternal, url) as Promise<void>,
+		stageHtmlPreview: (fileName: string, html: string) => ipcRenderer.invoke(ipcChannels.browserStageHtmlPreview, fileName, html) as Promise<string | null>,
 	},
 
 	// ===== 微信 iLink 桥接 =====

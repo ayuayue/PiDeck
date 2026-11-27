@@ -180,6 +180,7 @@ import { WorkbenchShell } from "./components/workbench/WorkbenchShell";
 
 import { usePiEnvironmentGuide } from "./hooks/usePiEnvironmentGuide";
 import { navigateTo } from "./components/app/BrowserPanel";
+import { BrowserLinkContext } from "./components/app/BrowserLinkContext";
 import { createDefaultAppSettings } from "../../shared/types";
 import { parseSessionStatusPlacement, placementShowsSidebarPanel } from "../../shared/sessionStatusPlacement";
 import type {
@@ -1248,13 +1249,15 @@ export function App() {
 		onCreated: () => workspace.openDrawerForce("sideTask"),
 	});
 
-	// 外部链接与本地服务 Web UI 共用同一个出口：强制打开 browser 抽屉 + 内置浏览器新建 tab。
-	const openInBrowser = (url: string) => {
-		workspace.openDrawerForce("browser");
-		navigateTo(url);
-	};
+	const openInBrowser = useCallback(
+		(url: string) => {
+			if (workspace.drawerPinnedPanel && workspace.drawerPinnedPanel !== "browser") workspace.openBrowser();
+			else workspace.openDrawerForce("browser");
+			navigateTo(url);
+		},
+		[workspace.drawerPinnedPanel, workspace.openBrowser, workspace.openDrawerForce],
+	);
 
-	// 关闭 Tab / 分屏退栏时的焦点切换：只改 currentSession，不碰 Tab 登记
 	useEffect(() => {
 		workspaceChrome.bindFocusHandlers({
 			focusSession: (projectId, sessionId) => {
@@ -1999,6 +2002,7 @@ export function App() {
 			readOriginalContent={readEditorOriginalContent}
 			saveContent={saveEditorFileContent}
 			onAllowSaveTab={allowSaveEditorTab}
+			onOpenInBrowser={openInBrowser}
 		/>
 	) : null;
 
@@ -2115,46 +2119,46 @@ export function App() {
 	});
 
 	return (
-		<WorkbenchShell
-			identity={{ activeAgent, activeProject, activeProjectId, currentSession, currentSessionId, projects, settings, appInfo }}
-			chrome={{
-				simpleMode,
-				listCollapsed,
-				listWidth,
-				drawer: { workspace, drawer, drawerCollapsed, drawerWidth, drawerPorts, scratchPad, sideTasks, forkAtEntry },
-				panes: { bootstrapProps, quickTask, sessionPaneServices, chatPaneRef, terminalRowHeight, workbenchContentWidth: workbench.contentWidth, sidebarContentNode, chatPaneContentNode, sessionStatusPlacement },
-				rewindSupported,
-				rpcLogTabTargetAgentId,
-			}}
-			events={{
-				showToast,
-				setListCollapsed,
-				setListWidth,
-				setDrawerCollapsed,
-				setDrawerWidth,
-				toggleListCollapsed,
-				toggleRightDrawer,
-				handleToolDrawerAction,
-				focusSessionPane,
-				createSessionDraftWithTab,
-				openSidebarSessionByIdWithTab,
-			}}
-			rootDialogs={<WorkbenchDialogs palette={{ commandPaletteOpen, setCommandPaletteOpen, commandPaletteCommands, openCommandPalette, activeProjectId, activeProjectHasBusyAgent, settingsPageActive, quickTaskActive: quickTask.active }} cuaApproval={cuaApproval} />}
-		>
-			<WorkbenchFileOverlays
-				menu={{ fileMenu, hasClipboardFiles }}
-				editing={{ creatingFile, creatingFileInput, renamingFile, renamingFileInput, rename }}
-				resources={{ projectResourcesProject }}
-				events={{ setFileMenu, setCreatingFile, setCreatingFileInput, setRenamingFile, setRenamingFileInput, setProjectResourcesProject, refreshVisibleFiles, showToast, overlays }}
-			/>
-			<WorkbenchAppOverlays
-				environment={{ environmentDialog, setEnvironmentDialog, piStatus, piChecking, piGuide, piUpdate, dshRuntimeStatus, settings, store, setSettings }}
-				enrollment={{ refreshProjects, selectProjectCommand, requestSidebarRevealProject, syncDshForeignSessionsIfEnabled, announceProjectAdded, importFlow, directoryImport }}
-				session={{ overlays, handleFeedbackCreateSession, previewImage, setPreviewImage, externalPathOpenDialog, proxyDialogSessionId, setProxyDialogSessionId, activeProject, currentSessionId, handleAgentSendToSession, editorsOpen, externalEditors, editorsAnchor, editorsTargetPath, workspace }}
-				events={{ showToast }}
-			/>
-		</WorkbenchShell>
+		<BrowserLinkContext.Provider value={window.piDesktop ? openInBrowser : undefined}>
+			<WorkbenchShell
+				identity={{ activeAgent, activeProject, activeProjectId, currentSession, currentSessionId, projects, settings, appInfo }}
+				chrome={{
+					simpleMode,
+					listCollapsed,
+					listWidth,
+					drawer: { workspace, drawer, drawerCollapsed, drawerWidth, drawerPorts, scratchPad, sideTasks, forkAtEntry },
+					panes: { bootstrapProps, quickTask, sessionPaneServices, chatPaneRef, terminalRowHeight, workbenchContentWidth: workbench.contentWidth, sidebarContentNode, chatPaneContentNode, sessionStatusPlacement },
+					rewindSupported,
+					rpcLogTabTargetAgentId,
+				}}
+				events={{
+					showToast,
+					setListCollapsed,
+					setListWidth,
+					setDrawerCollapsed,
+					setDrawerWidth,
+					toggleListCollapsed,
+					toggleRightDrawer,
+					handleToolDrawerAction,
+					focusSessionPane,
+					createSessionDraftWithTab,
+					openSidebarSessionByIdWithTab,
+				}}
+				rootDialogs={<WorkbenchDialogs palette={{ commandPaletteOpen, setCommandPaletteOpen, commandPaletteCommands, openCommandPalette, activeProjectId, activeProjectHasBusyAgent, settingsPageActive, quickTaskActive: quickTask.active }} cuaApproval={cuaApproval} />}
+			>
+				<WorkbenchFileOverlays
+					menu={{ fileMenu, hasClipboardFiles }}
+					editing={{ creatingFile, creatingFileInput, renamingFile, renamingFileInput, rename }}
+					resources={{ projectResourcesProject }}
+					events={{ setFileMenu, setCreatingFile, setCreatingFileInput, setRenamingFile, setRenamingFileInput, setProjectResourcesProject, refreshVisibleFiles, showToast, overlays }}
+				/>
+				<WorkbenchAppOverlays
+					environment={{ environmentDialog, setEnvironmentDialog, piStatus, piChecking, piGuide, piUpdate, dshRuntimeStatus, settings, store, setSettings }}
+					enrollment={{ refreshProjects, selectProjectCommand, requestSidebarRevealProject, syncDshForeignSessionsIfEnabled, announceProjectAdded, importFlow, directoryImport }}
+					session={{ overlays, handleFeedbackCreateSession, previewImage, setPreviewImage, externalPathOpenDialog, proxyDialogSessionId, setProxyDialogSessionId, activeProject, currentSessionId, handleAgentSendToSession, editorsOpen, externalEditors, editorsAnchor, editorsTargetPath, workspace }}
+					events={{ showToast }}
+				/>
+			</WorkbenchShell>
+		</BrowserLinkContext.Provider>
 	);
 }
-
-// test

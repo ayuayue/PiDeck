@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useContext, useState } from "react";
 import type React from "react";
 import { isLocalPathRef, remarkLinkifyPaths } from "./MarkdownLinkCore";
 import { anchorIdFromHref } from "./markdownHeadingAnchors";
@@ -8,7 +8,12 @@ import { extractFileLinkLocation, relativeFilePathWithinRoot, resolveFileLinkPat
 import { getRendererHomeDir } from "../../utils/rendererHomeDir";
 import { isExecutableLikePath } from "../../utils/externalPathAccessPolicy";
 import { useExternalPathOpenGate } from "../../hooks/useExternalPathOpenGate";
+import { normalizeBrowserWebLink } from "../../../../shared/browserWebLink";
+import { MAX_BROWSER_HTML_PREVIEW_BYTES } from "../../../../shared/htmlPreview";
+import { fileLoadErrorMessage } from "../app/fileLoadErrorMessage";
+import { openBrowserHtml } from "../../utils/openBrowserHtml";
 import type { ProjectFileAccessScope } from "../../../../shared/types";
+import { BrowserLinkContext } from "../app/BrowserLinkContext";
 import { t } from "../../i18n";
 import { showNotice } from "../../utils/notice";
 // 剪贴板工具必须取 utils 而非 notice-toast：notice-toast 经 MarkdownStream 依赖本文件，
@@ -42,6 +47,8 @@ export function MarkdownLink(
 ) {
 	const { onOpenExternal, onOpenFile, children, className, title, ...anchorProps } = props;
 	const [menu, setMenu] = useState<{ x: number; y: number } | undefined>(undefined);
+	const openInBrowser = useContext(BrowserLinkContext);
+	const webLink = openInBrowser && normalizeBrowserWebLink(props.href);
 	// remarkLinkifyPaths 生成的文件路径链接走 file:// 协议，与普通外链区分展示；
 	// 无协议 href（[text](path) 形式）也是本地路径引用，同样走 onOpenFile
 	const isFileLink = props.href?.startsWith("file://") ?? false;
@@ -68,6 +75,8 @@ export function MarkdownLink(
 	// 这里同样带家目录（issue #426）：菜单里的「复制绝对路径 / 在资源管理器打开」必须拿到真绝对路径。
 	const externalPath = resolvedPath === null && fileLinkPath !== undefined ? resolveFileLinkPath(fileLinkPath, baseDir, undefined, getRendererHomeDir()) : null;
 	const menuPath = resolvedPath ?? externalPath;
+	const htmlFileName = menuPath?.split(/[/\\]/).pop();
+	const canOpenHtmlInBrowser = openInBrowser && htmlFileName && /\.html?$/i.test(htmlFileName);
 	// 「用系统默认方式打开」= shell.openPath：项目内是用户自己的工程文件，直接给；
 	// 项目外要对可执行/脚本后缀收回入口（对这些后缀等于执行代码），其余后缀仍可经等级门打开。
 	// 远端项目：文件在远端主机上，本机没有任何应用能打开它——不提供这一项。
@@ -111,7 +120,7 @@ export function MarkdownLink(
 		}
 	};
 	const handleContextMenu = (e: React.MouseEvent<HTMLAnchorElement>) => {
-		if (!menuPath) return;
+		if (!menuPath && !webLink) return;
 		e.preventDefault();
 		setMenu({ x: e.clientX, y: e.clientY });
 	};
@@ -123,6 +132,21 @@ export function MarkdownLink(
 			undefined,
 			"error",
 		);
+	const openHtmlLink = () => {
+		const target = remoteTarget ?? menuPath;
+		if (!openInBrowser || !htmlFileName || !target) return;
+		const readAndOpen = () => {
+			void desktopApi.files
+				.readContent(target, MAX_BROWSER_HTML_PREVIEW_BYTES, !remoteTarget && resolvedPath ? scope : undefined)
+				.then((html) => openBrowserHtml(htmlFileName, html, openInBrowser))
+				.catch((error: unknown) => showOpenFailure(fileLoadErrorMessage(error)));
+		};
+		if (remoteTarget || resolvedPath) {
+			readAndOpen();
+		} else if (externalPath) {
+			void requestExternalPathOpen({ path: externalPath, sessionId, cwd: baseDir, projectRoot, proceed: readAndOpen });
+		}
+	};
 	// 「在资源管理器打开」：stat 分流——目录直接打开该目录（shell.openPath），
 	// 文件定位到父目录并选中（showInFolder）；不存在时与左键点击同一份提示。
 	// targetScope 有形（项目内）时用项目边界，无（项目外）时走主进程的通用入口。
@@ -206,14 +230,14 @@ export function MarkdownLink(
 				// 避免皮肤改 --color-md-link 时把文件链接一起改掉。
 				data-md-file-link={isFileLink || isLocalRef ? "" : undefined}
 				onClick={handleClick}
-				onContextMenu={isFileLink || isLocalRef ? handleContextMenu : undefined}
+				onContextMenu={isFileLink || isLocalRef || webLink ? handleContextMenu : undefined}
 				// 文件链接 hover 展示解码后的完整路径 + 修饰键提示（右键菜单之外的快路径）；
 				// 远端 target 没有可用的系统打开手势，不展示修饰键提示，只给远端绝对路径。
 				title={isFileLink ? (remoteTarget === null ? `${fileLinkPath}\n${t("fileLink.modifierOpenHint", { modifier: FILE_LINK_MODIFIER })}` : fileLinkPath) : title}
 			>
 				{children}
 			</a>
-			{menu && menuPath && (
+			{menu && (menuPath || webLink) && (
 				<DropdownMenu
 					open
 					onOpenChange={(open) => {
@@ -238,23 +262,28 @@ export function MarkdownLink(
 						}}
 					/>
 					<DropdownMenuContent align="start" side="bottom" className="min-w-40" onCloseAutoFocus={(e) => e.preventDefault()}>
-						{/* 顺序与文件抽屉右键菜单同序：默认打开 → 定位 → 复制，主操作在首位。
+						{(webLink || canOpenHtmlInBrowser) && <DropdownMenuItem onSelect={webLink ? () => openInBrowser?.(webLink) : openHtmlLink}>{t("browser.openLinkInBrowser")}</DropdownMenuItem>}
+						{menuPath && (
+							<>
+								{/* 顺序与文件抽屉右键菜单同序：默认打开 → 定位 → 复制，主操作在首位。
 						    项目外路径的系统动作同样提供，但都经 requestExternalPathOpen 过一遍安全等级门；
 						    可执行/脚本后缀对项目外不提供「默认方式打开」（shell.openPath 等于执行代码）。 */}
-						{canOpenWithDefaultApp && (
-							<DropdownMenuItem onSelect={openWithDefaultApp}>
-								{t("menu.defaultOpen")}
-								{/* 与左键修饰键同一常量，避免两处平台文案漂移 */}
-								<DropdownMenuShortcut>{t("fileLink.modifierClickShortcut", { modifier: FILE_LINK_MODIFIER })}</DropdownMenuShortcut>
-							</DropdownMenuItem>
+								{canOpenWithDefaultApp && (
+									<DropdownMenuItem onSelect={openWithDefaultApp}>
+										{t("menu.defaultOpen")}
+										{/* 与左键修饰键同一常量，避免两处平台文案漂移 */}
+										<DropdownMenuShortcut>{t("fileLink.modifierClickShortcut", { modifier: FILE_LINK_MODIFIER })}</DropdownMenuShortcut>
+									</DropdownMenuItem>
+								)}
+								<DropdownMenuItem onSelect={openInExplorer} disabled={!canRevealInExplorer}>
+									{t("fileLink.openInExplorer")}
+								</DropdownMenuItem>
+								<DropdownMenuItem onSelect={copyRelativePath} disabled={!relativePath}>
+									{t("fileLink.copyRelativePath")}
+								</DropdownMenuItem>
+								<DropdownMenuItem onSelect={copyAbsolutePath}>{t("fileLink.copyAbsolutePath")}</DropdownMenuItem>
+							</>
 						)}
-						<DropdownMenuItem onSelect={openInExplorer} disabled={!canRevealInExplorer}>
-							{t("fileLink.openInExplorer")}
-						</DropdownMenuItem>
-						<DropdownMenuItem onSelect={copyRelativePath} disabled={!relativePath}>
-							{t("fileLink.copyRelativePath")}
-						</DropdownMenuItem>
-						<DropdownMenuItem onSelect={copyAbsolutePath}>{t("fileLink.copyAbsolutePath")}</DropdownMenuItem>
 					</DropdownMenuContent>
 				</DropdownMenu>
 			)}

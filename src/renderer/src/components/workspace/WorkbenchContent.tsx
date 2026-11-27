@@ -41,6 +41,7 @@ export type WorkbenchContentProps = {
 	editorMode: WorkspaceContentOpenMode;
 	onToggleEditorMode?: () => void;
 	onCloseEditor: () => void;
+	onOpenInBrowser?: (url: string) => void;
 	/** 只读 tab（项目外文件）确认后解锁编辑：宿主把该 tab 的 allowSave 翻成 true。 */
 	onAllowSaveTab?: (tabId: string) => void;
 	readContent: (path: string | ProjectFileTarget, maxBytes?: number, scope?: ProjectFileAccessScope) => Promise<string>;
@@ -77,6 +78,7 @@ export function WorkbenchContent(props: WorkbenchContentProps) {
 						initialLine={tab.initialLine}
 						modifiedContent={tab.modifiedContent}
 						onClose={props.onCloseEditor}
+						onOpenInBrowser={props.onOpenInBrowser}
 						readContent={props.readContent}
 						readOriginalContent={props.readOriginalContent}
 						saveContent={tab.allowSave ? props.saveContent : undefined}

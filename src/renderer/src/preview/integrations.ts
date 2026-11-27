@@ -32,6 +32,7 @@ export function createIntegrationsPreview(): Pick<PiDesktopApi, "feishu" | "brow
 		},
 		browser: {
 			openExternal: async () => {},
+			stageHtmlPreview: async () => null,
 		},
 		wechat: {
 			snapshot: async () => ({ ok: false, message: "预览模式不支持" }),

@@ -92,10 +92,10 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
  *   gitRemoteCherryPick / gitRemoteRevert / gitRemoteReset / gitRemoteDropCommit（git 前缀 65 → 69），
  *   每个动作一枚 main 签发、按 (窗口, 项目, 动作, 仓库) 绑定的令牌；helper 未声明能力时不签发，入口缺席。
  */
-// Cmd/Ctrl+W 收窗前汇总运行中终端，只暴露无参数的 terminal:live-count。
-const CHANNEL_TOTAL = 867;
+// browser:stage-html-preview 接收已读取的 HTML 内容，返回隔离浏览器的快照地址。
+const CHANNEL_TOTAL = 868;
 const PREFIX_COUNT = 96;
-const CHANNEL_DIGEST = "f9984ff89594610f8d619d929671d6bbf78dd1f15bea2418046ee0699a8b681e";
+const CHANNEL_DIGEST = "db432f0d4da8d88b9985367faf134a508928ac21df102d7752bfa58646a9cdff";
 // agentEventTags：Agent 内部事件标签（emit 的 sourceChannel），不是 IPC 通道，不进 preload。
 const EVENT_TAG_TOTAL = 8;
 const EVENT_TAG_DIGEST = "aab959e88353903d214ac0276ccbdc0c90a31240dabc6469b6174a902c76d44b";

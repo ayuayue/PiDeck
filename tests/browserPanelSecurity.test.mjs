@@ -80,7 +80,7 @@ test("BrowserPanel guest navigation, redirects, windows, and permissions default
 	assert.match(attach, /guest\.on\("will-redirect"/);
 	assert.match(attach, /guest\.setWindowOpenHandler/);
 	assert.match(attach, /return \{ action: "deny" \}/);
-	assert.match(attach, /if \(isAllowedBrowserPanelUrl\(event\.url\)\) return;/);
+	// 页面发起的导航与预览主框架例外由浏览器预览行为测试覆盖。
 });
 
 test("webview hardening is installed before the main window loads renderer content", () => {

@@ -19,6 +19,8 @@
 
 export const HTML_PREVIEW_SCHEME = "pideck-html";
 export const HTML_PREVIEW_HOST = "preview";
+const BROWSER_HTML_PREVIEW_PREFIX = `${HTML_PREVIEW_SCHEME}://browser/`;
+export const MAX_BROWSER_HTML_PREVIEW_BYTES = 16 * 1024 * 1024;
 
 /** 单次预览的内容字符上限（粗筛，避免对超大内容做无谓编码）。 */
 export const MAX_HTML_PREVIEW_CHARS = 1_500_000;
@@ -137,18 +139,40 @@ function fromBase64Url(value: string): string {
 	return new TextDecoder().decode(bytes);
 }
 
-/**
- * 把 HTML 内容编码成 `pideck-html://preview/<base64url>`。
- *
- * 超过 {@link MAX_HTML_PREVIEW_CHARS}、或编码后长度超过 {@link MAX_HTML_PREVIEW_URL_CHARS}
- * 时返回 null，由调用方决定降级方式（预览大文件不值得为了跑脚本把整份内容塞进 URL）。
- */
-export function encodeHtmlPreviewUrl(content: string): string | null {
+/** 编码前后分别限制大小，避免生成 Chromium 无法导航的 URL。 */
+function encodePreviewPayload(content: string): string | null {
 	if (!content || content.length > MAX_HTML_PREVIEW_CHARS) return null;
 	const encoded = toBase64Url(content);
-	// 编码后仍超上限：宁可退回 srcDoc（至少能看到静态内容），也不给一个导航不起来的 URL
-	if (encoded.length > MAX_HTML_PREVIEW_URL_CHARS) return null;
-	return `${HTML_PREVIEW_SCHEME}://${HTML_PREVIEW_HOST}/${encoded}`;
+	return encoded.length <= MAX_HTML_PREVIEW_URL_CHARS ? encoded : null;
+}
+
+/** 生成编辑器 iframe 的预览地址。内容超限时由调用方降级。 */
+export function encodeHtmlPreviewUrl(content: string): string | null {
+	const payload = encodePreviewPayload(content);
+	return payload ? `${HTML_PREVIEW_SCHEME}://${HTML_PREVIEW_HOST}/${payload}` : null;
+}
+
+/** 主进程签发的浏览器快照地址。文件名仅用于显示。 */
+export function browserHtmlPreviewUrl(fileName: string, token: string): string | null {
+	try {
+		const url = `${BROWSER_HTML_PREVIEW_PREFIX}${encodeURIComponent(fileName)}/${token}`;
+		return browserHtmlPreviewFileName(url) ? url : null;
+	} catch {
+		return null;
+	}
+}
+
+/** 校验浏览器快照路由并提取文件名。锚点由文档处理。 */
+export function browserHtmlPreviewFileName(url: string): string | null {
+	if (!url.startsWith(BROWSER_HTML_PREVIEW_PREFIX)) return null;
+	const match = /^([^/?#]{1,3072})\/([a-f0-9-]{36})$/.exec(url.slice(BROWSER_HTML_PREVIEW_PREFIX.length).split("#", 1)[0]);
+	if (!match) return null;
+	try {
+		const fileName = decodeURIComponent(match[1]);
+		return /^[^/\\\u0000-\u001f\u007f]*\.html?$/i.test(fileName) ? fileName : null;
+	} catch {
+		return null;
+	}
 }
 
 /** 从 `pideck-html://` URL 还原 HTML 内容；格式不符或解码失败返回 null。 */

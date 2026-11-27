@@ -4,9 +4,11 @@
  * 任何一处修改都要同时生效，故收敛到单一事实源。
  */
 
+import { browserHtmlPreviewFileName } from "../../shared/htmlPreview";
+
 export const BROWSER_PANEL_PARTITION = "persist:pideck-browser-panel";
 
-/** 仅允许 http/https 页面与 about:blank 进入内置浏览器；file:// 等本地协议一律拒绝。 */
+/** 通常的浏览器及 Agent 导航仅允许 HTTP(S) 和空白页。 */
 export function isAllowedBrowserPanelUrl(targetUrl: string): boolean {
 	if (targetUrl === "about:blank") return true;
 	try {
@@ -15,4 +17,9 @@ export function isAllowedBrowserPanelUrl(targetUrl: string): boolean {
 	} catch {
 		return false;
 	}
+}
+
+/** 只有浏览器宿主主框架可加载 PiDeck 自己生成的 HTML 预览。 */
+export function isAllowedBrowserPanelFrameUrl(url: string, isMainFrame: boolean): boolean {
+	return isAllowedBrowserPanelUrl(url) || (isMainFrame && browserHtmlPreviewFileName(url) !== null);
 }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, Home, Maximize2, Minus, Plus, RefreshCw, Smartphone, Tablet, TriangleAlert, X } from "lucide-react";
+import { browserHtmlPreviewFileName } from "../../../../shared/htmlPreview";
 import { t } from "../../i18n";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../ui-shadcn/dropdown-menu";
 import { Button } from "../ui-shadcn/button";
@@ -74,19 +75,12 @@ function getInitialActiveTab(): TabEntry {
 	return moduleState.tabs.find((tab) => tab.id === moduleState.activeTabId) ?? moduleState.tabs[0];
 }
 
-/**
- * 供外部（App.tsx）调用：在浏览器侧栏/弹框中导航到指定 URL。
- * 如果没有标签页则创建一个，然后切换到该标签页并加载 URL。
- */
-/**
- * 供外部（App.tsx）调用：在浏览器侧栏/弹框中导航到指定 URL。
- * 每次都新建 tab，避免多个外部链接复用同一个 tab。
- */
 /** 待消费的外部导航 URL，由 navigateTo 写入、BrowserPanel 挂载时消费。 */
 let pendingNavigateUrl: string | null = null;
 /** 外部导航监听：navigateTo 直接触发一次消费尝试，替代旧 50ms 常驻轮询的空转。 */
 let pendingNavigateListener: (() => void) | null = null;
 
+/** 在内置浏览器新建 tab，保持其他标签页的内容。 */
 export function navigateTo(url: string) {
 	// 每次外部导航创建新 tab，避免多个链接复用同一个 tab
 	const id = genTabId();
@@ -130,7 +124,7 @@ export function BrowserPanel(props: {
 	const [tabs, setTabs] = useState<TabEntry[]>(() => [...moduleState.tabs]);
 	const [activeTabId, setActiveTabId] = useState<string | null>(() => moduleState.activeTabId);
 	const [url, setUrl] = useState(initialTab.url);
-	const [inputValue, setInputValue] = useState(initialTab.url);
+	const [inputValue, setInputValue] = useState(() => (browserHtmlPreviewFileName(initialTab.url) ? "" : initialTab.url));
 	const [canGoBack, setCanGoBack] = useState(false);
 	const [canGoForward, setCanGoForward] = useState(false);
 	const [isLoading, setIsLoading] = useState(false);
@@ -169,7 +163,7 @@ export function BrowserPanel(props: {
 			if (!wv?.isConnected || !webviewReadyRef.current) return;
 			applyDeviceUserAgent(wv, nextDevice);
 			setUrl(targetUrl);
-			setInputValue(targetUrl);
+			setInputValue(browserHtmlPreviewFileName(targetUrl) ? "" : targetUrl);
 			// loadURL 返回 Promise；切 tab、刷新或连续跳转会让旧请求以 ERR_ABORTED reject。
 			// 这里必须在 webview 边界消费该可预期取消，否则会触发 renderer unhandledrejection。
 			void wv.loadURL(targetUrl).catch((error: unknown) => {
@@ -206,7 +200,7 @@ export function BrowserPanel(props: {
 			// 导航成功即清除错误页（重试/新导航生效）
 			setLoadError(null);
 			setUrl(nextUrl);
-			setInputValue(nextUrl);
+			setInputValue(browserHtmlPreviewFileName(nextUrl) ? "" : nextUrl);
 			updateNavigationState();
 			updateActiveTab({ url: nextUrl });
 		};
@@ -215,7 +209,7 @@ export function BrowserPanel(props: {
 			if (!evt.isMainFrame) return;
 			setLoadError(null);
 			setUrl(evt.url);
-			setInputValue(evt.url);
+			setInputValue(browserHtmlPreviewFileName(evt.url) ? "" : evt.url);
 			updateActiveTab({ url: evt.url });
 		};
 		const onDidStartLoading = () => setIsLoading(true);
@@ -448,7 +442,7 @@ export function BrowserPanel(props: {
 						}}
 						onClick={() => switchTab(tab.id)}
 					>
-						<span className="min-w-0 truncate">{tab.title || tab.url}</span>
+						<span className="min-w-0 truncate">{tab.title || browserHtmlPreviewFileName(tab.url) || tab.url}</span>
 						<Button
 							variant="ghost"
 							size="icon-sm"
@@ -509,7 +503,7 @@ export function BrowserPanel(props: {
 						onChange={(event) => setInputValue(event.target.value)}
 						onKeyDown={handleKeyDown}
 						onFocus={(event) => event.target.select()}
-						placeholder={t("browser.urlPlaceholder")}
+						placeholder={browserHtmlPreviewFileName(url) ?? t("browser.urlPlaceholder")}
 					/>
 				</div>
 				<DropdownMenu>
@@ -564,8 +558,8 @@ export function BrowserPanel(props: {
 					<div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-bg-page px-6 text-center" role="alert">
 						<TriangleAlert className="text-text-secondary" size={28} aria-hidden="true" />
 						<div className="text-sm font-medium text-text-primary">{t("browser.loadFailedTitle")}</div>
-						<div className="max-w-md break-all text-xs text-text-tertiary" title={loadError.url}>
-							{loadError.url}
+						<div className="max-w-md break-all text-xs text-text-tertiary" title={browserHtmlPreviewFileName(loadError.url) ?? loadError.url}>
+							{browserHtmlPreviewFileName(loadError.url) ?? loadError.url}
 							{loadError.description ? <span className="ml-1 text-text-quaternary">({loadError.description})</span> : null}
 						</div>
 						<Button

@@ -1191,7 +1191,7 @@ export const ipcChannels = {
 
 	// ===== 内置浏览器 =====
 	browserOpenExternal: "browser:open-external",
-
+	browserStageHtmlPreview: "browser:stage-html-preview",
 	// ===== 用量统计（usage-stats） =====
 	usageStatsDetect: "usage-stats:detect",
 	usageStatsRefresh: "usage-stats:refresh",

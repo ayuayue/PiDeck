@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: b3b76f0d4b3a2024f66d40e0197388656ac41da0952c58783e300c5daf771c4b（来自 src/shared/i18n/mainProcessCopy.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 2a56f726776c8d0f205a61c7ab059ed7baf82155c24f14f07e627375a360c960（来自 src/shared/i18n/mainProcessCopy.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import type { MainProcessTranslationKey } from "./mainProcessCopy";
 
@@ -68,6 +68,7 @@ export const mainProcessZhTW: Record<MainProcessTranslationKey, string> = {
 	"git.commitMessageTimeout": "提交摘要生成超時，請重試。",
 	"git.commitMessageEmptyDiff": "沒有暫存的更改，請先暫存更改後再生成提交摘要。",
 	"git.commitMessageNoRepo": "未找到可用的 Git 倉庫目錄，請先開啟或初始化倉庫後重試。",
+	"browser.openLinkInBrowser": "在內建瀏覽器開啟",
 	"tray.showWindow": "顯示視窗",
 	"tray.version": "PiDeck v{version}",
 	"tray.checkUpdate": "檢查更新…",

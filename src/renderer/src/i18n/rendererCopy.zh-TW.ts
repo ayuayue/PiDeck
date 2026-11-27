@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 716694e3f5b40747d89ce814aa344899b273b5928acab9808a358903fda1134a（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: b1858c6354947601a6ec572f3885c05c534197f43816e2c57bb813cbbbfa6e14（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -3937,6 +3937,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"config.extensionStoreOpenPage": "在 pi.dev 開啟詳情",
 	"config.yaoSearchPlaceholder": "搜尋中文提示詞…",
 	"editor.htmlPreview": "HTML 預覽",
+	"editor.browserHtmlTooLarge": "網頁內容超過內建瀏覽器的預覽大小限制。",
 	"config.yaoAll": "全部",
 	"config.yaoNoData": "暫無提示詞資料",
 	"config.yaoDbPreparing": "正在獲取提示詞庫…",

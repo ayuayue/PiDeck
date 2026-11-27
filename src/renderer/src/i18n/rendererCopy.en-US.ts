@@ -3949,6 +3949,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"config.extensionStoreOpenPage": "Open details on pi.dev",
 	"config.yaoSearchPlaceholder": "Search Chinese prompts…",
 	"editor.htmlPreview": "HTML preview",
+	"editor.browserHtmlTooLarge": "This page exceeds the built-in browser’s preview size limit.",
 	"config.yaoAll": "All",
 	"config.yaoNoData": "No prompt data available",
 	"config.yaoDbPreparing": "Fetching prompt library…",
