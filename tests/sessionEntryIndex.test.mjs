@@ -39,7 +39,6 @@ test("主进程提供全量条目索引（entryId / ordinal / role）", () => {
 	assert.equal(am.includes("sessionHistory"), true, "AgentManager 必须把 reader 暴露给 IPC（或转发）");
 });
 
-
 test("索引与定位覆盖被 compaction 移出的条目（否则「搜到却滚不过去」）", () => {
 	// 长会话必然多次压缩，早期消息不在活动分支上。索引走 index.entries（全量条目表），
 	// 定位在活动分支找不到时按字节偏移退到锚 —— 否则用户搜到自己说过的话却得到
