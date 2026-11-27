@@ -33,6 +33,22 @@ test("plainText codec roundtrips mention chips with whitelist", () => {
 	assert.deepEqual(kinds, ["file", "skill", "session"]);
 });
 
+test("existing drafts with adjacent absolute references keep separate chips and trailing text", () => {
+	const refs = ["@/tmp/report.txt", '@"/tmp/project notes/summary.md"', "@C:/docs/list.txt"];
+	const text = refs.join(" ") + " 请比较这些文件";
+	const doc = plainTextToComposerDoc(text, { validFilePaths: new Set() });
+	const nodes = doc.content[0].content;
+	assert.deepEqual(
+		Array.from(
+			nodes.filter((node) => node.type === "mentionChip"),
+			(node) => node.attrs.raw,
+		),
+		refs,
+	);
+	assert.equal(nodes.at(-1).text, " 请比较这些文件");
+	assert.equal(composerDocToPlainText(doc), text);
+});
+
 test("plainText codec does not create session chip for && when whitelisted", () => {
 	const doc = plainTextToComposerDoc("run && echo", {
 		validSessionRefs: new Set(["alpha"]),

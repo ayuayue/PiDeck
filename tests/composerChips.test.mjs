@@ -60,6 +60,16 @@ test("formatFilePathRef quotes spaced paths and marks directories", () => {
 	assert.equal(formatFilePathRef("my docs/a.ts"), '@"my docs/a.ts"');
 });
 
+test("quoted references roundtrip file names containing @ and double quotes", () => {
+	const path = '/tmp/@review "draft".md';
+	const ref = formatFilePathRef(path);
+	const chips = parseRichInputChips(ref + " 后续正文", undefined, new Set());
+	assert.equal(chips.length, 1);
+	assert.equal(chips[0].raw, ref);
+	assert.equal(chips[0].label, '@review "draft".md');
+	assert.equal(unwrapFileChipPath(chips[0].raw), path);
+});
+
 test("unwrapFileChipPath strips @ quotes and trailing separators", () => {
 	assert.equal(unwrapFileChipPath("@src/a.ts"), "src/a.ts");
 	assert.equal(unwrapFileChipPath("@src/"), "src");
