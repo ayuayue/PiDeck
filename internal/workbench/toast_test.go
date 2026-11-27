@@ -32,14 +32,16 @@ func TestToastPlacement(t *testing.T) {
 	if stack == nil {
 		t.Fatal("the toasts are not on screen")
 	}
-	y := float64(stack.Frame.Origin.Y)
+	// The stack's frame is relative to its overlay, not to the window.
+	bounds := stack.Bounds()
+	y := float64(bounds.Origin.Y)
 	if y < float64(ui.HeaderHeight) {
 		t.Errorf("toasts start at y=%v, over the %v header", y, ui.HeaderHeight)
 	}
 	if y > height/4 {
 		t.Errorf("toasts start at y=%v, too far below the header", y)
 	}
-	x, right := float64(stack.Frame.Origin.X), float64(stack.Frame.Origin.X+stack.Frame.Size.Width)
+	x, right := float64(bounds.Origin.X), float64(bounds.Origin.X+bounds.Size.Width)
 	if x < width/2 {
 		t.Errorf("toasts start at x=%v, not on the right", x)
 	}

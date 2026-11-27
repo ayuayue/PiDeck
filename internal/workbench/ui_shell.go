@@ -87,10 +87,21 @@ func (a *app) view() core.Node {
 		a.projectRemoveDialog(),
 		a.sessionOrganizationPanel(),
 		a.workspaceRenameDialog(),
-		// Toasts sit at the top right, 16 under the header: the header's
-		// own height is the inset, and ui.Toasts adds the margin.
-		ui.Toasts{Toaster: a.toaster, Placement: ui.ToastTopEnd, Inset: ui.HeaderHeight, CloseLabel: apptext.T("关闭"), TestID: "toasts"},
+		core.Func(a.toastOverlay),
 	}}
+}
+
+// toastOverlay keeps the layer itself below the header. Toasts.Inset only
+// adds padding: its transparent full-width box would still cover the header
+// and stop Windows' native caption hit test reaching any drag region.
+func (a *app) toastOverlay(cx *core.Scope) core.Node {
+	layer := ui.Toasts{Toaster: a.toaster, Placement: ui.ToastTopEnd, CloseLabel: apptext.T("关闭"), TestID: "toasts"}.Render(cx).(core.Overlay)
+	layer.TestID = "toast-layer"
+	layer.Style.Top = core.Pt(ui.HeaderHeight)
+	// Animated children otherwise extend the layer's pointer search beyond
+	// its frame, even while a toast stays visually below the header.
+	layer.Style.Overflow = core.Hidden
+	return layer
 }
 
 // shell is the sidebar beside the chat, with the optional drawer.

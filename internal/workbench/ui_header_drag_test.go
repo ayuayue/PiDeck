@@ -16,6 +16,7 @@ import (
 
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // headerFixture opens the window as Windows shows it: the shell's own header
@@ -78,6 +79,23 @@ func TestTabStripDragsWindow(t *testing.T) {
 	if tab := screen.Find("id:tab"); tab.Props.WindowDrag == core.WindowDragOn {
 		t.Fatal("the tab itself became a window handle")
 	}
+}
+
+func TestHeaderToastLayer(t *testing.T) {
+	a, screen := headerFixture(t, config{}, 1)
+	layer := screen.FindMounted("id:toast-layer").Bounds()
+	if layer.Origin.Y < ui.HeaderHeight {
+		t.Fatalf("the transparent notification layer covers the header: %+v", layer)
+	}
+	a.toaster.Show(ui.ToastContent{ID: "header-toast", Title: "Header drag", Duration: -1})
+	screen.Advance(300 * time.Millisecond)
+	toast := screen.Find("id:header-toast").Bounds()
+	if toast.Origin.Y != ui.HeaderHeight+16 {
+		t.Fatalf("the notification moved from its existing position below the header: %+v", toast)
+	}
+	screen.Press("id:header-toast-close")
+	screen.Advance(300 * time.Millisecond)
+	screen.WaitForGone("id:header-toast", 5*time.Second)
 }
 
 // TestTabStripKeepsControlsInsideWindow checks the tabs still scroll inside
