@@ -150,12 +150,12 @@ func chatTextFixture(t *testing.T, message, kind string) *nsgotest.App {
 	return nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		a := &app{cx: cx, chatFont: core.NewSignal(cx, float64(0)), chatLine: core.NewSignal(cx, float64(0)),
 			codeWrap: core.NewSignal(cx, true)}
-		s := &session{ID: "text-fixture", uiSeq: core.NewSignal(cx, 0), steering: core.NewSignalFunc(cx, []string{message}, nil),
+		s := &session{ID: "text-fixture", uiSeq: core.NewSignal(cx, 0), steering: core.NewSignalFunc(cx, []queuedMessage{{ID: "steer-message", Text: message}}, nil),
 			sending: core.NewSignalFunc(cx, []queuedMessage{{ID: "held-message", Text: message}}, nil)}
 		var content core.Node
 		switch kind {
 		case "queue":
-			content = a.queuePanel(s)
+			content = a.queuePanel(s, nil)
 		case "note", "steering":
 			step := turnStep{ID: "note", Note: message}
 			if kind == "steering" {

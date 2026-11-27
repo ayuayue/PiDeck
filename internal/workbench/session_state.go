@@ -80,8 +80,15 @@ type session struct {
 	// steering mirrors pi's queue: messages that take effect before its
 	// next call. sending holds the follow-ups this app keeps for the end of
 	// the turn.
-	steering *core.Signal[[]string]
-	sending  *core.Signal[[]queuedMessage]
+	steering  *core.Signal[[]queuedMessage]
+	sending   *core.Signal[[]queuedMessage]
+	queueBusy *core.Signal[bool]
+	// Queue RPCs run in order; clearing defers its transient projection.
+	queueTail    <-chan struct{}
+	queueOps     int
+	queueEditing bool
+	queueLatest  []string
+	queueSeen    bool
 	// ask is the request the card shows; asks wait behind it, oldest
 	// first, and askPending counts them all for the rail's badge. askUI
 	// holds what the card has typed and answered.

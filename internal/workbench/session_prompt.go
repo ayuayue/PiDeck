@@ -106,10 +106,7 @@ func (a *app) submitTurn(s *session, text string, images []remotewire.Image, pla
 // steer sends a message into the running turn, waiting for pi if it is
 // still starting.
 func (a *app) steer(s *session, text string, images []remotewire.Image) {
-	if s.engine == nil {
-		a.ensureEngine(s, func() { a.steer(s, text, images) })
-		return
-	}
+	a.enqueueSteer(s, newQueuedMessage(a.cx.Now(), text, images))
 	a.cx.Batch(func() {
 		s.turns.Update(func(ts []turn) []turn {
 			for i := len(ts) - 1; i >= 0; i-- {
@@ -122,15 +119,6 @@ func (a *app) steer(s *session, text string, images []remotewire.Image) {
 			return ts
 		})
 	})
-	go func(c *piClient, text string, images []remotewire.Image) {
-		cmd := map[string]any{"type": "steer", "message": text}
-		if imgs := encodeImages(images); imgs != nil {
-			cmd["images"] = imgs
-		}
-		if err := c.call(cmd, nil, 30*time.Second); err != nil {
-			a.cx.Post(func() { a.toast(ui.ToastError, "引导发送失败", err.Error()) })
-		}
-	}(s.engine, text, images)
 }
 
 // prompt sends a prompt command for a turn.
@@ -243,18 +231,22 @@ func (a *app) stop(s *session) {
 		return
 	}
 	c := s.engine
-	go func() {
+	a.runQueueCommand(s, func() func() {
 		if err := c.call(map[string]any{"type": "clear_queue"}, nil, 10*time.Second); err != nil {
 			// A session with nothing queued may refuse; abort still stands.
 			_ = err
 		}
-		if err := c.call(map[string]any{"type": "abort"}, nil, 60*time.Second); err != nil {
-			a.cx.Post(func() { a.toast(ui.ToastError, "停止失败", err.Error()) })
-		}
-		a.cx.Post(func() {
+		err := c.call(map[string]any{"type": "abort"}, nil, 60*time.Second)
+		return func() {
+			if s.engine != c {
+				return
+			}
+			if err != nil {
+				a.toast(ui.ToastError, "停止失败", err.Error())
+			}
 			s.steering.Set(nil)
-		})
-	}()
+		}
+	})
 	s.status.Set(statusWaiting)
 }
 

@@ -188,7 +188,7 @@ func (a *app) composerStack(s *session, width func() core.Length, height func() 
 					When: func() bool { return s.showingAsk() != nil },
 					Then: func(*core.Scope) core.Node { return a.askPanel(s) },
 					Else: func(*core.Scope) core.Node {
-						return core.View{Style: core.Style{Gap: 0}, Children: []core.Node{a.queuePanel(s), a.draftChangeBar(s), a.composer(s, editor, height)}}
+						return core.View{Style: core.Style{Gap: 0}, Children: []core.Node{a.queuePanel(s, editor), a.draftChangeBar(s), a.composer(s, editor, height)}}
 					},
 				},
 			}},

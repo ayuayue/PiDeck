@@ -490,56 +490,6 @@ func (a *app) sendMenu(s *session) core.Node {
 	}, "send-behavior-menu")
 }
 
-// queuePanel lists what waits behind the running turn: pi's steering
-// messages, which take effect before its next call, and the follow-ups the
-// app holds for the end.
-func (a *app) queuePanel(s *session) core.Node {
-	return core.Dynamic(func(cx *core.Scope) core.Node {
-		steering := s.steering.Get()
-		held := s.sending.Get()
-		if len(steering) == 0 && len(held) == 0 {
-			return nil
-		}
-		colors := ui.ColorsOf(cx)
-		badge := func(kind string) core.Node {
-			return core.View{Style: core.Style{FlexShrink: 0, Padding: core.Symmetric(1, 5), CornerRadius: 5, Background: colors.Inset()},
-				Children: []core.Node{ui.Text(kind, 9.5, ui.Medium, colors.Faint)}}
-		}
-		var rows []core.Node
-		for _, text := range steering {
-			rows = append(rows, core.View{TestID: "queue-steer",
-				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinHeight: core.Pt(24)}, Children: []core.Node{
-					badge(apptext.T("下一次调用")),
-					core.Text{Content: viewkit.FirstLine(text, 120), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-						Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11.5}, StyleFunc: ui.Colored(colors.Muted)},
-				}})
-		}
-		for _, msg := range held {
-			m := msg
-			rows = append(rows, core.View{TestID: "queue-followup",
-				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinHeight: core.Pt(24)}, Children: []core.Node{
-					badge(apptext.T("本轮结束")),
-					core.Text{Content: viewkit.FirstLine(m.Text, 120), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-						Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11.5}, StyleFunc: ui.Colored(colors.Text)},
-					hintOf(func() string { return apptext.T("收回输入框") }, a.pressIcon(lucide.X, apptext.T("收回输入框"), 20, 10, nil,
-						func() { a.retractQueued(s, m.ID) }, "queue-retract")),
-				}})
-		}
-		head := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
-			ui.Icon(lucide.ListOrdered, 12, colors.Muted),
-			ui.Textf(func() string { return apptext.T("%d 条在排队", len(steering)+len(held)) }, 10.5, ui.Medium, colors.Muted),
-			core.View{Style: core.Style{FlexGrow: 1}},
-			ui.Button{Text: apptext.T("清空"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "queue-clear",
-				OnPress: func() { a.clearQueue(s) }},
-		}}
-		return core.View{TestID: "queue-panel",
-			Style: core.Style{MinWidth: core.Pt(0), Gap: 2, Margin: core.Edges{Bottom: 6}, Padding: core.Symmetric(6, 10),
-				CornerRadius: 10, BorderWidth: 1, BorderColor: colors.Line(), Background: ui.Alpha(colors.Surface(), 1)},
-			Children: []core.Node{head, a.scrollStashFor("queuePanel:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(120), MinWidth: core.Pt(0)},
-				Children: []core.Node{core.View{Style: core.Style{Gap: 2, Padding: core.Edges{Right: viewkit.PanelInset}}, Children: rows}}})}}
-	})
-}
-
 // contextMeterNode is the ring beside the send button, and the panel it
 // opens: the same facts PiDeck's gauge shows, in the same place.
 func (a *app) contextMeterNode(s *session) core.Node {

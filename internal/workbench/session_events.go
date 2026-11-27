@@ -100,9 +100,7 @@ func (a *app) applyEvent(s *session, ev piEvent) {
 			s.status.Set(statusIdle)
 		}
 	case "queue_update":
-		s.steering.Update(func(list []string) []string {
-			return append([]string(nil), ev.Steering...)
-		})
+		a.updateSteering(s, ev.Steering)
 	case "session_info_changed":
 		if ev.Name != "" {
 			s.title.Set(ev.Name)

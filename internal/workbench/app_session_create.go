@@ -42,8 +42,9 @@ func (a *app) blankSession(id string, ws *workspace, title string) *session {
 		// instead of waiting behind the history skeleton for pi to start.
 		loaded:         core.NewSignal(a.cx, true),
 		notice:         core.NewSignal(a.cx, ""),
-		steering:       core.NewSignalFunc(a.cx, []string(nil), nil),
+		steering:       core.NewSignalFunc(a.cx, []queuedMessage(nil), nil),
 		sending:        core.NewSignalFunc(a.cx, []queuedMessage(nil), nil),
+		queueBusy:      core.NewSignal(a.cx, false),
 		ask:            core.NewSignalFunc(a.cx, (*extensionAsk)(nil), nil),
 		askPending:     core.NewSignal(a.cx, 0),
 		askUI:          core.NewSignalFunc(a.cx, askUIState{}, nil),

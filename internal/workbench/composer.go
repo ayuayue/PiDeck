@@ -8,7 +8,6 @@ package workbench
 // turn ends), and how a blank session changes backend.
 
 import (
-	"fmt"
 	"strings"
 	"time"
 
@@ -43,12 +42,14 @@ const goalDoneMark = "目标已完成"
 // goalBlockedMark ends an answer that cannot go on alone.
 const goalBlockedMark = "需要你的决定"
 
-// queuedMessage is a message held for the end of the running turn.
+// queuedMessage keeps the complete input while it waits for delivery.
 type queuedMessage struct {
-	ID     string
-	Text   string
-	Images []remotewire.Image
-	At     time.Time
+	ID        string
+	Text      string
+	Images    []remotewire.Image
+	At        time.Time
+	QueueText string // pi's expanded text, used to reconcile its text-only queue events
+	Pending   bool   // the enqueue command has not been acknowledged yet
 }
 
 // modeOf is the session's mode, normal when unset.
@@ -346,7 +347,7 @@ func (a *app) sendDraft(s *session, behavior string) {
 		default:
 			behavior = delivery(s)
 		}
-		if behavior == deliveryFollowUp {
+		if behavior == deliveryFollowUp || backendOf(s) == "acp" {
 			a.queueFollowUp(s, text, images)
 			return
 		}
@@ -368,8 +369,7 @@ func (a *app) queueFollowUp(s *session, text string, images []remotewire.Image) 
 	if s == nil || (strings.TrimSpace(text) == "" && len(images) == 0) {
 		return
 	}
-	now := a.cx.Now()
-	msg := queuedMessage{ID: fmt.Sprintf("q%d", now.UnixNano()), Text: text, Images: images, At: now}
+	msg := newQueuedMessage(a.cx.Now(), text, images)
 	s.sending.Update(func(list []queuedMessage) []queuedMessage {
 		return append(append([]queuedMessage(nil), list...), msg)
 	})
@@ -378,7 +378,7 @@ func (a *app) queueFollowUp(s *session, text string, images []remotewire.Image) 
 
 // flushFollowUps sends the oldest queued message once the turn is over.
 func (a *app) flushFollowUps(s *session) {
-	if s == nil || s.busyNow() {
+	if s == nil || s.busyNow() || s.queueWorking() {
 		return
 	}
 	list := s.sending.GetUntracked()
@@ -391,33 +391,6 @@ func (a *app) flushFollowUps(s *session) {
 	}
 	s.sending.Set(rest)
 	a.submit(s, first.Text, first.Images)
-}
-
-// retractQueued takes a held message back into the draft.
-func (a *app) retractQueued(s *session, id string) {
-	if s == nil {
-		return
-	}
-	var found *queuedMessage
-	s.sending.Update(func(list []queuedMessage) []queuedMessage {
-		rest, m := takeQueued(list, id)
-		found = m
-		return rest
-	})
-	if found == nil {
-		return
-	}
-	draft := strings.TrimSpace(s.draft.GetUntracked())
-	text := found.Text
-	if draft != "" {
-		text = found.Text + "\n\n" + draft
-	}
-	s.draft.Set(text)
-	if len(found.Images) > 0 {
-		s.images.Update(func(list []remotewire.Image) []remotewire.Image {
-			return append(append([]remotewire.Image(nil), found.Images...), list...)
-		})
-	}
 }
 
 // onQueuedTurn sends the oldest held follow-up once a turn is over.
@@ -459,31 +432,9 @@ func takeQueued(list []queuedMessage, id string) ([]queuedMessage, *queuedMessag
 	return out, found
 }
 
-// clearQueue drops pi's steering messages and the held follow-ups.
+// clearQueue drops pending messages without racing a steering command.
 func (a *app) clearQueue(s *session) {
-	if s == nil {
-		return
-	}
-	s.sending.Set(nil)
-	if s.backend == "acp" && s.acp != nil && s.acpSID != "" {
-		// ACP has no queue to clear; only the app's own if the turn ends.
-		a.toast(ui.ToastInfo, "已清空排队", "ACP 本轮结束后的消息已移出。")
-		return
-	}
-	c := s.engine
-	if c == nil {
-		a.toast(ui.ToastInfo, "已清空排队", "")
-		return
-	}
-	go func() {
-		if err := c.call(map[string]any{"type": "clear_queue"}, nil, 10*time.Second); err != nil {
-			return
-		}
-		a.cx.Post(func() {
-			s.steering.Set(nil)
-			a.toast(ui.ToastInfo, "已清空排队", "")
-		})
-	}()
+	a.editQueue(s, "", deliverySteer, queueDelete, nil)
 }
 
 // parallelSend starts the draft in a session of its own, so it works while
