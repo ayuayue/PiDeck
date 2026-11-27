@@ -50,6 +50,15 @@ export interface JumpPageFetchPorts {
 	revision: number | undefined;
 	readRecordMessagePage: (sessionId: string, before?: number, pageSize?: number, options?: { beforeEntryId?: string }) => Promise<SessionMessagePage>;
 	prependHistoryPage: (input: { sessionId: string; expectedRevision: number; before?: number | null; page: SessionMessagePage }) => boolean;
+	/**
+	 * 清掉该会话的历史前缀。只在 prepend 被拒后调用一次。
+	 *
+	 * 为什么需要：prependSessionHistoryPageAtom 的守卫是「新页游标必须接上前缀游标」
+	 * （current.history.nextBefore !== input.before → 拒）。一次取页传 before: undefined，
+	 * 所以只要用户之前翻过页（history 存在），这次 prepend 必被拒——页白读 13-26MB，
+	 * 目标仍不在数据里，最后报「未能跳转」。旧前缀对「跳到别处」本来也没用，清掉是对的。
+	 */
+	clearHistory: (sessionId: string) => boolean;
 	/** 历史前缀条数上限，由 controller 注入（唯一真值在 session-history-atoms）。见文件头「依赖方向」。 */
 	historyPrefixMessageLimit: number;
 	setPendingJump: Dispatch<SetStateAction<TaggedTimelineJumpRequest | undefined>>;
@@ -61,7 +70,7 @@ export interface JumpPageFetchPorts {
  */
 export function useJumpPageFetch(ports: JumpPageFetchPorts) {
 	return (pendingJump: TaggedTimelineJumpRequest, currentOwnerKey: string, targetInLoadedData: boolean): boolean => {
-		const { sessionId, revision, readRecordMessagePage, prependHistoryPage, setPendingJump, historyPrefixMessageLimit } = ports;
+		const { sessionId, revision, readRecordMessagePage, prependHistoryPage, clearHistory, setPendingJump, historyPrefixMessageLimit } = ports;
 		if (!sessionId || pendingJump.value.pageFetched) return false;
 		// 目标已在已加载数据里就不取页：点在屏幕上的消息是最常见的情况，此时取页只是白读
 		// 13-26MB（200 轮），还会把这 200 轮塞进历史前缀，改变用户回到顶部时看到的东西。
@@ -83,7 +92,12 @@ export function useJumpPageFetch(ports: JumpPageFetchPorts) {
 				// 而且是撒谎（历史在盘上，只是这页太大）。这时宁可不取这页，退回扩窗与放弃，
 				// 由 resolveJumpPendingAction 给出如实的失败提示。
 				if (page.messages.length >= historyPrefixMessageLimit) return;
-				prependHistoryPage({ sessionId, expectedRevision: revision ?? 0, before: undefined, page });
+				const prepend = { sessionId, expectedRevision: revision ?? 0, before: undefined, page };
+				// 第一次可能被「游标接不上」的守卫拒掉（用户翻过页时必然如此）：清掉旧前缀再试一次。
+				if (!prependHistoryPage(prepend)) {
+					clearHistory(sessionId);
+					prependHistoryPage(prepend);
+				}
 			})
 			.catch(() => {
 				// 见文件头第 3 条：吞掉是承重设计。
