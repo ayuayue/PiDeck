@@ -15,6 +15,7 @@ import (
 // chatSelection belongs to the mounted transcript, not the stored session.
 // Updating it only moves the action; it never rebuilds the selected text.
 type chatSelection struct {
+	cx           *core.Scope
 	value        *core.Signal[core.TextSelection]
 	pointer      *core.Signal[core.Point]
 	menuOpen     *core.Signal[bool]
@@ -30,7 +31,7 @@ type chatSelection struct {
 func newChatSelection(cx *core.Scope) *chatSelection {
 	// A selection carries slices, so it is not comparable: compare the text
 	// and the ranges that decide what the actions show.
-	return &chatSelection{value: core.NewSignalFunc(cx, core.TextSelection{}, sameTextSelection),
+	return &chatSelection{cx: cx, value: core.NewSignalFunc(cx, core.TextSelection{}, sameTextSelection),
 		pointer: core.NewSignal(cx, core.Point{}), menuOpen: core.NewSignal(cx, false)}
 }
 
@@ -60,10 +61,10 @@ func (s *chatSelection) changed(selection core.TextSelection) {
 	}
 	s.cleared = false
 	s.value.Set(selection)
-	// Windows offers Ctrl+C to the focused input before its text selection.
-	// Selecting the transcript must leave that input's editing focus.
-	if !s.area.HoldsFocus() {
-		s.area.Focus()
+	// Windows gives the focused input Ctrl+C before its text selection.
+	// Blur that input without focusing (and revealing) a long transcript.
+	if focused := core.FocusedRef(s.cx); focused != nil && !s.area.HoldsFocus() {
+		focused.Blur()
 	}
 }
 
