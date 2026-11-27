@@ -18,6 +18,12 @@ export interface GithubReleaseLike {
 /** notes 摘要截断长度（规格 §3：切换向导只展示短摘要，全文走发布页）。 */
 const NOTES_EXCERPT_MAX_LENGTH = 300;
 
+/** 2.x 起使用 Go 架构，不能作为 Electron 更新（包括 2.0.0 预发布）。 */
+export function isElectronUpdateVersion(version: string): boolean {
+	const major = Number.parseInt(normalizeVersion(version), 10);
+	return major >= 0 && major < 2;
+}
+
 /**
  * 查询目标 = 反向通道：dev 构建切到 stable 正式版，stable 构建切到 dev 预发布。
  * （通道在编译期固定，切换即安装另一条通道的发行物，规格 §3。）
@@ -69,7 +75,7 @@ function excerptNotes(body: string | undefined): string {
 export function selectTargetRelease(releases: GithubReleaseLike[], target: UpdateChannel, platform: NodeJS.Platform, arch: string): TargetChannelRelease | null {
 	if (!Array.isArray(releases)) return null;
 	const wantPrerelease = target === "dev";
-	const candidates = releases.filter((release) => typeof release.tag_name === "string" && release.tag_name.trim() !== "" && Boolean(release.prerelease) === wantPrerelease).sort((left, right) => compareVersions(normalizeVersion(right.tag_name ?? ""), normalizeVersion(left.tag_name ?? "")));
+	const candidates = releases.filter((release) => typeof release.tag_name === "string" && isElectronUpdateVersion(release.tag_name) && Boolean(release.prerelease) === wantPrerelease).sort((left, right) => compareVersions(normalizeVersion(right.tag_name ?? ""), normalizeVersion(left.tag_name ?? "")));
 	for (const release of candidates) {
 		const asset = (release.assets ?? []).find((item) => typeof item.name === "string" && item.name !== "" && typeof item.browser_download_url === "string" && item.browser_download_url !== "" && assetMatchesPlatform(item.name, platform, arch));
 		if (!asset) continue;

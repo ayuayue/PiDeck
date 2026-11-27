@@ -50,6 +50,8 @@
 
 发版后复核：`node scripts/probe-update-check.mjs`（联网，不属于单测）——校验仓库坐标一致、`/releases/latest` 的 tag 与 latest.yml 版本对齐、latest.yml 声明的安装包真实可下载且字节数一致、AtomGit 的 latest 与 latest.yml 同步，并打印「哪些存量客户端会被提示」的判定矩阵；任一条不成立退出码 1。
 
+Electron 客户端只接受主版本小于 2 的更新。`2.0.0` 起属于 Go 架构，`2.0.0-beta` 等 2.x 预发布也排除；自动更新在提示与下载前过滤，手动检查及发布通道切换使用同一限制。若 GitHub / AtomGit 的 latest 已指向 2.x，Electron 正常检查返回无可用更新；从 releases 列表选取预发布或切换通道时，只选择符合限制的 Electron 发布。
+
 ## Issue 自动关闭（发版合并时一次性触发）
 
 关闭关键字只在**提交第一次可从默认分支到达**的那一刻触发——即 `dev → main` 那次 push。打 tag、建 Release、`workflow_dispatch` 发版都**不会**关闭任何 issue。默认分支是 `main`，开发合并全部进 `dev`，所以修复提交的 `Closes #N` 在合进 `dev` 时毫无效果，要等发版合并。

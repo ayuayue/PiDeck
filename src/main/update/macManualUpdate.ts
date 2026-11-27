@@ -3,7 +3,7 @@ import { compareVersions, normalizeVersion } from "../utils/versionCompare";
 import { GITHUB_RELEASES_API } from "./ChannelSwitchService";
 import { RELEASES_URL, UPDATE_REPO, UPDATE_REPO_OWNER } from "./releaseRepo";
 import { selectNewestRelease, toManualUpdateRelease, type ManualUpdateTarget, resolveManualUpdateTarget } from "./manualUpdateSelection";
-import { toReleaseList } from "./releaseSelection";
+import { isElectronUpdateVersion, toReleaseList } from "./releaseSelection";
 import type { GithubReleaseLike } from "./releaseSelection";
 import type { AppManualUpdateRelease, UpdateChannel } from "../../shared/types/app";
 import type { UpdateSourceId } from "../../shared/types/settings";
@@ -235,7 +235,7 @@ export function createManualUpdateChecker(options?: {
 		const newest = selectNewestRelease(releases, "dev");
 		const latestVersion = readLatestReleaseVersion(newest);
 		if (!latestVersion) {
-			throw new Error("Dev channel has no prerelease release.");
+			return { latestVersion: normalizeVersion(currentVersion), hasUpdate: false, recommendedDownload: null };
 		}
 		return {
 			latestVersion,
@@ -306,7 +306,7 @@ export function createManualUpdateChecker(options?: {
 			const detail = mirrorFailure ? ` (mirror: ${mirrorFailure}; GitHub: ${githubFailure})` : ` (${githubFailure})`;
 			throw new Error(`Latest release response did not resolve to a release tag.${detail}`);
 		}
-		let hasUpdate = compareVersions(latestVersion, currentVersion) > 0;
+		let hasUpdate = isElectronUpdateVersion(latestVersion) && compareVersions(latestVersion, currentVersion) > 0;
 		if (!hasUpdate || !target) {
 			return { latestVersion, hasUpdate, recommendedDownload: null };
 		}
@@ -316,7 +316,7 @@ export function createManualUpdateChecker(options?: {
 		const embeddedVersion = readLatestReleaseVersion(release);
 		if (embeddedVersion && compareVersions(embeddedVersion, latestVersion) >= 0) {
 			latestVersion = embeddedVersion;
-			hasUpdate = compareVersions(latestVersion, currentVersion) > 0;
+			hasUpdate = isElectronUpdateVersion(latestVersion) && compareVersions(latestVersion, currentVersion) > 0;
 		} else if (embeddedVersion) {
 			// 正文比重定向版本旧（发布切换瞬间）：不用它做推荐，避免推荐低版本。
 			release = null;
@@ -330,7 +330,7 @@ export function createManualUpdateChecker(options?: {
 					if (assetRelease && assetVersion && compareVersions(assetVersion, latestVersion) >= 0) {
 						release = assetRelease;
 						latestVersion = assetVersion;
-						hasUpdate = compareVersions(latestVersion, currentVersion) > 0;
+						hasUpdate = isElectronUpdateVersion(latestVersion) && compareVersions(latestVersion, currentVersion) > 0;
 					}
 				}
 			} catch {

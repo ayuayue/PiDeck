@@ -5,6 +5,7 @@
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import test from "node:test";
+import { AppUpdater } from "electron-updater/out/AppUpdater.js";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const fakeApp = {
@@ -95,4 +96,48 @@ test("shouldDisableDifferentialDownload: 便携版、缺失默认配置或 E2E �
 	assert.equal(shouldDisableDifferentialDownload({ isE2E: true }), true);
 	// 普通完整安装版
 	assert.equal(shouldDisableDifferentialDownload({ isPortable: false, hasDefaultConfig: true, isE2E: false }), false);
+});
+
+function createUpdaterFixture(version, { autoDownload = true, minimumSystemVersion } = {}) {
+	const realUpdater = new AppUpdater(null, { version: "1.9.8", isPackaged: true });
+	let downloads = 0;
+	const events = [];
+	realUpdater.getUpdateInfoAndProvider = async () => ({ info: { version, files: [], minimumSystemVersion }, provider: {} });
+	realUpdater.downloadUpdate = async () => {
+		downloads += 1;
+		return [];
+	};
+	const { createRealAutoUpdater } = loadTsCommonJs("src/main/update/createAutoUpdater.ts", {
+		stubs: {
+			electron: { app: fakeApp },
+			"electron-updater": { autoUpdater: realUpdater },
+			"node:fs": { existsSync: () => true },
+		},
+		globals: { process: { resourcesPath: "C:\\mock\\resources", env: {}, platform: "win32" } },
+	});
+	const updater = createRealAutoUpdater({ isAutoDownloadEnabled: () => autoDownload });
+	updater.onEvents({
+		onUpdateAvailable: (value) => events.push(`available:${value}`),
+		onUpdateNotAvailable: () => events.push("not-available"),
+	});
+	return { updater, events, downloads: () => downloads };
+}
+
+for (const autoDownload of [true, false]) {
+	for (const version of ["1.9.9", "2.0.0", "2.0.1", "3.0.0", "2.0.0-beta.1"]) {
+		test(`createRealAutoUpdater: ${version}, autoDownload=${autoDownload} respects the Electron version boundary`, async () => {
+			const fixture = createUpdaterFixture(version, { autoDownload });
+			await fixture.updater.checkForUpdates();
+			const compatible = version === "1.9.9";
+			assert.deepEqual(fixture.events, compatible ? [`available:${version}`] : ["not-available"]);
+			assert.equal(fixture.downloads(), compatible && autoDownload ? 1 : 0);
+		});
+	}
+}
+
+test("createRealAutoUpdater preserves the minimum OS version check for Electron updates", async () => {
+	const fixture = createUpdaterFixture("1.9.9", { minimumSystemVersion: "9999.0.0" });
+	await fixture.updater.checkForUpdates();
+	assert.deepEqual(fixture.events, ["not-available"]);
+	assert.equal(fixture.downloads(), 0);
 });

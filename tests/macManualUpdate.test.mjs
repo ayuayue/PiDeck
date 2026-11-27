@@ -229,6 +229,78 @@ test("manual checker applies Rosetta override: x64 process recommends the native
 	assert.equal(result.recommendedDownload.translated, true);
 });
 
+for (const source of ["github", "atomgit"]) {
+	for (const version of ["1.9.9", "2.0.0", "2.0.1", "3.0.0", "2.0.0-beta.1"]) {
+		test(`manual checker: ${source} ${version} respects the Electron version boundary`, async () => {
+			const apiUrl = "https://api.atomgit.com/api/v5/repos/ayuayue/PiDeck/releases/latest";
+			const requestedUrls = [];
+			const check = createManualUpdateChecker({
+				platform: "darwin",
+				arch: "arm64",
+				fetchLatestRelease: async (url) => {
+					requestedUrls.push(url);
+					const release = { tag_name: `v${version}`, assets: [{ name: `PiDeck-${version}-arm64.dmg`, browser_download_url: "https://example.com/arm64.dmg" }] };
+					return source === "github" && url === MAC_MANUAL_LATEST_RELEASE_URL ? { ok: true, status: 200, url: `https://github.com/ayuayue/PiDeck/releases/tag/v${version}` } : { ok: true, status: 200, url, body: JSON.stringify(release) };
+				},
+			});
+			const result = await check("1.9.8", source === "atomgit" ? apiUrl : undefined);
+			const compatible = version === "1.9.9";
+			assert.equal(result.hasUpdate, compatible);
+			assert.equal(result.recommendedDownload?.version ?? null, compatible ? version : null);
+			assert.equal(requestedUrls.length, source === "github" && compatible ? 2 : 1);
+		});
+	}
+}
+
+for (const embedded of [true, false]) {
+	test(`manual checker revalidates the version when ${embedded ? "embedded metadata" : "asset lookup"} advances to 2.x`, async () => {
+		const check = createManualUpdateChecker({
+			platform: "darwin",
+			arch: "arm64",
+			fetchLatestRelease: async (url) => {
+				const body = JSON.stringify({ tag_name: "v2.0.0", assets: [{ name: "PiDeck-2.0.0-arm64.dmg", browser_download_url: "https://example.com/arm64.dmg" }] });
+				return url === MAC_MANUAL_LATEST_RELEASE_URL ? { ok: true, status: 200, url: "https://github.com/ayuayue/PiDeck/releases/tag/v1.9.9", ...(embedded ? { body } : {}) } : { ok: true, status: 200, url, body };
+			},
+		});
+		const result = await check("1.9.8");
+		assert.equal(result.hasUpdate, false);
+		assert.equal(result.recommendedDownload, null);
+	});
+}
+
+test("dev channel ignores newer architecture prereleases and keeps the latest Electron prerelease", async () => {
+	const check = createManualUpdateChecker({
+		channel: "dev",
+		platform: "darwin",
+		arch: "arm64",
+		fetchReleases: async () => ({
+			ok: true,
+			status: 200,
+			body: JSON.stringify(["1.9.9-beta.2", "2.0.0-beta.1", "3.0.0-beta.1"].map((version) => ({ tag_name: `v${version}`, prerelease: true, assets: [{ name: `PiDeck-${version}-arm64.dmg`, browser_download_url: "https://example.com/arm64.dmg" }] }))),
+		}),
+	});
+	const result = await check("1.9.9-beta.1");
+	assert.equal(result.latestVersion, "1.9.9-beta.2");
+	assert.equal(result.hasUpdate, true);
+	assert.equal(result.recommendedDownload?.version, "1.9.9-beta.2");
+});
+
+test("dev channel reports no update when only newer architecture prereleases exist", async () => {
+	const check = createManualUpdateChecker({
+		channel: "dev",
+		platform: "darwin",
+		arch: "arm64",
+		fetchReleases: async () => ({
+			ok: true,
+			status: 200,
+			body: JSON.stringify([{ tag_name: "v2.0.0-beta.1", prerelease: true }]),
+		}),
+	});
+	const result = await check("1.9.9-beta.1");
+	assert.equal(result.hasUpdate, false);
+	assert.equal(result.recommendedDownload, null);
+});
+
 test("manual macOS checker surfaces HTTP and unresolved latest-release failures", async () => {
 	const unavailable = createMacManualUpdateChecker({
 		fetchLatestRelease: async () => ({ ok: false, status: 503, url: "" }),

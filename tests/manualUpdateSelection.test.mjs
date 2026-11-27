@@ -134,6 +134,21 @@ test("toManualUpdateRelease: 归一版本/资产/架构，AtomGit 无 html_url �
 	assert.equal(resolveReleasePageUrl("https://github.com/ayuayue/PiDeck/releases/tag/v0.9.1", "github", "v0.9.1"), "https://github.com/ayuayue/PiDeck/releases/tag/v0.9.1");
 });
 
+test("手动推荐与通道选择排除 2.x+（含预发布），保留 1.x", () => {
+	const target = { platform: "darwin", arch: "arm64", installKind: "installed", translated: false };
+	for (const version of ["1.9.9", "2.0.0", "2.0.1", "3.0.0", "2.0.0-beta.1"]) {
+		const release = { tag_name: `v${version}`, assets: RELEASE_ASSETS };
+		assert.equal(toManualUpdateRelease(release, target, "github")?.version ?? null, version === "1.9.9" ? version : null);
+	}
+	for (const channel of ["stable", "dev"]) {
+		const prerelease = channel === "dev";
+		const versions = prerelease ? ["1.9.9-beta.2", "2.0.0-beta.1", "3.0.0-beta.1"] : ["1.9.9", "2.0.0", "2.0.1", "3.0.0"];
+		const releases = versions.map((version) => ({ tag_name: `v${version}`, prerelease }));
+		assert.equal(selectNewestRelease(releases, channel)?.tag_name, `v${versions[0]}`);
+		assert.equal(selectNewestRelease(releases.slice(1), channel), null);
+	}
+});
+
 test("selectNewestRelease: stable 取最新正式版，dev 取最新预发布", () => {
 	const releases = [
 		{ tag_name: "v0.9.0", prerelease: false },

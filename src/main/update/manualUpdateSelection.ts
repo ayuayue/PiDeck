@@ -20,7 +20,7 @@ import type { AppManualUpdateAssetKind, AppManualUpdateRelease, UpdateChannel } 
 import type { UpdateSourceId } from "../../shared/types/settings";
 import { ATOMGIT_HOST, UPDATE_REPO, UPDATE_REPO_OWNER, gitHubReleasesBase } from "../../shared/updateSources";
 import { compareVersions, normalizeVersion } from "../utils/versionCompare";
-import type { GithubReleaseLike } from "./releaseSelection";
+import { isElectronUpdateVersion, type GithubReleaseLike } from "./releaseSelection";
 
 export type ManualUpdatePlatform = "darwin" | "win32" | "linux";
 export type ManualUpdateInstallKind = "installed" | "portable" | "appimage" | "deb";
@@ -184,7 +184,7 @@ export function toManualUpdateRelease(release: GithubReleaseLike, target: Manual
 	const tagName = typeof release.tag_name === "string" ? release.tag_name.trim() : "";
 	if (!tagName) return null;
 	const version = normalizeVersion(tagName);
-	if (!version) return null;
+	if (!isElectronUpdateVersion(version)) return null;
 	const asset = selectRecommendedAsset(Array.isArray(release.assets) ? release.assets : [], target);
 	if (!asset) return null;
 	return {
@@ -211,6 +211,6 @@ export function resolveReleasePageUrl(htmlUrl: string | undefined, source: Updat
 /** 目标通道最新的 release（不要求有本机资产；无匹配时 UI 退化到发布页）。 */
 export function selectNewestRelease(releases: GithubReleaseLike[], channel: UpdateChannel): GithubReleaseLike | null {
 	const wantPrerelease = channel === "dev";
-	const candidates = releases.filter((release) => typeof release.tag_name === "string" && release.tag_name.trim() !== "" && Boolean(release.prerelease) === wantPrerelease).sort((left, right) => compareVersions(normalizeVersion(right.tag_name ?? ""), normalizeVersion(left.tag_name ?? "")));
+	const candidates = releases.filter((release) => typeof release.tag_name === "string" && isElectronUpdateVersion(release.tag_name) && Boolean(release.prerelease) === wantPrerelease).sort((left, right) => compareVersions(normalizeVersion(right.tag_name ?? ""), normalizeVersion(left.tag_name ?? "")));
 	return candidates[0] ?? null;
 }

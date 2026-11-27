@@ -125,6 +125,20 @@ test("notesExcerpt 截断 300 字符", () => {
 	assert.ok(release.notesExcerpt.startsWith("x".repeat(300)));
 });
 
+test("stable/dev 目标仅选 Electron 发布，即使 2.x+ 有同名安装包", () => {
+	for (const channel of ["stable", "dev"]) {
+		const prerelease = channel === "dev";
+		const versions = prerelease ? ["1.9.9-beta.2", "2.0.0-beta.1", "3.0.0-beta.1"] : ["1.9.9", "2.0.0", "2.0.1", "3.0.0"];
+		const releases = versions.map((version) => ({
+			tag_name: `v${version}`,
+			prerelease,
+			assets: [{ name: `PiDeck-${version}-setup.exe`, browser_download_url: "https://example.com/setup.exe" }],
+		}));
+		assert.equal(selectTargetRelease(releases, channel, "win32", "x64")?.version, versions[0]);
+		assert.equal(selectTargetRelease(releases.slice(1), channel, "win32", "x64"), null);
+	}
+});
+
 test("inverseChannel：dev→stable、stable→dev（查询目标 = 反向通道）", () => {
 	assert.equal(inverseChannel("dev"), "stable");
 	assert.equal(inverseChannel("stable"), "dev");

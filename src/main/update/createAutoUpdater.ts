@@ -16,6 +16,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AutoUpdaterLike, AutoUpdaterEventHandlers } from "./autoUpdaterTypes";
 import { UPDATE_REPO_OWNER, UPDATE_REPO } from "./releaseRepo";
+import { isElectronUpdateVersion } from "./releaseSelection";
 
 export type { AutoUpdaterLike, AutoUpdaterEventHandlers } from "./autoUpdaterTypes";
 
@@ -116,6 +117,10 @@ export function createRealAutoUpdater(options?: { feedUrl?: string; isAutoDownlo
 	const { autoUpdater } = require("electron-updater") as {
 		autoUpdater: import("electron-updater").AppUpdater;
 	};
+
+	// isUpdateSupported 在提示与自动下载前执行；组合原检查以保留最低系统版本限制。
+	const isUpdateSupported = autoUpdater.isUpdateSupported.bind(autoUpdater);
+	autoUpdater.isUpdateSupported = (info) => isElectronUpdateVersion(info.version) && isUpdateSupported(info);
 
 	// 1. 挂载兜底配置（必须在 setFeedURL 之前，避免 updateConfigPath setter 将 clientPromise 置空）
 	const defaultAppUpdateConfigPath = resolveDefaultAppUpdateConfigPath(app.isPackaged, process.resourcesPath, app.getAppPath());
