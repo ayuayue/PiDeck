@@ -52,6 +52,14 @@ export type SessionScrollAnchor = {
 	 * undefined 兼容热更新期间仍在内存中的旧锚点，恢复时退回基础窗口并按需扩窗。
 	 */
 	windowTurns?: number;
+	/**
+	 * 锚定窗口的锚点 run id（跳转后窗口不再贴尾，起点由它决定）。
+	 *
+	 * 为什么存 id 不存下标：历史 prepend 是「新页插在头部」，所有 run 的下标整体后移，
+	 * 存下标会在下一次数据变多时错位（点「显示更早」会往回跳）。id 不漂移，
+	 * startRun 由它派生。
+	 */
+	anchoredRunId?: string;
 	/** 保存时间戳，防止乱序事件用陈旧状态覆盖新状态 */
 	savedAt: number;
 };
@@ -63,7 +71,9 @@ export const sessionScrollAnchorByIdAtom = atom<Record<string, SessionScrollAnch
 export function sameSessionScrollAnchor(a: SessionScrollAnchor | undefined, b: SessionScrollAnchor | undefined): boolean {
 	if (a === b) return true;
 	if (!a || !b) return false;
-	return a.messageId === b.messageId && a.entryId === b.entryId && a.offsetTop === b.offsetTop && a.windowTurns === b.windowTurns;
+	// anchoredRunId 必须参与比较：否则「只有锚点 run 变了」被判成未变化 -> 跳过写入 ->
+	// 新锚点不落盘，回到该会话才发现恢复成旧起点。不报错、不写盘、看不出。
+	return a.messageId === b.messageId && a.entryId === b.entryId && a.offsetTop === b.offsetTop && a.windowTurns === b.windowTurns && a.anchoredRunId === b.anchoredRunId;
 }
 
 /** 保存/清除某会话的滚动锚点。anchor 为 null 时清除（如回到底部或会话关闭）。
