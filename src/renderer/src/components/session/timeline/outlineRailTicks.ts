@@ -178,6 +178,26 @@ export type OutlineRailItem = { id: string; role: string; title: string; time: s
  * 只合并用户提问：助手回复不进刻度（见 buildOutline），早先「助手挂到前一条用户消息」
  * 的分桶逻辑随之删除。
  */
+/**
+ * 状态栏「N 轮」取导轨的条数——**直接调 mergeOutlineRailItems**，不另算一遍。
+ *
+ * 为什么不另算：原先这里是 Math.max(countUserTurns(messages), directory.length)，
+ * 而 countUserTurns 对连续两条 user 只算 1 轮，导轨对每条 user 都留一个刻度。
+ * 用户连发两条时状态栏就比导轨少 1，真机看到的是「多出来的那个刻度」
+ * （面板 79 条 / 状态栏 78 轮，两条同时间戳、一条是另一条前缀）。
+ *
+ * 也不要用 max(每条user计数, 目录长度) 近似：目录里没有的已加载项会被 merge 追加到尾部，
+ * max 数不到那一条，差 1 会以另一种形式回来（实测 60 vs 61）。
+ * 同一真值只在一处算：算在 mergeOutlineRailItems 里，状态栏读它的 length。
+ *
+ * 判据：tests/outlineTurnCountParity.test.mjs。
+ */
+export function sessionTurnCountOf(loaded: readonly OutlineRailItem[], directoryEntryIds: readonly string[]): number {
+	return mergeOutlineRailItems(
+		loaded,
+		directoryEntryIds.map((entryId) => ({ entryId, title: "", time: "" })),
+	).length;
+}
 export function mergeOutlineRailItems(loaded: readonly OutlineRailItem[], directory: readonly { entryId: string; title: string; time?: string }[]): OutlineRailItem[] {
 	const loadedUsers = loaded.filter((item) => item.role === "user");
 	if (directory.length === 0) return [...loadedUsers];

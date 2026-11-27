@@ -1,4 +1,5 @@
 import { useAtomValue } from "jotai";
+import { selectAtom } from "jotai/utils";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject, type ReactNode } from "react";
 import { type GroupImperativeHandle, type PanelImperativeHandle } from "react-resizable-panels";
 import { ResizablePanel, ResizablePanelGroup } from "../ui-shadcn/resizable";
@@ -25,9 +26,11 @@ import { TerminalDockPanel, TERMINAL_PANEL_COLLAPSED_SIZE, TERMINAL_PANEL_MIN_SI
 import type { TerminalDockSettings } from "../terminal/TerminalDock";
 import { useSessionPaneServices } from "./SessionPaneServices";
 import { COMPOSER_MAX_HEIGHT, COMPOSER_MIN_HEIGHT, TIMELINE_MIN_HEIGHT, displayProjectDirectoryName, redistributeTerminalAgainstTimeline, shouldMountBottomComposer, sessionResizableGroupKey, sessionGroupDefaultLayout } from "../../rendererUtils";
-import { projectByIdAtomFamily, sessionRecordByIdAtomFamily, sessionStatusInSidebarAtom, type PendingHistoryMutation } from "../../atoms";
+import { outlineItemsBySessionIdAtomFamily, projectByIdAtomFamily, sessionRecordByIdAtomFamily, sessionStatusInSidebarAtom, type PendingHistoryMutation } from "../../atoms";
 import type { EnqueuePromptSnapshot } from "../../hooks/useSessionSend";
 import { countUserTurns } from "./timeline/turnRenderWindow";
+import { sessionTurnCountOf } from "./timeline/outlineRailTicks";
+import { areOutlineRailItemsEqual } from "./timeline/outlineRailActive";
 import { useSessionOutlineDirectory } from "../../hooks/useSessionOutlineDirectory";
 import { useAcpHistoryRestorePending } from "../../hooks/useAcpRestoreHint";
 
@@ -197,7 +200,15 @@ export function SessionView({
 	// 单看 sessionTimeline.messages 会把 62 轮的会话显示成 9 轮（真机反馈 2026-10-31）。
 	// 目录是主进程的索引投影，覆盖全部用户检查点；已加载消息可能比目录更多（live 轮次还没落盘），取两者较大值。
 	const outlineDirectory = useSessionOutlineDirectory(sessionId, sessionTimeline.messages.length);
-	const sessionTurnCount = useMemo(() => Math.max(countUserTurns(sessionTimeline.messages), outlineDirectory.length), [sessionTimeline.messages, outlineDirectory]);
+	// 状态栏「N 轮」与导轨「共 N 条」必须同源：读同一份已加载大纲、调同一个 merge。
+	// 原先用 Math.max(countUserTurns(messages), directory.length)：
+	//   countUserTurns 对连续两条 user 只算 1 轮（连发时少 1 —— 真机 78 vs 79 就是它）；
+	//   max 又数不到「目录里没有的已加载项」（merge 会把那条追加到尾部），再少 1。
+	// 判据：tests/outlineTurnCountParity.test.mjs。
+	const outlineItemsAtom = useMemo(() => selectAtom(outlineItemsBySessionIdAtomFamily(sessionId), (items) => items, areOutlineRailItemsEqual), [sessionId]);
+	const outlineItemsForCount = useAtomValue(outlineItemsAtom);
+	const directoryEntryIds = useMemo(() => outlineDirectory.map((entry) => entry.entryId), [outlineDirectory]);
+	const sessionTurnCount = useMemo(() => sessionTurnCountOf(outlineItemsForCount, directoryEntryIds), [outlineItemsForCount, directoryEntryIds]);
 	const paneServices = useSessionPaneServices();
 	// 落点随本栏时间线挂载/卸载更新；发送控制器仍只有 ComposerArea 内的一份。
 	const [replyActionsTarget, setReplyActionsTarget] = useState<HTMLDivElement | null>(null);
