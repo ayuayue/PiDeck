@@ -29,6 +29,7 @@ import {
 	setSessionMessageLoadStateAtom,
 	touchSessionMessagesAtom,
 	type SessionScrollAnchor,
+	RUNTIME_HISTORY_PREFIX_MESSAGE_LIMIT,
 } from "../atoms";
 import { clearTimelineRevealAtom, requestTimelineRevealAtom } from "../atoms/timeline-reveal-atoms";
 import type { MessageScrollerScrollApi } from "../components/agents/message-scroller";
@@ -40,7 +41,6 @@ import { countUserTurns, TIMELINE_MOUNTED_TURN_LIMIT, TIMELINE_SCROLLED_TURN_LIM
 import { readSessionFirstScreenPage } from "../components/session/sessionSubagentTranscript";
 import { resolveJumpPendingAction } from "../components/session/timeline/jumpWindowPolicy";
 import { useJumpPageFetch } from "../components/session/timeline/useJumpPageFetch";
-import { resolveMissingAnchorNextStep } from "../components/session/timeline/restoreAnchorPolicy";
 import { shouldDeferJumpUntilLoaded } from "./timeline/timelineRevealChannel";
 import { resolveJumpMessageIndex, resolveJumpScrollTarget } from "../components/session/timeline/jumpTarget";
 import { shouldResetExpandBudget } from "./timelineJumpGuard";
@@ -990,7 +990,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		observer.observe(target);
 		return () => observer.disconnect();
 	}, [controllerEnabled, ownerKey, pinBrowseRow]);
-	const fetchJumpPageOnce = useJumpPageFetch({ sessionId: options.sessionId, revision: cachedEntry?.revision, readRecordMessagePage: desktopApi.sessions.readRecordMessagePage, prependHistoryPage, setPendingJump });
+	const fetchJumpPageOnce = useJumpPageFetch({ sessionId: options.sessionId, revision: cachedEntry?.revision, readRecordMessagePage: desktopApi.sessions.readRecordMessagePage, prependHistoryPage, setPendingJump, historyPrefixMessageLimit: RUNTIME_HISTORY_PREFIX_MESSAGE_LIMIT });
 	useEffect(() => {
 		if (!controllerEnabled || !pendingJump) return;
 		if (!matchesTimelineOwner(pendingJump.ownerKey, ownerKey)) return;

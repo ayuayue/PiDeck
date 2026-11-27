@@ -338,8 +338,10 @@ export const prependSessionHistoryPageAtom = atom(
 			const dropCount = Math.min(overflow, freshMessages.length);
 			cappedMessages = merged.slice(dropCount);
 			if (dropCount >= freshMessages.length) {
-				// 同 disk 路径：整页丢弃时把游标退回请求值 = 重取同一页 = 死循环。置空为「没有更早」。
-				nextBefore = null;
+				// 整页都装不下：拒绝这次 prepend，不要置 nextBefore = null。
+				// 置空等于对用户撒谎「这条没有更早历史」——历史还在盘上，只是这一页太大；
+				// 拒绝则内容与游标都不动，调用方拿到 false 可退回扩窗或如实报失败。
+				return false;
 			} else if (input.page.nextBefore !== null) {
 				nextBefore = input.page.nextBefore + dropCount;
 			}

@@ -1531,9 +1531,10 @@ test("prependSessionHistoryPageAtom caps runtime history prefix and advances cur
 	assert.equal(entry().history.nextBeforeEntryId, "h-1", "锚点重算到保留段最旧条目");
 	assert.equal(entry().messages[0].id, "w1", "运行时窗口段不受影响");
 
-	// 整页丢弃：再 prepend 2 条更早页 → 溢出恰好等于整页。
-	// 这里**不许**把游标退回请求值：退回去下次只会取到同一页、再次被同样丢掉，
-	// 就成「一直在加载、永远加载不出来」（2026-11 真机）。置 null = 没有更早了。
+	// 整页装不下：这次 prepend 必须被**拒绝**（返回 false），而不是「接受但把游标置 null」。
+	// 两种写法的区别是诚不诚实：置 null 等于告诉用户「这条没有更早历史」，而历史还在盘上，
+	// 只是这一页太大；拒绝则内容与游标都不动，调用方拿到 false 可以退回扩窗或如实报失败。
+	// 也不许退回请求游标：那会下次取到同一页、再次被丢掉，成「一直在加载」。
 	assert.equal(
 		store.set(atoms.prependSessionHistoryPageAtom, {
 			sessionId: "session-a",
@@ -1547,10 +1548,10 @@ test("prependSessionHistoryPageAtom caps runtime history prefix and advances cur
 				indexVersion: "100:2000",
 			},
 		}),
-		true,
+		false,
 	);
 	assert.equal(entry().history.messages.length, LIMIT);
-	assert.equal(entry().history.nextBefore, null, "整页丢弃：游标置空，不再重取同一页");
+	assert.equal(entry().history.nextBefore, -2 + 2, "拒绝：游标停在原处，没有被改成「没有更早」");
 	assert.equal(entry().history.messages[0].meta.entryId, "h-1", "新页整体丢弃，原前缀原样保留");
 	assert.equal(entry().history.nextBeforeEntryId, "h-1");
 });

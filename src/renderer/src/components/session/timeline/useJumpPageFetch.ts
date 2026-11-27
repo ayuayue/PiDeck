@@ -14,10 +14,15 @@
  *    错误行由 loadMoreMessages 那条路径负责。
  *
  * 切会话后到达的页作废：ownerKey 变了就丢掉，不污染新会话的历史前缀。
+ *
+ * 依赖方向（本文件最容易被改坏的地方）：本 hook 位于 controller 的依赖链上，
+ * 任何新增 import 都会被渲染层单测的沙箱解析一次。沙箱的 require 基准是 tests/ 目录，
+ * 解析不到的模块会让整片测试倒掉（2026-11 为这一条返工三次：hook 取 atoms 的常量、
+ * atoms 反向 import components、两层都 import 新的 shared 文件）。所以上限常量不 import，
+ * 由 controller 注入。
  */
 import type { Dispatch, SetStateAction } from "react";
 import type { SessionMessagePage } from "../../../../../shared/types";
-import { HISTORY_PREFIX_MESSAGE_LIMIT } from "../../../../../shared/sessionLimits";
 import { HISTORY_BACKFILL_TURN_PAGE_SIZE } from "./historyPagePolicy";
 import { planJumpPageRequest } from "./jumpWindowPolicy";
 import type { TaggedTimelineJumpRequest } from "../../../hooks/session/timeline/useTimelineJumpNavigation";
@@ -45,11 +50,8 @@ export interface JumpPageFetchPorts {
 	revision: number | undefined;
 	readRecordMessagePage: (sessionId: string, before?: number, pageSize?: number, options?: { beforeEntryId?: string }) => Promise<SessionMessagePage>;
 	prependHistoryPage: (input: { sessionId: string; expectedRevision: number; before?: number | null; page: SessionMessagePage }) => boolean;
-	/**
-	 * 历史前缀的消息条数上限。由调用方注入而不是 import：这个 hook 在 components/ 层，
-	 * 而常量住在 atoms/ 层；components → atoms 会把整条 jotai 链拉进渲染层单测的加载链路，
-	 * 让与本改动无关的测试整片变红（实测 83 条）。由 contactroller 注入，方向才是对的。
-	 */
+	/** 历史前缀条数上限，由 controller 注入（唯一真值在 session-history-atoms）。见文件头「依赖方向」。 */
+	historyPrefixMessageLimit: number;
 	setPendingJump: Dispatch<SetStateAction<TaggedTimelineJumpRequest | undefined>>;
 }
 
@@ -59,11 +61,10 @@ export interface JumpPageFetchPorts {
  */
 export function useJumpPageFetch(ports: JumpPageFetchPorts) {
 	return (pendingJump: TaggedTimelineJumpRequest, currentOwnerKey: string): boolean => {
-		const { sessionId, revision, readRecordMessagePage, prependHistoryPage, setPendingJump } = ports;
+		const { sessionId, revision, readRecordMessagePage, prependHistoryPage, setPendingJump, historyPrefixMessageLimit } = ports;
 		if (!sessionId || pendingJump.value.pageFetched) return false;
-		const jumpEntryId = jumpEntryIdOf(pendingJump.value.messageId);
 		const plan = planJumpPageRequest({
-			entryId: jumpEntryId,
+			entryId: jumpEntryIdOf(pendingJump.value.messageId),
 			pageFetched: false,
 			expandAttempts: pendingJump.value.expandAttempts,
 		});
@@ -78,7 +79,7 @@ export function useJumpPageFetch(ports: JumpPageFetchPorts) {
 				// 「没有更早历史」，用户看到的是「这条根本没有历史」——比原来的「连点几次」更糟，
 				// 而且是撒谎（历史在盘上，只是这页太大）。这时宁可不取这页，退回扩窗与放弃，
 				// 由 resolveJumpPendingAction 给出如实的失败提示。
-				if (page.messages.length >= HISTORY_PREFIX_MESSAGE_LIMIT) return;
+				if (page.messages.length >= historyPrefixMessageLimit) return;
 				prependHistoryPage({ sessionId, expectedRevision: revision ?? 0, before: undefined, page });
 			})
 			.catch(() => {
