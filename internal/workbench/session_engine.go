@@ -277,7 +277,7 @@ func (a *app) historyReady(s *session) {
 	for _, fn := range waiters {
 		fn()
 	}
-	if a.activeID.GetUntracked() == s.ID {
+	if a.activeID.GetUntracked() == s.ID && s.conversation.AtLatest() {
 		s.conversation.JumpToLatest()
 	}
 }

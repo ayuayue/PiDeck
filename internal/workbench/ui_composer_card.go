@@ -69,6 +69,9 @@ func (c *chatScroll) measured(b core.Bounds) {
 // scrolled follows the user: moving up leaves the end, and reaching it
 // follows again. The content growing under a following view does not count.
 func (c *chatScroll) scrolled(e core.ScrollEvent) {
+	if e.Stale {
+		return
+	}
 	end := e.Offset.Y+e.Size.Height >= e.ContentSize.Height-2
 	switch {
 	case end:
@@ -107,7 +110,7 @@ func (a *app) chatSurface(cx *core.Scope, s *session, selection *chatSelection) 
 		selection.resized(b)
 		size.Set(b.Size)
 	}, Children: []core.Node{
-		core.Scroll{Ref: scroll, OnScroll: func(e core.ScrollEvent) {
+		core.Scroll{Ref: scroll, ContentOffset: core.Point{Y: s.conversation.lastY}, OnScroll: func(e core.ScrollEvent) {
 			if e.Offset.Y != s.conversation.lastY {
 				selection.clear()
 			}
