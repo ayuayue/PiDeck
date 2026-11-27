@@ -7,21 +7,18 @@ package workbench
 // sits at its end, so a section reads top to bottom.
 
 import (
-	"sort"
 	"strings"
 
 	"example.com/pideck-v2/internal/apptext"
-	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// settingsModels keeps the provider filter mounted while results change.
+// settingsModels shows the providers and models declared in pi's models.json.
 func (a *app) settingsModels() core.Node {
 	return a.providerSettingsPage("settings-content",
-		a.modelSettingsCurrent(),
-		setGroup("供应商与认证",
+		setGroup("models.json",
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Wrap: core.Wrap, Gap: 8}, Children: []core.Node{
 				ui.Input{Value: a.providerQuery.Get, OnChange: a.providerQuery.Set,
 					Style:       core.Style{FlexGrow: 1, MinWidth: core.Pt(110)},
@@ -29,212 +26,21 @@ func (a *app) settingsModels() core.Node {
 				ui.Button{Text: apptext.T("添加供应商"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "provider-add",
 					OnPress: func() { a.openProviderDialog("") }},
 			}},
-			a.providerRows(),
-			ui.Button{Text: apptext.T("检测全部"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "model-check-all", OnPress: a.refreshProviders},
+			a.configuredProviderCards(),
+			setDivider(),
+			setRow("models.json", "管理 providers 与模型条目。", ui.Button{Text: apptext.T("编辑 models.json"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+				TestID: "models-json-edit", OnPress: func() { a.openPiConfigFile("models.json") }}),
 		),
 		a.favoriteModelSettings(),
 		a.toolModelsGroup(),
-		setGroup("文件", setRow("models.json", "编辑 models.json", ui.Button{Text: apptext.T("编辑 models.json"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
-			OnPress: func() { a.openPiConfigFile("models.json") }})),
 		a.modelCatalogSettings(), a.balanceAccountsSettings(), a.tokenDanceGroup(),
 	)
-}
-
-// modelSettingsCurrent puts the two decisions a user makes most often at the
-// top of the page: which model a new session starts with, and whether pi can
-// authenticate the providers it knows.
-func (a *app) modelSettingsCurrent() core.Node {
-	return core.Dynamic(func(cx *core.Scope) core.Node {
-		a.settingsTick()
-		colors := ui.ColorsOf(cx)
-		providers := a.providers.Get()
-		modelsByProvider := make(map[string][]modelConfig)
-		var providerOpts []ui.Option[string]
-		for _, p := range providers {
-			if len(p.Models) == 0 {
-				continue
-			}
-			modelsByProvider[p.ID] = p.Models
-			providerOpts = append(providerOpts, ui.Option[string]{Value: p.ID, Label: p.ID})
-		}
-		if a.defaultModel.Provider != "" && a.defaultModel.ID != "" {
-			models := modelsByProvider[a.defaultModel.Provider]
-			found := false
-			for _, model := range models {
-				if model.ID == a.defaultModel.ID {
-					found = true
-					break
-				}
-			}
-			if !found {
-				modelsByProvider[a.defaultModel.Provider] = append(append([]modelConfig(nil), models...), modelConfig{ID: a.defaultModel.ID})
-				if models == nil {
-					providerOpts = append(providerOpts, ui.Option[string]{Value: a.defaultModel.Provider, Label: a.defaultModel.Provider})
-				}
-			}
-		}
-		modelOpts := func() []ui.Option[string] {
-			var options []ui.Option[string]
-			for _, model := range modelsByProvider[a.defaultModel.Provider] {
-				label := model.Name
-				if label == "" {
-					label = model.ID
-				}
-				options = append(options, ui.Option[string]{Value: model.ID, Label: label})
-			}
-			return options
-		}
-		setDefault := func(provider, id string) {
-			a.defaultModel = modelChoice{Provider: provider, ID: id}
-			a.st.edit(func(c *config) { c.Model = a.defaultModel })
-			a.bumpSettings()
-		}
-		currentModel := func() string {
-			if a.defaultModel.ID == "" {
-				return apptext.T("跟随 pi 当前模型")
-			}
-			if a.defaultModel.Provider == "" {
-				return a.defaultModel.ID
-			}
-			return a.defaultModel.Provider + " / " + a.defaultModel.ID
-		}
-		modelControls := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Wrap: core.Wrap, Gap: 6}, Children: []core.Node{
-			ui.Select[string]{Options: providerOpts, Value: func() string { return a.defaultModel.Provider },
-				Placeholder: apptext.T("跟随 pi 当前模型"), OnClear: func() { setDefault("", "") },
-				Label: apptext.T("供应商"), TestID: "default-model-provider", Style: core.Style{Width: core.Pt(132)},
-				OnChange: func(provider string) {
-					id := ""
-					if models := modelsByProvider[provider]; len(models) > 0 {
-						id = models[0].ID
-					}
-					setDefault(provider, id)
-				}},
-			ui.Select[string]{Options: modelOpts(), Value: func() string { return a.defaultModel.ID },
-				Placeholder: apptext.T("选择模型"), OnClear: func() { setDefault("", "") },
-				Disabled: func() bool { return a.defaultModel.Provider == "" }, Label: apptext.T("模型"), TestID: "default-model-select",
-				Style: core.Style{Width: core.Pt(190)}, OnChange: func(id string) { setDefault(a.defaultModel.Provider, id) }},
-		}}
-		status := authSummary(providers)
-		if status == "" {
-			status = apptext.T("未知")
-		}
-		return setGroup("当前",
-			setRow("新会话默认模型", "选择模型", modelControls),
-			setDivider(),
-			setRow("当前", currentModel(), nil),
-			setDivider(),
-			setRow("认证", status, ui.Button{Text: apptext.T("检测全部"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
-				TestID: "model-check-all-current", OnPress: a.refreshProviders}),
-			core.Text{Content: apptext.T("凭据由 pi 管理（~/.pi/agent/auth.json）。「登录…」在内置终端里跑 pi 自己的登录流程；改完点「检测全部」重新读状态。"),
-				Style: core.Style{FontSize: 10.5, LineHeight: 16, Padding: core.Edges{Top: 3, Bottom: 3}}, StyleFunc: ui.Colored(colors.Faint)},
-		)
-	})
 }
 
 func (a *app) providerSettingsPage(testID string, content ...core.Node) core.Node {
 	return core.Scroll{TestID: testID, Style: ui.FillRest, Children: []core.Node{
 		core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: scrollbarGutter}}, Children: content},
 	}}
-}
-
-func (a *app) providerRows() core.Node {
-	return core.Dynamic(func(cx *core.Scope) core.Node {
-		// Redrawn when any setting changes: their values live in the config.
-		a.settingsTick()
-		colors := ui.ColorsOf(cx)
-		query := strings.ToLower(strings.TrimSpace(a.providerQuery.Get()))
-		list := make([]providerInfo, 0, len(a.providers.Get()))
-		for _, p := range a.providers.Get() {
-			if strings.Contains(strings.ToLower(p.ID+" "+p.API+" "+authLabel(p)), query) {
-				list = append(list, p)
-			}
-		}
-		rank := map[string]int{}
-		for i, id := range a.providerOrder() {
-			rank[id] = i
-		}
-		sort.SliceStable(list, func(i, j int) bool { return rank[list[i].ID] < rank[list[j].ID] })
-		var rows []core.Node
-		if len(list) == 0 && query != "" {
-			rows = append(rows, ui.Text(apptext.T("没有匹配的供应商"), 12, ui.Regular, colors.Muted))
-		} else if len(list) == 0 {
-			rows = append(rows, setRow("没有读到供应商", "pi 的 models.json 里没有自定义供应商，或者还没探测完。", nil))
-		}
-		for i, p := range list {
-			prov := p
-			badge := func() core.Node {
-				c := colors.Faint()
-				switch prov.Auth {
-				case "ready":
-					c = colors.Up()
-				case "not_ready":
-					c = colors.Warn()
-				case "invalid":
-					c = colors.Danger()
-				}
-				return core.View{StyleFunc: func() core.Style {
-					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, Padding: core.Symmetric(1, 7),
-						CornerRadius: 10, Background: ui.Alpha(c, 0.10), BorderWidth: 1, BorderColor: ui.Alpha(c, 0.28)}
-				}, Children: []core.Node{
-					core.View{StyleFunc: func() core.Style {
-						return core.Style{Width: core.Pt(5), Height: core.Pt(5), CornerRadius: 3, Background: c}
-					}},
-					ui.Text(authLabel(prov), 10.5, ui.Medium, func() core.Color { return c }),
-				}}
-			}
-			// Where the key comes from, and why pi cannot resolve it when it
-			// cannot: the two things a login fixes.
-			credential := credentialLabel(prov.Credential)
-			if prov.Credential.Detail != "" {
-				credential += " · " + prov.Credential.Detail
-			}
-			if prov.Credential.Kind != "" && !prov.Credential.Ready {
-				credential += " · " + apptext.T("未配置")
-			}
-			meta := apptext.T("%d 个模型", len(prov.Models))
-			row := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10, MinHeight: core.Pt(44),
-				Padding: core.Symmetric(4, 2)}, Children: []core.Node{
-				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 2}, Children: []core.Node{
-					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
-						viewkit.BrandName(colors, prov.ID, 15, core.Text{Content: prov.ID, Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 12.5, FontWeight: ui.Semibold},
-							StyleFunc: ui.Colored(colors.Text)}),
-						ui.Text(meta, 10.5, ui.Regular, colors.Faint),
-						ui.Text(prov.API, 10, ui.Regular, colors.Faint),
-						core.Show{When: func() bool { return prov.Builtin }, Then: func(*core.Scope) core.Node {
-							return ui.Text(apptext.T("内置"), 9.5, ui.Regular, colors.Faint)
-						}},
-					}},
-					core.Text{Content: shorten(prov.BaseURL, 70), MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-						Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
-					core.Text{Content: credential, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-						Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9.5},
-						StyleFunc: ui.Colored(func() core.Color {
-							if prov.Credential.Kind != "" && !prov.Credential.Ready {
-								return colors.Warn()
-							}
-							return colors.Faint()
-						})},
-					core.Show{When: func() bool { return prov.Reason != "" && prov.Auth != "ready" }, Then: func(*core.Scope) core.Node {
-						return core.Text{Content: authReason(prov.Reason), Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9.5},
-							StyleFunc: ui.Colored(colors.Danger)}
-					}},
-				}},
-				badge(),
-				hintOf(func() string { return apptext.T("登录") + " " + prov.ID }, ui.IconButton{Icon: lucide.LogIn, Label: apptext.T("登录") + " " + prov.ID, Size: 26, IconSize: 13,
-					TestID: "provider-login-" + prov.ID, OnPress: func() { a.authLogin(prov.ID) }}),
-				hintOf(func() string { return apptext.T("配置 ") + prov.ID }, ui.IconButton{Icon: lucide.Settings2, Label: apptext.T("配置 ") + prov.ID, Size: 26, IconSize: 13,
-					TestID: "provider-configure-" + prov.ID, OnPress: func() { a.openProviderDialog(prov.ID) }}),
-				arrowButton(lucide.ArrowUpToLine, "置顶供应商", func() { a.pinProvider(prov.ID) }),
-				arrowButton(lucide.ChevronUp, "上移供应商", func() { a.moveProvider(prov.ID, -1) }),
-				arrowButton(lucide.ChevronDown, "下移供应商", func() { a.moveProvider(prov.ID, 1) }),
-			}}
-			rows = append(rows, row)
-			if i < len(list)-1 {
-				rows = append(rows, setDivider())
-			}
-		}
-		return core.Group(rows)
-	})
 }
 
 func (a *app) favoriteModelSettings() core.Node {

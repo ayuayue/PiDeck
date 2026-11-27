@@ -249,18 +249,25 @@ type app struct {
 	providerBalPath *core.Signal[string]
 	providerBalCur  *core.Signal[string]
 	// The model editor in the provider dialog.
-	providerModelEditing   *core.Signal[string]
-	providerModelID        *core.Signal[string]
-	providerModelName      *core.Signal[string]
-	providerModelContext   *core.Signal[string]
-	providerModelMax       *core.Signal[string]
-	providerModelReasoning *core.Signal[bool]
-	providerModelImages    *core.Signal[bool]
-	providerModelCostIn    *core.Signal[string]
-	providerModelCostOut   *core.Signal[string]
-	providerModelCostRead  *core.Signal[string]
-	providerModelCostWrite *core.Signal[string]
-	providerModelsRev      *core.Signal[int]
+	providerModelEditing    *core.Signal[string]
+	providerModelID         *core.Signal[string]
+	providerModelName       *core.Signal[string]
+	providerModelContext    *core.Signal[string]
+	providerModelMax        *core.Signal[string]
+	providerModelReasoning  *core.Signal[bool]
+	providerModelImages     *core.Signal[bool]
+	providerModelCostIn     *core.Signal[string]
+	providerModelCostOut    *core.Signal[string]
+	providerModelCostRead   *core.Signal[string]
+	providerModelCostWrite  *core.Signal[string]
+	providerModelsRev       *core.Signal[int]
+	providerCardOpen        *core.Signal[string]
+	providerFetchBusy       *core.Signal[bool]
+	providerFetchError      *core.Signal[string]
+	providerFetchedModels   *core.Signal[[]modelConfig]
+	providerFetchedSelected *core.Signal[map[string]bool]
+	providerModelQuery      *core.Signal[string]
+	providerModelWriteBusy  *core.Signal[bool]
 	// modelCompat is the flags the compatibility editor set for the model
 	// being edited; modelCompatRev redraws it.
 	modelCompat           map[string]bool
@@ -628,23 +635,29 @@ type app struct {
 	impGen    int
 	// railWidth and drawerWidth are the side panels' widths, saved when a
 	// drag rests; the seq counters drop a save a newer drag replaced.
-	railWidth       *core.Signal[core.Points]
-	drawerWidth     *core.Signal[core.Points]
-	railSeq         int
-	drawerSeq       int
-	winSeq          int
-	outlineOpen     *core.Signal[bool]
-	authEntries     *core.Signal[[]authEntry]
-	authErr         *core.Signal[string]
-	authKeyOpen     *core.Signal[bool]
-	authKeyProvider *core.Signal[string]
-	authKeyText     *core.Signal[string]
-	chatFindText    *core.Signal[string]
-	pluginNewOpen   *core.Signal[bool]
-	pluginNewID     *core.Signal[string]
-	pluginNewName   *core.Signal[string]
-	pluginNewDesc   *core.Signal[string]
-	fileSearchOpen  *core.Signal[bool]
+	railWidth           *core.Signal[core.Points]
+	drawerWidth         *core.Signal[core.Points]
+	railSeq             int
+	drawerSeq           int
+	winSeq              int
+	outlineOpen         *core.Signal[bool]
+	authEntries         *core.Signal[[]authEntry]
+	authErr             *core.Signal[string]
+	authKeyOpen         *core.Signal[bool]
+	authKeyProvider     *core.Signal[string]
+	authKeyText         *core.Signal[string]
+	authMethodsOpen     *core.Signal[bool]
+	authMethodsBusy     *core.Signal[bool]
+	authMethodsError    *core.Signal[string]
+	authMethods         *core.Signal[[]piAuthProvider]
+	authMethodsProvider *core.Signal[string]
+	authMethodsQuery    *core.Signal[string]
+	chatFindText        *core.Signal[string]
+	pluginNewOpen       *core.Signal[bool]
+	pluginNewID         *core.Signal[string]
+	pluginNewName       *core.Signal[string]
+	pluginNewDesc       *core.Signal[string]
+	fileSearchOpen      *core.Signal[bool]
 	// fileSearchQuery, fileSearchBusy and fileSearchRev drive the content
 	// search; its hits and sequence live beside them.
 	fileSearchQuery *core.Signal[string]

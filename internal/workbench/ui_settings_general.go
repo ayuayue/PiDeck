@@ -16,6 +16,78 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
+// defaultModelSettings selects the model a new local pi session starts with.
+func (a *app) defaultModelSettings() core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		a.settingsTick()
+		providers := a.providers.Get()
+		byID := make(map[string]providerInfo, len(providers))
+		providerOptions := make([]ui.Option[string], 0, len(providers)+1)
+		for _, provider := range providers {
+			byID[provider.ID] = provider
+			providerOptions = append(providerOptions, ui.Option[string]{Value: provider.ID, Label: provider.ID})
+		}
+		if a.defaultModel.Provider != "" {
+			if _, found := byID[a.defaultModel.Provider]; !found {
+				providerOptions = append(providerOptions, ui.Option[string]{Value: a.defaultModel.Provider, Label: a.defaultModel.Provider})
+			}
+		}
+		var modelOptions []ui.Option[string]
+		if provider, found := byID[a.defaultModel.Provider]; found {
+			for _, model := range provider.Models {
+				label := model.Name
+				if label == "" {
+					label = model.ID
+				}
+				modelOptions = append(modelOptions, ui.Option[string]{Value: model.ID, Label: label})
+			}
+		}
+		if a.defaultModel.ID != "" {
+			found := false
+			for _, option := range modelOptions {
+				if option.Value == a.defaultModel.ID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				modelOptions = append(modelOptions, ui.Option[string]{Value: a.defaultModel.ID, Label: a.defaultModel.ID})
+			}
+		}
+		colors := ui.ColorsOf(cx)
+		return core.View{Style: core.Style{Gap: 7}, Children: []core.Node{
+			core.Text{Content: apptext.T("留空则沿用 pi 当前选择；新会话会记住这里指定的模型。"),
+				Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: ui.Colored(colors.Muted)},
+			core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, AlignItems: core.AlignCenter, Gap: 7}, Children: []core.Node{
+				ui.Select[string]{Options: providerOptions, Value: func() string { return a.defaultModel.Provider },
+					Placeholder: apptext.T("跟随 pi 当前模型"), Label: apptext.T("供应商"), TestID: "default-model-provider",
+					OnClear: func() { a.setDefaultModel(modelChoice{}) },
+					OnChange: func(provider string) {
+						choice := modelChoice{Provider: provider}
+						if provider == a.defaultModel.Provider {
+							choice.ID = a.defaultModel.ID
+						} else if info, found := byID[provider]; found && len(info.Models) > 0 {
+							choice.ID = info.Models[0].ID
+						}
+						a.setDefaultModel(choice)
+					},
+					Style: core.Style{Width: core.Pt(180), MaxWidth: core.Pct(100)}},
+				ui.Select[string]{Options: modelOptions, Value: func() string { return a.defaultModel.ID },
+					Placeholder: apptext.T("选择模型"), Label: apptext.T("模型"), TestID: "default-model-select",
+					Disabled: func() bool { return a.defaultModel.Provider == "" },
+					OnChange: func(model string) { a.setDefaultModel(modelChoice{Provider: a.defaultModel.Provider, ID: model}) },
+					Style:    core.Style{Width: core.Pt(220), MaxWidth: core.Pct(100)}},
+			}},
+		}}
+	})
+}
+
+func (a *app) setDefaultModel(choice modelChoice) {
+	a.defaultModel = choice
+	a.st.edit(func(c *config) { c.Model = choice })
+	a.bumpSettings()
+}
+
 // settingsGeneral says what a new session starts with.
 func (a *app) settingsGeneral() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
@@ -97,6 +169,7 @@ func (a *app) settingsGeneral() core.Node {
 					}}),
 				setRow("快捷短语与回复规则", "管理常用短语，以及最新回复结束后按条件显示的发送按钮。",
 					ui.Button{Text: apptext.T("编辑"), Size: ui.SizeSmall, Variant: ui.ButtonSecondary, TestID: "settings-reply-shortcuts", OnPress: a.openReplyShortcutSettings}),
+				setGroup("新会话默认模型", a.defaultModelSettings()),
 				setGroup("新会话默认思考等级",
 					core.Text{Content: apptext.T("思考等级控制模型的推理投入，只影响之后创建的 pi 会话；可用等级由模型决定。"),
 						Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: ui.Colored(colors.Muted)},

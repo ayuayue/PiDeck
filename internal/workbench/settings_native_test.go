@@ -46,10 +46,10 @@ func TestNativeSettingsPageScreens(t *testing.T) {
 		switch id {
 		case "models":
 			screen.WaitFor("id:settings-content", 5*time.Second)
-			screen.WaitFor("id:default-model-provider", 5*time.Second)
+			screen.WaitFor("id:provider-add", 5*time.Second)
 		case "credentials":
 			screen.WaitFor("id:settings-page", 5*time.Second)
-			screen.WaitFor("id:auth-overview-add", 5*time.Second)
+			screen.WaitFor("id:auth-add", 5*time.Second)
 		case "usage":
 			screen.WaitUntil(5*time.Second, func() bool { return len(screen.Query("text:还没有可统计的用量")) > 0 })
 		default:
@@ -95,7 +95,7 @@ func TestNativeAuthKeyDialogScreen(t *testing.T) {
 		built.openSettingsPane()
 		built.openSettingsSection("credentials")
 	})
-	screen.Press("id:auth-add")
+	screen.Press("id:auth-add-custom")
 	screen.WaitFor("id:auth-key", 5*time.Second)
 	shot(screen, "comparison/auth-key-dialog")
 }
@@ -188,7 +188,6 @@ func TestProviderCreateFromSettings(t *testing.T) {
 	screen.WaitFor("id:provider-add-error", 5*time.Second)
 	screen.Type("id:provider-add-id", "fixture")
 	screen.Type("id:provider-add-base", "https://api.example.invalid/v1")
-	screen.Type("id:provider-add-model", "new-chat")
 	screen.Press("id:provider-add-save")
 	screen.WaitFor("text:供应商 ID 已存在。请打开现有供应商进行配置。", 5*time.Second)
 	screen.Clear("id:provider-add-id")
@@ -211,10 +210,12 @@ func TestProviderCreateFromSettings(t *testing.T) {
 		t.Fatalf("original provider models = %v, want fixture-chat", got)
 	}
 	got := byID["new-provider"]
-	if got.BaseURL != "https://api.example.invalid/v1" || got.API != "openai-completions" || len(got.Models) != 1 || got.Models[0].ID != "new-chat" {
-		t.Fatalf("created provider or model settings missing: %q, %q, %v", got.BaseURL, got.API, got.Models)
+	if got.BaseURL != "https://api.example.invalid/v1" || got.API != "openai-completions" || len(got.Models) != 0 {
+		t.Fatalf("created provider = %+v, want empty model list", got)
 	}
 	screen.WaitFor("id:provider-configure-new-provider", 15*time.Second)
+	onNativeUI(t, screen, built, func() { built.openSettingsSection("general") })
+	screen.WaitFor("id:default-model-provider", 5*time.Second)
 	screen.Press("id:default-model-provider")
 	screen.WaitFor("role:option fixture", 5*time.Second)
 	screen.Press("role:option fixture")
@@ -222,29 +223,37 @@ func TestProviderCreateFromSettings(t *testing.T) {
 	screen.WaitFor("role:option Fixture Chat", 5*time.Second)
 	screen.Press("role:option Fixture Chat")
 	onNativeUI(t, screen, built, func() {
-		if got := built.cfg.Model; got.Provider != "fixture" || got.ID != "fixture-chat" {
+		if got := built.st.config().Model; got.Provider != "fixture" || got.ID != "fixture-chat" {
 			t.Errorf("default model = %+v, want fixture/fixture-chat", got)
 		}
+		built.openSettingsSection("models")
 	})
 	screen.Type("id:provider-filter", "new-provider")
 	screen.WaitForGone("id:provider-configure-fixture", 5*time.Second)
 	screen.Find("id:provider-configure-new-provider")
 	screen.Clear("id:provider-filter")
 	screen.WaitFor("id:provider-configure-fixture", 5*time.Second)
-	screen.ScrollTo("id:settings-content", core.Point{Y: 650})
-	screen.Press("id:tool-commit-provider")
-	screen.WaitFor("role:option new-provider", 5*time.Second)
-	screen.Press("role:option new-provider")
-	onNativeUI(t, screen, built, func() {
-		if got := built.cfg.ToolModels["commit"]; got.Provider != "new-provider" || got.Model != "new-chat" {
-			t.Errorf("tool model = %+v, want new-provider/new-chat", got)
-		}
-	})
 	screen.Focus("id:settings-tab-models")
 	screen.Key("down")
 	screen.WaitFor("id:auth-add", 5*time.Second)
 	screen.Key("down")
 	screen.WaitFor("id:pi-hide-thinking", 5*time.Second)
+}
+
+func TestDefaultModelSettingsSearch(t *testing.T) {
+	for _, query := range []string{"默认模型", "default model"} {
+		hits := searchSettings(query)
+		if len(hits) != 1 || hits[0].Section != "general" || hits[0].Label != "新会话默认模型" || hits[0].Jump {
+			t.Fatalf("searchSettings(%q) = %+v, want the default model setting in general", query, hits)
+		}
+	}
+	built, screen := startNativeSettingsApp(t)
+	onNativeUI(t, screen, built, built.openSettingsPane)
+	screen.Type("id:settings-search", "默认模型")
+	screen.WaitFor("id:settings-hit-general-0", 5*time.Second)
+	screen.Press("id:settings-hit-general-0")
+	screen.WaitFor("id:default-model-provider", 5*time.Second)
+	screen.Find("id:default-model-select")
 }
 
 func settingsProviderFixture() []providerInfo {

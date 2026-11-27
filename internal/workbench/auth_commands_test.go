@@ -2,8 +2,8 @@
 
 package workbench
 
-// Checks the pi commands the settings page runs, and the authentication
-// block of the provider dialog.
+// Checks the pi commands the settings page runs and the separate provider
+// configuration and credential-management flows.
 
 import (
 	"os"
@@ -54,12 +54,15 @@ func TestAuthCommandAgainstPi(t *testing.T) {
 	}
 }
 
-// TestProviderDialogAuthState opens a provider dialog and checks the
-// authentication block reports pi's answer and offers a login.
+// TestProviderDialogAuthState checks models stay editable in the provider
+// dialog while credential actions live on the credentials page.
 func TestProviderDialogAuthState(t *testing.T) {
 	if nsgotest.Target() != "" {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
+	// This checks file-backed UI state; a background pi probe must not
+	// outlive the screen and recreate auth.json during TempDir cleanup.
+	t.Setenv("PATH", t.TempDir())
 	home := t.TempDir()
 	cfgDir := t.TempDir()
 	t.Setenv("PIDECK_V2_HOME", home)
@@ -79,7 +82,61 @@ func TestProviderDialogAuthState(t *testing.T) {
 	app.WaitFor("id:provider-configure-acme", 20*time.Second)
 	app.Press("id:provider-configure-acme")
 	app.WaitFor("id:provider-dialog", 5*time.Second)
-	app.WaitFor("id:provider-dialog-check", 5*time.Second)
+	app.Find("id:provider-key")
 	app.Press("id:provider-model-a1")
 	app.WaitFor("id:provider-model-images", 5*time.Second)
+	app.Press("id:provider-cancel")
+	app.WaitForGone("id:provider-dialog", 5*time.Second)
+	app.Press("id:settings-tab-credentials")
+	app.WaitFor("text:还没有凭据", 5*time.Second)
+	app.Find("id:auth-add")
+	app.Find("id:auth-add-custom")
+	if app.Exists("id:auth-check-acme") {
+		t.Fatal("a models.json provider without a stored credential has a credential row")
+	}
+}
+
+func TestAuthAddMethodsAndCustomKey(t *testing.T) {
+	built, screen := startNativeSettingsApp(t)
+	onNativeUI(t, screen, built, func() {
+		built.authMethods.Set([]piAuthProvider{
+			{ID: "key", Name: "Key Provider", APIKey: &piAPIKey{}},
+			{ID: "oauth", Name: "OAuth Provider", OAuth: &piOAuthAuth{}},
+		})
+		built.authMethodsProvider.Set("key")
+		built.openSettingsPane()
+		built.openSettingsSection("credentials")
+	})
+	screen.Press("id:auth-add")
+	screen.WaitFor("id:auth-methods-dialog", 5*time.Second)
+	screen.Press("id:auth-method-login-key")
+	screen.WaitFor("id:auth-key", 5*time.Second)
+	screen.WaitForGone("id:auth-methods-dialog", 5*time.Second)
+	onNativeUI(t, screen, built, func() {
+		if got := built.authKeyProvider.GetUntracked(); got != "key" {
+			t.Errorf("manual key provider = %q, want key", got)
+		}
+	})
+	screen.Press("id:auth-key >> role:button 取消")
+	screen.Press("id:auth-add")
+	screen.WaitFor("id:auth-methods-dialog", 5*time.Second)
+	screen.Press("id:auth-methods-provider")
+	screen.Press("role:option OAuth Provider · oauth")
+	screen.WaitFor("id:auth-method-login-oauth", 5*time.Second)
+	screen.Find("id:auth-method-login-oauth-no-browser")
+	if screen.Exists("id:auth-method-login-key") {
+		t.Fatal("an OAuth-only provider offers an API-key login")
+	}
+	screen.Press("id:auth-method-custom")
+	screen.WaitFor("id:auth-key", 5*time.Second)
+	onNativeUI(t, screen, built, func() {
+		if got := built.authKeyProvider.GetUntracked(); got != "" {
+			t.Errorf("custom key provider = %q, want empty", got)
+		}
+	})
+	screen.Press("id:auth-key >> role:button 取消")
+	screen.Press("id:auth-add-custom")
+	screen.WaitFor("id:auth-key", 5*time.Second)
+	screen.Find("id:auth-provider")
+	screen.Find("id:auth-key-input")
 }

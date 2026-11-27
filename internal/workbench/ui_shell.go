@@ -62,6 +62,7 @@ func (a *app) view() core.Node {
 		a.pickerDialog(),
 		a.outlineDialog(),
 		a.authKeyDialog(),
+		a.authMethodsDialog(),
 		a.tdLoginDialog(),
 		a.tdKeyDialog(),
 		a.tdRechargeDialog(),

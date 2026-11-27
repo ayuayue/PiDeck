@@ -397,6 +397,19 @@ func newApp(cx *core.Scope) *app {
 		piReserveText:          core.NewSignal(cx, ""),
 		piKeepText:             core.NewSignal(cx, ""),
 	}
+	a.authMethodsOpen = core.NewSignal(cx, false)
+	a.authMethodsBusy = core.NewSignal(cx, false)
+	a.authMethodsError = core.NewSignal(cx, "")
+	a.authMethods = core.NewSignalFunc(cx, []piAuthProvider(nil), nil)
+	a.authMethodsProvider = core.NewSignal(cx, "")
+	a.authMethodsQuery = core.NewSignal(cx, "")
+	a.providerCardOpen = core.NewSignal(cx, "")
+	a.providerFetchBusy = core.NewSignal(cx, false)
+	a.providerFetchError = core.NewSignal(cx, "")
+	a.providerFetchedModels = core.NewSignalFunc(cx, []modelConfig(nil), nil)
+	a.providerFetchedSelected = core.NewSignalFunc(cx, map[string]bool{}, nil)
+	a.providerModelQuery = core.NewSignal(cx, "")
+	a.providerModelWriteBusy = core.NewSignal(cx, false)
 	a.toaster = ui.NewToaster(cx)
 	a.quickReplies = newReplyShortcutState(cx)
 	a.files = newFileTree(cx)

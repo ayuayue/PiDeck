@@ -17,8 +17,7 @@ import (
 // providerCreateDialog collects a provider and its first model in one save.
 func (a *app) providerCreateDialog(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
-	id, api, endpoint := core.NewSignal(cx, ""), core.NewSignal(cx, "openai-completions"), core.NewSignal(cx, "")
-	key, model := core.NewSignal(cx, ""), core.NewSignal(cx, "")
+	id, api, endpoint, model := core.NewSignal(cx, ""), core.NewSignal(cx, "openai-completions"), core.NewSignal(cx, ""), core.NewSignal(cx, "")
 	problem, saving := core.NewSignal(cx, ""), core.NewSignal(cx, false)
 	field := func(label, placeholder, testID string, value *core.Signal[string], masked, focus bool) core.Node {
 		return core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
@@ -31,15 +30,14 @@ func (a *app) providerCreateDialog(cx *core.Scope) core.Node {
 		id.Set("")
 		api.Set("openai-completions")
 		endpoint.Set("")
-		key.Set("")
 		model.Set("")
 		problem.Set("")
 	}
 	save := func() {
 		name, adapter, baseURL, modelID := strings.TrimSpace(id.GetUntracked()), strings.TrimSpace(api.GetUntracked()),
 			strings.TrimSpace(endpoint.GetUntracked()), strings.TrimSpace(model.GetUntracked())
-		if name == "" || adapter == "" || modelID == "" {
-			problem.Set(apptext.T("请填写供应商 ID、API 和模型 ID。"))
+		if name == "" || adapter == "" {
+			problem.Set(apptext.T("请填写供应商 ID 和 API。"))
 			return
 		}
 		if strings.ContainsAny(name, `/\`) || strings.ContainsFunc(name, unicode.IsSpace) {
@@ -57,8 +55,10 @@ func (a *app) providerCreateDialog(cx *core.Scope) core.Node {
 		}
 		problem.Set("")
 		saving.Set(true)
-		cfg := providerConfig{ID: name, API: adapter, BaseURL: baseURL, APIKey: strings.TrimSpace(key.GetUntracked()),
-			Models: []modelConfig{{ID: modelID}}}
+		cfg := providerConfig{ID: name, API: adapter, BaseURL: baseURL}
+		if modelID != "" {
+			cfg.Models = []modelConfig{{ID: modelID}}
+		}
 		go func() {
 			err := writeProviderConfig(cfg, true)
 			cx.Post(func() {
@@ -94,8 +94,7 @@ func (a *app) providerCreateDialog(cx *core.Scope) core.Node {
 			field(apptext.T("供应商 ID"), "my-provider", "provider-add-id", id, false, true),
 			field("API", "openai-completions", "provider-add-api", api, false, false),
 			field("Base URL", "https://api.example.com/v1", "provider-add-base", endpoint, false, false),
-			field("API Key", apptext.T("sk-… 或 $MY_API_KEY"), "provider-add-key", key, true, false),
-			field(apptext.T("模型 ID"), "gpt-4o-mini", "provider-add-model", model, false, false),
+			field(apptext.T("模型 ID（可选）"), "gpt-4o-mini", "provider-add-model", model, false, false),
 			core.Show{When: func() bool { return problem.Get() != "" }, Then: func(*core.Scope) core.Node {
 				return core.Text{ContentFunc: problem.Get, TestID: "provider-add-error", Style: ui.TypeBody, StyleFunc: ui.Colored(colors.Danger)}
 			}},

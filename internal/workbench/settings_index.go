@@ -34,6 +34,7 @@ const settingsHitLimit = 40
 
 // settingsIndex lists the settings by section and search words.
 var settingsIndex = []settingEntry{
+	{"general", "新会话默认模型", "default model provider new session pi 默认 模型 供应商 新会话"},
 	{"general", "新会话默认思考等级", "thinking reasoning effort level default pi 默认 思考 推理 等级"},
 	{"general", "快捷短语与回复规则", "quick messages phrases reply actions shortcuts regex 快捷回复 正则 匹配 短语"},
 	{"general", "语言", "language locale english chinese traditional korean japanese russian french 简体 繁体 韩文 日文 俄语 法语 한국어 日本語 Русский Français"},

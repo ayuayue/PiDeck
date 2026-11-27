@@ -27,6 +27,34 @@ func (a *app) loadAuth() {
 	}()
 }
 
+// openAuthMethods opens Pi's own supported API-key and OAuth methods.
+func (a *app) openAuthMethods() {
+	a.authMethodsOpen.Set(true)
+	a.authMethodsError.Set("")
+	a.loadAuthMethods()
+}
+
+func (a *app) loadAuthMethods() {
+	if a.authMethodsBusy.GetUntracked() || len(a.authMethods.GetUntracked()) > 0 {
+		return
+	}
+	a.authMethodsBusy.Set(true)
+	go func() {
+		providers, err := loadPiAuthProviders(a.piPath())
+		a.cx.Post(func() {
+			a.authMethodsBusy.Set(false)
+			if err != nil {
+				a.authMethodsError.Set(err.Error())
+				return
+			}
+			a.authMethods.Set(providers)
+			if len(providers) > 0 && a.authMethodsProvider.GetUntracked() == "" {
+				a.authMethodsProvider.Set(providers[0].ID)
+			}
+		})
+	}()
+}
+
 // openAuthKey asks for one provider's api key.
 func (a *app) openAuthKey(provider string) {
 	a.authKeyProvider.Set(provider)
@@ -55,15 +83,35 @@ func (a *app) saveAuthKey() {
 // authLogin signs in to a provider in a terminal of its own: pi's login
 // waits for a browser or a typed key, so it cannot run behind the app.
 func (a *app) authLogin(provider string) {
+	a.authLoginMode(provider, false, false)
+}
+
+func (a *app) authLoginAPIKey(provider string) {
+	a.authLoginMode(provider, true, false)
+}
+
+func (a *app) authLoginNoBrowser(provider string) {
+	a.authLoginMode(provider, false, true)
+}
+
+func (a *app) authLoginMode(provider string, apiKey, noBrowser bool) {
 	provider = strings.TrimSpace(provider)
 	if provider == "" {
 		return
 	}
+	args := []string{"auth", "login", provider}
+	if apiKey {
+		args = append(args, "--api-key")
+	}
+	if noBrowser {
+		args = append(args, "--no-browser")
+	}
+	a.authMethodsOpen.Set(false)
 	a.animateNextLayout()
 	a.term.open.Set(true)
 	a.remember()
 	a.term.newCommandTab(loginDir(), localTarget, apptext.T("登录 %s", provider),
-		piTerminalCommand(a.piPath(), "auth", "login", provider), func() {
+		piTerminalCommand(a.piPath(), args...), func() {
 			// The credential is written when the login ends, so the list
 			// and every provider's state are read again here.
 			a.loadAuth()
