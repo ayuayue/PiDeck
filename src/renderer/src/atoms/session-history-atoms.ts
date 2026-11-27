@@ -16,7 +16,6 @@ import { findLastUserMessageIndex } from "./outlineRevision";
 import type { SessionMessageCacheEntry } from "./session-atoms-types";
 import { allocateSessionMessageOutlineRevision } from "./session-message-cache-atoms";
 import { sessionMessagesCacheAtom } from "./session-state-atoms";
-import { mergeHistorySegments } from "../components/session/timeline/historyPageMerge";
 
 /**
  * disk 来源历史消息数组的驻留上限（2026 内存排查：浏览历史时 atom 数组无界增长）。
@@ -326,15 +325,7 @@ export const prependSessionHistoryPageAtom = atom(
 		const baseMessages = stalePrefix ? [] : (current.history?.messages ?? []);
 		const baseKeys = new Set(baseMessages.map(messageEntryKey));
 		const freshMessages = pageMessages.filter((message) => !baseKeys.has(messageEntryKey(message)));
-		// 按页的文件区间排序，不按到达顺序：后到的页若比已加载的更旧，就接在前头；
-		// 若比已加载的更新（重取同一段的极端情况），也按文件顺序落到后面。游标缺失时保持原有顺序。
-		const merged = mergeHistorySegments(
-			[
-				{ nextBefore: input.page.nextBefore ?? null, messages: freshMessages },
-				{ nextBefore: current.history?.nextBefore ?? null, messages: baseMessages },
-			],
-			messageEntryKey,
-		).messages;
+		const merged = [...freshMessages, ...baseMessages];
 		// 条数封顶（RUNTIME_HISTORY_PREFIX_MESSAGE_LIMIT）：语义与 disk 路径的
 		// prependSessionMessagePageAtom 一致——只允许丢新页头部（base 是用户已翻到的
 		// 历史段不能截断）；整页丢弃时数值游标回退到请求游标（下次重取同页），部分丢弃时

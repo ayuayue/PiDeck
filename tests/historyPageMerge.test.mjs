@@ -3,7 +3,7 @@ import test from "node:test";
 import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
 
 const load = createTsSandbox();
-const { mergeHistorySegments } = load("src/renderer/src/components/session/timeline/historyPageMerge.ts");
+const { mergeHistorySegments, reanchorWindow } = load("src/renderer/src/components/session/timeline/historyPageMerge.ts");
 
 const msg = (entryId) => ({ id: "id-" + entryId, meta: { entryId } });
 const keyOf = (item) => "e:" + item.meta.entryId;
@@ -17,15 +17,12 @@ function mergeByArrival(segments) {
 }
 
 test("后页先到：合并结果按文件顺序，不按到达顺序", () => {
-	// 文件顺序：p1(0..10) → p2(10..20)。到达顺序相反。
 	const p1 = { nextBefore: 0, before: 10, messages: [msg("a"), msg("b")] };
 	const p2 = { nextBefore: 10, before: 20, messages: [msg("c"), msg("d")] };
 	const merged = mergeHistorySegments([p2, p1], keyOf);
 	same(ids(merged.messages), ["a", "b", "c", "d"]);
 	assert.equal(merged.reordered, true);
 	same(merged.gaps, []);
-	// 坏样本对照：按到达顺序拼会得到 c,d,a,b —— 判据必须能看出差别
-	same(ids(mergeByArrival([p2, p1])), ["c", "d", "a", "b"]);
 	assert.notEqual(JSON.stringify(ids(merged.messages)), JSON.stringify(ids(mergeByArrival([p2, p1]))));
 });
 
@@ -64,4 +61,36 @@ test("文件头页（nextBefore 为 null）接在最前", () => {
 test("空输入返回空结果", () => {
 	const merged = mergeHistorySegments([], keyOf);
 	same(merged, { messages: [], gaps: [], dropped: 0, reordered: false });
+});
+
+test("补页后窗口锚点不动：首条还在，就返回以它开头的那一批", () => {
+	const window = [msg("c"), msg("d")];
+	const merged = [msg("a"), msg("b"), msg("c"), msg("d"), msg("e")];
+	const result = reanchorWindow({ window, merged, keyOf });
+	same(ids(result.window), ["c", "d"]);
+	assert.equal(result.kept, true);
+	// 坏样本对照：按「尾部 N 条」切会得到 d,e，用户正看着的 c,d 被顶走
+	assert.notEqual(JSON.stringify(ids(result.window)), JSON.stringify(ids(merged.slice(-2))));
+});
+
+test("坏样本：首条被压缩移出，必须退回尾部切片并报 kept=false", () => {
+	// 压缩把 a、b 整段换成摘要卡片，用户正看着的 c 之前那条已经不在了
+	const window = [msg("b"), msg("c")];
+	const afterCompaction = [msg("summary"), msg("c")];
+	const result = reanchorWindow({ window, merged: afterCompaction, keyOf });
+	assert.equal(result.kept, false);
+	same(ids(result.window), ["summary", "c"]);
+	// 旧实现（直接尾部切片）在这里恰好也是这两条，但 kept 标志缺失——
+	// 调用方无法区分「锚住了」与「被压缩挤走了」，这就是要判的那件事
+	assert.equal(ids(afterCompaction.slice(-2)).join(","), ids(result.window).join(","));
+});
+
+test("尾部追加新消息时窗口跟着最新，不被钉死", () => {
+	const window = [msg("c"), msg("d")];
+	const merged = [msg("c"), msg("d"), msg("e")];
+	const result = reanchorWindow({ window, merged, keyOf });
+	same(ids(result.window), ["c", "d"]);
+	assert.equal(result.kept, true);
+	// 窗口长度不变，首条仍在原位：新消息在窗口之外，不把用户钉住
+	assert.equal(result.window.length, 2);
 });

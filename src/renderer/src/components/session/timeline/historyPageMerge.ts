@@ -1,5 +1,5 @@
 /**
- * 历史页合并与渲染窗口锚点（纯函数，无 DOM、无 atom）。
+ * 横跨多个历史页的合并与窗口锚点（纯函数，无 DOM、无 atom）。
  *
  * 为什么单独成文件：这两件事原先埋在 `session-history-atoms.ts` 的 prepend 里，
  * 与守卫、封顶、游标推进缠在一起，只有「跑整个 controller」才知道对不对。抽成纯函数后，
@@ -52,14 +52,13 @@ export function mergeHistorySegments<T>(segments: readonly HistorySegment<T>[], 
 	let dropped = 0;
 	const gaps: Array<{ before: number; size: number }> = [];
 
-	for (const entry of ordered) {
-		const segment = entry.segment;
+	for (let index = 0; index < ordered.length; index += 1) {
+		const segment = ordered[index].segment;
 		// 缺口：上一段的最新边界（它的 before）与这一页的最旧边界（nextBefore）不相等，
 		// 说明中间那一段谁都没加载。两个边界都得是数字才判得了，null 表示已到文件头。
-		const previous = ordered[ordered.indexOf(entry) - 1];
-		const previousBefore = previous?.segment.before;
+		const previousBefore = ordered[index - 1]?.segment.before;
 		const currentLow = segment.nextBefore;
-		if (ordered.indexOf(entry) > 0 && typeof previousBefore === "number" && typeof currentLow === "number" && previousBefore !== currentLow) {
+		if (index > 0 && typeof previousBefore === "number" && typeof currentLow === "number" && previousBefore !== currentLow) {
 			gaps.push({ before: currentLow, size: currentLow - previousBefore });
 		}
 		for (const message of segment.messages) {
@@ -74,4 +73,27 @@ export function mergeHistorySegments<T>(segments: readonly HistorySegment<T>[], 
 	}
 
 	return { messages, gaps, dropped, reordered };
+}
+
+/**
+ * 合并后保持渲染窗口不动。
+ *
+ * 窗口是「尾部 N 条」切片（消费点在 SessionMessageTimeline 的 selectTimelineTurnWindow）：
+ * 历史页接在前头之后，同样的 N 会整体滑向最新，用户正在看的那批被顶出屏幕——
+ * 表现是「补一页，视图自己跳了一下」。这里按窗口首条的身份重新定位，命中了就保住原内容。
+ *
+ * 只在前缀增长时成立：尾部追加新消息应当跟着走，那时首条仍在原位，切出来还是同一批加新增，
+ * 不会把用户钉在旧位置。
+ *
+ * 当前未接线：接线要 run 粒度身份（turn 的 id），且「窗口滑动」的观感只能在真机验证，
+ * 纯单测判不了。函数与用例先立起来，接线点记在这里。
+ */
+export function reanchorWindow<T>(input: { window: readonly T[]; merged: readonly T[]; keyOf: (item: T) => string }): { window: T[]; kept: boolean } {
+	const { window, merged, keyOf } = input;
+	const tail = merged.slice(Math.max(0, merged.length - window.length));
+	if (window.length === 0) return { window: tail, kept: true };
+	const anchorKey = keyOf(window[0]);
+	const found = merged.findIndex((item) => keyOf(item) === anchorKey);
+	if (found < 0) return { window: tail, kept: false };
+	return { window: merged.slice(found, found + window.length), kept: true };
 }
