@@ -2514,3 +2514,40 @@ test("remote message-budget trimming never adds message counts to a byte cursor"
 	);
 	assert.equal(store.get(atoms.sessionMessagesCacheAtom)["session-a"].page.nextBefore, null, "字节游标不可按消息溢出量做算术");
 });
+
+test("翻过页后一次取页被游标守卫拒掉，清前缀后同一个页进得了缓存", () => {
+	// 跳转失败的真实机制：用户在时间线上翻过页（history 存在），此时一次取页传
+	// before: undefined，与已有 nextBefore（数字或 null）永不相等 —— 守卫直接拒。
+	// 这条在真 store 上跑完整条链：翻过页 → 被拒 → 清前缀 → 再 prepend 成功。
+	// 它守的是「结局」：目标页有没有真的进到缓存里，而不只是函数返回了什么。
+	const atoms = loadAtoms();
+	const store = createStore();
+	const sessionId = "session-jump";
+	const msg = (id, entryId) => ({ id, role: "user", text: id, meta: { entryId } });
+	const entry = () => store.get(atoms.sessionMessagesCacheAtom)[sessionId];
+
+	store.set(atoms.cacheSessionMessagesAtom, { sessionId, messages: [msg("w1", "we1")], source: "runtime", windowStart: 900 });
+	const revision = entry().revision;
+
+	// 用户翻过一页：history 存在，nextBefore = 500
+	const prepend = (page) => store.set(atoms.prependSessionHistoryPageAtom, { sessionId, expectedRevision: revision, before: undefined, page });
+	assert.equal(prepend({ messages: [msg("h1", "he1")], nextBefore: 500, nextBeforeEntryId: "he1", indexVersion: "v1" }), true, "首次 prepend（history 不存在）应当接受");
+	assert.equal(entry().history.nextBefore, 500);
+
+	// 一次取页：before 恒为 undefined，与 500 不等 → 必被拒
+	const jumpPage = { messages: [msg("t1", "te1")], nextBefore: 120, indexVersion: "v1" };
+	assert.equal(prepend(jumpPage), false, "翻过页后一次取页必须被拒 —— 这就是「先翻几屏再点远刻度」失败的机制");
+	assert.equal(
+		entry().history.messages.some((m) => m.id === "t1"),
+		false,
+		"被拒时目标页不能进缓存",
+	);
+
+	// 修复路径：清前缀再 prepend，同一个页这次必须进缓存
+	assert.equal(store.set(atoms.clearSessionHistoryAtom, sessionId), true, "清前缀应当成功");
+	assert.equal(prepend(jumpPage), true, "清完前缀后一次取页必须被接受");
+	assert.ok(
+		entry().history.messages.some((m) => m.id === "t1"),
+		"目标页必须真的进到缓存里",
+	);
+});
