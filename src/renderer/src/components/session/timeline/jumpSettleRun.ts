@@ -48,6 +48,11 @@ export function runJumpSettle(ports: JumpSettleRunPorts, callbacks: JumpSettleRu
 	let handle = 0;
 	let stopped = false;
 
+	// 两层取消，各自保证的东西不同（实测能分开：只删 cancelFrame 全绿，只删 stopped 就红）：
+	// - stopped 保证**正确性**：即使已排队的回调仍被执行、或外部持句柄重入，也不再测量、
+	//   不再写滚动、不再报 reason。换任何取消机制（AbortController 等）都必须有等价守卫，
+	//   因为「被取消方主动检查 aborted」与「撤销已排队的回调」是两件事。
+	// - cancelFrame 只省一次无用回调，是**性能**层。
 	const stop = () => {
 		stopped = true;
 		if (handle) {
