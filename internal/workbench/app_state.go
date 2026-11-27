@@ -593,11 +593,13 @@ type app struct {
 	gitFileHistoryPath *core.Signal[string]
 	gitFileHistoryRev  *core.Signal[int]
 	gitFileHistoryErr  *core.Signal[string]
+	gitFileHistorySeq  int
 	gitFileHistory     []gitCommit
 	// gitUnpushedOpen shows the commits the upstream does not have.
 	gitUnpushedOpen *core.Signal[bool]
 	gitUnpushedRev  *core.Signal[int]
 	gitUnpushedErr  *core.Signal[string]
+	gitUnpushedSeq  int
 	gitUnpushed     []gitCommit
 	gitRemoteName   *core.Signal[string]
 	gitRemoteURL    *core.Signal[string]

@@ -337,6 +337,8 @@ func (a *app) openUnpushedCommits() {
 	if path == "" {
 		return
 	}
+	a.gitUnpushedSeq++
+	project, visit := a.git.seq, a.gitUnpushedSeq
 	a.gitUnpushed = nil
 	a.gitUnpushedErr.Set("")
 	a.gitUnpushedOpen.Set(true)
@@ -344,6 +346,9 @@ func (a *app) openUnpushedCommits() {
 	go func() {
 		commits, err := readUnpushedCommits(t, path)
 		a.cx.Post(func() {
+			if project != a.git.seq || visit != a.gitUnpushedSeq || !a.gitUnpushedOpen.GetUntracked() {
+				return
+			}
 			if err != nil {
 				a.gitUnpushedErr.Set(err.Error())
 			}
@@ -395,6 +400,8 @@ func (a *app) openFileHistory(path string) {
 	if dir == "" {
 		return
 	}
+	a.gitFileHistorySeq++
+	project, visit := a.git.seq, a.gitFileHistorySeq
 	a.gitFileHistoryPath.Set(path)
 	a.gitFileHistory = nil
 	a.gitFileHistoryErr.Set("")
@@ -403,6 +410,9 @@ func (a *app) openFileHistory(path string) {
 	go func() {
 		commits, err := readFileHistory(t, dir, path, 50)
 		a.cx.Post(func() {
+			if project != a.git.seq || visit != a.gitFileHistorySeq || !a.gitFileHistoryOpen.GetUntracked() {
+				return
+			}
 			if err != nil {
 				a.gitFileHistoryErr.Set(err.Error())
 			}
