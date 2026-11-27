@@ -1,3 +1,27 @@
+## v0.14.1 (2026-11-27)
+
+PiDeck 0.14.1 strengthens session data protection, improves imports, reading and search navigation, and updates subagent status displays, branding and the pi-ai 1.6.1 model catalog.
+
+### 🐛 Fixes
+- **Renaming and copying large sessions preserve complete messages (#615)** — history records with oversized text or attachments are no longer skipped, and appended name records connect to the correct session branch.
+- **Read failures no longer overwrite favorites or session groups (#617)** — permission and I/O errors leave the original files and in-memory state intact, so loading can be retried after the underlying problem is resolved.
+- **More complete Kimi Code and Codex imports** — improve Kimi Code text, tool records and message ordering, and preserve the case of Linux project paths in Codex imports.
+- **Imports follow the current project and filter** — ignore stale scan results after switching projects, and exclude checked items hidden by the current filter from batch imports.
+- **Scrolling back to the bottom resumes live following** — returning from history to the latest message makes the timeline follow new output again and hides the jump-to-bottom button.
+- **Opening a content search result reveals the matching message** — Ctrl+F results for session content now open the session at the corresponding message.
+- **Image copies have more accurate spacing and reply scope** — fix text spacing and collapsed-control artifacts in exported images, and prefer the final answer when copying or favoriting a turn.
+- **Automatic fetch and manual pull no longer compete for Git reference locks** — serialize the operations and retry a pull once when it encounters a reference-lock conflict.
+- **Repository discovery respects Git ignore rules** — ignored directories are no longer scanned for additional repositories.
+- **The Electron app loads only its own bundled skills** — PiDeck Lite and V2 bundled skills are no longer injected or listed automatically; explicitly user-installed skills remain available.
+
+### ✨ Improvements
+- **More subagent execution status in the timeline** — show status summaries for delegate and orchestration results, with links to associated child sessions.
+- **Consistent system icons and in-app branding** — built-in icons use a white plate with a centered glyph at 65% of its width and height, with less outer padding on Windows; titlebars use a transparent glyph, and custom images stay unchanged.
+- **The Pi model catalog follows pi-ai 1.6.1** — refresh model choices and remind users to restart existing sessions after updating pi.
+- **Explain failures to save truncated tool output** — display the underlying reason when saving the complete output fails.
+
+Thanks to **atauzki** for improving Kimi Code imports and timeline following, **ZedingZhang** for protecting oversized session history, favorites and groups, and **bfzha** for pi version alignment, update hints and workbench improvements.
+
 ## v0.14.0 (2026-11-23)
 
 PiDeck 0.14 makes remote workspaces usable day to day: files move over SFTP, remote session history is maintained on the host, and remote settings and MCP reuse the same forms as local projects. It also fixes the Windows sandbox `0xC0000142` failure and the WSL session list freeze.
