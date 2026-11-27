@@ -226,7 +226,7 @@ export function mergeOutlineRailItems(loaded: readonly OutlineRailItem[], direct
 
 	const loadedByEntryId = new Map<string, OutlineRailItem>();
 	for (const item of loadedUsers) {
-		loadedByEntryId.set(item.entryId ?? item.id, item);
+		loadedByEntryId.set(railKeyOf(item), item);
 	}
 
 	const merged: OutlineRailItem[] = [];
@@ -236,7 +236,9 @@ export function mergeOutlineRailItems(loaded: readonly OutlineRailItem[], direct
 		// 用户看到的是「两条一样的」，而它们不是两条消息。
 		const key = "e:" + entry.entryId;
 		if (usedEntryIds.has(key)) continue;
-		const loadedItem = loadedByEntryId.get(entry.entryId);
+		// 读侧必须是同一个带前缀的键：Map 与 Set 共用一个键约定，否则跨空间撞键时
+		// 「目录那一格显示别的消息 + 真正那条消失 + 无关那条被追加」三件一起发生。
+		const loadedItem = loadedByEntryId.get(key);
 		if (loadedItem) {
 			merged.push(loadedItem);
 			usedEntryIds.add(key);

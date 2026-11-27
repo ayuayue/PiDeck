@@ -56,6 +56,25 @@ test("已加载项与目录项重叠时，不额外追加（原行为不变）",
 	assert.equal(merged[0].title, "已加载的标题", "重叠时用已加载项的标题");
 });
 
+test("目录命中用带前缀的键：跨空间撞键时不许归错、丢条、重复", () => {
+	const { mergeOutlineRailItems } = rail();
+	// 已加载项 entryId="X"，另一条消息的 messageId 恰好也是 "X"（两个空间撞车）。
+	const loaded = [
+		{ id: "A", entryId: "X", role: "user", title: "真正属于目录X的那条", time: "" },
+		{ id: "X", role: "user", title: "另一条无关消息", time: "" },
+	];
+	const dir = [{ entryId: "X", title: "目录里的X", time: "" }];
+	const merged = mergeOutlineRailItems(loaded, dir);
+
+	// 三件后果各自断言，否则修好一件、另两件还会静默留着。
+	assert.equal(merged.length, 2, "总条数");
+	assert.ok(
+		merged.some((m) => m.id === "A"),
+		"真正属于目录 X 的那条不能消失：" + JSON.stringify(merged.map((m) => m.id)),
+	);
+	const titles = merged.map((m) => m.title);
+	assert.notEqual(titles[0], titles[1], "两条不能是同一标题（用户看到的「末尾两个」就是它）");
+});
 test("entryId 与 messageId 字面相同：两个空间，不许判成同一条", () => {
 	const { mergeOutlineRailItems } = rail();
 	// 一条已加载项的 entryId 恰好等于另一条的 messageId —— 这正是两个空间撞车的形态。
