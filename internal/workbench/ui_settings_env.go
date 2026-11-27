@@ -23,16 +23,8 @@ func (a *app) settingsEnv() core.Node {
 	probeRows := core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
 		info := a.env.Get()
-		piOK := info.PiPath != "" && info.PiError == ""
-		piPath := info.PiPath
-		if !piOK {
-			piPath = apptext.T("没找到：") + viewkit.FirstLine(info.PiError, 80)
-		}
 		return core.View{Style: core.Style{Gap: 2}, Children: []core.Node{
-			setRow("pi 可执行文件", piPath, ui.Text(piVersionLine(info), 10.5, ui.Regular, colors.Faint)),
-			a.piUpdateSetting(piOK),
-			a.sessionLinkSetting(),
-			setDivider(),
+			ui.Text(apptext.T("pi 的配置与历史会话保存在以下目录，可直接打开查看。"), viewkit.PanelCaptionSize, ui.Regular, colors.Muted),
 			setRow("pi 会话目录", info.SessionsDir, ui.Button{Text: apptext.T("打开"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
 				if info.SessionsDir != "" {
 					a.cx.OpenURL(fileURL(info.SessionsDir), nil)
@@ -44,7 +36,6 @@ func (a *app) settingsEnv() core.Node {
 					a.cx.OpenURL(fileURL(dir), nil)
 				}
 			}}),
-			setDivider(),
 		}}
 	})
 	targetRows := core.Dynamic(func(cx *core.Scope) core.Node {
@@ -73,42 +64,18 @@ func (a *app) settingsEnv() core.Node {
 		}
 		if len(info.WSL) == 0 && len(info.SSH) == 0 && !info.TargetsProbing {
 			rows = append(rows, core.Text{Content: apptext.T("没有读到 WSL 发行版或 SSH Host。"),
-				Style: core.Style{FontSize: 11.5}, StyleFunc: ui.Colored(colors.Faint)})
+				Style: core.Style{FontSize: viewkit.PanelCaptionSize}, StyleFunc: ui.Colored(colors.Faint)})
 		}
 		return core.View{Style: core.Style{Gap: 2}, Children: rows}
 	})
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		// Redrawn when any setting changes: their values live in the config.
-		a.settingsTick()
 		colors := ui.ColorsOf(cx)
-		editorInput := core.Input{
-			Value: func() string { return a.cfg.EditorCommand }, Placeholder: apptext.T("code / cursor / 自定义命令"),
-			Label: apptext.T("外部编辑器命令"), TestID: "editor-command",
-			// Leaving the field saves it: writing on every keystroke would put
-			// disk IO in the typing path.
-			OnSubmit: func(string) { a.saveConfigAsync() }, OnBlur: func() { a.saveConfigAsync() },
-			OnChange: func(v string) {
-				a.cfg.EditorCommand = v
-				a.st.change(func(c *config) { c.EditorCommand = v })
-			},
-			Style: core.Style{Width: core.Pt(170), Height: core.Pt(28), Padding: core.Symmetric(0, 8), FontSize: 11,
-				FontFamily: viewkit.MonoFont(), Color: colors.Text(), Background: colors.Field(),
-				BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6},
-		}
-		editorRow := core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, AlignItems: core.AlignCenter, Gap: 12, MinHeight: core.Pt(38),
-			Padding: core.Symmetric(3, 2)}, Children: []core.Node{
-			core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, FlexBasis: core.Pt(260), MinWidth: core.Pt(0), Gap: 1}, Children: []core.Node{
-				core.Text{Content: apptext.T("外部编辑器"), Style: core.Style{FontSize: 12.5, LineHeight: 18}, StyleFunc: ui.Colored(colors.Text)},
-				core.Text{ContentFunc: a.detectedEditorsText, Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: ui.Colored(colors.Muted)},
-			}},
-			core.View{Style: core.Style{FlexShrink: 1, MinWidth: core.Pt(0), MaxWidth: core.Pct(100)}, Children: []core.Node{editorInput}},
-		}}
 		proxyField := func(value func() string, set func(string), placeholder, label, testID string) core.Node {
 			return core.Input{Value: value, Placeholder: placeholder, Label: apptext.T(label), TestID: testID,
 				OnChange: set,
 				OnSubmit: func(string) { a.applyProxy(); a.saveConfigAsync() },
 				OnBlur:   func() { a.applyProxy(); a.saveConfigAsync() },
-				Style: core.Style{Width: core.Pt(190), Height: core.Pt(28), Padding: core.Symmetric(0, 8), FontSize: 11,
+				Style: core.Style{Width: core.Pt(190), Height: core.Pt(28), Padding: core.Symmetric(0, 8), FontSize: viewkit.PanelCaptionSize,
 					FontFamily: viewkit.MonoFont(), Color: colors.Text(), Background: colors.Field(),
 					BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6}}
 		}
@@ -136,11 +103,12 @@ func (a *app) settingsEnv() core.Node {
 		}
 		return a.scrollStashFor("settingsEnv:1").Bind(cx, core.Scroll{TestID: "settings-page", Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: scrollbarGutter}, Gap: 2}, Children: []core.Node{
-				setGroup("本机", probeRows, editorRow),
+				setGroup("pi 可执行文件", a.settingsPiRuntime()),
+				setGroup("外部编辑器", a.settingsExternalEditors()),
 				setGroup("网络代理", proxyRows...),
 				core.Text{Content: apptext.T("修改后按回车或移开焦点保存。应用代理立即用于后续请求；Agent 代理需重新启动对应进程。"),
-					Style: core.Style{FontSize: 11, LineHeight: 17}, StyleFunc: ui.Colored(colors.Muted)},
-				setGroup("其它机器", targetRows),
+					Style: core.Style{FontSize: viewkit.PanelCaptionSize, LineHeight: 18}, StyleFunc: ui.Colored(colors.Muted)},
+				setGroup("远程运行", ui.Text(apptext.T("WSL 和 SSH 使用各自环境中的 pi，不受本机程序路径影响。"), viewkit.PanelCaptionSize, ui.Regular, colors.Muted), targetRows),
 				core.View{TestID: "env-target-actions", Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 8, Margin: core.Edges{Top: 4}}, Children: []core.Node{
 					ui.Button{Text: apptext.T("添加 WSL 工作区"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() {
 						a.closePane(paneSettings)
@@ -151,6 +119,7 @@ func (a *app) settingsEnv() core.Node {
 						a.openTargetDialog(targetSSH)
 					}},
 				}},
+				setGroup("数据目录", probeRows),
 			}},
 		}})
 	})
@@ -174,8 +143,8 @@ func targetStatusRow(kind, name, status string, ok bool) core.Node {
 			ui.IconOf(icon, 13, colors.Muted),
 			ui.Text(kind, 9.5, ui.Medium, colors.Faint),
 			core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 2}, Children: []core.Node{
-				core.Text{Content: name, Style: core.Style{FontSize: 12, LineHeight: 17}, StyleFunc: ui.Colored(colors.Text)},
-				core.Text{Content: status, Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10.5, LineHeight: 16},
+				core.Text{Content: name, Style: core.Style{FontSize: viewkit.PanelTextSize, LineHeight: 18}, StyleFunc: ui.Colored(colors.Text)},
+				core.Text{Content: status, Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: viewkit.PanelCaptionSize, LineHeight: 18},
 					StyleFunc: ui.Colored(func() core.Color { return ink })},
 			}},
 		}}

@@ -51,6 +51,9 @@ func (s *store) config() config {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	c := *s.c
+	if s.c.ExternalEditors != nil {
+		c.ExternalEditors = append([]extEditor{}, s.c.ExternalEditors...)
+	}
 	c.Workspaces = append([]workspaceCfg(nil), s.c.Workspaces...)
 	c.Tabs = append([]string(nil), s.c.Tabs...)
 	c.Pinned = append([]string(nil), s.c.Pinned...)

@@ -266,7 +266,7 @@ func startPi(t target, piPath, dir, appSessions, id, sessionFile string, onEvent
 		piPath = "pi"
 	}
 	if !t.remote() {
-		if path, err := resolvePi(); err == nil {
+		if path, err := resolvePiExecutable(piPath); err == nil {
 			piPath = path
 		} else {
 			return nil, err

@@ -190,6 +190,9 @@ func (a *app) reopenSavedTabs() {
 
 // piPath is the pi binary the probe found, "pi" until it runs.
 func (a *app) piPath() string {
+	if a.cfg.PiExecutable != "" {
+		return a.cfg.PiExecutable
+	}
 	if p := a.env.GetUntracked().PiPath; p != "" {
 		return p
 	}

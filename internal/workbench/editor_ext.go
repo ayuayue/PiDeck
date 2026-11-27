@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"example.com/pideck-v2/internal/apptext"
 	"example.com/pideck-v2/internal/viewkit/brands"
@@ -21,8 +20,8 @@ import (
 
 // extEditor is an editor the app can start.
 type extEditor struct {
-	Name    string
-	Command string
+	Name    string `json:"name"`
+	Command string `json:"command"`
 }
 
 // editorCandidates are the editors the app looks for, in order.
@@ -51,15 +50,7 @@ var editorMarks = map[string]string{
 
 // editorScan keeps the candidates that resolve on this machine. LookPath
 // reads the disk, so startup discovery runs it off the UI thread.
-var editorScan = sync.OnceValue(func() []extEditor {
-	var out []extEditor
-	for _, e := range editorCandidates() {
-		if _, err := exec.LookPath(e.Command); err == nil {
-			out = append(out, e)
-		}
-	}
-	return out
-})
+var editorScan = scanExternalEditors
 
 // detectEditors is the editors this machine has.
 func detectEditors() []extEditor { return editorScan() }
@@ -72,7 +63,7 @@ func editorChoices(detected []extEditor, configured string) []extEditor {
 		return detected
 	}
 	for i, e := range detected {
-		if strings.EqualFold(e.Command, configured) {
+		if sameEditorCommand(e.Command, configured) {
 			out := make([]extEditor, 0, len(detected))
 			out = append(out, e)
 			out = append(out, detected[:i]...)
@@ -80,7 +71,7 @@ func editorChoices(detected []extEditor, configured string) []extEditor {
 			return out
 		}
 	}
-	return append([]extEditor{{Name: configured, Command: configured}}, detected...)
+	return append([]extEditor{{Name: editorDisplayName(configured), Command: configured}}, detected...)
 }
 
 // discoverEditors publishes the startup probe on the UI thread.
@@ -94,11 +85,12 @@ func (a *app) discoverEditors() {
 // editors reads the startup result without probing the machine. A configured
 // command remains available while discovery is still running.
 func (a *app) editors() []extEditor {
-	var detected []extEditor
-	if a.externalEditors != nil {
-		detected = a.externalEditors.Get()
+	a.settingsTick()
+	list := a.cfg.ExternalEditors
+	if list == nil && a.externalEditors != nil {
+		list = a.externalEditors.Get()
 	}
-	return editorChoices(detected, a.cfg.EditorCommand)
+	return editorChoices(list, a.cfg.EditorCommand)
 }
 
 // editorCommand is the user's editor, or the first one detected.
@@ -139,6 +131,12 @@ func editorBrandName(command string) string {
 	if ext := filepath.Ext(name); ext != "" {
 		name = strings.TrimSuffix(name, ext)
 	}
+	switch name {
+	case "sublime_text":
+		return "subl"
+	case "idea64", "goland64", "webstorm64", "pycharm64":
+		return strings.TrimSuffix(name, "64")
+	}
 	return name
 }
 
@@ -176,7 +174,7 @@ func (a *app) openInEditorWith(command, path string) error {
 	}
 	command = strings.TrimSpace(command)
 	if command == "" {
-		return fmt.Errorf("没有找到编辑器；在 设置 → 环境 里填一个命令")
+		return fmt.Errorf("%s", apptext.T("没有可用编辑器，请在设置的运行环境中添加。"))
 	}
 	var cmd *exec.Cmd
 	if isBatch(command) {

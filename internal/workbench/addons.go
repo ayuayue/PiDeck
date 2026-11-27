@@ -56,26 +56,35 @@ func (a *app) reloadFrameworks() {
 	info.Probing = true
 	a.env.Set(info)
 	dataDir := a.st.dir
+	executable := a.cfg.PiExecutable
 	disabled := slices.Clone(a.cfg.DisabledPlugins)
 	a.addonsGen++
 	gen := a.addonsGen
 	go func() {
 		// This machine first: it is what opening a session needs.
-		info := probeLocal(envInfo{AppDir: dataDir, Probing: true, TargetsProbing: true})
+		info := probeLocalWithExecutable(envInfo{AppDir: dataDir, Probing: true, TargetsProbing: true}, executable)
 		addons := a.readAddonFiles(disabled)
+		localInfo := info
 		a.cx.Post(func() {
-			a.env.Set(info)
+			if executable == a.cfg.PiExecutable {
+				a.env.Set(localInfo)
+			}
 			if gen != a.addonsGen {
 				return // a newer reload already answered
 			}
 			a.publishAddonFiles(addons)
-			a.loadProviders(info.PiPath)
+			a.loadProviders(a.piPath())
 			a.reopenSavedTabs()
 			a.rescanPi()
 		})
 		// Other machines take longer; they fill in when they answer.
 		info = probeTargets(info)
-		a.cx.Post(func() { a.env.Set(info) })
+		a.cx.Post(func() {
+			// A slow remote probe must not replace a newer local selection.
+			next := a.env.GetUntracked()
+			next.WSL, next.SSH, next.TargetsProbing = info.WSL, info.SSH, info.TargetsProbing
+			a.env.Set(next)
+		})
 	}()
 }
 

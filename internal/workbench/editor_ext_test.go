@@ -63,9 +63,11 @@ func TestEditorChoices(t *testing.T) {
 // the extension are not part of an editor's name.
 func TestEditorBrandName(t *testing.T) {
 	cases := map[string]string{
-		"code":       "code",
-		"Zed.exe":    "zed",
-		"  cursor  ": "cursor",
+		"code":             "code",
+		"Zed.exe":          "zed",
+		"  cursor  ":       "cursor",
+		"idea64.exe":       "idea",
+		"sublime_text.exe": "subl",
 	}
 	cases[filepath.Join("usr", "local", "bin", "zed")] = "zed"
 	if runtime.GOOS == "windows" {

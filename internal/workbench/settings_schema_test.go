@@ -14,7 +14,7 @@ import (
 
 func TestSettingsSchema(t *testing.T) {
 	keys := map[string]bool{}
-	valid := map[string]bool{"bool": true, "enum": true, "number": true, "text": true}
+	valid := map[string]bool{"bool": true, "enum": true, "number": true, "text": true, "array": true}
 	for _, f := range appSettingFields {
 		if f.Key == "" || keys[f.Key] {
 			t.Fatalf("duplicate or empty key: %+v", f)
@@ -22,6 +22,9 @@ func TestSettingsSchema(t *testing.T) {
 		keys[f.Key] = true
 		if !valid[f.Type] {
 			t.Fatalf("%s has type %q", f.Key, f.Type)
+		}
+		if f.Type == "array" && f.Default != nil && reflect.TypeOf(f.Default).Kind() != reflect.Slice {
+			t.Fatalf("%s array default is %T", f.Key, f.Default)
 		}
 		if f.Type == "enum" {
 			found := false

@@ -275,6 +275,11 @@ type config struct {
 	TelemetryLastHeartbeatDate string `json:"telemetryLastHeartbeatDate,omitempty"`
 	// SecurityLevel is the tool gate's level: off, standard or strict.
 	SecurityLevel string `json:"securityLevel,omitempty"`
-	// EditorCommand opens files outside the app; empty detects one.
+	// EditorCommand is the default external editor; empty uses the first entry.
 	EditorCommand string `json:"editorCommand,omitempty"`
+	// ExternalEditors is nil until the detected list is customized. An explicit
+	// empty list is retained so removing every editor survives a restart.
+	ExternalEditors []extEditor `json:"externalEditors"`
+	// PiExecutable overrides PATH discovery for new local pi processes.
+	PiExecutable string `json:"piExecutable,omitempty"`
 }

@@ -252,11 +252,16 @@ func piSessionsDir() string {
 
 // probeLocal finds pi here: its path, its version, where its sessions are.
 func probeLocal(info envInfo) envInfo {
+	return probeLocalWithExecutable(info, "")
+}
+
+func probeLocalWithExecutable(info envInfo, executable string) envInfo {
 	info.SessionsDir = piSessionsDir()
 	info.TerminalShells = localTerminalShells()
 	info.Probing = false
 	info.Probed = true
-	path, version, err := probePi("", "")
+	info.PiError = ""
+	path, version, err := probePiWithExecutable("", "", executable)
 	if err != nil {
 		info.PiError = err.Error()
 	}
@@ -304,6 +309,10 @@ func probeEnv(appDir string) envInfo {
 // probePi finds pi's path and version on a target, "this machine" when
 // kind is empty.
 func probePi(kind, where string) (path, version string, err error) {
+	return probePiWithExecutable(kind, where, "")
+}
+
+func probePiWithExecutable(kind, where, executable string) (path, version string, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()
 	var cmd *exec.Cmd
@@ -315,9 +324,9 @@ func probePi(kind, where string) (path, version string, err error) {
 	case "ssh":
 		cmd = exec.CommandContext(ctx, "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", "-T", where, script)
 	default:
-		p, e := resolvePi()
+		p, e := resolvePiExecutable(executable)
 		if e != nil {
-			return "", "", e
+			return executable, "", e
 		}
 		path = p
 		if isBatch(p) {
@@ -339,7 +348,7 @@ func probePi(kind, where string) (path, version string, err error) {
 		if msg == "" {
 			msg = err.Error()
 		}
-		return "", "", fmt.Errorf("%s", viewkit.FirstLine(msg, 200))
+		return path, "", fmt.Errorf("%s", viewkit.FirstLine(msg, 200))
 	}
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 	version = strings.TrimSpace(lines[len(lines)-1])
@@ -362,6 +371,19 @@ func resolvePi() (string, error) {
 		return p, nil
 	}
 	return "", fmt.Errorf("找不到 pi 命令：请把 pi 放进 PATH")
+}
+
+// resolvePiExecutable never falls back to PATH when the user selected a path.
+func resolvePiExecutable(executable string) (string, error) {
+	executable = strings.TrimSpace(executable)
+	if executable == "" || executable == "pi" {
+		return resolvePi()
+	}
+	path, err := exec.LookPath(executable)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Abs(path)
 }
 
 // listWSL lists the WSL distributions this machine has.

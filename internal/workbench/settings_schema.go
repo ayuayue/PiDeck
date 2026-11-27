@@ -16,7 +16,7 @@ import (
 // settingField declares one app setting.
 type settingField struct {
 	Key     string   `json:"key"`
-	Type    string   `json:"type"` // bool, enum, number, text
+	Type    string   `json:"type"` // bool, enum, number, text, array
 	Default any      `json:"default"`
 	Values  []string `json:"values,omitempty"`
 	Min     *int     `json:"min,omitempty"`
@@ -84,6 +84,8 @@ var appSettingFields = []settingField{
 	{Key: "proxyBypass", Type: "text", Default: ""},
 	{Key: "watchaUserId", Type: "text", Default: ""},
 	{Key: "editorCommand", Type: "text", Default: ""},
+	{Key: "externalEditors", Type: "array", Default: nil},
+	{Key: "piExecutable", Type: "text", Default: ""},
 	{Key: "editorWrap", Type: "bool", Default: false},
 	{Key: "terminalFont", Type: "number", Default: 0, Min: intPtr(8), Max: intPtr(20)},
 	{Key: "editorFont", Type: "number", Default: 0, Min: intPtr(11), Max: intPtr(20)},
