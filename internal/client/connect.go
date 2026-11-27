@@ -487,6 +487,7 @@ func (a *mobileApp) disconnectWith(message string) {
 	a.client.close()
 	a.client = nil
 	a.busy.Set(false)
+	a.creating.Set(false)
 	a.stateLoading = false
 	a.refreshing.Set(false)
 	a.connected.Set(false)

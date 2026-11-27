@@ -126,12 +126,19 @@ func (a *mobileApp) startAgent(agent remotewire.Agent) {
 		a.agentsErr.Set(apptext.T("电脑上还没有项目，先在抽屉里添加一个"))
 		return
 	}
+	visit := a.sessionSeq
 	a.creating.Set(true)
 	a.agentsOpen.Set(false)
 	go func() {
 		id, title, err := client.createAgentSession(project, agent.ID)
 		a.cx.Post(func() {
+			if a.client != client {
+				return
+			}
 			a.creating.Set(false)
+			if visit != a.sessionSeq {
+				return
+			}
 			if err != nil {
 				a.agentsErr.Set(remoteErrorText(err))
 				return
