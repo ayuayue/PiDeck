@@ -491,6 +491,7 @@ func (a *mobileApp) disconnectWith(message string) {
 	a.gitMsg.Set("")
 	a.closeReview()
 	a.busy.Set(false)
+	a.sending.Set(false)
 	a.creating.Set(false)
 	a.stateLoading = false
 	a.refreshing.Set(false)

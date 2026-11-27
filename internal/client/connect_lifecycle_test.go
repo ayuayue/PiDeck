@@ -26,6 +26,7 @@ func newConnectionTestApp(t *testing.T) (*mobileApp, <-chan func()) {
 		token:            core.NewSignal(cx, "fixture"),
 		recent:           core.NewSignalFunc(cx, []mobileRecent(nil), nil),
 		busy:             core.NewSignal(cx, false),
+		sending:          core.NewSignal(cx, false),
 		creating:         core.NewSignal(cx, false),
 		err:              core.NewSignal(cx, ""),
 		connected:        core.NewSignal(cx, false),

@@ -325,8 +325,9 @@ func (a *mobileApp) pickImage() {
 // sendMessage hands the composer's text to the desktop.
 func (a *mobileApp) sendMessage() {
 	id := a.active.GetUntracked()
-	text := strings.TrimSpace(a.draft.GetUntracked())
-	images := a.pending.GetUntracked()
+	draft := a.draft.GetUntracked()
+	text := strings.TrimSpace(draft)
+	images := append([]remotewire.Image(nil), a.pending.GetUntracked()...)
 	client := a.client
 	switch {
 	case client == nil:
@@ -346,6 +347,7 @@ func (a *mobileApp) sendMessage() {
 		a.drawImage()
 		return
 	}
+	visit := a.sessionSeq
 	a.sending.Set(true)
 	a.draft.Set("")
 	a.pending.Set(nil)
@@ -355,10 +357,16 @@ func (a *mobileApp) sendMessage() {
 	go func() {
 		err := client.promptWithImages(id, text, images)
 		a.cx.Post(func() {
+			if a.client != client || visit != a.sessionSeq || a.active.GetUntracked() != id {
+				return
+			}
 			a.sending.Set(false)
 			if err != nil {
-				a.draft.Set(text)
-				a.pending.Set(images)
+				// Do not mix a failed send back into a draft edited while it was in flight.
+				if a.draft.GetUntracked() == "" && len(a.pending.GetUntracked()) == 0 {
+					a.draft.Set(draft)
+					a.pending.Set(images)
+				}
 				a.sendErr.Set(remoteErrorText(err))
 				return
 			}

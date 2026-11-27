@@ -221,6 +221,7 @@ func (a *mobileApp) openSession(id, title string) {
 	// from; landing on the one already open is not.
 	changed := a.active.GetUntracked() != id
 	a.sessionSeq++
+	a.sending.Set(false)
 	a.resetSessionFeatures()
 	a.active.Set(id)
 	a.activeTitle.Set(title)
@@ -247,6 +248,7 @@ func (a *mobileApp) openSession(id, title string) {
 
 func (a *mobileApp) closeSession() {
 	a.sessionSeq++
+	a.sending.Set(false)
 	a.resetSessionFeatures()
 	a.active.Set("")
 	a.messages.Set(nil)
