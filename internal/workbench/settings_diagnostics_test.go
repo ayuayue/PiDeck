@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"example.com/pideck-v2/internal/apptext"
+	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
@@ -60,4 +62,37 @@ func TestDiagnosticsKeepScroll(t *testing.T) {
 	if after != before {
 		t.Fatalf("the page scrolled from %v to %v while its figures refreshed", before, after)
 	}
+}
+
+// TestDiagLogCopy checks a log row carries its whole record - when it came
+// from and what it said - to the clipboard: an error is what a report is
+// pasted from.
+func TestDiagLogCopy(t *testing.T) {
+	if nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
+	var built *app
+	root := func(cx *core.Scope) core.Node { built = newApp(cx); return built.view() }
+	screen := nsgotest.Start(t, root, nsgotest.Size(1200, 860))
+	const detail = "拉取失败：authentication required"
+	built.logEvent("error", "git", "", detail)
+	events := built.diagSnapshot()
+	if len(events) == 0 {
+		t.Fatal("the log kept no record of the error")
+	}
+	ev := events[len(events)-1]
+
+	screen.Press("label:设置")
+	screen.WaitFor("id:settings-tab-diagnostics", 5*time.Second)
+	screen.Press("id:settings-tab-diagnostics")
+	screen.WaitFor("id:diag-log-browser", 5*time.Second)
+	screen.WaitFor("id:diag-log-copy-"+ev.ID, 10*time.Second)
+	screen.Press("id:diag-log-copy-" + ev.ID)
+
+	want := ev.Time.Local().Format("2006-01-02 15:04:05") + " · " + diagLevelLabel("error") + " · " + diagCategoryLabel("git") + "\n" + detail
+	if screen.Clipboard != want {
+		t.Fatalf("copied log = %q, want %q", screen.Clipboard, want)
+	}
+	screen.WaitFor("text:"+apptext.T("已复制"), 5*time.Second)
 }

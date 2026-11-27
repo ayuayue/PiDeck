@@ -194,7 +194,7 @@ func (b *diagBrowser) view() core.Node {
 					if i < 0 || i >= len(events) {
 						return nil
 					}
-					return diagLogRow(cx, events[i])
+					return b.a.diagLogRow(cx, events[i])
 				})
 			}},
 		core.Show{When: func() bool { return len(b.result.Get().Events) < b.result.Get().Total && b.limit < 1000 }, Then: func(cx *core.Scope) core.Node {
@@ -213,7 +213,9 @@ func (b *diagBrowser) view() core.Node {
 	}}
 }
 
-func diagLogRow(cx *core.Scope, ev diagEvent) core.Node {
+// diagLogRow is one record: when and where it came from, then its text, with
+// a copy button on the whole of it for the ones a report is built from.
+func (a *app) diagLogRow(cx *core.Scope, ev diagEvent) core.Node {
 	colors := ui.ColorsOf(cx)
 	tone := colors.Muted
 	if ev.Level == "error" || ev.Level == "exception" {
@@ -225,8 +227,14 @@ func diagLogRow(cx *core.Scope, ev diagEvent) core.Node {
 	if ev.Session != "" {
 		meta += " · #" + ev.Session
 	}
+	record := meta + "\n" + ev.Text
 	return core.View{TestID: "diag-log-" + ev.ID, Style: core.Style{Gap: 2, Padding: core.Symmetric(5, 2)}, Children: []core.Node{
-		core.Text{Content: meta, Style: core.Style{FontSize: 10}, StyleFunc: ui.Colored(tone)},
+		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
+			core.Text{Content: meta, Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 10},
+				StyleFunc: ui.Colored(tone)},
+			ui.Button{Text: apptext.T("复制"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "diag-log-copy-" + ev.ID,
+				OnPress: func() { a.cx.SetClipboard(record); a.toast(ui.ToastSuccess, "已复制", "") }},
+		}},
 		core.Text{Content: ev.Text, Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 11, LineHeight: 16, FlexShrink: 1}, StyleFunc: ui.Colored(colors.Text)},
 	}}
 }

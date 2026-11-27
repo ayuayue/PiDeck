@@ -273,13 +273,30 @@ func (a *app) animateNextLayout() {
 // toast shows one briefly.
 func (a *app) toast(kind ui.ToastType, title, detail string) {
 	a.recordToast(kind, title, detail)
-	a.toaster.Show(ui.ToastContent{Type: kind, Title: apptext.T(title), Description: apptext.T(detail), Duration: 4 * time.Second})
+	a.toaster.Show(ui.ToastContent{Type: kind, Title: apptext.T(title), Description: apptext.T(detail),
+		Trailing: a.toastCopyControl(title, detail), Duration: 4 * time.Second})
 }
 
 // toastAction shows one with a button.
 func (a *app) toastAction(kind ui.ToastType, title, detail, action string, fn func()) {
 	a.recordToast(kind, title, detail)
-	a.toaster.Show(ui.ToastContent{Type: kind, Title: apptext.T(title), Description: apptext.T(detail), Action: apptext.T(action), OnAction: fn, Duration: 6 * time.Second})
+	a.toaster.Show(ui.ToastContent{Type: kind, Title: apptext.T(title), Description: apptext.T(detail),
+		Action: apptext.T(action), OnAction: fn, Trailing: a.toastCopyControl(title, detail), Duration: 6 * time.Second})
+}
+
+// toastCopyControl is the copy button a toast with a description carries: a
+// failure's detail is what a report needs, and the toast, unlike a dialog,
+// takes it away on its own. Nil when the title says all there is to copy.
+func (a *app) toastCopyControl(title, detail string) core.Node {
+	if detail == "" {
+		return nil
+	}
+	text := apptext.T(title) + "\n" + apptext.T(detail)
+	return ui.Button{Text: apptext.T("复制"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "toast-copy",
+		OnPress: func() {
+			a.cx.SetClipboard(text)
+			a.toast(ui.ToastSuccess, "已复制", "")
+		}}
 }
 
 // cycleTheme moves system → light → dark → system.

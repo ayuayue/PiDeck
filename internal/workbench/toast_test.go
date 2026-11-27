@@ -47,3 +47,31 @@ func TestToastPlacement(t *testing.T) {
 		t.Errorf("toasts reach x=%v, past the window's %v", right, width)
 	}
 }
+
+// TestToastCopyOutlivesTheToast checks a toast with a description carries a
+// copy button that puts the whole of it on the clipboard: the toast takes the
+// text away on its own, and a failure's detail is what a report needs.
+func TestToastCopyOutlivesTheToast(t *testing.T) {
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
+	var built *app
+	root := func(cx *core.Scope) core.Node { built = newApp(cx); return built.view() }
+	screen := nsgotest.Start(t, root, nsgotest.Size(1320, 860))
+	screen.Advance(200 * time.Millisecond)
+
+	if button := screen.Query("id:toast-copy"); len(button) != 0 {
+		t.Fatal("a copy button is on screen before any toast")
+	}
+	built.toast(ui.ToastError, "打开会话失败", "rpc: session not found")
+	screen.WaitFor("id:toast-copy", 5*time.Second)
+
+	screen.Press("id:toast-copy")
+	want := apptext.T("打开会话失败") + "\n" + apptext.T("rpc: session not found")
+	if screen.Clipboard != want {
+		t.Fatalf("copied toast = %q, want %q", screen.Clipboard, want)
+	}
+	screen.WaitFor("text:"+apptext.T("已复制"), 5*time.Second)
+	screen.Advance(5 * time.Second)
+	if button := screen.Query("id:toast-copy"); len(button) != 0 {
+		t.Fatal("a copy button stayed on screen after the toasts were gone")
+	}
+}
