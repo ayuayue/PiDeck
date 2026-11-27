@@ -203,11 +203,11 @@ test("渠道与契约接线：IPC 常量、preload 白名单、主进程 handler
 	// 用的是投影 id，controller 必须先归一（否则查不到 DOM，点击毫无反应——2027-02 用户反馈）。
 	assert.match(pane, /onJump=\{\(messageId\) => \{[\s\S]{0,80}?sessionTimeline\.jumpToMessage\(messageId\)/);
 	const controller = sessionTimelineControllerSource;
-	assert.match(controller, /resolveJumpMessageIndex\(combinedMessages, messageId\)/);
-	assert.match(controller, /resolveJumpMessageIndex\(combinedMessages, pendingJump\.value\.messageId\)/);
+	assert.match(controller, /resolveJumpMessageIndex\(combinedMessages, \{ kind: "unknown", id: messageId \}\)/);
+	assert.match(controller, /resolveJumpMessageIndex\(combinedMessages, \{ kind: "unknown", id: pendingJump\.value\.messageId \}\)/);
 	assert.match(controller, /resolveJumpScrollTarget\(/);
 	const jumpTarget = read("src/renderer/src/components/session/timeline/jumpTarget.ts");
-	assert.match(jumpTarget, /readEntryId\(message\.meta\) === targetId/);
+	assert.match(jumpTarget, /readEntryId\(message\.meta\)/);
 
 	// 锚点必须是本栏消息区（时间线视口）：锚整栏聊天区会让图标落到窗口关闭键那一行
 	assert.match(pane, /anchorRef=\{sessionTimeline\.timelineRef\}/);

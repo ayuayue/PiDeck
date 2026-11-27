@@ -216,7 +216,7 @@ export function useTimelineJumpNavigation(options: TimelineJumpNavigationOptions
 			// 入口给的是**会话文件条目 id**（会话内查找、刻度命中都是），不是投影消息 id。
 			// 直接按 meta.entryId 认，不走「先在一堆已加载消息里查下标」那条路，
 			// 目标没加载时必然 -1，于是掉进「补一页、看看在不在、不在再补」的逐页逼近。
-			const index = combinedMessages.findIndex((message) => message.meta?.entryId === messageId || message.id === messageId);
+			const index = resolveJumpMessageIndex(combinedMessages, { kind: "unknown", id: messageId });
 			const targetNodeId = index >= 0 ? combinedMessages[index].id : messageId;
 			const existing = timeline.querySelector(`[data-message-id="${CSS.escape(targetNodeId)}"]`) as HTMLElement | null;
 			if (existing) {
