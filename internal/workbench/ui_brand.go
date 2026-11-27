@@ -3,16 +3,12 @@
 package workbench
 
 import (
-	"runtime"
-	"time"
-
 	"example.com/pideck-v2/internal/apptext"
 	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
-	"github.com/nsgo-dev/nsgo/updater"
 )
 
 func logoMark(style string, custom brandImage, size core.Points, testID string) core.Node {
@@ -67,7 +63,7 @@ func (a *app) brand() core.Node {
 			return core.Style{Hover: &core.Style{Background: colors.Hover()},
 				Focus: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
 		},
-		PopupStyle:     core.Style{Width: core.Pt(300)},
+		PopupStyle:     core.Style{Width: core.Pt(320)},
 		PopupStyleFunc: func() core.Style { return a.menuCard(a.cx) },
 		Trigger: core.Dynamic(func(cx *core.Scope) core.Node {
 			_ = a.brandRev.Get()
@@ -108,83 +104,6 @@ func (a *app) openBrandSettings() {
 	a.openSettingsPane()
 
 	a.forgetScrolls("settings")
-}
-
-// brandInfo is a compact version panel beside the wordmark. Opening a
-// destination dismisses it so the next page or updater has the focus.
-func (a *app) brandInfo(cx *core.Scope) core.Node {
-	_ = a.brandRev.Get()
-	_ = a.langRev.Get()
-	colors := ui.ColorsOf(cx)
-	info := a.env.Get()
-	build := readBrandBuild()
-	row := func(label, value, id string) core.Node {
-		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 12}, Children: []core.Node{
-			ui.Text(apptext.T(label), 11, ui.Regular, colors.Muted),
-			core.Text{Content: value, MaxLines: 1, EllipsizeMode: core.EllipsizeTail, TestID: id,
-				Style:     core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10.5, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), TextAlign: core.TextAlignRight},
-				StyleFunc: ui.Colored(colors.Text)},
-		}}
-	}
-	piVersion := info.PiVersion
-	if piVersion == "" {
-		piVersion = piVersionLine(info)
-	}
-	versions := []core.Node{
-		row("Pi CLI", piVersion, "brand-pi-version"),
-		row("Go", runtime.Version(), "brand-go-version"),
-		row("操作系统", runtime.GOOS+" / "+runtime.GOARCH, "brand-platform"),
-	}
-	if build.Revision != "" {
-		versions = append(versions, row("构建提交", build.Revision, "brand-revision"))
-	}
-	if build.Time != "" {
-		value := build.Time
-		if at, err := time.Parse(time.RFC3339, value); err == nil {
-			value = at.Local().Format("2006-01-02 15:04")
-		}
-		versions = append(versions, row("提交时间", value, "brand-build-time"))
-	}
-	action := func(icon func() *core.SVG, label, id string, onPress func(), external bool) core.Node {
-		arrow := lucide.ChevronRight
-		if external {
-			arrow = lucide.ExternalLink
-		}
-		return core.View{Role: core.RoleButton, Label: apptext.T(label), TestID: id,
-			OnPress: func(core.PressEvent) { a.brandOpen.Set(false); onPress() },
-			Style:   core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Padding: core.Symmetric(6, 8), CornerRadius: 6},
-			StyleFunc: func() core.Style {
-				return core.Style{Hover: &core.Style{Background: colors.Hover()}, Focus: &core.Style{Background: colors.Hover()}}
-			}, Children: []core.Node{
-				ui.Icon(icon, 13, colors.Muted),
-				core.Text{Content: apptext.T(label), Style: core.Style{FlexGrow: 1, FontSize: 11.5}, StyleFunc: ui.Colored(colors.Text)},
-				ui.Icon(arrow, 12, colors.Faint),
-			}}
-	}
-	return core.View{TestID: "brand-info", Style: core.Style{Padding: core.All(10), Gap: 12, MinWidth: core.Pt(0)}, Children: []core.Node{
-		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10}, Children: []core.Node{
-			a.brandMark(40, "brand-info-logo"),
-			core.View{Style: core.Style{Gap: 3, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
-				core.Text{ContentFunc: func() string {
-					_ = a.brandNameRev.Get()
-					return resolveBrandName(a.cfg.AppDisplayName)
-				}, MaxLines: 2,
-					Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 16, LineHeight: 20, FontWeight: ui.Semibold}, StyleFunc: ui.Colored(colors.Text)},
-				core.Text{Content: "PiDeck V2 · v" + brandVersion(), TestID: "brand-app-version",
-					Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Muted)},
-			}},
-		}},
-		core.View{Style: core.Style{Gap: 7}, Children: versions},
-		setDivider(),
-		core.View{Style: core.Style{Gap: 1}, Children: []core.Node{
-			action(lucide.RefreshCw, "检查更新", "brand-check-updates", func() { updater.Check(a.cx) }, false),
-			action(lucide.FolderGit2, "项目主页", "brand-project", func() { a.cx.OpenURL(appRepoURL, nil) }, true),
-			action(lucide.Tag, "发布记录", "brand-releases", func() { a.cx.OpenURL(appRepoURL+"/releases", nil) }, true),
-			action(lucide.Globe, "pi 项目", "brand-pi-project", func() { a.cx.OpenURL("https://github.com/badlogic/pi-mono", nil) }, true),
-			action(lucide.Palette, "自定义品牌", "brand-customize", a.openBrandSettings, false),
-			action(lucide.Info, "更多应用信息", "brand-about", func() { a.openSettingsSection("about"); a.openSettingsPane() }, false),
-		}},
-	}}
 }
 
 // brandingGroup subscribes only the preview to brandRev. Typing a name

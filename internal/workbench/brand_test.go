@@ -132,10 +132,17 @@ func TestBrandPopoverAndSettings(t *testing.T) {
 	}
 	screen.Press("id:rail-brand")
 	screen.WaitFor("id:brand-info", 5*time.Second)
-	if got, want := screen.Find("id:brand-app-version").Text, "PiDeck V2 · v"+brandVersion(); got != want {
+	if got, want := screen.Find("id:brand-app-version").Text, "v"+brandVersion(); got != want {
 		t.Fatalf("app version = %q, want %q", got, want)
 	}
+	if screen.Exists("id:brand-runtime-details") {
+		t.Fatal("runtime details should be collapsed initially")
+	}
+	screen.Find("id:brand-app-actions")
+	screen.Find("id:brand-project-actions")
+	screen.Press("id:brand-runtime-toggle")
 	screen.Find("id:brand-pi-version")
+	screen.Find("id:brand-go-version")
 	screen.Key("escape")
 	screen.WaitForGone("id:brand-info", 5*time.Second)
 	screen.Press("id:rail-brand")
