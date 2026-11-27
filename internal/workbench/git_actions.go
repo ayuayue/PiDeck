@@ -440,7 +440,8 @@ func (a *app) gitCommitAndPush() { a.gitCommitPush(false, a.git.amend.Get(), tru
 
 // gitCommitPush commits, optionally pushing what the commit left to send.
 func (a *app) gitCommitPush(all, amend, push bool) {
-	msg := strings.TrimSpace(a.git.msg.GetUntracked())
+	draft, draftAmend := a.git.msg.GetUntracked(), a.git.amend.GetUntracked()
+	msg := strings.TrimSpace(draft)
 	if msg == "" {
 		a.toast(ui.ToastWarning, "还差提交说明", "写一句话，再把改动提交。")
 		return
@@ -486,8 +487,10 @@ func (a *app) gitCommitPush(all, amend, push bool) {
 		return subject, nil
 	}, func(err error) {
 		if err == nil {
-			a.git.msg.Set("")
-			a.git.amend.Set(false)
+			if a.git.msg.GetUntracked() == draft && a.git.amend.GetUntracked() == draftAmend {
+				a.git.msg.Set("")
+				a.git.amend.Set(false)
+			}
 			a.emit(eventGitCommit, appEvent{Data: map[string]string{"message": msg, "amend": fmt.Sprintf("%t", amend)}})
 		}
 	})
