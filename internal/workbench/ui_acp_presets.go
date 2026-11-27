@@ -95,7 +95,7 @@ func (a *app) acpPresetManagerDialog() core.Node {
 					StyleFunc: ui.Colored(colors.Faint)})
 			}
 			return a.scrollStashFor("acpPresetList:1").Bind(cx, core.Scroll{TestID: "acp-preset-list", Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0), MaxHeight: core.Pt(430)},
-				Children: []core.Node{core.View{Style: core.Style{Gap: 1}, Children: list}}})
+				Children: []core.Node{core.View{Style: core.Style{Gap: 1, Padding: core.Edges{Right: viewkit.PanelInset}}, Children: list}}})
 		})
 		list := core.View{Style: core.Style{Width: core.Pt(236), Gap: 4, FlexShrink: 0}, Children: []core.Node{
 			ui.Button{Text: apptext.T("新增预设"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "acp-preset-new",
@@ -317,7 +317,7 @@ func (a *app) acpPresetAccessPane(cx *core.Scope, preset *acpPreset) core.Node {
 		rows = append(rows, core.View{Style: core.Style{Height: core.Pt(1), Margin: core.Symmetric(8, 0)}, StyleFunc: ui.Filled(colors.Line)},
 			ui.Text(apptext.T("已记住的选项"), 10.5, ui.Medium, colors.Muted),
 			core.Scroll{Style: core.Style{MaxHeight: core.Pt(220)}, Children: []core.Node{
-				core.View{Style: core.Style{Gap: 2}, Children: remembered}}})
+				core.View{Style: core.Style{Gap: 2, Padding: core.Edges{Right: viewkit.PanelInset}}, Children: remembered}}})
 	}
 	rows = append(rows, core.Text{Content: apptext.T("预设改动写在 acp/presets.json；内置预设被改过后显示为「已修改」，随时可以恢复默认。"),
 		MaxLines: 3, Style: core.Style{FontSize: 10.5, LineHeight: 15}, StyleFunc: ui.Colored(colors.Faint)})

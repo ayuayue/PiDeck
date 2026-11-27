@@ -91,7 +91,7 @@ func (a *mobileApp) rail(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	return core.View{Style: ui.FillRest, StyleFunc: ui.Filled(colors.Inset), Children: []core.Node{
 		core.Scroll{Style: ui.FillRest, Children: []core.Node{
-			core.View{Style: core.Style{Padding: core.Edges{Top: 14, Right: 8, Bottom: 12, Left: 10}, Gap: 9}, Children: []core.Node{
+			core.View{Style: core.Style{Padding: core.Edges{Top: 14, Right: viewkit.PanelInset, Bottom: 12, Left: 10}, Gap: 9}, Children: []core.Node{
 				a.railBrand(cx),
 				a.railNewButton(cx),
 				core.View{Style: core.Style{Gap: 1}, Children: []core.Node{

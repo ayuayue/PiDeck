@@ -138,7 +138,7 @@ func (a *app) sessionGroupSuggestions(cx *core.Scope, ws *workspace) core.Node {
 			}})
 	}
 	return core.Scroll{Style: core.Style{MaxHeight: core.Pt(110)}, Children: []core.Node{
-		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4}, Children: chips},
+		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4, Padding: core.Edges{Right: viewkit.PanelInset}}, Children: chips},
 	}}
 }
 
@@ -181,7 +181,7 @@ func (a *app) sessionLinkPanel(cx *core.Scope, state sessionOrganizationDialog) 
 				Placeholder: apptext.T("搜索会话"), Label: apptext.T("搜索会话"), TestID: "session-link-input",
 				Style: core.Style{Height: core.Pt(34), Padding: core.Symmetric(0, 9), CornerRadius: ui.RadiusControl,
 					Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), Color: colors.Text()}},
-			core.List{Style: core.Style{Height: core.Pt(240)}, EstimatedSize: 34, Count: func() int { return len(filtered.Get()) },
+			core.List{Style: core.Style{Height: core.Pt(240), Padding: core.Edges{Right: viewkit.PanelInset}}, EstimatedSize: 34, Count: func() int { return len(filtered.Get()) },
 				Key: func(i int) any { return filtered.Get()[i].ID }, Empty: ui.Text(apptext.T("没有匹配的会话"), 12, ui.Regular, colors.Muted),
 				Row: func(cx *core.Scope, row core.ListRow) core.Node {
 					return core.Dynamic(func(cx *core.Scope) core.Node {

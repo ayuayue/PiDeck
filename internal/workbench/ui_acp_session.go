@@ -199,7 +199,7 @@ func (a *app) acpAgentPanel(cx *core.Scope, s *session, preset *acpPreset) core.
 		}})
 	return core.View{TestID: "acp-info-panel", Style: core.Style{MinWidth: core.Pt(0), Gap: 1},
 		Children: []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pt(430), MinWidth: core.Pt(0)},
-			Children: []core.Node{core.View{Style: core.Style{Gap: 1, MinWidth: core.Pt(0)}, Children: rows}}}}}
+			Children: []core.Node{core.View{Style: core.Style{Gap: 1, MinWidth: core.Pt(0), Padding: core.Edges{Right: viewkit.PanelInset}}, Children: rows}}}}}
 }
 
 // acpSwitchRow is an on/off option in the ACP panel: some agents keep the

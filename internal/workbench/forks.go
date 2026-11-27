@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -185,7 +186,7 @@ func (a *app) forkTreeDialog() core.Node {
 			TestID:       "fork-tree",
 			Style:        core.Style{Width: core.Pt(460)},
 			Children: []core.Node{a.scrollStashFor("forkTreeDialog:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(420)}, Children: []core.Node{
-				core.View{Style: core.Style{Gap: 1}, Children: rows}}})},
+				core.View{Style: core.Style{Gap: 1, Padding: core.Edges{Right: viewkit.PanelInset}}, Children: rows}}})},
 			Footer: []core.Node{
 				ui.Button{Text: apptext.T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
 					OnPress: func() { a.forksOpen.Set(false) }},

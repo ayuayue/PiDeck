@@ -120,7 +120,7 @@ func (a *mobileApp) toolLineRow(cx *core.Scope, m remotewire.Message, key transc
 		// What a change touched is a patch, and shows as one.
 		body := []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pt(240)}, Children: []core.Node{
 			core.Text{Content: tool.Output, Selectable: core.SelectableOn,
-				Style:     core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10, LineHeight: 15},
+				Style:     core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10, LineHeight: 15, Padding: core.Edges{Right: viewkit.PanelInset}},
 				StyleFunc: ui.Colored(colors.Muted)}}}}
 		if tool.Diff {
 			body = []core.Node{patchBody(func() string { return tool.Output }, "mobile-tool-diff", 240)}

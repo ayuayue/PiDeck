@@ -54,7 +54,7 @@ func (a *app) gitUnpushedDialog() core.Node {
 				StyleFunc: ui.Colored(colors.Faint)}
 		default:
 			body = a.scrollStashFor("gitUnpushedDialog:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(360)}, Children: []core.Node{
-				core.View{Style: core.Style{Gap: 1}, Children: rows}}})
+				core.View{Style: core.Style{Gap: 1, Padding: core.Edges{Right: viewkit.PanelInset}}, Children: rows}}})
 		}
 		return ui.Dialog{
 			Open:         a.gitUnpushedOpen.Get,

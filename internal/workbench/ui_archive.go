@@ -86,7 +86,7 @@ func (a *app) archiveDialog() core.Node {
 				StyleFunc: ui.Colored(colors.Faint)}
 		} else {
 			body = a.scrollStashFor("archiveDialog:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(380)}, Children: []core.Node{
-				core.View{Style: core.Style{Gap: 2}, Children: rows}}})
+				core.View{Style: core.Style{Gap: 2, Padding: core.Edges{Right: viewkit.PanelInset}}, Children: rows}}})
 		}
 		return ui.Dialog{
 			Open:         a.archiveOpen.Get,

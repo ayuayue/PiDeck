@@ -123,7 +123,7 @@ func (a *app) memoryPane() core.Node {
 			core.Show{When: func() bool { return state.edit.Get().ID != "" }, Then: func(cx *core.Scope) core.Node { return a.memoryEditor(cx) }, Else: func(cx *core.Scope) core.Node {
 				return core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0), Padding: core.All(12), Gap: 8}, Children: []core.Node{
 					core.Input{Value: state.query.Get, OnChange: state.query.Set, Placeholder: apptext.T("搜索记忆"), Label: apptext.T("搜索记忆"), TestID: "memory-search", Style: panelFieldStyle(colors)},
-					core.List{Count: func() int { return len(items.Get()) }, Key: func(i int) any { return items.Get()[i].ID }, EstimatedSize: 56, Style: ui.FillRest,
+					core.List{Count: func() int { return len(items.Get()) }, Key: func(i int) any { return items.Get()[i].ID }, EstimatedSize: 56, Style: ui.FillRest.Merge(core.Style{Padding: core.Edges{Right: viewkit.PanelInset}}),
 						Empty: ui.Text(apptext.T("没有匹配的记忆"), 12, ui.Regular, colors.Muted), Row: func(cx *core.Scope, row core.ListRow) core.Node {
 							return core.Dynamic(func(cx *core.Scope) core.Node {
 								list, i := items.Get(), row.Index()

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -120,7 +121,7 @@ func (a *app) replyShortcutRulesPane(cx *core.Scope, f *replyShortcutForm) core.
 				}},
 		}},
 		core.Scroll{TestID: "shortcut-rules-list", Style: ui.FillRest, Children: []core.Node{
-			core.View{Children: []core.Node{
+			core.View{Style: core.Style{Padding: core.Edges{Right: viewkit.PanelInset}}, Children: []core.Node{
 				core.Show{When: func() bool { return !f.busy.Get() && len(f.rules.Get()) == 0 }, Then: func(*core.Scope) core.Node {
 					return core.Text{Content: apptext.T("还没有回复规则。添加一条，设置按钮文本和显示条件。"), TestID: "shortcut-rules-empty",
 						Style: core.Style{FontSize: 12, Padding: core.Symmetric(28, 8)}, StyleFunc: ui.Colored(colors.Muted)}

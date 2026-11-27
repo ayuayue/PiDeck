@@ -97,6 +97,6 @@ func (a *app) sessionFiles(cx *core.Scope, s *session, root string) core.Node {
 				}
 				rows = append(rows, ui.Text(label, viewkit.PanelCaptionSize, ui.Regular, colors.Muted))
 			}
-			return core.View{Style: core.Style{Gap: 4, Padding: core.Edges{Bottom: 20}}, Children: rows}
+			return core.View{Style: core.Style{Gap: 4, Padding: core.Edges{Right: viewkit.PanelInset, Bottom: 20}}, Children: rows}
 		})}})
 }

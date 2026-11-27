@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -83,7 +84,7 @@ func (a *app) projectGroupCreateDialog(open *core.Signal[bool]) core.Node {
 					TestID: "project-group-create-name", AutoFocus: true, OnSubmit: func(string) { save() },
 					Style: core.Style{Height: core.Pt(32), Padding: core.Symmetric(0, 9), CornerRadius: 7,
 						Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), Color: colors.Text(), FontSize: 12.5}},
-				core.List{Style: core.Style{Height: core.Pt(260)}, Count: func() int { return len(directories.Get()) }, EstimatedSize: 44,
+				core.List{TestID: "project-group-create-list", Style: core.Style{Height: core.Pt(260), Padding: core.Edges{Right: viewkit.PanelInset}}, Count: func() int { return len(directories.Get()) }, EstimatedSize: 44,
 					Key: func(i int) any { return directories.Get()[i].key() },
 					Row: func(cx *core.Scope, row core.ListRow) core.Node {
 						return core.Dynamic(func(cx *core.Scope) core.Node {

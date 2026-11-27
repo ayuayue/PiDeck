@@ -6,6 +6,7 @@ import (
 
 	"example.com/pideck-v2/internal/apptext"
 	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -132,7 +133,7 @@ func (a *mobileApp) commandSuggestions(cx *core.Scope) core.Node {
 			rows = append(rows, ui.Text(apptext.T("没有匹配的命令"), 11, ui.Regular, colors.Muted))
 		}
 		return core.Scroll{TestID: "mobile-commands", Style: core.Style{MaxHeight: core.Pt(180)}, Children: []core.Node{
-			core.View{Style: core.Style{Gap: 2, Padding: core.Symmetric(4, 2)}, Children: rows},
+			core.View{Style: core.Style{Gap: 2, Padding: core.Edges{Top: 4, Right: viewkit.PanelInset, Bottom: 4, Left: 2}}, Children: rows},
 		}}
 	})
 }

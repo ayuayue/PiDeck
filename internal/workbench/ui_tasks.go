@@ -94,7 +94,7 @@ func (a *app) tasksPane() core.Node {
 			}}
 		} else {
 			body = a.scrollStashFor("tasksPane:1").Bind(cx, core.Scroll{Style: ui.FillRest, Children: []core.Node{
-				core.View{Style: core.Style{Gap: 1}, Children: rows}}})
+				core.View{Style: core.Style{Gap: 1, Padding: core.Edges{Right: viewkit.PanelInset}}, Children: rows}}})
 		}
 		// Recent runs, newest first.
 		runs := a.taskRunList()

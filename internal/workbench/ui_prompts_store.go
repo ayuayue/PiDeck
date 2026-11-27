@@ -229,7 +229,7 @@ func (a *app) promptStoreDialog() core.Node {
 				}},
 				status,
 				a.scrollStashFor("promptStoreDialog:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(400)}, Children: []core.Node{
-					core.View{Style: core.Style{Gap: 1}, Children: rows}}}),
+					core.View{Style: core.Style{Gap: 1, Padding: core.Edges{Right: viewkit.PanelInset}}, Children: rows}}}),
 			}}},
 			Footer: []core.Node{
 				ui.Button{Text: apptext.T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "prompt-store-close",

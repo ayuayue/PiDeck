@@ -416,7 +416,7 @@ func (a *app) providerDialog() core.Node {
 			TestID:       "provider-dialog",
 			Style:        core.Style{Width: a.dialogWidth(), MaxHeight: core.Pt(620)},
 			Children: []core.Node{a.scrollStashFor("providerDialog:1").Bind(cx, core.Scroll{TestID: "provider-scroll", Style: core.Style{MaxHeight: core.Pt(470)}, Children: []core.Node{
-				core.View{Style: core.Style{Gap: 12, Padding: core.Edges{Right: 6}}, Children: []core.Node{
+				core.View{Style: core.Style{Gap: 12, Padding: core.Edges{Right: viewkit.PanelInset}}, Children: []core.Node{
 					setDivider(),
 					field("API", "pi 的适配器名", core.Input{
 						Value: a.providerAPI.Get, OnChange: a.providerAPI.Set,

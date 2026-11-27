@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -68,7 +69,7 @@ func (a *app) targetFileList(ws *workspace) core.Node {
 			}},
 			core.Show{When: busy.Get, Then: func(*core.Scope) core.Node { return ui.Spinner{Size: 14} }},
 			core.Text{ContentFunc: problem.Get, MaxLines: 2, Style: core.Style{FontSize: 11}, StyleFunc: ui.Colored(colors.Danger)},
-			core.List{Style: ui.FillRest, Count: func() int { return len(shown.Get()) }, EstimatedSize: 32,
+			core.List{Style: ui.FillRest.Merge(core.Style{Padding: core.Edges{Right: viewkit.PanelInset}}), Count: func() int { return len(shown.Get()) }, EstimatedSize: 32,
 				Key: func(i int) any { return shown.Get()[i] },
 				Row: func(cx *core.Scope, row core.ListRow) core.Node {
 					return core.Dynamic(func(cx *core.Scope) core.Node {

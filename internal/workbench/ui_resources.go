@@ -136,7 +136,7 @@ func (a *app) settingsResources() core.Node {
 				}},
 			}})
 		return a.scrollStashFor("settingsResources:1").Bind(cx, core.Scroll{TestID: "settings-page", Style: ui.FillRest, Children: []core.Node{
-			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 4}, Children: children},
+			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: viewkit.PanelInset}, Gap: 4}, Children: children},
 		}})
 	})
 }

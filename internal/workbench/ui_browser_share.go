@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -115,7 +116,7 @@ func (a *app) browserApprovalDialog() core.Node {
 		}
 		if p.action.Text != "" {
 			details = append(details, a.scrollStashFor("browserApprovalDialog:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(180)}, Children: []core.Node{
-				core.Text{Content: p.action.Text, Selectable: core.SelectableOn, Style: core.Style{FontSize: 13}, StyleFunc: ui.Colored(colors.Text)},
+				core.Text{Content: p.action.Text, Selectable: core.SelectableOn, Style: core.Style{FontSize: 13, Padding: core.Edges{Right: viewkit.PanelInset}}, StyleFunc: ui.Colored(colors.Text)},
 			}}))
 		}
 		return ui.Dialog{Open: func() bool { return a.browser.pending.Get() == p }, TestID: "browser-approve-dialog", Title: apptext.T("允许网页操作？"),

@@ -6,6 +6,7 @@ import (
 
 	"example.com/pideck-v2/internal/apptext"
 	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -162,7 +163,7 @@ func (a *mobileApp) sessionActivitySheet(cx *core.Scope) core.Node {
 						items = append(items, ui.Button{Text: apptext.T("加载更多"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
 							TestID: "mobile-subagents-more", OnPress: func() { a.features.activityLimit.Update(func(n int) int { return n + 40 }) }})
 					}
-					return core.View{Style: core.Style{Gap: 2}, Children: items}
+					return core.View{Style: core.Style{Gap: 2, Padding: core.Edges{Right: viewkit.PanelInset}}, Children: items}
 				}),
 			}},
 		}}

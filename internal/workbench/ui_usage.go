@@ -76,7 +76,7 @@ func (a *app) settingsUsage() core.Node {
 				viewkit.Tokens(bucket.Total)+" tokens", viewkit.Credits(bucket.Cost)))
 		}
 		return a.scrollStashFor("settingsUsage:1").Bind(cx, core.Scroll{TestID: "settings-page", Style: ui.FillRest, Children: []core.Node{
-			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 4}, Children: []core.Node{
+			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: viewkit.PanelInset}, Gap: 4}, Children: []core.Node{
 				setGroup("累计",
 					core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 8, Padding: core.Symmetric(4, 2)}, Children: []core.Node{
 						statCard(colors, "会话", fmt.Sprint(r.Sessions), ""),

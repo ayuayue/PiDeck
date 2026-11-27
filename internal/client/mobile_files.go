@@ -214,7 +214,7 @@ func (a *mobileApp) filesSheet() core.Node {
 			body = append(body, ui.Text(apptext.T("没有匹配的文件"), 12, ui.Regular, colors.Faint))
 		default:
 			body = append(body, a.scrollStashFor("filesSheet:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(420)}, Children: []core.Node{
-				core.View{Style: core.Style{Gap: 1}, Children: rows}}}))
+				core.View{Style: core.Style{Gap: 1, Padding: core.Edges{Right: viewkit.PanelInset}}, Children: rows}}}))
 		}
 		return sheetFrame(cx, sheetSpec{
 			title: a.filesTitle(), testID: "mobile-files", width: 560,
@@ -284,7 +284,7 @@ func (a *mobileApp) fileBody(colors ui.Colors) core.Node {
 	text := a.fileText.Get()
 	if q == "" {
 		return core.Scroll{Style: core.Style{MaxHeight: core.Pt(520)}, Children: []core.Node{
-			core.Text{Content: text, Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 11.5, LineHeight: 17},
+			core.Text{Content: text, Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 11.5, LineHeight: 17, Padding: core.Edges{Right: viewkit.PanelInset}},
 				StyleFunc: ui.Colored(colors.Text)}}}
 	}
 	var rows []core.Node
@@ -305,5 +305,5 @@ func (a *mobileApp) fileBody(colors ui.Colors) core.Node {
 	}
 	head := ui.Text(apptext.T("%d 行匹配", matched), 10.5, ui.Regular, colors.Muted)
 	return core.Scroll{Style: core.Style{MaxHeight: core.Pt(500)}, Children: []core.Node{
-		core.View{Style: core.Style{Gap: 2}, Children: append([]core.Node{head}, rows...)}}}
+		core.View{Style: core.Style{Gap: 2, Padding: core.Edges{Right: viewkit.PanelInset}}, Children: append([]core.Node{head}, rows...)}}}
 }

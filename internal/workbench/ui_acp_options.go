@@ -62,7 +62,8 @@ func acpOptionLabel(options []acpConfigOption, kind acpOptionKind, fallback stri
 // one list per picker, not a scroll per group.
 func (a *app) acpOptionRows(cx *core.Scope, s *session, option acpConfigOption, maxHeight core.Points, close func()) core.Node {
 	return core.Scroll{Style: core.Style{MaxHeight: core.Pt(maxHeight), MinWidth: core.Pt(0)},
-		Children: []core.Node{a.acpChoiceRows(cx, s, option, close)}}
+		Children: []core.Node{core.View{Style: core.Style{Padding: core.Edges{Right: viewkit.PanelInset}},
+			Children: []core.Node{a.acpChoiceRows(cx, s, option, close)}}}}
 }
 
 // acpChoiceRows draws a select's choices without a scroll of its own, so a

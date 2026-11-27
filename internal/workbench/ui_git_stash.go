@@ -107,7 +107,7 @@ func (a *app) gitStashDialog() core.Node {
 					Style: core.Style{FontSize: 10.5, LineHeight: 16}, StyleFunc: ui.Colored(colors.Faint)},
 				status,
 				a.scrollStashFor("gitStashDialog:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(380)}, Children: []core.Node{
-					core.View{Style: core.Style{Gap: 1}, Children: rows}}}),
+					core.View{Style: core.Style{Gap: 1, Padding: core.Edges{Right: viewkit.PanelInset}}, Children: rows}}}),
 			}}},
 			Footer: []core.Node{
 				ui.Button{Text: apptext.T("贮藏当前改动"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "git-stash-push",

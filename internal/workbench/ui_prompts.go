@@ -122,7 +122,7 @@ func (a *app) promptDialog() core.Node {
 						return core.Style{Width: core.Pt(156), FlexShrink: 0, Padding: core.Symmetric(6, 2), Gap: 1,
 							Background: colors.Inset(), CornerRadius: 8}
 					}, Children: []core.Node{a.scrollStashFor("promptDialog:1").Bind(cx, core.Scroll{Style: ui.FillRest, Children: []core.Node{
-						core.View{Style: core.Style{Gap: 1}, Children: cats},
+						core.View{Style: core.Style{Gap: 1, Padding: core.Edges{Right: viewkit.PanelInset}}, Children: cats},
 					}})}},
 					core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 6}, Children: []core.Node{
 						core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
@@ -142,7 +142,7 @@ func (a *app) promptDialog() core.Node {
 								}}),
 						}},
 						a.scrollStashFor("promptDialog:2").Bind(cx, core.Scroll{Style: ui.FillRest, Children: []core.Node{
-							core.View{Style: core.Style{Gap: 2}, Children: rows},
+							core.View{Style: core.Style{Gap: 2, Padding: core.Edges{Right: viewkit.PanelInset}}, Children: rows},
 						}}),
 					}},
 				}}},

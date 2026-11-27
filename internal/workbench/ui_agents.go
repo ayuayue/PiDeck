@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -76,7 +77,7 @@ func (a *app) agentsPane() core.Node {
 				StyleFunc: ui.Colored(colors.Faint)})
 		} else {
 			bodyRows = append(bodyRows, a.scrollStashFor("agentsPane:1").Bind(cx, core.Scroll{Style: ui.FillRest, Children: []core.Node{
-				core.View{Style: core.Style{Gap: 1}, Children: rows}}}))
+				core.View{Style: core.Style{Gap: 1, Padding: core.Edges{Right: viewkit.PanelInset}}, Children: rows}}}))
 		}
 
 		fieldStyle := core.Style{Height: core.Pt(29), Padding: core.Symmetric(0, 8), CornerRadius: 6, FontSize: 11.5,

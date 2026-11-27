@@ -168,7 +168,7 @@ func (a *app) composerBackendPicker(s *session) core.Node {
 				backendOf(s) == "acp" && s.acpPreset == preset.ID, locked, func() { a.setBackend(s, "acp", preset.ID) }))
 		}
 		rows = append(rows, core.Scroll{Style: core.Style{MaxHeight: core.Pt(220), MinWidth: core.Pt(0)},
-			Children: []core.Node{core.View{Style: core.Style{Gap: 1}, Children: agents}}})
+			Children: []core.Node{core.View{Style: core.Style{Gap: 1, Padding: core.Edges{Right: viewkit.PanelInset}}, Children: agents}}})
 		rows = append(rows, composerDivider(cx))
 		rows = append(rows, composerRow(cx, lucide.Mic, apptext.T("转写录音…"), apptext.T("导入 WAV 录音到输入框"), false, a.voiceCapture.state.Get() != "", func() {
 			s.modeOpen.Set(false)
@@ -536,7 +536,7 @@ func (a *app) queuePanel(s *session) core.Node {
 			Style: core.Style{MinWidth: core.Pt(0), Gap: 2, Margin: core.Edges{Bottom: 6}, Padding: core.Symmetric(6, 10),
 				CornerRadius: 10, BorderWidth: 1, BorderColor: colors.Line(), Background: ui.Alpha(colors.Surface(), 1)},
 			Children: []core.Node{head, a.scrollStashFor("queuePanel:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(120), MinWidth: core.Pt(0)},
-				Children: []core.Node{core.View{Style: core.Style{Gap: 2}, Children: rows}}})}}
+				Children: []core.Node{core.View{Style: core.Style{Gap: 2, Padding: core.Edges{Right: viewkit.PanelInset}}, Children: rows}}})}}
 	})
 }
 

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -139,7 +140,7 @@ func (a *app) translationDialog() core.Node {
 				core.Show{When: d.busy.Get, Then: func(*core.Scope) core.Node { return ui.Spinner{Size: 15} }},
 				core.Show{When: func() bool { return d.output.Get() != "" }, Then: func(*core.Scope) core.Node {
 					return core.Scroll{Style: core.Style{MaxHeight: core.Pt(280), MinHeight: core.Pt(80), FlexShrink: 1}, Children: []core.Node{
-						core.Text{ContentFunc: d.output.Get, Selectable: core.SelectableOn, Style: core.Style{FontSize: 13, LineHeight: 20}, StyleFunc: ui.Colored(colors.Text)},
+						core.Text{ContentFunc: d.output.Get, Selectable: core.SelectableOn, Style: core.Style{FontSize: 13, LineHeight: 20, Padding: core.Edges{Right: viewkit.PanelInset}}, StyleFunc: ui.Colored(colors.Text)},
 					}}
 				}},
 				core.Text{ContentFunc: d.message.Get, Style: core.Style{FontSize: 11}, StyleFunc: ui.Colored(colors.Danger)},

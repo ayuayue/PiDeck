@@ -99,7 +99,7 @@ func (a *app) trajectoryPane() core.Node {
 				a.paneHeader("查看轨迹", "这一轮实际使用的系统提示词、用量与工具调用"),
 				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Padding: core.Symmetric(10, 0)},
 					Children: []core.Node{a.scrollStashFor("trajectoryPane:1").Bind(cx, core.Scroll{Style: ui.FillRest, Children: []core.Node{
-						core.View{Style: core.Style{Gap: 10, Padding: core.Edges{Bottom: 16}}, Children: rows}}})}},
+						core.View{Style: core.Style{Gap: 10, Padding: core.Edges{Right: viewkit.PanelInset, Bottom: 16}}, Children: rows}}})}},
 			}}
 	})
 }

@@ -6,6 +6,7 @@ import (
 	"maps"
 
 	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -28,7 +29,7 @@ func (a *app) projectRemoveDialog() core.Node {
 			OnOpenChange: func(on bool, _ base.Reason) { a.projectRemoveOpen.Set(on) }, Style: core.Style{Width: a.dialogWidth()},
 			Children: []core.Node{
 				ui.Text(apptext.T("选中的项目会从侧栏移除，项目文件和会话仍保留。"), 12, ui.Regular, colors.Muted),
-				core.List{Style: core.Style{Height: core.Pt(260)}, Count: func() int { return len(projects.Get()) }, EstimatedSize: 34,
+				core.List{Style: core.Style{Height: core.Pt(260), Padding: core.Edges{Right: viewkit.PanelInset}}, Count: func() int { return len(projects.Get()) }, EstimatedSize: 34,
 					Key: func(i int) any { return trustKey(projects.Get()[i]) },
 					Row: func(cx *core.Scope, row core.ListRow) core.Node {
 						return core.Dynamic(func(cx *core.Scope) core.Node {

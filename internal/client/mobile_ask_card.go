@@ -89,7 +89,7 @@ func (a *mobileApp) batchAskCard(cx *core.Scope, ask *remotewire.Ask) core.Node 
 	return core.View{TestID: "mobile-ask", StyleFunc: func() core.Style { return askCardStyle(colors) }, Children: []core.Node{
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7}, Children: head},
 		core.Scroll{Style: core.Style{MaxHeight: core.Pt(320)}, Children: []core.Node{
-			core.View{Style: core.Style{Gap: 12, Padding: core.Edges{Top: 2, Bottom: 2}}, Children: rows}}},
+			core.View{Style: core.Style{Gap: 12, Padding: core.Edges{Top: 2, Right: viewkit.PanelInset, Bottom: 2}}, Children: rows}}},
 		footer,
 	}}
 }

@@ -217,7 +217,7 @@ func (a *app) piExtensionStoreDialog() core.Node {
 				status,
 				pager,
 				a.scrollStashFor("piExtensionStoreDialog:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(420)}, Children: []core.Node{
-					core.View{Style: core.Style{Gap: 8}, Children: sections}}}),
+					core.View{Style: core.Style{Gap: 8, Padding: core.Edges{Right: viewkit.PanelInset}}, Children: sections}}}),
 			}}},
 			Footer: footer,
 		}

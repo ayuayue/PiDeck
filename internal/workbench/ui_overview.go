@@ -51,8 +51,9 @@ func (a *app) drawerOverview() core.Node {
 				ui.Text(apptext.T("没有打开的会话"), 12.5, ui.Regular, ui.ColorsOf(cx).Muted),
 			}}
 		}
-		return a.scrollStashFor("drawerOverview:1").Bind(cx, core.Scroll{Style: ui.FillRest, Children: []core.Node{
-			core.View{Style: core.Style{Padding: core.Edges{Top: 4, Bottom: 24, Right: 2, Left: 2}}, Children: []core.Node{
+		return a.scrollStashFor("drawerOverview:1").Bind(cx, core.Scroll{TestID: "overview-scroll", Style: ui.FillRest, Children: []core.Node{
+			// Keep the overlay scrollbar in a stable gutter beside every row.
+			core.View{TestID: "overview-content", Style: core.Style{Padding: core.Edges{Top: 4, Bottom: 24, Right: viewkit.PanelInset, Left: 2}}, Children: []core.Node{
 				a.overviewHead(cx, s),
 				a.overviewTodos(s),
 				a.overviewChanges(s),
@@ -152,7 +153,7 @@ func (a *app) overviewPathLine(colors ui.Colors, key string, lead func() *core.S
 	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, MinHeight: core.Pt(24)},
 		Children: []core.Node{
 			ui.Icon(lead, 12, colors.Faint),
-			hintOf(full, press),
+			core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{hintOf(full, press)}},
 			hintOf(func() string { return apptext.T("复制路径") }, core.View{
 				OnPress: func(core.PressEvent) { a.copyText(full(), "路径") }, Role: core.RoleButton,
 				Label: apptext.T("复制路径"), TestID: testID + "-copy",
@@ -468,7 +469,7 @@ func (a *app) overviewSession(s *session) core.Node {
 			row(apptext.T("会话 ID"), value(func() string { return s.ID }, true),
 				icon(lucide.Copy, apptext.T("复制会话 ID"), "overview-copy-id", func() { a.copyText(s.ID, "会话 ID") })),
 			core.Show{When: func() bool { return s.File != "" }, Then: func(*core.Scope) core.Node {
-				return row(apptext.T("会话文件"), core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)},
+				return row(apptext.T("会话文件"), core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
 					Children: []core.Node{a.overviewPathLine(colors, "file", lucide.FileText, func() string { return shortPath(s.File, 40) },
 						func() string { return s.File },
 						func() {

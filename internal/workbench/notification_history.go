@@ -118,7 +118,7 @@ func (a *app) notificationHistoryPane() core.Node {
 						})
 					}},
 			}},
-			a.scrollStashFor("notificationHistoryPane:1").Bind(cx, core.Scroll{Style: ui.FillRest, Children: []core.Node{core.View{Style: core.Style{Gap: 2}, Children: items}}}),
+			a.scrollStashFor("notificationHistoryPane:1").Bind(cx, core.Scroll{Style: ui.FillRest, Children: []core.Node{core.View{Style: core.Style{Gap: 2, Padding: core.Edges{Right: viewkit.PanelInset}}, Children: items}}}),
 		}}
 	})
 }

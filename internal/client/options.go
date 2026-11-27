@@ -403,7 +403,7 @@ func (a *mobileApp) modelSection(cx *core.Scope, opts remotewire.Options) core.N
 				out = append(out, row(m))
 			}
 		}
-		return core.View{Style: core.Style{Gap: 1}, Children: out}
+		return core.View{Style: core.Style{Gap: 1, Padding: core.Edges{Right: viewkit.PanelInset}}, Children: out}
 	})
 	return core.View{Style: core.Style{Gap: 6}, Children: append(sections,
 		a.scrollStashFor("optionsSheet:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(320)}, Children: []core.Node{rows}}))}

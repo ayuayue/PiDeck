@@ -351,7 +351,7 @@ func (a *mobileApp) reviewSheet() core.Node {
 							PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}
 					}},
 				a.scrollStashFor("reviewSheet:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(420)}, Children: []core.Node{
-					core.View{Style: core.Style{Gap: 2}, Children: rows}}}),
+					core.View{Style: core.Style{Gap: 2, Padding: core.Edges{Right: viewkit.PanelInset}}, Children: rows}}}),
 			}}},
 			footer: []core.Node{
 				ui.Button{Text: apptext.T("刷新"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: a.loadReview},

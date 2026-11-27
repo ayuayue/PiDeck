@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -62,7 +63,7 @@ func (a *app) videoPane() core.Node {
 		}
 		return core.View{Style: ui.FillRest, Children: []core.Node{
 			a.paneHeader("视频生成", "串行任务队列；产物保存在本机，可预览并回到来源会话。"),
-			core.Scroll{Style: ui.FillRest, Children: []core.Node{core.View{Style: core.Style{Gap: 12, Padding: core.Symmetric(14, 4)}, Children: []core.Node{
+			core.Scroll{Style: ui.FillRest, Children: []core.Node{core.View{Style: core.Style{Gap: 12, Padding: core.Edges{Top: 14, Right: viewkit.PanelInset, Bottom: 14, Left: 4}}, Children: []core.Node{
 				ui.Text(apptext.T("使用 models.json 中的供应商 ID，Base URL 填 TokenDance 网关根地址。生成会产生供应商费用。"), 11, ui.Regular, colors.Muted),
 				field("供应商 ID", "video-provider", h.provider, false),
 				ui.Select[string]{Label: apptext.T("视频协议"), TestID: "video-family", Value: h.family.Get, OnChange: h.family.Set,

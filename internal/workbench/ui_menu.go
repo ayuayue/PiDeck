@@ -297,7 +297,7 @@ func (a *app) modelMenu(s *session, open *core.Signal[bool]) core.Node {
 					StyleFunc: ui.Colored(colors.Faint)})
 			}
 			return a.scrollStashFor("modelMenu:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(380), MinWidth: core.Pt(0)}, Children: []core.Node{
-				core.View{Style: core.Style{Gap: 1}, Children: rows},
+				core.View{Style: core.Style{Gap: 1, Padding: core.Edges{Right: viewkit.PanelInset}}, Children: rows},
 			}})
 		})
 		refresh := core.Dynamic(func(cx *core.Scope) core.Node {

@@ -26,7 +26,11 @@ func (a *app) drawerGit() core.Node {
 			core.Show{When: isRepo, Then: func(cx *core.Scope) core.Node { return a.gitHeader(cx) }},
 			core.Show{When: func() bool { return a.git.err.Get() != "" }, Then: func(cx *core.Scope) core.Node { return a.gitError(cx) }},
 			core.Show{When: func() bool { return !isRepo() }, Then: func(cx *core.Scope) core.Node {
-				return core.Scroll{Style: ui.FillRest, Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node { return a.gitStateNote(cx) })}}
+				return core.Scroll{Style: ui.FillRest, Children: []core.Node{
+					core.View{Style: core.Style{Padding: core.Edges{Right: viewkit.PanelInset}}, Children: []core.Node{
+						core.Dynamic(func(cx *core.Scope) core.Node { return a.gitStateNote(cx) }),
+					}},
+				}}
 			}},
 			core.Show{When: isRepo, Then: func(cx *core.Scope) core.Node {
 				return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Gap: 12}, Children: []core.Node{
@@ -41,12 +45,12 @@ func (a *app) drawerGit() core.Node {
 						}},
 					core.Show{When: func() bool { return a.git.panel.Get() == "changes" }, Then: func(cx *core.Scope) core.Node {
 						return a.scrollStashFor("drawerGit:changes").Bind(cx, core.Scroll{TestID: "git-scroll", Style: ui.FillRest, Children: []core.Node{
-							core.View{Style: core.Style{Gap: 16, Padding: core.Edges{Bottom: 16}}, Children: []core.Node{a.gitChanges(cx)}},
+							core.View{TestID: "git-changes-content", Style: core.Style{Gap: 16, Padding: core.Edges{Right: viewkit.PanelInset, Bottom: 16}}, Children: []core.Node{a.gitChanges(cx)}},
 						}})
 					}},
 					core.Show{When: func() bool { return a.git.panel.Get() == "history" }, Then: func(cx *core.Scope) core.Node {
 						return a.scrollStashFor("drawerGit:history").Bind(cx, core.Scroll{TestID: "git-history-scroll", Style: ui.FillRest, Children: []core.Node{
-							core.View{Style: core.Style{Gap: 16, Padding: core.Edges{Bottom: 16}}, Children: []core.Node{a.gitHistory(cx)}},
+							core.View{TestID: "git-history-content", Style: core.Style{Gap: 16, Padding: core.Edges{Right: viewkit.PanelInset, Bottom: 16}}, Children: []core.Node{a.gitHistory(cx)}},
 						}})
 					}},
 					core.Show{When: func() bool { return a.git.panel.Get() == "changes" }, Then: func(cx *core.Scope) core.Node { return a.gitCommitBox(cx) }},

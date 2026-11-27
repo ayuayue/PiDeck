@@ -30,10 +30,10 @@ func CrashScreen(cx *core.Scope, err error, reset func(), logPath string, open f
 			Style: core.Style{FontSize: 12, LineHeight: 18, TextAlign: core.TextAlignCenter}, StyleFunc: ui.Colored(colors.Muted)},
 	}
 	if detail != "" {
-		card = append(card, core.Scroll{Style: core.Style{MaxHeight: core.Pt(180), Width: core.Pct(100), Padding: core.All(9),
+		card = append(card, core.Scroll{TestID: "crash-detail-scroll", Style: core.Style{MaxHeight: core.Pt(180), Width: core.Pct(100), Padding: core.All(9),
 			Background: colors.Inset(), CornerRadius: 8, BorderWidth: 1, BorderColor: colors.Border()}, Children: []core.Node{
 			core.Text{Content: detail, Selectable: core.SelectableOn,
-				Style: core.Style{FontFamily: MonoFont(), FontSize: 10, LineHeight: 15}, StyleFunc: ui.Colored(colors.Danger)},
+				Style: core.Style{FontFamily: MonoFont(), FontSize: 10, LineHeight: 15, Padding: core.Edges{Right: PanelInset}}, StyleFunc: ui.Colored(colors.Danger)},
 		}})
 	}
 	card = append(card, core.Text{Content: logged, MaxLines: 2, EllipsizeMode: core.EllipsizeMiddle,

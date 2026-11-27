@@ -233,7 +233,7 @@ func (a *app) gitBranchMenu(cx *core.Scope) core.Node {
 		},
 	})
 	return core.Scroll{Style: core.Style{MaxHeight: core.Pt(360), Width: core.Pt(234)}, Children: []core.Node{
-		core.View{Style: core.Style{Gap: 1, MinWidth: core.Pt(0)}, Children: rows}}}
+		core.View{Style: core.Style{Gap: 1, MinWidth: core.Pt(0), Padding: core.Edges{Right: viewkit.PanelInset}}, Children: rows}}}
 }
 
 // shortOID is a commit hash in the seven characters a log shows.

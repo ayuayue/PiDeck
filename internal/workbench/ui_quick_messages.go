@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -120,5 +121,5 @@ func (a *app) quickMessageRows(cx *core.Scope, s *session) core.Node {
 		rows = append(rows, ui.Button{Text: apptext.T("加载更多"), TestID: "quick-messages-more", Size: ui.SizeSmall, Variant: ui.ButtonGhost,
 			OnPress: func() { q.window.Update(func(v int) int { return v + 10 }) }})
 	}
-	return core.View{Style: core.Style{Gap: 1}, Children: rows}
+	return core.View{Style: core.Style{Gap: 1, Padding: core.Edges{Right: viewkit.PanelInset}}, Children: rows}
 }

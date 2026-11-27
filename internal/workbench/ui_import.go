@@ -299,7 +299,7 @@ func (a *app) importBody() core.Node {
 					Style: core.Style{FontSize: 10.5, Padding: core.All(6)}, StyleFunc: ui.Colored(colors.Faint)})
 			}
 			list = append(list, a.scrollStashFor("importBody:1").Bind(cx, core.Scroll{Style: core.Style{MaxHeight: core.Pt(340)}, Children: []core.Node{
-				core.View{Style: core.Style{Gap: 1}, Children: nodes}}}))
+				core.View{Style: core.Style{Gap: 1, Padding: core.Edges{Right: viewkit.PanelInset}}, Children: nodes}}}))
 		}
 
 		return core.View{Style: core.Style{Gap: 10}, Children: []core.Node{
