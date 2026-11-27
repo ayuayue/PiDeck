@@ -66,23 +66,49 @@ export function countUserTurns(messages: ReadonlyArray<{ role?: string }>): numb
  *
  * 判据：tests/jumpWindowAnchor.test.mjs。
  */
+/**
+ * agent-run 起点表：`starts[k]` = 第 k 轮在 items 里的下标，末尾多一个 items.length 作右端点。
+ *
+ * 为什么要有它（布尔格上的莫比乌斯反演，落到链上就是差分）：
+ * 尾窗的「取最后 N 轮」是**累积量**——从尾部往前数，单位是扫过的条目。要反过来问
+ * 「第 k 轮从哪开始」，旧做法每次从头数一遍，代价随 k 线性增长。实测 700 轮 / 每轮 18 条，
+ * 取 8 轮：起点 0 读 289 个下标，起点 350 读 6589 个，2000 轮起点 1000 读 18289 个 ——
+ * 返回值一直是 144 条，多出来的全是「数到起点」的白工。
+ *
+ * 莫比乌斯反演给的做法：区间和 ↔ 端点差。先把端点在 O(n) 里记下来（前缀表），
+ * 之后任意区间的端点查询是两次读数、与 k 无关。布尔格 B_n 的 μ(S,T)=(-1)^{|T|-|S|}，
+ * 沿一条链（每层一个元素）退化成 μ(i,i+1)=-1、其余为 0，正是差分。
+ *
+ * 缓存按 items 引用（WeakMap）：同一数组重复取窗不重建，数组换了就自动失效。
+ */
+const runStartCache = new WeakMap<readonly unknown[], number[]>();
+
+export function buildAgentRunStarts(items: readonly { kind: string }[]): number[] {
+	const cached = runStartCache.get(items);
+	if (cached) return cached;
+	const starts: number[] = [];
+	for (let index = 0; index < items.length; index += 1) {
+		if (items[index]?.kind === "agent-run") starts.push(index);
+	}
+	starts.push(items.length);
+	runStartCache.set(items, starts);
+	return starts;
+}
+
+/** 用起点表取窗：定位 O(1)，读的只有被复制的那几条。starts 必须来自 buildAgentRunStarts。 */
+export function sliceByRunStarts<T>(items: readonly T[], starts: readonly number[], startRun: number, maxTurns: number): T[] {
+	const totalRuns = starts.length - 1;
+	const k = Math.max(0, Math.min(Math.trunc(startRun), totalRuns));
+	if (maxTurns <= 0 || k >= totalRuns) return [];
+	const from = starts[k];
+	const to = starts[Math.min(k + Math.trunc(maxTurns), totalRuns)];
+	return items.slice(from, to) as T[];
+}
 export function sliceAgentRunWindowFrom<T extends { kind: string } & { items?: readonly unknown[] }>(items: readonly T[], startRun: number, maxTurns: number): T[] {
 	if (maxTurns <= 0 || items.length === 0) return [];
-	let runIndex = -1;
-	let start = -1;
-	let end = -1;
-	for (let index = 0; index < items.length; index += 1) {
-		if (items[index]?.kind !== "agent-run") continue;
-		runIndex += 1;
-		if (runIndex === startRun) start = index;
-		if (runIndex === startRun + maxTurns) {
-			end = index;
-			break;
-		}
-	}
-	// startRun 超出总轮数：没有可挂的轮，返回空（调用方应先把锚点夹到合法区间）
-	if (start < 0) return [];
-	return (end < 0 ? items.slice(start) : items.slice(start, end)) as T[];
+	// 走起点表：定位两次读数，不随起点扫。旧实现是 here 起一路数到 startRun，
+	// 2000 轮起点 1000 时要读 18289 个下标，而返回值一直是同一个 144 条。
+	return sliceByRunStarts(items, buildAgentRunStarts(items), startRun, maxTurns);
 }
 export function sliceLastAgentRuns<T extends { kind: string } & { items?: readonly unknown[] }>(items: readonly T[], maxTurns: number): T[] {
 	if (maxTurns <= 0 || items.length === 0) return items as T[];
