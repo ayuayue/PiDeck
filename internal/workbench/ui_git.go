@@ -41,12 +41,12 @@ func (a *app) drawerGit() core.Node {
 						}},
 					core.Show{When: func() bool { return a.git.panel.Get() == "changes" }, Then: func(cx *core.Scope) core.Node {
 						return a.scrollStashFor("drawerGit:changes").Bind(cx, core.Scroll{TestID: "git-scroll", Style: ui.FillRest, Children: []core.Node{
-							core.View{Style: core.Style{Gap: 16, Padding: core.Edges{Bottom: 16}}, Children: []core.Node{a.gitChanges(cx), a.gitPathNote(cx)}},
+							core.View{Style: core.Style{Gap: 16, Padding: core.Edges{Bottom: 16}}, Children: []core.Node{a.gitChanges(cx)}},
 						}})
 					}},
 					core.Show{When: func() bool { return a.git.panel.Get() == "history" }, Then: func(cx *core.Scope) core.Node {
 						return a.scrollStashFor("drawerGit:history").Bind(cx, core.Scroll{TestID: "git-history-scroll", Style: ui.FillRest, Children: []core.Node{
-							core.View{Style: core.Style{Gap: 16, Padding: core.Edges{Bottom: 16}}, Children: []core.Node{a.gitHistory(cx), a.gitPathNote(cx)}},
+							core.View{Style: core.Style{Gap: 16, Padding: core.Edges{Bottom: 16}}, Children: []core.Node{a.gitHistory(cx)}},
 						}})
 					}},
 					core.Show{When: func() bool { return a.git.panel.Get() == "changes" }, Then: func(cx *core.Scope) core.Node { return a.gitCommitBox(cx) }},
@@ -84,20 +84,6 @@ func (a *app) gitStateNote(cx *core.Scope) core.Node {
 		}}
 	}
 	return nil
-}
-
-// gitPathNote is the repository's folder, so the panel says which checkout
-// it is talking about.
-func (a *app) gitPathNote(cx *core.Scope) core.Node {
-	colors := ui.ColorsOf(cx)
-	return core.Text{ContentFunc: func() string {
-		st := a.git.state.Get()
-		if st.Root == "" {
-			return shortPath(a.gitPath(), 48)
-		}
-		return shortPath(st.Root, 48)
-	}, MaxLines: 2, EllipsizeMode: core.EllipsizeMiddle,
-		Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10.5, LineHeight: 15}, StyleFunc: ui.Colored(colors.Faint)}
 }
 
 // gitEmpty is the drawer's empty state.

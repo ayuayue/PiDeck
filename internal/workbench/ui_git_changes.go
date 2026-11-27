@@ -176,7 +176,7 @@ func (a *app) gitFileRows(cx *core.Scope, files []gitFile, tree bool, collapsed 
 		}
 		rows := make([]core.Node, 0, len(list))
 		for _, f := range list {
-			rows = append(rows, a.gitFileRow(cx, f, staged, 0, true))
+			rows = append(rows, a.gitFileRow(cx, f, staged, 0))
 		}
 		return rows, len(rows)
 	}
@@ -213,7 +213,7 @@ func (a *app) gitFileRows(cx *core.Scope, files []gitFile, tree bool, collapsed 
 			continue
 		}
 		drawn++
-		rows = append(rows, a.gitFileRow(cx, e.File, staged, e.Depth, false))
+		rows = append(rows, a.gitFileRow(cx, e.File, staged, e.Depth))
 	}
 	return rows, drawn
 }
@@ -356,13 +356,10 @@ func (a *app) gitDirRow(cx *core.Scope, e gitChangeEntry) core.Node {
 }
 
 // gitFileRow is one changed path and its actions.
-func (a *app) gitFileRow(cx *core.Scope, f gitFile, staged bool, depth int, showPath bool) core.Node {
+func (a *app) gitFileRow(cx *core.Scope, f gitFile, staged bool, depth int) core.Node {
 	colors := ui.ColorsOf(cx)
 	tone := gitTone(f, colors)
-	name, dir := viewkit.SplitGitPath(f.Path)
-	// The name is what the user scans; the folder it sits in follows it in
-	// the flat list and truncates first when the drawer is narrow.
-	label := name
+	name, _ := viewkit.SplitGitPath(f.Path)
 	action := func(icon func() *core.SVG, label string, press func(), testID string) core.Node {
 		return a.pressIcon(icon, label, 24, 13, func() bool { return a.git.busy.Get() != "" }, press, testID)
 	}
@@ -393,24 +390,16 @@ func (a *app) gitFileRow(cx *core.Scope, f gitFile, staged bool, depth int, show
 		OnPress: func(core.PressEvent) { a.gitShowFileDiff(f, staged) },
 		Role:    core.RoleButton, Label: f.Path, TestID: testID,
 		StyleFunc: func() core.Style {
-			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinHeight: core.Pt(40),
-				Padding: core.Edges{Top: 6, Bottom: 6, Left: core.Points(4 + depth*12), Right: 4}, CornerRadius: 6, Transition: viewkit.PressMotion,
+			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinHeight: core.Pt(32),
+				Padding: core.Edges{Top: 4, Bottom: 4, Left: core.Points(4 + depth*12), Right: 4}, CornerRadius: 6, Transition: viewkit.PressMotion,
 				Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
 		},
 		Children: []core.Node{
 			core.View{Style: core.Style{Width: core.Pt(16), Height: core.Pt(16), CornerRadius: 4, AlignItems: core.AlignCenter,
 				JustifyContent: core.JustifyCenter, Background: ui.Alpha(tone, 0.13), FlexShrink: 0},
 				Children: []core.Node{ui.Text(f.mark(), 9.5, ui.Semibold, func() core.Color { return tone })}},
-			core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Direction: core.Column, Gap: 4},
-				Children: []core.Node{
-					core.Text{Content: label, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-						Style: core.Style{FontSize: 13, FlexShrink: 1, MinWidth: core.Pt(0)}, StyleFunc: ui.Colored(colors.Text)},
-					core.Show{When: func() bool { return showPath && dir != "" }, Then: func(cx *core.Scope) core.Node {
-						return core.Text{Content: dir, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-							Style:     core.Style{FontFamily: viewkit.MonoFont(), FontSize: 11, MinWidth: core.Pt(0)},
-							StyleFunc: ui.Colored(colors.Muted)}
-					}},
-				}},
+			core.Text{Content: name, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
+				Style: core.Style{FontSize: 13, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, StyleFunc: ui.Colored(colors.Text)},
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 0, FlexShrink: 0}, Children: actions},
 		},
 	}
