@@ -84,8 +84,12 @@ func TestPromptTemplateSharedByDesktopAndRemote(t *testing.T) {
 
 func TestPromptTemplateEditorSaveCancelAndFailure(t *testing.T) {
 	screen, a, _ := draftToolFixture(t)
-	a.openPromptTemplate()
+	screen.Press("id:composer-tools")
+	screen.Press("id:prompt-template-open")
 	screen.WaitUntil(5*time.Second, func() bool { return !a.promptTemplate.GetUntracked().busy.GetUntracked() })
+	if got := a.promptTemplate.GetUntracked().text.GetUntracked(); got != toolSystem("prompt") {
+		t.Fatal("new template editor did not load the built-in template")
+	}
 	screen.Clear("id:prompt-template-text")
 	screen.Type("id:prompt-template-text", "A custom enhancement instruction.")
 	screen.Press("id:prompt-template-save")
@@ -102,7 +106,21 @@ func TestPromptTemplateEditorSaveCancelAndFailure(t *testing.T) {
 	}
 	a.openPromptTemplate()
 	screen.WaitUntil(5*time.Second, func() bool { return !a.promptTemplate.GetUntracked().busy.GetUntracked() })
+	screen.Press("id:prompt-template-default")
+	if got := a.promptTemplate.GetUntracked().text.GetUntracked(); got != toolSystem("prompt") {
+		t.Fatal("reset did not restore the built-in template in the editor")
+	}
+	screen.Press("id:prompt-template-save")
+	screen.WaitUntil(5*time.Second, func() bool { return a.promptTemplate.GetUntracked() == nil })
+	if text, err := readPromptTemplate(a.st.dir); err != nil || text != toolSystem("prompt") {
+		t.Fatalf("saved reset template = %q, %v", text, err)
+	}
+	a.openPromptTemplate()
+	screen.WaitUntil(5*time.Second, func() bool { return !a.promptTemplate.GetUntracked().busy.GetUntracked() })
 	form := a.promptTemplate.GetUntracked()
+	if got := form.text.GetUntracked(); got != toolSystem("prompt") {
+		t.Fatal("reopening the editor did not retain the saved default template")
+	}
 	if err := os.Remove(filepath.Join(a.st.dir, promptTemplateFile)); err != nil {
 		t.Fatal(err)
 	}

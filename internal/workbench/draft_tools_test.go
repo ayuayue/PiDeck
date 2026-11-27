@@ -35,10 +35,99 @@ func draftToolFixture(t *testing.T) (*nsgotest.App, *app, *session) {
 			"prompt": {Provider: "fake", Model: "smart"}, "predict": {Provider: "fake", Model: "fast"},
 		}
 		s = a.makeSession(sessionMeta{ID: "draft-tool", Title: "Draft fixture"}, localTarget)
-		return core.View{Style: ui.FillRest, Children: []core.Node{a.draftChangeBar(s), a.promptTemplateDialog(), a.translationDialog()}}
+		return core.View{Style: ui.FillRest, Children: []core.Node{
+			core.View{Style: core.Style{FlexGrow: 1}},
+			ui.Input{Value: s.draft.Get, OnChange: s.draft.Set, Label: "Draft", TestID: "draft-tool-input"},
+			a.composerToolsMenu(s, s.toolsOpen),
+			a.draftChangeBar(s), a.promptTemplateDialog(), a.translationDialog(),
+		}}
 	}, nsgotest.Size(1100, 760))
 	t.Cleanup(a.closeDiag)
 	return screen, a, s
+}
+
+func TestDraftToolsMenuAppliesModelResult(t *testing.T) {
+	for _, tool := range []struct{ name, action, want string }{
+		{"prompt", "prompt-enhance", "model result"},
+		{"predict", "prompt-predict", "original draft model result"},
+	} {
+		t.Run(tool.name, func(t *testing.T) {
+			screen, a, s := draftToolFixture(t)
+			called := make(chan string, 1)
+			a.llmFn = func(name, system, prompt string, max int) (string, error) {
+				called <- name
+				return "model result", nil
+			}
+			screen.Type("id:draft-tool-input", "original draft")
+			screen.Press("id:composer-tools")
+			screen.Press("id:" + tool.action)
+			screen.WaitUntil(5*time.Second, func() bool { return s.draft.GetUntracked() == tool.want })
+			select {
+			case got := <-called:
+				if got != tool.name {
+					t.Fatalf("menu called %q, want %q", got, tool.name)
+				}
+			default:
+				t.Fatal("menu did not invoke the tool model")
+			}
+			if s.toolsOpen.GetUntracked() {
+				t.Fatal("tool menu remained open after selecting an action")
+			}
+		})
+	}
+}
+
+func TestDraftToolsMenuAvailability(t *testing.T) {
+	for _, state := range []struct{ name, draft, busy, hint string }{
+		{"empty", " \n", "", "先输入草稿"},
+		{"busy", "original draft", "prompt", "工具正在运行，请稍候"},
+	} {
+		t.Run(state.name, func(t *testing.T) {
+			screen, a, s := draftToolFixture(t)
+			s.draft.Set(state.draft)
+			a.aiBusy.Set(state.busy)
+			screen.Press("id:composer-tools")
+			for _, id := range []string{"prompt-enhance", "prompt-predict"} {
+				if screen.Enabled("id:" + id) {
+					t.Fatalf("%s is enabled for %s", id, state.name)
+				}
+			}
+			screen.WaitUntil(5*time.Second, func() bool { return len(screen.Query("text:"+state.hint)) == 2 })
+			// Keep the popup open while its availability changes.
+			s.draft.Set("original draft")
+			a.aiBusy.Set("")
+			screen.Settle()
+			for _, id := range []string{"prompt-enhance", "prompt-predict"} {
+				if !screen.Enabled("id:" + id) {
+					t.Fatalf("%s did not become enabled", id)
+				}
+			}
+		})
+	}
+}
+
+func TestDraftToolsMenuMissingModelOpensSettings(t *testing.T) {
+	for _, tool := range []struct{ name, action string }{
+		{"prompt", "prompt-enhance"}, {"predict", "prompt-predict"},
+	} {
+		t.Run(tool.name, func(t *testing.T) {
+			screen, a, s := draftToolFixture(t)
+			screen.Press("id:composer-tools")
+			// Model settings can change while the menu is already open.
+			a.setToolModel(tool.name, "", "")
+			screen.WaitFor("text:未配置模型，点击前往设置", time.Second)
+			if !screen.Enabled("id:" + tool.action) {
+				t.Fatal("missing model cannot be configured from an empty draft")
+			}
+			screen.Press("id:" + tool.action)
+			if s.toolsOpen.GetUntracked() || a.activePaneID() != paneSettings || a.settingsTab.GetUntracked() != "models" {
+				t.Fatal("missing model did not close the menu and open model settings")
+			}
+			if a.aiBusy.GetUntracked() != "" || s.draft.GetUntracked() != "" {
+				t.Fatal("opening tool model settings changed the draft or started a model call")
+			}
+		})
+	}
 }
 
 func TestDraftToolsPreserveEditsWhileWaiting(t *testing.T) {

@@ -88,19 +88,16 @@ func composerRow(cx *core.Scope, icon func() *core.SVG, title, detail string, ch
 	if checked {
 		children = append(children, ui.Icon(lucide.Check, 12, colors.Accent))
 	}
-	var disabledStyle *core.Style
-	if disabled {
-		disabledStyle = ui.Dimmed()
-	}
 	return core.View{
 		OnPress: func(core.PressEvent) {
 			if !disabled && onPress != nil {
 				onPress()
 			}
 		},
-		Role: core.RoleButton, Label: title,
+		Disabled: func() bool { return disabled },
+		Role:     core.RoleButton, Label: title,
 		Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(30),
-			Padding: core.Symmetric(2, 8), CornerRadius: 7, Disabled: disabledStyle},
+			Padding: core.Symmetric(2, 8), CornerRadius: 7, Disabled: ui.Dimmed()},
 		StyleFunc: func() core.Style {
 			if disabled {
 				return core.Style{}
@@ -425,30 +422,44 @@ func (a *app) saveImageChoice(provider, model, size string) {
 func (a *app) composerToolsMenu(s *session, open *core.Signal[bool]) core.Node {
 	trigger := hintOf(func() string { return apptext.T("工具") }, composerChip{Icon: lucide.Ellipsis, Name: apptext.T("工具"),
 		TestID: "composer-tools", OnPress: func() { open.Update(func(v bool) bool { return !v }) }}.node())
-	return a.popoverCard(open, core.PlaceTop, core.AlignEnd, 204, trigger, func(cx *core.Scope) core.Node {
+	return a.popoverCard(open, core.PlaceTop, core.AlignEnd, 280, trigger, func(cx *core.Scope) core.Node {
+		a.toolRev.Get()
 		busy := a.aiBusy.Get() != ""
 		empty := strings.TrimSpace(s.draft.Get()) == ""
+		toolRow := func(tool, testID string, icon func() *core.SVG, title, detail string, run func()) core.Node {
+			missing := strings.TrimSpace(a.cfg.ToolModels[tool].Provider) == ""
+			switch {
+			case busy:
+				detail = apptext.T("工具正在运行，请稍候")
+			case missing:
+				detail = apptext.T("未配置模型，点击前往设置")
+			case empty:
+				detail = apptext.T("先输入草稿")
+			}
+			row := composerRow(cx, icon, title, detail, false, busy || (empty && !missing), func() {
+				open.Set(false)
+				if missing {
+					a.openPane(paneSettings)
+					a.openSettingsSection("models")
+					return
+				}
+				run()
+			})
+			row.TestID = testID
+			return row
+		}
+		template := composerRow(cx, lucide.Settings2, apptext.T("增强模板…"), "", false, false, func() {
+			open.Set(false)
+			a.openPromptTemplate()
+		})
+		template.TestID = "prompt-template-open"
 		return core.View{Style: core.Style{Gap: 1}, Children: []core.Node{
 			composerPanelTitle(cx, apptext.T("工具")),
-			core.View{TestID: "prompt-enhance", Children: []core.Node{
-				composerRow(cx, lucide.WandSparkles, apptext.T("增强提示词"), "", false, busy || empty, func() {
-					open.Set(false)
-					a.enhanceDraft(s)
-				}),
-			}},
-			core.View{TestID: "prompt-predict", Children: []core.Node{
-				composerRow(cx, lucide.TextCursorInput, apptext.T("续写"), "", false, busy || empty, func() {
-					open.Set(false)
-					a.predictDraft(s)
-				}),
-			}},
-			composerDivider(cx),
-			core.View{TestID: "prompt-template-open", Children: []core.Node{
-				composerRow(cx, lucide.Settings2, apptext.T("增强模板…"), "", false, false, func() {
-					open.Set(false)
-					a.openPromptTemplate()
-				}),
-			}},
+			toolRow("prompt", "prompt-enhance", lucide.WandSparkles, apptext.T("增强提示词"),
+				apptext.T("把输入框里的草稿改写得更清楚、更具体。"), func() { a.enhanceDraft(s) }),
+			toolRow("predict", "prompt-predict", lucide.TextCursorInput, apptext.T("续写"),
+				apptext.T("在输入框里续写草稿的下一句。"), func() { a.predictDraft(s) }),
+			composerDivider(cx), template,
 		}}
 	}, "composer-tools-menu")
 }

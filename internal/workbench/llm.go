@@ -60,7 +60,7 @@ var draftTools = []string{"prompt", "predict"}
 func toolSystem(tool string) string {
 	switch tool {
 	case "prompt":
-		return "你是提示词润色助手。把用户的草稿改写成更清晰、具体、可执行的提示词；保留原意、语言和约束，不添加无关要求。只输出改写后的提示词。"
+		return defaultPromptTemplate
 	case "predict":
 		return "续写用户正在输入的消息，只写接下来的一个短句或半句，与已有文字自然衔接；不要重复已有内容，不要解释。只输出续写部分。"
 	}
