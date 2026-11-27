@@ -79,10 +79,11 @@ test("entryId 与 messageId 撞车：entryId 优先，不落到第 0 轮", () =>
 	assert.equal(runIndexOfMessage(collide, { messageId: "E9" }), 0, "只给 messageId 时不许借 entryId 的答案");
 });
 
-test("resolveJumpMessageIndex 同一形态：entryId 优先", () => {
+test("resolveJumpMessageIndex 撞键：显式空间只回答自己的那一路", () => {
+	// 空间无关的那一半（unknown 构造子）在 tests/jumpTargetIdSpace.test.mjs，不在这里重复。
 	const { resolveJumpMessageIndex } = load();
 	const messages = [{ id: "E9" }, { id: "m1" }, { id: "m2", meta: { entryId: "E9" } }];
-	assert.equal(resolveJumpMessageIndex(messages, { entryId: "E9" }), 2);
-	assert.equal(resolveJumpMessageIndex(messages, { messageId: "E9" }), 0);
-	assert.equal(resolveJumpMessageIndex(messages, {}), -1);
+	assert.equal(resolveJumpMessageIndex(messages, { kind: "entry", id: "E9" }), 2);
+	assert.equal(resolveJumpMessageIndex(messages, { kind: "message", id: "E9" }), 0);
+	assert.equal(resolveJumpMessageIndex(messages, { kind: "unknown", id: "E9" }), 2, "unknown 下 entryId 优先");
 });

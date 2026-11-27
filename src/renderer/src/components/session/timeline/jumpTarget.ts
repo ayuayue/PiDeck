@@ -111,16 +111,41 @@ export function resolveAnchorStartRun(runs: ReadonlyArray<{ kind: string; id?: s
 	return { kind: "ok", startRun: found[0] };
 }
 
-export function resolveJumpMessageIndex(messages: ReadonlyArray<{ id: string; meta?: unknown }>, target: { messageId?: string; entryId?: string }): number {
-	// 与 runIndexOfMessage 同一形态：两个空间分开扫，entryId 优先。
-	if (target.entryId) {
-		const byEntry = messages.findIndex((message) => readEntryId(message.meta) === target.entryId);
-		if (byEntry >= 0) return byEntry;
+/**
+ * 跳转目标的 id 空间。入口拿到 id 时并不知道它属于哪个空间，所以要有 unknown。
+ *
+ * 为什么不是 { messageId?: string; entryId?: string }（第一版，已回归过）：
+ * 那个类型逼调用方在「不知道空间」时猜一个字段。猜 messageId 就把 entryId 那条路剪断 ——
+ * 实测 resolveJumpMessageIndex(messages, { messageId: "525018cf" }) 返回 -1，
+ * 而旧的两趟实现返回 1。于是 index = -1 -> jumpToMessage 静默 return -> 点任何刻度都不跳。
+ *
+ * 这是把「未知空间」塞进「已判别空间」的类型错误，不是逻辑错。
+ * unknown 的语义：同一个 id 的两种解释，按 entryId（重投影后仍稳定）优先试，命中即用，
+ * 不判冲突 —— 它与「两个独立来源指向不同轮」是两件事，后者才是真矛盾
+ * （见 resolveAnchorStartRun 的 conflict 分支）。
+ */
+export type JumpTargetId =
+	| { kind: "message"; id: string }
+	| { kind: "entry"; id: string }
+	/** 入口拿到的不确定空间 id：先 entryId 后 messageId，命中即用 */
+	| { kind: "unknown"; id: string };
+
+export function resolveJumpMessageIndex(messages: ReadonlyArray<{ id: string; meta?: unknown }>, target: JumpTargetId): number {
+	if (!target.id) return -1;
+	const byEntry = (id: string): number => messages.findIndex((message) => readEntryId(message.meta) === id);
+	const byMessage = (id: string): number => messages.findIndex((message) => message.id === id);
+	switch (target.kind) {
+		case "entry":
+			return byEntry(target.id);
+		case "message":
+			return byMessage(target.id);
+		default: {
+			// entryId 优先：它是文件里的稳定身份；messageId 是投影 id，重投影会变。
+			const byEntryIndex = byEntry(target.id);
+			if (byEntryIndex >= 0) return byEntryIndex;
+			return byMessage(target.id);
+		}
 	}
-	if (target.messageId) {
-		return messages.findIndex((message) => message.id === target.messageId);
-	}
-	return -1;
 }
 
 /**
