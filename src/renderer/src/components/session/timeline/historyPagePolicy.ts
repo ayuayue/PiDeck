@@ -41,15 +41,6 @@ export const HISTORY_SCROLL_TURN_PAGE_SIZE = 3;
 export const HISTORY_BACKFILL_TURN_PAGE_SIZE = 200;
 
 /**
- * 历史前缀的条数上限（唯一真值）。
- *
- * 从 atoms 搬到这里，是因为「上限」属于策略、不属于状态：atoms 一旦被 hook 依赖，
- * 整条 jotai 链就会跟着进渲染层的单元测试沙箱（那里 jotai/utils 按 CJS 解析，拿不到 atomFamily），
- * 结果是一整片与本改动无关的测试变红。常量放纯模块，两个方向都取得干净。
- */
-export const HISTORY_PREFIX_MESSAGE_LIMIT = 8000;
-
-/**
  * 一次翻页最多把 DOM 窗口开大多少轮。
  *
  * 这是「数据」与「窗口」两个量的分界：页大小决定**数据**到齐多少轮（backfill 现在一次

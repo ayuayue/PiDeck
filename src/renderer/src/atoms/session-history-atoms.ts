@@ -16,7 +16,6 @@ import { findLastUserMessageIndex } from "./outlineRevision";
 import type { SessionMessageCacheEntry } from "./session-atoms-types";
 import { allocateSessionMessageOutlineRevision } from "./session-message-cache-atoms";
 import { sessionMessagesCacheAtom } from "./session-state-atoms";
-import { HISTORY_PREFIX_MESSAGE_LIMIT } from "../components/session/timeline/historyPagePolicy";
 
 /**
  * disk 来源历史消息数组的驻留上限（2026 内存排查：浏览历史时 atom 数组无界增长）。
@@ -27,7 +26,7 @@ import { HISTORY_PREFIX_MESSAGE_LIMIT } from "../components/session/timeline/his
  * 被丢弃段仍可通过「显示更早」从主进程缓存/文件重新拉取。
  * DOM 窗口由 turnRenderWindow 独立控制（TIMELINE_MOUNTED_TURN_LIMIT），此处只管数据层封顶。
  */
-export const DISK_HISTORY_MESSAGE_LIMIT = HISTORY_PREFIX_MESSAGE_LIMIT;
+export const DISK_HISTORY_MESSAGE_LIMIT = 8000;
 
 /**
  * runtime 会话历史前缀（history.messages）的条数驻留上限，与 disk 路径同预算（2026-12
