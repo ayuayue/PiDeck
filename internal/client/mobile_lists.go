@@ -51,6 +51,25 @@ func (a *mobileApp) openFavorites() {
 	a.loadFavorites()
 }
 
+// disconnectLists drops the lists and open details owned by the old desktop.
+func (a *mobileApp) disconnectLists() {
+	a.agents.Set(nil)
+	a.agentsBusy.Set(false)
+	a.agentsErr.Set("")
+	a.agentsOpen.Set(false)
+	a.tasks.Set(nil)
+	a.tasksBusy.Set(false)
+	a.tasksErr.Set("")
+	a.tasksOpen.Set(false)
+	a.taskOpen.Set("")
+	a.taskBusy.Set("")
+	a.favorites.Set(nil)
+	a.favoritesBusy.Set(false)
+	a.favoritesErr.Set("")
+	a.favoritesOpen.Set(false)
+	a.favOpen.Set("")
+}
+
 // loadAgents reads the desktop's agents.
 func (a *mobileApp) loadAgents() {
 	client := a.client
@@ -62,6 +81,9 @@ func (a *mobileApp) loadAgents() {
 	go func() {
 		list, err := client.agents()
 		a.cx.Post(func() {
+			if a.client != client {
+				return
+			}
 			a.agentsBusy.Set(false)
 			if err != nil {
 				a.agentsErr.Set(remoteErrorText(err))
@@ -83,6 +105,9 @@ func (a *mobileApp) loadTasks() {
 	go func() {
 		list, err := client.tasks()
 		a.cx.Post(func() {
+			if a.client != client {
+				return
+			}
 			a.tasksBusy.Set(false)
 			if err != nil {
 				a.tasksErr.Set(remoteErrorText(err))
@@ -104,6 +129,9 @@ func (a *mobileApp) loadFavorites() {
 	go func() {
 		list, err := client.favorites()
 		a.cx.Post(func() {
+			if a.client != client {
+				return
+			}
 			a.favoritesBusy.Set(false)
 			if err != nil {
 				a.favoritesErr.Set(remoteErrorText(err))
@@ -163,6 +191,9 @@ func (a *mobileApp) setTaskEnabled(id string, enabled bool) {
 	go func() {
 		err := client.setTaskEnabled(id, enabled)
 		a.cx.Post(func() {
+			if a.client != client {
+				return
+			}
 			a.taskBusy.Set("")
 			if err != nil {
 				a.tasksErr.Set(remoteErrorText(err))
@@ -183,6 +214,9 @@ func (a *mobileApp) runTask(id string) {
 	go func() {
 		err := client.runTask(id)
 		a.cx.Post(func() {
+			if a.client != client {
+				return
+			}
 			a.taskBusy.Set("")
 			if err != nil {
 				a.tasksErr.Set(remoteErrorText(err))

@@ -486,6 +486,7 @@ func (a *mobileApp) disconnectWith(message string) {
 	a.disconnectFileViews()
 	a.client.close()
 	a.client = nil
+	a.disconnectLists()
 	a.busy.Set(false)
 	a.creating.Set(false)
 	a.stateLoading = false
