@@ -8,7 +8,7 @@ import { SessionMessageTimeline } from "./SessionMessageTimeline";
 import { showNotice } from "../../utils/notice";
 import { outlineItemsBySessionIdAtomFamily, sessionHistoryMutationOverlayBySessionIdAtomFamily } from "../../atoms";
 import { isPendingRailItemId, isRailLoadStalled, mergeOutlineRailItems, pendingEntryIdOf, planRailJump, planRailPendingStep, RAIL_PENDING_MAX_ATTEMPTS } from "./timeline/outlineRailTicks";
-import { useSessionOutlineDirectory } from "../../hooks/useSessionOutlineDirectory";
+import type { SessionOutlineEntry } from "../../../../shared/types/outline";
 import { formatTime, summarizeMessage } from "../app/AppUtils";
 import { replaceExpandedRefBlocksWithLabels } from "../../../../shared/expandedRefBlocks";
 import { Button } from "../ui-shadcn/button";
@@ -33,15 +33,25 @@ const HISTORY_OVERLAY_COPY: Record<string, TranslationKey> = {
 /**
  * 中栏表面：只承载对话时间线。轨迹复盘已迁到右侧抽屉独立 tab。
  */
-export function SessionSurfaceStage(props: { sessionId: string; sessionTimeline: SessionTimelineController; timelineProps: Omit<SessionMessageTimelineProps, "sessionId" | "controller">; isRestarting: boolean; isReloading?: boolean }) {
-	const { sessionId, sessionTimeline, timelineProps, isRestarting, isReloading = false } = props;
+export function SessionSurfaceStage(props: {
+	sessionId: string;
+	sessionTimeline: SessionTimelineController;
+	timelineProps: Omit<SessionMessageTimelineProps, "sessionId" | "controller">;
+	isRestarting: boolean;
+	isReloading?: boolean /** 由 SessionView 统一取一次后下传（判据 outlineDirectorySingleSource）。 */;
+	outlineDirectory: SessionOutlineEntry[];
+}) {
+	const { sessionId, sessionTimeline, timelineProps, isRestarting, isReloading = false, outlineDirectory } = props;
 	// Assistant streaming rebuilds the derived array; equal user checkpoints should not rerender the rail.
 	const outlineItemsAtom = useMemo(() => selectAtom(outlineItemsBySessionIdAtomFamily(sessionId), (items) => items, areOutlineRailItemsEqual), [sessionId]);
 	const outlineItems = useAtomValue(outlineItemsAtom);
 	// 刻度只收用户提问（buildOutline），条数就是提问数；助手回复增删都不必重拉目录。
-	const outlineUserCount = outlineItems.length;
-	// 索引目录补齐「已加载消息之外」的用户检查点；未加载项点击后连续补页再跳转。
-	const directory = useSessionOutlineDirectory(sessionId, outlineUserCount);
+	// 目录由 SessionView 取一次、作为 prop 传下来 —— 本组件不再自己调 useSessionOutlineDirectory。
+	// 事故（2026-11-27）：两处各调一次、第二个参数不同（messages.length vs outlineItems.length），
+	// 于是两条路径在不同时刻重拉目录、各自存一份快照，过渡期间长度不同：
+	// 状态栏读一份、导轨读另一份，「78 轮 / 79 条」以反方向再出现。
+	// 判据：tests/outlineDirectorySingleSource.test.mjs（调用点必须恰好 1 处）。
+	const directory = outlineDirectory;
 	// 目录项 → 导轨卡片：标题用索引预览（与已加载标题同一套归一，加载前后是同一句话），
 	// 时间与已加载项同一格式化口（此前误塞原始 ISO）。
 	// 标题兜底走 t()，而 t() 读模块级 locale 且不订阅变化：locale 必须进依赖，

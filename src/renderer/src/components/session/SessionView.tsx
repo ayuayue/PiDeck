@@ -368,7 +368,7 @@ export function SessionView({
 			>
 				<ResizablePanel id="timeline" minSize={timelineColumnMinSize} className="session-v-timeline relative flex min-h-0 flex-col" style={timelineColumnStyle}>
 					<div className="session-v-timeline-stage min-h-[var(--session-timeline-min,160px)] flex-1 overflow-hidden">
-						<SessionSurfaceStage sessionId={sessionId} sessionTimeline={sessionTimeline} isRestarting={isRestarting} isReloading={Boolean(runControl?.isReloading)} timelineProps={timelineInteractionProps} />
+						<SessionSurfaceStage sessionId={sessionId} sessionTimeline={sessionTimeline} isRestarting={isRestarting} isReloading={Boolean(runControl?.isReloading)} outlineDirectory={outlineDirectory} timelineProps={timelineInteractionProps} />
 					</div>
 					{/* 阻塞式 Ask 浮层：浮在时间线之上而不是钉在列底占高，时间线保持整列高度，
 					    用户能先读完回复再作答（可折叠、可拖动，见 FloatingAskLayer）。
