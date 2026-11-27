@@ -1,6 +1,6 @@
 package viewkit
 
-// PiDeck's foundation: ink teal on cool paper, with an independently
+// PiDeck's foundation: neutral white and gray, with an independently
 // tuned charcoal appearance. Both native hosts share these role colors.
 
 import (
@@ -13,16 +13,16 @@ import (
 // Control rims, internal rules and region edges stay separate so nested
 // panels do not acquire the weight of an outer boundary.
 var (
-	ink      = core.RGB(0x202c30)
-	inkDeep  = core.RGB(0x193d42)
-	graphite = core.RGB(0x506269)
-	mist     = core.RGB(0x53666c)
-	railGray = core.RGB(0xedf1f2)
-	hairline = core.RGB(0xcbd5d8)
-	softLine = core.RGB(0xe1e7e9)
-	edge     = core.RGBA(0x202c30, 0.16)
-	edgeDark = core.RGBA(0xe6eeef, 0.16)
-	softDark = core.RGB(0x2c3a3f)
+	ink      = core.RGB(0x242424)
+	inkDeep  = core.RGB(0x111111)
+	graphite = core.RGB(0x555555)
+	mist     = core.RGB(0x5c5c5c)
+	railGray = core.RGB(0xeeeeee)
+	hairline = core.RGB(0xcecece)
+	softLine = core.RGB(0xe3e3e3)
+	edge     = core.RGBA(0x242424, 0.16)
+	edgeDark = core.RGBA(0xe9e9e9, 0.16)
+	softDark = core.RGB(0x353535)
 	danger   = core.RGB(0xa33c36)
 	success  = core.RGB(0x35684c)
 	warning  = core.RGB(0x7c5b20)
@@ -49,76 +49,76 @@ func Theme() *core.Theme {
 	t := &core.Theme{Radius: 8, Sans: sans, Mono: MonoStack}
 
 	t.Light = core.Palette{
-		Background:     core.RGB(0xf7f9f9),
+		Background:     core.RGB(0xf7f7f7),
 		Surface:        core.RGB(0xffffff),
-		SurfaceHover:   core.RGB(0xe6eef0),
-		SurfacePressed: core.RGB(0xd5e2e5),
+		SurfaceHover:   core.RGB(0xe9e9e9),
+		SurfacePressed: core.RGB(0xdedede),
 		Border:         hairline,
 		Text:           ink,
 		TextMuted:      graphite,
-		Accent:         core.RGB(0x285d63),
-		AccentHover:    core.RGB(0x214e53),
+		Accent:         core.RGB(0x363636),
+		AccentHover:    ink,
 		AccentPressed:  inkDeep,
 		AccentText:     core.RGB(0xffffff),
 		Danger:         danger,
 		Warning:        warning,
 		Success:        success,
-		Selection:      core.RGBA(0x285d63, 0.18),
-		Focus:          core.RGB(0x285d63),
-		Scrollbar:      core.RGBA(0x202c30, 0.48),
+		Selection:      core.RGBA(0x363636, 0.18),
+		Focus:          core.RGB(0x363636),
+		Scrollbar:      core.RGBA(0x242424, 0.48),
 	}
 	t.Dark = core.Palette{
-		Background:     core.RGB(0x151b1d),
-		Surface:        core.RGB(0x1d2528),
-		SurfaceHover:   core.RGB(0x2a383c),
-		SurfacePressed: core.RGB(0x34474b),
-		Border:         core.RGB(0x3d5056),
-		Text:           core.RGB(0xe6eeef),
-		TextMuted:      core.RGB(0xbac9cb),
-		Accent:         core.RGB(0x91c6cd),
-		AccentHover:    core.RGB(0xaed8dc),
-		AccentPressed:  core.RGB(0x7bb2ba),
-		AccentText:     core.RGB(0x102428),
+		Background:     core.RGB(0x191919),
+		Surface:        core.RGB(0x242424),
+		SurfaceHover:   core.RGB(0x343434),
+		SurfacePressed: core.RGB(0x414141),
+		Border:         core.RGB(0x515151),
+		Text:           core.RGB(0xe9e9e9),
+		TextMuted:      core.RGB(0xc6c6c6),
+		Accent:         core.RGB(0xdedede),
+		AccentHover:    core.RGB(0xf4f4f4),
+		AccentPressed:  core.RGB(0xc4c4c4),
+		AccentText:     core.RGB(0x202020),
 		Danger:         core.RGB(0xf0aaa3),
 		Warning:        core.RGB(0xe1c382),
 		Success:        core.RGB(0x9ac9aa),
-		Selection:      core.RGBA(0x91c6cd, 0.18),
-		Focus:          core.RGB(0x91c6cd),
-		Scrollbar:      core.RGBA(0xe6eeef, 0.48),
+		Selection:      core.RGBA(0xdedede, 0.18),
+		Focus:          core.RGB(0xdedede),
+		Scrollbar:      core.RGBA(0xe9e9e9, 0.48),
 	}
 
 	light := map[string]core.Color{
 		"inset":       railGray,
 		"raised":      core.RGB(0xffffff),
-		"field":       core.RGB(0xfbfdfd),
-		"fieldBorder": core.RGBA(0x202c30, 0.56),
+		"field":       core.RGB(0xfbfbfb),
+		"fieldBorder": core.RGBA(0x242424, 0.56),
 		"line":        softLine,
 		"edge":        edge,
 		"faint":       mist,
-		"accentFill":  core.RGB(0x285d63),
+		"accentFill":  core.RGB(0x363636),
 		"light":       ink,
-		"onLight":     core.RGB(0xf7f9f9),
-		"track":       core.RGBA(0x202c30, 0.48),
+		"onLight":     core.RGB(0xf7f7f7),
+		"track":       core.RGBA(0x242424, 0.48),
 		"knob":        core.RGB(0xffffff),
-		"code":        core.RGB(0x2c4540),
+		"code":        core.RGB(0x3e3e3e),
 		"info":        core.RGB(0x2d607b),
 		"thinking":    Thinking,
 		"down":        danger,
 	}
 	dark := map[string]core.Color{
-		"inset":       core.RGB(0x101618),
-		"raised":      core.RGB(0x263135),
-		"field":       core.RGB(0x182023),
-		"fieldBorder": core.RGBA(0xe6eeef, 0.56),
+		"inset":       core.RGB(0x121212),
+		"raised":      core.RGB(0x2d2d2d),
+		"field":       core.RGB(0x1e1e1e),
+		"fieldBorder": core.RGBA(0xe9e9e9, 0.56),
 		"line":        softDark,
 		"edge":        edgeDark,
-		"faint":       core.RGB(0xa5b8bb),
-		"accentFill":  core.RGB(0x91c6cd),
-		"light":       core.RGB(0xe6eeef),
-		"onLight":     core.RGB(0x151b1d),
-		"track":       core.RGBA(0xe6eeef, 0.48),
-		"knob":        core.RGB(0x102428),
-		"code":        core.RGB(0xc5dde0),
+		"faint":       core.RGB(0xb5b5b5),
+		"accentFill":  core.RGB(0xdedede),
+		"light":       core.RGB(0xe9e9e9),
+		"onLight":     core.RGB(0x191919),
+		"track":       core.RGBA(0xe9e9e9, 0.48),
+		"knob":        core.RGB(0x202020),
+		"code":        core.RGB(0xd6d6d6),
 		"info":        core.RGB(0x9fc6e1),
 		"thinking":    core.RGB(0xc4b7e1),
 		"down":        core.RGB(0xf0aaa3),

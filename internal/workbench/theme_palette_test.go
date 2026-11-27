@@ -91,6 +91,32 @@ func TestBuiltinThemePalettes(t *testing.T) {
 	}
 }
 
+func TestDefaultThemeNeutralColors(t *testing.T) {
+	theme := viewkit.Theme()
+	for _, mode := range []struct {
+		name    string
+		palette core.Palette
+	}{{"light", theme.Light}, {"dark", theme.Dark}} {
+		t.Run(mode.name, func(t *testing.T) {
+			for _, role := range []string{
+				"background", "inset", "surface", "raised", "field", "surfaceHover", "surfacePressed",
+				"text", "textMuted", "faint", "border", "line", "edge", "fieldBorder",
+				"accent", "accentHover", "accentPressed", "accentText", "accentFill",
+				"light", "onLight", "selection", "focus", "scrollbar", "track", "knob", "code",
+			} {
+				color, ok := mode.palette.Color(role)
+				if !ok {
+					t.Fatalf("missing color role %s", role)
+				}
+				r, g, b, _ := color.Components()
+				if r != g || g != b {
+					t.Errorf("%s must be neutral gray, got %v", role, color)
+				}
+			}
+		})
+	}
+}
+
 // Color.Components uses normalized sRGB channels. Composite translucent
 // foregrounds before calculating WCAG relative luminance.
 func themeContrast(foreground, background core.Color) float64 {
