@@ -87,8 +87,8 @@ func (a *app) emptyChat(s *session, composer core.Node, editor *core.Ref, column
 func starterPrompts(s *session, editor *core.Ref, column func() core.Length) core.Node {
 	hasDraft := func() bool { return s.draft.Get() != "" }
 	button := func(id, title, prompt string) core.Node {
-		return ui.Button{Text: title, Variant: ui.ButtonOutline, TestID: "chat-starter-" + id, Disabled: hasDraft,
-			Style:     core.Style{Height: core.Pt(44), MaxWidth: core.Pct(100), Padding: core.Symmetric(0, 16), CornerRadius: 8},
+		return ui.Button{Text: title, Variant: ui.ButtonGhost, TestID: "chat-starter-" + id, Disabled: hasDraft,
+			Style:     core.Style{Height: core.Pt(32), MaxWidth: core.Pct(100), CornerRadius: 8},
 			TextStyle: core.Style{FontSize: 14, LineHeight: 20}, OnPress: func() {
 				if s.draft.GetUntracked() == "" {
 					s.draft.Set(prompt)
@@ -97,8 +97,8 @@ func starterPrompts(s *session, editor *core.Ref, column func() core.Length) cor
 			}}
 	}
 	return core.View{TestID: "chat-starter-prompts",
-		Style: core.Style{Direction: core.Row, Wrap: core.Wrap, JustifyContent: core.JustifyStart, Gap: 8,
-			Width: core.Pct(100), Margin: core.Edges{Bottom: 24}},
+		Style: core.Style{Direction: core.Row, Wrap: core.Wrap, JustifyContent: core.JustifyStart, Gap: 4,
+			Width: core.Pct(100), Margin: core.Edges{Bottom: 16}},
 		StyleFunc: func() core.Style {
 			style := core.Style{MaxWidth: column()}
 			// Keep the composer in place as the user starts typing.

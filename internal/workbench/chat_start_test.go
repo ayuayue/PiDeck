@@ -36,8 +36,12 @@ func TestChatStartKeepsComposerAcrossFirstTurn(t *testing.T) {
 	if model.Origin.Y < send.Origin.Y+send.Size.Height {
 		t.Errorf("model settings %v should have their own row below send %v", model, send)
 	}
-	if prompts := screen.Find(suggestions).Bounds(); prompts.Origin.Y+prompts.Size.Height > startCard.Origin.Y {
+	prompts := screen.Find(suggestions).Bounds()
+	if prompts.Origin.Y+prompts.Size.Height > startCard.Origin.Y {
 		t.Errorf("starter prompts %v should sit above the composer card %v", prompts, startCard)
+	}
+	if prompts.Size.Height > 36 {
+		t.Errorf("starter prompts should form a compact single row on desktop, got %v", prompts)
 	}
 	viewport := screen.Find("id:transcript").Bounds()
 	if center := startCard.Origin.Y + startCard.Size.Height/2 - viewport.Origin.Y; center < viewport.Size.Height/3 || center > viewport.Size.Height*2/3 {
