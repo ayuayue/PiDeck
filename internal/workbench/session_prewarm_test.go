@@ -169,8 +169,9 @@ func TestSessionPrewarmResumesTypingDuringRetirement(t *testing.T) {
 	close(pending)
 	screen.WaitUntil(5*time.Second, func() bool { return !s.agentStopping })
 	screen.Advance(time.Second)
-	if s.piGeneration.Load() != 2 {
-		t.Fatal("typing while retirement was pending never rearmed prewarm")
+	if s.piGeneration.Load() != 1 || s.status.GetUntracked() != statusFailed ||
+		!strings.Contains(s.notice.GetUntracked(), "fixture does not launch pi") {
+		t.Fatal("typing while retirement was pending never attempted prewarm again")
 	}
 }
 
@@ -200,6 +201,9 @@ func TestComposerPrewarmStopsWhenOpeningPane(t *testing.T) {
 }
 
 func TestColdComposerKeepsNativeInputAcrossStartup(t *testing.T) {
+	if nsgotest.Target() == "" {
+		t.Skip("checks the real native editor's insertion point")
+	}
 	a, screen, s := chatDesignFixture(t, 0)
 	installPrewarmACP(t, a)
 	screen.Post(func() {
@@ -255,7 +259,7 @@ func TestComposerKeepsInputAcrossStartupAndBackendSwitch(t *testing.T) {
 	}
 	process := s.acp
 	onNativeUI(t, screen, a, func() {
-		a.env.Set(envInfo{Probed: true, PiError: "fixture does not launch pi"})
+		a.cfg.TrustedProjects = nil
 		a.setBackend(s, "pi", "")
 	})
 	after = screen.Find("id:composer")

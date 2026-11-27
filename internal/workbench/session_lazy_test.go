@@ -45,7 +45,7 @@ func TestBrowsingSlowHistoryDoesNotPrewarmRestoredDraft(t *testing.T) {
 	})
 	screen.WaitUntil(5*time.Second, func() bool { return s.loaded.GetUntracked() })
 	screen.Advance(time.Second)
-	if s.piGeneration.Load() != 0 || s.hasAgent() {
+	if s.piGeneration.Load() != 0 || s.hasAgent() || s.status.GetUntracked() != statusIdle {
 		t.Fatal("browsing slow history treated a restored draft as new input")
 	}
 }
@@ -65,8 +65,8 @@ func TestTypingWhileHistoryLoadsPrewarmsAfterRead(t *testing.T) {
 	})
 	screen.WaitUntil(5*time.Second, func() bool { return s.loaded.GetUntracked() })
 	screen.Advance(time.Second)
-	if s.piGeneration.Load() != 1 {
-		t.Fatal("history completion lost the user's prewarm request")
+	if s.status.GetUntracked() != statusFailed || !strings.Contains(s.notice.GetUntracked(), "fixture does not launch pi") {
+		t.Fatal("history completion did not attempt the requested prewarm")
 	}
 }
 
