@@ -23,7 +23,7 @@
  */
 import type { Dispatch, SetStateAction } from "react";
 import type { SessionMessagePage } from "../../../../../shared/types";
-import { HISTORY_BACKFILL_TURN_PAGE_SIZE } from "./historyPagePolicy";
+import { JUMP_PAGE_TURN_SIZE } from "./historyPagePolicy";
 import { planJumpPageRequest } from "./jumpWindowPolicy";
 import type { TaggedTimelineJumpRequest } from "../../../hooks/session/timeline/useTimelineJumpNavigation";
 
@@ -84,7 +84,7 @@ export function useJumpPageFetch(ports: JumpPageFetchPorts) {
 		const requestOwnerKey = pendingJump.ownerKey;
 		// 先落标记再发请求：无论成功失败都只发一次。
 		setPendingJump({ ownerKey: requestOwnerKey, value: { ...pendingJump.value, pageFetched: true, nonce: pendingJump.value.nonce + 1 } });
-		void readRecordMessagePage(sessionId, undefined, HISTORY_BACKFILL_TURN_PAGE_SIZE, { beforeEntryId: plan.beforeEntryId })
+		void readRecordMessagePage(sessionId, undefined, JUMP_PAGE_TURN_SIZE, { beforeEntryId: plan.beforeEntryId })
 			.then((page) => {
 				if (currentOwnerKey !== requestOwnerKey) return;
 				// 撑爆前缀上限时别 prepend：prependSessionHistoryPageAtom 会把整页丢掉并把游标置成
