@@ -200,7 +200,19 @@ export function sessionTurnCountOf(loaded: readonly OutlineRailItem[], directory
 }
 export function mergeOutlineRailItems(loaded: readonly OutlineRailItem[], directory: readonly { entryId: string; title: string; time?: string }[]): OutlineRailItem[] {
 	const loadedUsers = loaded.filter((item) => item.role === "user");
-	if (directory.length === 0) return [...loadedUsers];
+	if (directory.length === 0) {
+		// 早退分支同样要去重：目录还没拉到（加载首帧、或索引未建）时走的就是这条路，
+		// 而「末尾多一条」正是在这种时刻出现的 —— 早退绕过去重等于判据只在有目录时成立。
+		const seen = new Set<string>();
+		const unique: OutlineRailItem[] = [];
+		for (const item of loadedUsers) {
+			const key = item.entryId ?? item.id;
+			if (seen.has(key)) continue;
+			seen.add(key);
+			unique.push(item);
+		}
+		return unique;
+	}
 
 	const loadedByEntryId = new Map<string, OutlineRailItem>();
 	for (const item of loadedUsers) {
@@ -210,16 +222,31 @@ export function mergeOutlineRailItems(loaded: readonly OutlineRailItem[], direct
 	const merged: OutlineRailItem[] = [];
 	const usedEntryIds = new Set<string>();
 	for (const entry of directory) {
+		// 目录里同一 entryId 出现两次时只留第一条：重复的刻度点下去落同一处，
+		// 用户看到的是「两条一样的」，而它们不是两条消息。
+		if (usedEntryIds.has(entry.entryId)) continue;
 		const loadedItem = loadedByEntryId.get(entry.entryId);
 		if (loadedItem) {
 			merged.push(loadedItem);
 			usedEntryIds.add(entry.entryId);
 			continue;
 		}
+		usedEntryIds.add(entry.entryId);
 		merged.push({ id: `outline-pending:${entry.entryId}`, entryId: entry.entryId, role: "user", title: entry.title, time: entry.time ?? "", pending: true });
 	}
 	for (const item of loadedUsers) {
-		if (!usedEntryIds.has(item.entryId ?? item.id)) merged.push(item);
+		// 追加前也去重，并把键记进同一个 Set。
+		//
+		// 事故（真机 2026-11-27，用户描述「末尾有两个的 bug，还是没修好」）：
+		// 面板末尾出现两条一模一样的条目。盘上只有一条、目录也 112 条无重复、buildOutline
+		// 单跑也正常 —— 因为重复发生在**追加分支**：旧代码只检查 usedEntryIds（只在
+		// 「已加载项匹配到目录项」时才写入），若 loadedUsers 里出现两条同键（同 entryId，
+		// 或都没 entryId 于是都用 messageId），两条都不在 Set 里，于是都被追加 → 末尾两条一样的。
+		// 同一个 Set 既管「目录命中」又管「追加去重」，一次判定只有一个答案。
+		const key = item.entryId ?? item.id;
+		if (usedEntryIds.has(key)) continue;
+		usedEntryIds.add(key);
+		merged.push(item);
 	}
 	return merged;
 }
