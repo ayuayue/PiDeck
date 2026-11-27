@@ -9,7 +9,14 @@ import type { BrowsePin } from "../../timeline/browsePin";
 import { shouldDeferJumpUntilLoaded } from "../../timeline/timelineRevealChannel";
 
 /** 挂起跳转的请求：expandAttempts / loadAttempts 是两套防呆预算，nonce 保证重复点击也重跑 effect。 */
-export type TimelineJumpRequest = { messageId: string; expandAttempts: number; loadAttempts: number; nonce: number };
+export type TimelineJumpRequest = {
+	messageId: string;
+	expandAttempts: number;
+	loadAttempts: number;
+	nonce: number;
+	/** 已经按 entryId 取过一次页：失败也不再取，交给扩窗与放弃（否则每次 effect 重跑都发一次 IPC）。 */
+	pageFetched?: boolean;
+};
 export type TaggedTimelineJumpRequest = { ownerKey: string; value: TimelineJumpRequest };
 
 export interface TimelineJumpNavigationOptions {
@@ -206,9 +213,10 @@ export function useTimelineJumpNavigation(options: TimelineJumpNavigationOptions
 			skipBrowsePinRef.current = true;
 			browsePinRef.current = null;
 			browsePinFrozenRef.current = false;
-			// 命中 id 可能是**会话文件条目 id**（会话内查找的命中）而不是投影消息 id：
-			// 先归一到当前消息列表再查 DOM，否则永远查不到节点、点击无任何反应。
-			const index = resolveJumpMessageIndex(combinedMessages, messageId);
+			// 入口给的是**会话文件条目 id**（会话内查找、刻度命中都是），不是投影消息 id。
+			// 直接按 meta.entryId 认，不走「先在一堆已加载消息里查下标」那条路，
+			// 目标没加载时必然 -1，于是掉进「补一页、看看在不在、不在再补」的逐页逼近。
+			const index = combinedMessages.findIndex((message) => message.meta?.entryId === messageId || message.id === messageId);
 			const targetNodeId = index >= 0 ? combinedMessages[index].id : messageId;
 			const existing = timeline.querySelector(`[data-message-id="${CSS.escape(targetNodeId)}"]`) as HTMLElement | null;
 			if (existing) {

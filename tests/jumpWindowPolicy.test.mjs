@@ -198,7 +198,10 @@ test("补页失败不得吃掉跳转预算：失败短路必须排在 resolveJum
 	const source = sessionTimelineControllerSource;
 	const start = source.indexOf("const stillInData = targetIndex >= 0;");
 	assert.ok(start > 0, "找不到 pendingJump effect 主体");
-	const body = source.slice(start, start + 3000);
+	// 窗口取到 effect 结束，不写死字数：写死 3000 时，只要 effect 里多插几行注释，
+	// 下面的推进点就落到窗口外——判据没放宽，是让它跟着代码走。
+	const effectEnd = source.indexOf("\n\t}, [", start);
+	const body = source.slice(start, effectEnd > start ? effectEnd : start + 6000);
 	const failGuardAt = body.indexOf("if (!stillInData && loadMoreError) return;");
 	const actionAt = body.indexOf("const action = resolveJumpPendingAction(");
 	assert.ok(failGuardAt > 0, "找不到补页失败短路");

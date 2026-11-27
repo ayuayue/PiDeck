@@ -39,6 +39,7 @@ import type { BrowsePin } from "./timeline/browsePin";
 import { countUserTurns, TIMELINE_MOUNTED_TURN_LIMIT, TIMELINE_SCROLLED_TURN_LIMIT, TIMELINE_WINDOW_EXPAND_STEP } from "../components/session/timeline/turnRenderWindow";
 import { readSessionFirstScreenPage } from "../components/session/sessionSubagentTranscript";
 import { resolveJumpPendingAction } from "../components/session/timeline/jumpWindowPolicy";
+import { useJumpPageFetch } from "../components/session/timeline/useJumpPageFetch";
 import { resolveMissingAnchorNextStep } from "../components/session/timeline/restoreAnchorPolicy";
 import { shouldDeferJumpUntilLoaded } from "./timeline/timelineRevealChannel";
 import { resolveJumpMessageIndex, resolveJumpScrollTarget } from "../components/session/timeline/jumpTarget";
@@ -989,7 +990,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		observer.observe(target);
 		return () => observer.disconnect();
 	}, [controllerEnabled, ownerKey, pinBrowseRow]);
-
+	const fetchJumpPageOnce = useJumpPageFetch({ sessionId: options.sessionId, revision: cachedEntry?.revision, readRecordMessagePage: desktopApi.sessions.readRecordMessagePage, prependHistoryPage, setPendingJump });
 	useEffect(() => {
 		if (!controllerEnabled || !pendingJump) return;
 		if (!matchesTimelineOwner(pendingJump.ownerKey, ownerKey)) return;
@@ -1022,15 +1023,14 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		// give-up 保留旧行为兜底：目标已不在数据（压缩清理/删除）时不无限扩窗（2026-08 黑屏治理）。
 		const stillInData = targetIndex >= 0;
 		const hasMorePages = hasEarlierPages;
-		// 冷会话等待：目标还没进数据，但消息尚未上屏（首批未到 / 首屏加载中）。
-		// 这不是「目标不存在」—— give-up 会误报「跳转失败」并把插件导航丢掉（#401 复审 P0）。
-		// effect 依赖 combinedMessages：数据到达后自动重跑并落位。
+		// 冷会话等待：目标还没进数据、消息尚未上屏时 give-up 会误报「跳转失败」并丢掉插件导航（#401 复审 P0）；effect 依赖 combinedMessages，数据到达后自动重跑并落位。
 		if (!stillInData && shouldDeferJumpUntilLoaded({ targetIndex, messageCount: combinedMessages.length, surfaceLoading: isSurfaceLoading })) return;
 		// 补页失败：不推进预算、不自动重发。错误行已由 loadMoreMessages 弹给用户，
 		// 他点「加载更多」重试成功后 loadMoreError 清空，本 effect 重跑并继续落位。
 		// 放在 resolveJumpPendingAction 之前：失败要吃掉一次 loadAttempts 的话，
 		// 保险丝会被空转烧断，用户连点几次之后彻底跳不动。
 		if (!stillInData && loadMoreError) return;
+		if (fetchJumpPageOnce(pendingJump, ownerKeyRef.current)) return; // 一次取页：发起后等数据到达重跑
 		const action = resolveJumpPendingAction({
 			targetInLoadedData: stillInData,
 			hasMorePages,
