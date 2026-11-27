@@ -268,7 +268,7 @@ export function useTimelineJumpNavigation(options: TimelineJumpNavigationOptions
 		(messageId: string): HTMLElement | null => {
 			const timeline = timelineRef.current;
 			if (!timeline) return null;
-			const targetIndex = resolveJumpMessageIndex(combinedMessages, messageId);
+			const targetIndex = resolveJumpMessageIndex(combinedMessages, { messageId });
 			if (targetIndex < 0) return null;
 			const indexById = new Map<string, number>();
 			for (let index = 0; index < combinedMessages.length; index += 1) indexById.set(combinedMessages[index].id, index);

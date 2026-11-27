@@ -998,7 +998,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		if (!timeline) return;
 		// 挂起期间每轮重新归一：目标可能是文件条目 id（会话内查找命中），补页把它
 		// 载入 combinedMessages 之后投影 id 才确定。
-		const targetIndex = resolveJumpMessageIndex(combinedMessages, pendingJump.value.messageId);
+		const targetIndex = resolveJumpMessageIndex(combinedMessages, { messageId: pendingJump.value.messageId });
 		const targetNodeId = targetIndex >= 0 ? combinedMessages[targetIndex].id : pendingJump.value.messageId;
 		const element = timeline.querySelector(`[data-message-id="${CSS.escape(targetNodeId)}"]`) as HTMLElement | null;
 		if (element) {

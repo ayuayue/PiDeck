@@ -27,20 +27,20 @@ function runs() {
 
 test("按 messageId 定位到所属轮", () => {
 	const { runIndexOfMessage } = load();
-	assert.equal(runIndexOfMessage(runs(), "m0"), 0);
-	assert.equal(runIndexOfMessage(runs(), "m3"), 1);
-	assert.equal(runIndexOfMessage(runs(), "m5"), 2);
+	assert.equal(runIndexOfMessage(runs(), { messageId: "m0" }), 0);
+	assert.equal(runIndexOfMessage(runs(), { messageId: "m3" }), 1);
+	assert.equal(runIndexOfMessage(runs(), { messageId: "m5" }), 2);
 });
 
 test("按 entryId 也能定位（跳转命中给的是文件条目 id）", () => {
 	const { runIndexOfMessage } = load();
-	assert.equal(runIndexOfMessage(runs(), "e2"), 1);
+	assert.equal(runIndexOfMessage(runs(), { entryId: "e2" }), 1);
 });
 
 test("找不到返回 -1（未加载 / 被 context_edit 移出），不返回 0 冒充第一轮", () => {
 	const { runIndexOfMessage } = load();
-	assert.equal(runIndexOfMessage(runs(), "nope"), -1);
-	assert.equal(runIndexOfMessage(runs(), ""), -1);
+	assert.equal(runIndexOfMessage(runs(), { messageId: "nope" }), -1);
+	assert.equal(runIndexOfMessage(runs(), {}), -1);
 });
 
 test("非 agent-run 条目不计轮（附属消息随所属轮，不推高序号）", () => {
@@ -51,8 +51,8 @@ test("非 agent-run 条目不计轮（附属消息随所属轮，不推高序号
 		{ kind: "message", items: [{ id: "diag" }] },
 		{ kind: "agent-run", items: [{ id: "m1" }] },
 	];
-	assert.equal(runIndexOfMessage(withDiag, "m0"), 0, "轮起点前的 system 不该让它变成第 1 轮");
-	assert.equal(runIndexOfMessage(withDiag, "m1"), 1);
+	assert.equal(runIndexOfMessage(withDiag, { messageId: "m0" }), 0, "轮起点前的 system 不该让它变成第 1 轮");
+	assert.equal(runIndexOfMessage(withDiag, { messageId: "m1" }), 1);
 });
 
 test("结果可直接当 sliceByRunStarts 的起点用（两套下标接得上）", () => {
@@ -60,9 +60,29 @@ test("结果可直接当 sliceByRunStarts 的起点用（两套下标接得上�
 	const { buildAgentRunStarts, sliceByRunStarts } = loadTsCommonJs("src/renderer/src/components/session/timeline/turnRenderWindow.ts");
 	const items = [{ kind: "agent-run" }, { kind: "message" }, { kind: "agent-run" }, { kind: "message" }, { kind: "agent-run" }, { kind: "message" }];
 	const starts = buildAgentRunStarts(items);
-	const runIndex = runIndexOfMessage(runs(), "m4");
+	const runIndex = runIndexOfMessage(runs(), { messageId: "m4" });
 	assert.equal(runIndex, 2);
 	const window = sliceByRunStarts(items, starts, runIndex, 1);
 	assert.equal(window.length, 2, "第 2 轮 = 1 个 run + 1 条 message");
 	assert.equal(window[0].kind, "agent-run");
+});
+
+test("entryId 与 messageId 撞车：entryId 优先，不落到第 0 轮", () => {
+	const { runIndexOfMessage } = load();
+	// 组 2 实测的三段：第 0 轮某条消息的 messageId 恰好是 "E9"，而真正 entryId="E9" 的在第 2 轮。
+	const collide = [
+		{ kind: "agent-run", items: [{ id: "E9", meta: {} }] },
+		{ kind: "agent-run", items: [{ id: "m1", meta: {} }] },
+		{ kind: "agent-run", items: [{ id: "m2", meta: { entryId: "E9" } }] },
+	];
+	assert.equal(runIndexOfMessage(collide, { entryId: "E9" }), 2, "entryId 命中必须优先于 messageId（旧实现返回 0 —— 锚错两轮，真机上只表现为「差一点」）");
+	assert.equal(runIndexOfMessage(collide, { messageId: "E9" }), 0, "只给 messageId 时不许借 entryId 的答案");
+});
+
+test("resolveJumpMessageIndex 同一形态：entryId 优先", () => {
+	const { resolveJumpMessageIndex } = load();
+	const messages = [{ id: "E9" }, { id: "m1" }, { id: "m2", meta: { entryId: "E9" } }];
+	assert.equal(resolveJumpMessageIndex(messages, { entryId: "E9" }), 2);
+	assert.equal(resolveJumpMessageIndex(messages, { messageId: "E9" }), 0);
+	assert.equal(resolveJumpMessageIndex(messages, {}), -1);
 });

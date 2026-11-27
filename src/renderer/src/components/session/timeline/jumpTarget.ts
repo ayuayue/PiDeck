@@ -29,25 +29,39 @@ function readEntryId(meta: unknown): string | undefined {
  * 返回 -1 表示：目标在该数组里没有（未加载／已被 context_edit 移出展示）。
  * 判据：tests/jumpRunIndex.test.mjs。
  */
-export function runIndexOfMessage(runs: ReadonlyArray<{ kind: string; items?: ReadonlyArray<{ id: string; meta?: unknown }> }>, targetId: string): number {
-	if (!targetId) return -1;
-	let runIndex = -1;
-	for (const run of runs) {
-		if (run.kind === "agent-run") runIndex += 1;
-		const items = run.items ?? [];
-		for (const item of items) {
-			if (item.id === targetId || readEntryId(item.meta) === targetId) {
-				return runIndex < 0 ? 0 : runIndex;
+export function runIndexOfMessage(runs: ReadonlyArray<{ kind: string; items?: ReadonlyArray<{ id: string; meta?: unknown }> }>, target: { messageId?: string; entryId?: string }): number {
+	// 两个 id 空间分开扫，entryId 优先。
+	// 事故（组 2 实测）：同一条件里 item.id 与 readEntryId 并列，先命中先返回，
+	// 于 messageId 恰好等于另一条 entryId 时锚到错的轮（实测 0，应为 2）。
+	const runIndexAt = (predicate: (item: { id: string; meta?: unknown }) => boolean): number => {
+		let runIndex = -1;
+		for (const run of runs) {
+			if (run.kind === "agent-run") runIndex += 1;
+			for (const item of run.items ?? []) {
+				if (predicate(item)) return runIndex < 0 ? 0 : runIndex;
 			}
 		}
+		return -1;
+	};
+	if (target.entryId) {
+		const byEntry = runIndexAt((item) => readEntryId(item.meta) === target.entryId);
+		if (byEntry >= 0) return byEntry;
+	}
+	if (target.messageId) {
+		return runIndexAt((item) => item.id === target.messageId);
 	}
 	return -1;
 }
-export function resolveJumpMessageIndex(messages: ReadonlyArray<{ id: string; meta?: unknown }>, targetId: string): number {
-	if (!targetId) return -1;
-	const direct = messages.findIndex((message) => message.id === targetId);
-	if (direct >= 0) return direct;
-	return messages.findIndex((message) => readEntryId(message.meta) === targetId);
+export function resolveJumpMessageIndex(messages: ReadonlyArray<{ id: string; meta?: unknown }>, target: { messageId?: string; entryId?: string }): number {
+	// 与 runIndexOfMessage 同一形态：两个空间分开扫，entryId 优先。
+	if (target.entryId) {
+		const byEntry = messages.findIndex((message) => readEntryId(message.meta) === target.entryId);
+		if (byEntry >= 0) return byEntry;
+	}
+	if (target.messageId) {
+		return messages.findIndex((message) => message.id === target.messageId);
+	}
+	return -1;
 }
 
 /**
