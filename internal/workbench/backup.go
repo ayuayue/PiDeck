@@ -3,7 +3,7 @@
 package workbench
 
 // A settings backup: config and the add-on folders in one zip. Sessions,
-// logs and exports stay out, so a backup is small and safe to share.
+// logs and exports stay out. The archive may contain credentials.
 
 import (
 	"archive/zip"
@@ -30,25 +30,51 @@ const (
 	backupTotalLimit = 50 << 20
 )
 
-// exportSettings writes a settings zip under exports/.
-func (a *app) exportSettings() {
+// exportSettings writes a settings zip under exports/ without blocking the UI.
+func (a *app) exportSettings(done func()) {
 	if a.st == nil {
+		done()
 		return
 	}
 	dir := filepath.Join(a.st.dir, "exports")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		a.toast(ui.ToastError, "导出设置失败", err.Error())
+	go func() {
+		path := filepath.Join(dir, "settings-"+time.Now().Format("20060102-150405")+".zip")
+		err := os.MkdirAll(dir, 0o755)
+		if err == nil {
+			err = a.writeSettingsZip(path)
+		}
+		a.cx.Post(func() {
+			done()
+			if err != nil {
+				a.toast(ui.ToastError, "导出设置失败", err.Error())
+				return
+			}
+			a.diagf("info", "已导出设置包到 %s", path)
+			a.toastAction(ui.ToastSuccess, "已导出设置包", path, "打开", func() {
+				a.revealFilePath(localTarget, path)
+			})
+		})
+	}()
+}
+
+// A first-time user can open exports before creating any exported files.
+func (a *app) openDataExports(done func()) {
+	if a.st == nil {
+		done()
 		return
 	}
-	path := filepath.Join(dir, "settings-"+time.Now().Format("20060102-150405")+".zip")
-	if err := a.writeSettingsZip(path); err != nil {
-		a.toast(ui.ToastError, "导出设置失败", err.Error())
-		return
-	}
-	a.diagf("info", "已导出设置包到 %s", path)
-	a.toastAction(ui.ToastSuccess, "已导出设置包", path, "打开", func() {
-		a.cx.OpenURL(fileURL(path), nil)
-	})
+	dir := filepath.Join(a.st.dir, "exports")
+	go func() {
+		err := os.MkdirAll(dir, 0o755)
+		a.cx.Post(func() {
+			done()
+			if err != nil {
+				a.toast(ui.ToastError, "打不开文件夹", err.Error())
+				return
+			}
+			a.openFolder(localTarget, dir)
+		})
+	}()
 }
 
 // writeSettingsZip builds the backup at path.

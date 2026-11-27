@@ -16,6 +16,12 @@ func (a *app) clearCache(kind string) error {
 		return os.ErrNotExist
 	}
 	switch kind {
+	case "all":
+		var errs []error
+		for _, category := range []string{"metadata", "transcripts", "announcements"} {
+			errs = append(errs, a.clearCache(category))
+		}
+		return errors.Join(errs...)
 	case "transcripts":
 		sessionHistory.Lock()
 		sessionHistory.items, sessionHistory.order, sessionHistory.bytes = map[string]historyEntry{}, nil, 0
@@ -51,18 +57,17 @@ func (a *app) clearCache(kind string) error {
 func (a *app) cacheCleanupSettings() core.Node {
 	return core.Func(func(cx *core.Scope) core.Node {
 		busy := core.NewSignal(cx, false)
-		var rows []core.Node
-		for _, c := range []struct{ kind, label, help string }{
-			{"metadata", "会话索引缓存", "重新扫描时自动重建，不删除会话。"},
-			{"transcripts", "对话内存缓存", "释放历史解析缓存，当前对话保留。"},
-			{"announcements", "公告缓存", "下次检查公告时重新下载。"},
-			{"logs", "旧诊断日志", "只清理已轮转的旧日志，保留当前日志和崩溃记录。"},
-		} {
-			rows = append(rows, setRow(c.label, c.help, ui.Button{Text: apptext.T("清理"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
-				TestID: "cache-clear-" + c.kind, Disabled: busy.Get, OnPress: func() {
+		return setGroup("空间清理",
+			setRow("临时缓存", "清理可重新生成的缓存，不删除会话、设置或导出文件。",
+				ui.Button{TextFunc: func() string {
+					if busy.Get() {
+						return apptext.T("正在清理…")
+					}
+					return apptext.T("清理缓存")
+				}, Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "cache-clear-all", Disabled: busy.Get, OnPress: func() {
 					busy.Set(true)
 					go func() {
-						err := a.clearCache(c.kind)
+						err := a.clearCache("all")
 						a.cx.Post(func() {
 							busy.Set(false)
 							if err != nil {
@@ -72,8 +77,11 @@ func (a *app) cacheCleanupSettings() core.Node {
 							a.toast(ui.ToastSuccess, "缓存已清理", "")
 						})
 					}()
-				}}))
-		}
-		return setGroup("清理缓存", rows...)
+				}}),
+			setDivider(),
+			setRow("诊断日志", "查看、导出或清理排查问题时生成的日志。",
+				ui.Button{Text: apptext.T("管理日志"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "data-manage-logs",
+					OnPress: func() { a.openSettingsSection("diagnostics") }}),
+		)
 	})
 }

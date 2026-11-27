@@ -44,7 +44,7 @@ func settingsSections() []settingsSection {
 		{"integrations", "集成与自动化", lucide.Webhook, "集成与自动化", "语音输入、外部消息、智能体与定时任务的连接设置。", "扩展与连接"},
 		{"remote", "手机与远程", lucide.Globe, "远程访问", "让手机连接这台电脑上的项目和会话。", "扩展与连接"},
 		{"usage", "用量统计", lucide.ChartColumn, "用量统计", "按模型和项目统计会话用量及估算费用；Token 是模型处理内容的计量单位。", "数据与维护"},
-		{"data", "数据管理", lucide.HardDrive, "数据管理", "查看数据位置，备份或恢复设置，并管理缓存与同步。", "数据与维护"},
+		{"data", "数据管理", lucide.HardDrive, "数据管理", "备份或恢复设置，整理历史会话与导出文件，安全清理缓存。", "数据与维护"},
 		{"diagnostics", "诊断", lucide.Stethoscope, "诊断", "运行中的进程、内存与最近的日志。", "数据与维护"},
 		{"about", "关于", lucide.Info, "关于", "版本、许可与来源。", "数据与维护"},
 	}

@@ -2,79 +2,94 @@
 
 package workbench
 
-// The settings window: a rail of sections beside the section's rows. Each
-// row says what it is in a line and why in a quieter one, and the control
-// sits at its end, so a section reads top to bottom.
-
 import (
-	"fmt"
-
 	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// settingsData shows the folders the app writes.
+// settingsData puts everyday tasks first and keeps storage paths optional.
 func (a *app) settingsData() core.Node {
-	return core.Dynamic(func(cx *core.Scope) core.Node {
-		// Redrawn when any setting changes: their values live in the config.
-		a.settingsTick()
+	return core.Func(func(cx *core.Scope) core.Node {
+		exporting := core.NewSignal(cx, false)
+		opening := core.NewSignal(cx, false)
+		locationsOpen := core.NewSignal(cx, false)
 		colors := ui.ColorsOf(cx)
+		unavailable := a.st == nil
+		return a.scrollStashFor("settingsData:1").Bind(cx, core.Scroll{TestID: "settings-page", Style: ui.FillRest, Children: []core.Node{
+			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: viewkit.PanelInset}, Gap: 2}, Children: []core.Node{
+				setGroup("备份与恢复",
+					setRow("备份设置", "保存设置、主题、插件等，不含会话、收藏和定时任务。",
+						ui.Button{TextFunc: func() string {
+							if exporting.Get() {
+								return apptext.T("正在导出…")
+							}
+							return apptext.T("导出备份")
+						}, Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "settings-export",
+							Disabled: func() bool { return unavailable || exporting.Get() }, OnPress: func() {
+								exporting.Set(true)
+								a.exportSettings(func() { exporting.Set(false) })
+							}}),
+					setDivider(),
+					setRow("恢复设置", "选择以前导出的 ZIP 文件；同名设置会被覆盖，部分设置需重启生效。",
+						ui.Button{Text: apptext.T("选择备份…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "settings-import",
+							Disabled: func() bool { return unavailable || exporting.Get() }, OnPress: a.pickSettingsZip}),
+					core.Text{Content: apptext.T("这不是完整数据备份。文件可能包含密钥，请妥善保管。"), TestID: "settings-backup-note",
+						Style:     core.Style{FontSize: viewkit.PanelCaptionSize, LineHeight: 18, Padding: core.Edges{Top: 6, Bottom: 6, Left: 2, Right: 2}},
+						StyleFunc: ui.Colored(colors.Muted)},
+				),
+				setGroup("会话与文件",
+					setRow("管理会话", "按项目查找会话，支持归档和批量整理。",
+						ui.Button{Text: apptext.T("管理会话"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "data-manage-sessions",
+							OnPress: func() { a.openSessionManager(nil, false) }}),
+					setDivider(),
+					setRow("导入会话", "导入其他工具或本机的历史会话，保留原文件。",
+						ui.Button{Text: apptext.T("导入会话"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "data-import-sessions", OnPress: a.openImportDialog}),
+					setDivider(),
+					setRow("导出文件", "查看已导出的设置备份和会话文件。",
+						ui.Button{Text: apptext.T("打开文件夹"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "data-open-exports",
+							Disabled: func() bool { return unavailable || opening.Get() }, OnPress: func() {
+								opening.Set(true)
+								a.openDataExports(func() { opening.Set(false) })
+							}}),
+					setDivider(),
+					ui.Collapsible{Text: apptext.T("存储位置"), TestID: "data-locations", Open: locationsOpen.Get, OnOpenChange: locationsOpen.Set,
+						Content: a.dataLocationRows()},
+				),
+				a.cacheCleanupSettings(),
+			}},
+		}})
+	})
+}
+
+func (a *app) dataLocationRows() core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
 		dir, sessions := "", ""
 		if a.st != nil {
 			dir, sessions = a.st.dir, a.st.sessions
 		}
-		count := 0
-		if a.st != nil {
-			count = a.st.countSessions()
+		var rows []core.Node
+		for _, loc := range []struct{ id, label, path string }{
+			{"data", "应用数据目录", dir},
+			{"sessions", "会话目录", sessions},
+			{"pi", "pi 会话目录", a.env.Get().SessionsDir},
+		} {
+			if loc.path == "" {
+				continue
+			}
+			if len(rows) > 0 {
+				rows = append(rows, setDivider())
+			}
+			rows = append(rows, setRow(loc.label, loc.path, core.View{
+				Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4}, Children: []core.Node{
+					ui.Button{Text: apptext.T("复制路径"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "data-copy-" + loc.id,
+						OnPress: func() { a.copyText(loc.path, "路径") }},
+					ui.Button{Text: apptext.T("打开"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "data-open-" + loc.id,
+						OnPress: func() { a.openFolder(localTarget, loc.path) }},
+				},
+			}))
 		}
-		piCount := 0
-		for _, ws := range a.workspaces.Get() {
-			piCount += len(ws.Pi.Get())
-		}
-		return a.scrollStashFor("settingsData:1").Bind(cx, core.Scroll{TestID: "settings-page", Style: ui.FillRest, Children: []core.Node{
-			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: scrollbarGutter}, Gap: 2}, Children: []core.Node{
-				setGroup("位置",
-					setRow("数据目录", dir, ui.Button{Text: apptext.T("打开"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
-						if dir != "" {
-							a.cx.OpenURL(fileURL(dir), nil)
-						}
-					}}),
-					setDivider(),
-					setRow("会话目录", sessions, ui.Button{Text: apptext.T("打开"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
-						if sessions != "" {
-							a.cx.OpenURL(fileURL(sessions), nil)
-						}
-					}}),
-					setDivider(),
-					setRow("pi 的会话目录", a.env.GetUntracked().SessionsDir, ui.Button{Text: apptext.T("打开"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
-						if sd := a.env.GetUntracked().SessionsDir; sd != "" {
-							a.cx.OpenURL(fileURL(sd), nil)
-						}
-					}}),
-				),
-				setGroup("数量",
-					setRow("本应用的会话", fmt.Sprintf("%d 个", count), ui.Text(apptext.T("已打开 %d", len(a.tabs.Get())), 10.5, ui.Regular, colors.Faint)),
-					setDivider(),
-					setRow("项目下的 pi 本地会话", fmt.Sprintf("%d 个", piCount), nil),
-					setDivider(),
-					setRow("配置版本", fmt.Sprintf("%d", a.cfg.Version),
-						ui.Text(apptext.T("旧文件读取时自动迁移"), 10.5, ui.Regular, colors.Faint)),
-				),
-				setGroup("备份",
-					setRow("导出设置包", "配置、插件、主题、提示词、智能体与 ACP 预设打成一个 zip；不含会话与日志。",
-						ui.Button{Text: apptext.T("导出"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "settings-export",
-							OnPress: a.exportSettings}),
-					setDivider(),
-					setRow("导入设置包", "从 zip 恢复；同名文件会被覆盖，部分设置重启后生效。",
-						ui.Button{Text: apptext.T("选择…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "settings-import",
-							OnPress: a.pickSettingsZip}),
-				),
-				setRow("加密同步", "通过目录、GitHub Gist 或 Google Drive 传输设置。", ui.Button{
-					Text: apptext.T("加密同步"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "settings-sync", OnPress: a.openSettingsSync,
-				}),
-				a.cacheCleanupSettings(),
-			}},
-		}})
+		return core.View{Children: rows}
 	})
 }
