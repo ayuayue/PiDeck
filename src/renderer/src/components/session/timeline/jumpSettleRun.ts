@@ -20,7 +20,12 @@ export type JumpSettleMeasure = { height: number; top: number; viewportTop: numb
 export interface JumpSettleRunPorts {
 	/** 量目标行相对视口的位置。返回 null 表示量不到（未布局 / 已卸载 / 折叠区 display:none）。 */
 	measure: () => JumpSettleMeasure;
-	/** 在当前滚动位置上叠一个增量。clamp 由实现方负责（原实现是 Math.max(0, scrollTop + delta)）。 */
+	/**
+	 * 在当前滚动位置上叠一个增量。
+	 *
+	 * 契约：**调用方负责把结果夹到 [0, 滚动上限]**，本函数只报 delta、不碰边界。
+	 * 边界是视口的知识，不是收敛判定的知识；放进这里会让实现方以为已夹过而省掉自己那一次。
+	 */
 	scrollBy: (delta: number) => void;
 	nextFrame: (callback: () => void) => number;
 	cancelFrame: (handle: number) => void;

@@ -27,6 +27,7 @@ function makeHarness(options = {}) {
 	const frames = { queued: new Map(), nextId: 1, cancelled: new Set() };
 	let tick = 0;
 	let measured = 0;
+	let lastCallback = null;
 
 	const ports = {
 		// 每帧返回下一个漂移；drifts 用完后一直返回最后一个（模拟「追不到」）
@@ -69,8 +70,13 @@ function makeHarness(options = {}) {
 			const entry = [...frames.queued.entries()][0];
 			if (!entry) return false;
 			frames.queued.delete(entry[0]);
+			lastCallback = entry[1];
 			entry[1]();
 			return true;
+		},
+		// 重入最后一帧：模拟外部持有已取消帧的句柄又跑了一次
+		reinvokeLastFrame() {
+			lastCallback?.();
 		},
 		pumpAll(limit = 100) {
 			let count = 0;
@@ -126,6 +132,18 @@ test("低帧率设备：时间上限先到就按 timeout 收手", () => {
 	h.pumpAll(5);
 	assert.deepEqual(h.stops, ["timeout"], "帧数还没到上限，但时间到了");
 	assert.ok(h.scrolls.length < JUMP_SETTLE_MAX_FRAMES);
+});
+
+test("取消之后即使有人重入 nextFrame，回调也不再执行", () => {
+	const h = makeHarness({ drifts: [100, 100, 100] });
+	h.pump();
+	const measuredBefore = h.measureCount();
+	h.cancel();
+	// 模拟「外部把上一帧的句柄又跑了一次」：这正是 cancelFrame 之外需要 stopped 标记的理由。
+	// 没有 stopped 时这一下会真的再量一次、再写一次滚动。
+	h.reinvokeLastFrame();
+	assert.equal(h.measureCount(), measuredBefore, "重入也不测量");
+	assert.deepEqual(h.scrolls, [100], "重入不再写滚动");
 });
 
 test("取消之后不再测量、不再写滚动，也不报任何 reason", () => {
