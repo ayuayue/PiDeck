@@ -70,17 +70,21 @@ export function runIndexOfMessage(runs: ReadonlyArray<{ kind: string; items?: Re
  *
  * 判据：tests/jumpWindowAnchorResolve.test.mjs。
  */
-export function resolveAnchorStartRun(runs: ReadonlyArray<{ kind: string; id?: string; items?: ReadonlyArray<{ id: string; meta?: unknown }> }>, anchor: { runId?: string; entryId?: string; messageId?: string }): number | undefined {
-	// 输入空间必须与名字对齐（组 2 的第 9 件）。
+export type AnchorStartRun =
+	| { kind: "ok"; startRun: number }
+	/** 各空间都没找到：context_edit 移出展示 / 数据还没到 */
+	| { kind: "missing" }
+	/** 多个空间都命中但指向不同轮：我们的锚点写错了空间，是真 bug */
+	| { kind: "conflict"; hits: { run?: number; entry?: number; message?: number } };
+
+export function resolveAnchorStartRun(runs: ReadonlyArray<{ kind: string; id?: string; items?: ReadonlyArray<{ id: string; meta?: unknown }> }>, anchor: { runId?: string; entryId?: string; messageId?: string }): AnchorStartRun {
+	// 输入空间必须与名字对齐（组 2 的第 9 件），且三种结局必须可区分（第 10 件）。
 	//
-	// 旧签名收一个字符串叫 anchoredRunId，实际却只喂 runIndexOfMessage({ messageId }) ——
-	// 它扫的是 run.items 里的消息 id 与 meta.entryId，**不看 run 自己的 id**。
-	// 于是传 run 自己的 id 时恒返回 undefined -> 每次跳转都退回尾窗，
-	// 而「接了线但恒不生效」比报错难查得多：不报错、跳到末尾，看起来像「跳转没生效」。
-	//
-	// 三个空间分开认，优先级：runId（扫 runs[].id）> entryId（重投影后仍稳定的那个）
-	// > messageId（投影 id，重投影会变）。
-	// 同时给了多个且指向不同轮时**返回 undefined 不猜** —— 宁可退回尾窗。
+	// 为什么不能只返回 number | undefined：undefined 是二义的 ——
+	//   missing（数据侧的事，等数据/改数据层）
+	//   conflict（我们的锚点写错了空间，是真 bug 却长得像 missing）
+	// 两者都退回尾窗，用户看到的都是「点了刻度落到别处」，但修法完全不同。
+	// 分开之后，conflict 能打日志计数：频繁出现就说明写锚点那一侧存错了空间。
 	const byRunId = (id: string): number | undefined => {
 		let runIndex = -1;
 		for (const run of runs) {
@@ -90,21 +94,21 @@ export function resolveAnchorStartRun(runs: ReadonlyArray<{ kind: string; id?: s
 		return undefined;
 	};
 
-	const resolved: Array<number | undefined> = [];
-	if (anchor.runId) resolved.push(byRunId(anchor.runId));
+	const hits: { run?: number; entry?: number; message?: number } = {};
+	if (anchor.runId) hits.run = byRunId(anchor.runId);
 	if (anchor.entryId) {
 		const index = runIndexOfMessage(runs, { entryId: anchor.entryId });
-		resolved.push(index >= 0 ? index : undefined);
+		if (index >= 0) hits.entry = index;
 	}
 	if (anchor.messageId) {
 		const index = runIndexOfMessage(runs, { messageId: anchor.messageId });
-		resolved.push(index >= 0 ? index : undefined);
+		if (index >= 0) hits.message = index;
 	}
-	const found = resolved.filter((value) => typeof value === "number") as number[];
-	if (found.length === 0) return undefined;
-	// 多个空间都命中但指向不同轮：不猜（返回 undefined = 退回尾窗）
-	if (new Set(found).size > 1) return undefined;
-	return found[0];
+	const found = [hits.run, hits.entry, hits.message].filter((value) => typeof value === "number") as number[];
+	if (found.length === 0) return { kind: "missing" };
+	// 多个空间命中但指向不同轮：不猜（不静默取一个）
+	if (new Set(found).size > 1) return { kind: "conflict", hits };
+	return { kind: "ok", startRun: found[0] };
 }
 
 export function resolveJumpMessageIndex(messages: ReadonlyArray<{ id: string; meta?: unknown }>, target: { messageId?: string; entryId?: string }): number {

@@ -21,34 +21,54 @@ const runs = () => [
 	{ kind: "agent-run", id: "run-B", items: [{ id: "msg2", meta: { entryId: "E2" } }] },
 ];
 
-test("按 run 自己的 id 定位（旧实现恒 undefined）", () => {
+/** 取 ok 的 startRun，非 ok 直接失败并打印 kind：断言失败信息要能指向哪种结局。 */
+function startRunOf(result, label) {
+	assert.equal(result.kind, "ok", label + " 期望 ok，实际 " + JSON.stringify(result));
+	return result.startRun;
+}
+
+test("按 run 自己的 id 定位（第 9 件：旧实现恒 undefined）", () => {
 	const { resolveAnchorStartRun } = load();
-	assert.equal(resolveAnchorStartRun(runs(), { runId: "run-B" }), 1, "run-B 是第 1 轮");
-	assert.equal(resolveAnchorStartRun(runs(), { runId: "run-A" }), 0, "run-A 是第 0 轮（0 不能与 undefined 混）");
-	assert.equal(resolveAnchorStartRun(runs(), { runId: "run-gone" }), undefined);
+	assert.equal(startRunOf(resolveAnchorStartRun(runs(), { runId: "run-B" }), "run-B"), 1);
+	assert.equal(startRunOf(resolveAnchorStartRun(runs(), { runId: "run-A" }), "run-A"), 0, "0 不能与 undefined 混");
+	assert.equal(resolveAnchorStartRun(runs(), { runId: "run-gone" }).kind, "missing");
 });
 
-test("按 run 内那条消息的 entryId 定位（重投影后仍稳定）", () => {
+test("按 run 内 entryId 定位（重投影后仍稳定）", () => {
 	const { resolveAnchorStartRun } = load();
-	assert.equal(resolveAnchorStartRun(runs(), { entryId: "E2" }), 1);
-	assert.equal(resolveAnchorStartRun(runs(), { entryId: "gone" }), undefined);
+	assert.equal(startRunOf(resolveAnchorStartRun(runs(), { entryId: "E2" }), "E2"), 1);
+	assert.equal(resolveAnchorStartRun(runs(), { entryId: "gone" }).kind, "missing");
 });
 
-test("按 messageId 也能定位，但它是投影 id（重投影会变）", () => {
+test("按 messageId 也能定位（投影 id，重投影会变）", () => {
 	const { resolveAnchorStartRun } = load();
-	assert.equal(resolveAnchorStartRun(runs(), { messageId: "msg2" }), 1);
-	assert.equal(resolveAnchorStartRun(runs(), { messageId: "msg1" }), 0);
+	assert.equal(startRunOf(resolveAnchorStartRun(runs(), { messageId: "msg2" }), "msg2"), 1);
+	assert.equal(startRunOf(resolveAnchorStartRun(runs(), { messageId: "msg1" }), "msg1"), 0);
 });
 
-test("多个空间指向不同轮：不猜，返回 undefined（宁可退回尾窗）", () => {
+test("冲突与缺失必须可区分（第 10 件：undefined 二义会让我们的 bug 长得像数据问题）", () => {
 	const { resolveAnchorStartRun } = load();
-	const got = resolveAnchorStartRun(runs(), { runId: "run-A", messageId: "msg2" });
-	assert.equal(got, undefined, "run-A 是第 0 轮、msg2 在第 1 轮 —— 必须不猜，实际返回 " + got);
+	const conflict = resolveAnchorStartRun(runs(), { runId: "run-A", entryId: "E2" });
+	assert.equal(conflict.kind, "conflict", "两空间指向不同轮必须报 conflict，实际 " + JSON.stringify(conflict));
+	// hits 至少两个有值，否则分不出「为什么冲突」
+	const filled = [conflict.hits.run, conflict.hits.entry, conflict.hits.message].filter((value) => typeof value === "number");
+	assert.ok(filled.length >= 2, "冲突要能看出两处各指向哪一轮：" + JSON.stringify(conflict.hits));
+	assert.notEqual(conflict.kind, "missing", "冲突绝不能报成缺失");
+
+	const missing = resolveAnchorStartRun(runs(), { runId: "nope" });
+	assert.equal(missing.kind, "missing");
+	assert.equal("hits" in missing, false, "missing 不带 hits（否则两种结局又混了）");
 });
 
-test("空输入 / 全找不到：undefined（尾窗语义），不抛", () => {
+test("三空间全一致：ok，不是 conflict", () => {
 	const { resolveAnchorStartRun } = load();
-	assert.equal(resolveAnchorStartRun(runs(), {}), undefined);
-	assert.equal(resolveAnchorStartRun(runs(), { runId: "" }), undefined);
-	assert.equal(resolveAnchorStartRun([], { runId: "x" }), undefined);
+	const aligned = [{ kind: "agent-run", id: "run-X", items: [{ id: "msg-X", meta: { entryId: "E-X" } }] }];
+	assert.equal(startRunOf(resolveAnchorStartRun(aligned, { runId: "run-X", entryId: "E-X", messageId: "msg-X" }), "aligned"), 0);
+});
+
+test("空输入 / 全找不到：missing，不抛", () => {
+	const { resolveAnchorStartRun } = load();
+	assert.equal(resolveAnchorStartRun(runs(), {}).kind, "missing");
+	assert.equal(resolveAnchorStartRun(runs(), { runId: "" }).kind, "missing");
+	assert.equal(resolveAnchorStartRun([], { runId: "x" }).kind, "missing");
 });
