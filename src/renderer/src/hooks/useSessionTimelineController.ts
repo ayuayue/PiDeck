@@ -1030,7 +1030,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		// 放在 resolveJumpPendingAction 之前：失败要吃掉一次 loadAttempts 的话，
 		// 保险丝会被空转烧断，用户连点几次之后彻底跳不动。
 		if (!stillInData && loadMoreError) return;
-		if (fetchJumpPageOnce(pendingJump, ownerKeyRef.current)) return; // 一次取页：发起后等数据到达重跑
+		if (fetchJumpPageOnce(pendingJump, ownerKeyRef.current, stillInData)) return;
 		const action = resolveJumpPendingAction({
 			targetInLoadedData: stillInData,
 			hasMorePages,

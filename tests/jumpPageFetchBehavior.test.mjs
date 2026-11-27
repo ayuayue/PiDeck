@@ -120,3 +120,16 @@ test("jumpEntryIdOf：两种 id 空间的分界可用一条命令判", () => {
 	assert.equal(jumpEntryIdOf("agent-9-history-e-abc"), "e-abc");
 	assert.equal(jumpEntryIdOf("a-history-b-history-c"), "b-history-c", "只剥第一处");
 });
+
+test("目标已在已加载数据里时不取页：白读一次盘还会把 200 轮塞进前缀", () => {
+	// 点在屏幕上的消息是最常见的情况。此时取页只是白读 13-26MB（200 轮），
+	// 还会把这 200 轮塞进历史前缀，改变用户回到顶部时看到的东西。
+	const { ports, calls } = makePorts();
+	const started = useJumpPageFetch(ports)(pending("e-target"), "owner-A", true);
+	assert.equal(started, false, "目标已加载时不该发起取页");
+	assert.equal(calls.read.length, 0, "不该发出 IPC");
+	// 目标未加载时照旧取页（同一条用例守两个方向，避免「永远不取」也能绿）
+	const second = makePorts();
+	assert.equal(useJumpPageFetch(second.ports)(pending("e-target"), "owner-A", false), true);
+	assert.equal(second.calls.read.length, 1);
+});

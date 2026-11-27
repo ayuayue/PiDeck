@@ -60,9 +60,12 @@ export interface JumpPageFetchPorts {
  * 否则返回 false（继续走扩窗与放弃）。
  */
 export function useJumpPageFetch(ports: JumpPageFetchPorts) {
-	return (pendingJump: TaggedTimelineJumpRequest, currentOwnerKey: string): boolean => {
+	return (pendingJump: TaggedTimelineJumpRequest, currentOwnerKey: string, targetInLoadedData: boolean): boolean => {
 		const { sessionId, revision, readRecordMessagePage, prependHistoryPage, setPendingJump, historyPrefixMessageLimit } = ports;
 		if (!sessionId || pendingJump.value.pageFetched) return false;
+		// 目标已在已加载数据里就不取页：点在屏幕上的消息是最常见的情况，此时取页只是白读
+		// 13-26MB（200 轮），还会把这 200 轮塞进历史前缀，改变用户回到顶部时看到的东西。
+		if (targetInLoadedData) return false;
 		const plan = planJumpPageRequest({
 			entryId: jumpEntryIdOf(pendingJump.value.messageId),
 			pageFetched: false,
