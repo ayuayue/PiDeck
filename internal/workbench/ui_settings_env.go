@@ -81,7 +81,7 @@ func (a *app) settingsEnv() core.Node {
 		// Redrawn when any setting changes: their values live in the config.
 		a.settingsTick()
 		colors := ui.ColorsOf(cx)
-		editorRow := setRow("外部编辑器", detectedEditorsText(), core.Input{
+		editorInput := core.Input{
 			Value: func() string { return a.cfg.EditorCommand }, Placeholder: apptext.T("code / cursor / 自定义命令"),
 			Label: apptext.T("外部编辑器命令"), TestID: "editor-command",
 			// Leaving the field saves it: writing on every keystroke would put
@@ -94,7 +94,15 @@ func (a *app) settingsEnv() core.Node {
 			Style: core.Style{Width: core.Pt(170), Height: core.Pt(28), Padding: core.Symmetric(0, 8), FontSize: 11,
 				FontFamily: viewkit.MonoFont(), Color: colors.Text(), Background: colors.Field(),
 				BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6},
-		})
+		}
+		editorRow := core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, AlignItems: core.AlignCenter, Gap: 12, MinHeight: core.Pt(38),
+			Padding: core.Symmetric(3, 2)}, Children: []core.Node{
+			core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, FlexBasis: core.Pt(260), MinWidth: core.Pt(0), Gap: 1}, Children: []core.Node{
+				core.Text{Content: apptext.T("外部编辑器"), Style: core.Style{FontSize: 12.5, LineHeight: 18}, StyleFunc: ui.Colored(colors.Text)},
+				core.Text{ContentFunc: a.detectedEditorsText, Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: ui.Colored(colors.Muted)},
+			}},
+			core.View{Style: core.Style{FlexShrink: 1, MinWidth: core.Pt(0), MaxWidth: core.Pct(100)}, Children: []core.Node{editorInput}},
+		}}
 		proxyField := func(value func() string, set func(string), placeholder, label, testID string) core.Node {
 			return core.Input{Value: value, Placeholder: placeholder, Label: apptext.T(label), TestID: testID,
 				OnChange: set,

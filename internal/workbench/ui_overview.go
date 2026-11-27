@@ -120,8 +120,7 @@ func (a *app) pathMenu(colors ui.Colors, key string, full func() string, reveal 
 				OnSelect: func() { a.copyText(full(), "路径") }},
 			ui.MenuItem{Text: apptext.T("在文件管理器中显示"), Icon: lucide.FolderOpen, TestID: testID + "-reveal",
 				OnSelect: reveal},
-			ui.MenuItem{Text: apptext.T("在编辑器中打开"), Icon: lucide.Code, TestID: testID + "-edit",
-				OnSelect: func() { a.openPathInEditor(full()) }},
+			a.editorOpenItem(full(), "在编辑器中打开", testID+"-edit"),
 		},
 	}
 }
@@ -473,9 +472,7 @@ func (a *app) overviewSession(s *session) core.Node {
 					Children: []core.Node{a.overviewPathLine(colors, "file", lucide.FileText, func() string { return shortPath(s.File, 40) },
 						func() string { return s.File },
 						func() {
-							if err := revealFile(s.Target, s.File); err != nil {
-								a.toast(ui.ToastError, "打不开位置", err.Error())
-							}
+							a.revealFilePath(s.Target, s.File)
 						}, "overview-file")}})
 			}},
 			core.Show{When: func() bool { return s.Target.remote() || s.External }, Then: func(*core.Scope) core.Node {

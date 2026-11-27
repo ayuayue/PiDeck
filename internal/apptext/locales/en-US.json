@@ -1,4 +1,6 @@
 {
+  "SSH 主机上的目录不能在这里打开": "Directories on an SSH host cannot be opened here",
+  "WSL 只能在 Windows 上打开": "WSL can only be opened on Windows",
   "%d 个新模型": "%d new models",
   "models.json 中没有这个供应商。": "This provider is not in models.json.",
   "pi 的 models.json 里还没有供应商。添加供应商后，可在卡片内管理模型。": "There are no providers in pi’s models.json yet. Add a provider to manage its models in a card.",

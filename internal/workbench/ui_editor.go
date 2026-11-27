@@ -121,9 +121,7 @@ func (a *app) editorActions() core.Node {
 		hintOf(func() string { return apptext.T("在文件管理器中显示") }, ui.IconButton{Icon: lucide.ExternalLink, Label: apptext.T("在文件管理器中显示"), Size: 28, IconSize: 14,
 			Disabled: func() bool { return !enabled() || a.editor.activeFile().file.target.remote() }, OnPress: func() {
 				if f := a.editor.activeFile(); f != nil {
-					if err := revealFile(localTarget, f.Path); err != nil {
-						a.toast(ui.ToastError, "打不开位置", err.Error())
-					}
+					a.revealFilePath(localTarget, f.Path)
 				}
 			}}),
 		core.View{Style: core.Style{Width: core.Pt(1), Height: core.Pt(18), Background: colors.Line(), Margin: core.Symmetric(0, 4)}},
@@ -235,9 +233,7 @@ func (a *app) fileMenuItems(root string, node fileNode) []core.Node {
 			a.menuRow(a.cx, lucide.PencilLine, "重命名", "", false, func() { a.renameFileNode(node.Path) }),
 			a.menuSeparator(a.cx),
 			a.menuRow(a.cx, lucide.FolderOpen, "在文件管理器中打开", "", false, func() {
-				if err := revealFolder(localTarget, node.Path); err != nil {
-					a.toast(ui.ToastError, "打不开文件夹", err.Error())
-				}
+				a.openFolder(localTarget, node.Path)
 			}),
 			a.menuRow(a.cx, lucide.Copy, "复制路径", "", false, func() {
 				a.copyText(a.files.relative(node.Path), "路径")
@@ -262,11 +258,9 @@ func (a *app) fileMenuItems(root string, node fileNode) []core.Node {
 			a.mentionFile(node.Path)
 		}),
 		a.menuSeparator(a.cx),
-		a.menuRow(a.cx, lucide.Code, "用外部编辑器打开", "", false, func() { a.openPathInEditor(node.Path) }),
+		a.editorOpenItem(node.Path, "用外部编辑器打开", "editor-open-menu"),
 		a.menuRow(a.cx, lucide.FolderOpen, "在文件管理器中显示", "", false, func() {
-			if err := revealFile(localTarget, node.Path); err != nil {
-				a.toast(ui.ToastError, "打不开位置", err.Error())
-			}
+			a.revealFilePath(localTarget, node.Path)
 		}),
 		a.menuRow(a.cx, lucide.Copy, "复制相对路径", "", false, func() {
 			a.copyText(a.files.relative(node.Path), "路径")

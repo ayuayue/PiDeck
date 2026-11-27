@@ -49,9 +49,10 @@ type app struct {
 	feishuMu      sync.Mutex
 	feishuPending map[string]bool
 
-	env       *core.Signal[envInfo]
-	pinned    *core.Signal[[]string]
-	favModels *core.Signal[[]string]
+	externalEditors *core.Signal[[]extEditor]
+	env             *core.Signal[envInfo]
+	pinned          *core.Signal[[]string]
+	favModels       *core.Signal[[]string]
 	// Favorites are local snapshots of answers and references to sessions;
 	// favMu guards the list the dialog reads.
 	favOpen    *core.Signal[bool]

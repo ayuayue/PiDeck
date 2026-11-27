@@ -215,8 +215,11 @@ func (a *app) diagActions() core.Node {
 }
 
 // detectedEditorsText names the editors found on PATH.
-func detectedEditorsText() string {
-	list := detectEditors()
+func (a *app) detectedEditorsText() string {
+	var list []extEditor
+	if a.externalEditors != nil {
+		list = a.externalEditors.Get()
+	}
 	if len(list) == 0 {
 		return apptext.T("没有在 PATH 里找到常见编辑器；可以填一个命令。")
 	}

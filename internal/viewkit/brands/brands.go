@@ -1,5 +1,7 @@
 // Package brands draws the mark of the AI provider, model or agent behind a
-// name, so a list of names reads as a list of brands.
+// name, so a list of names reads as a list of brands. It also holds the
+// marks of the editors the app opens files with, for the menu that picks
+// one.
 //
 // The marks are the monochrome variants of the AI Logo collection, copied
 // unmodified into svg/: plain paths in currentColor, so one set serves both
@@ -139,6 +141,10 @@ func Model(model, provider string) string {
 	}
 	return ID(provider)
 }
+
+// SVG is the mark hint resolves to as a drawing, or nil when the set has
+// none: a caller that puts it in its own row keeps the row's alignment.
+func SVG(hint string) *core.SVG { return lookup(ID(hint)) }
 
 // Mark draws the mark hint resolves to, size points square in tint, or nothing
 // when the set has no such mark.

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -37,6 +38,7 @@ func settingsEnvironmentFixture(t *testing.T, dark bool, language string) (*nsgo
 		built = &app{cx: cx, cfg: cfg,
 			st:          &store{dir: home, path: filepath.Join(home, "config.json"), c: &cfg},
 			settingsRev: core.NewSignal(cx, 0), piUpdateBusy: core.NewSignal(cx, false),
+			externalEditors: core.NewSignalFunc(cx, []extEditor(nil), nil),
 			env: core.NewSignalFunc(cx, envInfo{PiPath: "pi", PiVersion: "test", SessionsDir: home,
 				WSL: []wslDistro{
 					{Name: "Ubuntu-workspace", PiPath: "/opt/" + strings.Repeat("workspace/", 12) + "pi-path-tail"},
@@ -91,6 +93,23 @@ func TestSettingsEnvironmentRemainsReadable(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSettingsEnvironmentEditorDiscoveryKeepsInput(t *testing.T) {
+	var calls atomic.Int32
+	original := editorScan
+	editorScan = func() []extEditor { calls.Add(1); return nil }
+	t.Cleanup(func() { editorScan = original })
+	screen, built := settingsEnvironmentFixture(t, false, apptext.LangZhCN)
+	if got := calls.Load(); got != 0 {
+		t.Fatalf("environment settings called the PATH scanner %d times", got)
+	}
+	screen.Type("id:editor-command", "my-editor")
+	screen.Post(func() { built.externalEditors.Set([]extEditor{{Name: "Zed", Command: "zed"}}) })
+	screen.WaitFor("text:已找到：Zed", 5*time.Second)
+	if field := screen.Find("id:editor-command"); !field.Focused || field.Text != "my-editor" {
+		t.Fatalf("editor discovery interrupted the editor field: focused=%v text=%q", field.Focused, field.Text)
 	}
 }
 

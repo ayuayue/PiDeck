@@ -323,7 +323,7 @@ GOFLAGS=-tags=webassets go tool nsgo build -target windows_x64
 - 文件树右键：新建文件（建完直接在编辑器打开）、新建文件夹、重命名；重命名会同步编辑器里已打开的文件
 - 文件右键还有「加入 .gitignore」：按相对路径追加一行（已有则不重复，缺 `.gitignore` 会新建），随后刷新文件树与 Git 状态
 - 右键文件：预览（可预览的文件才有）、在内置编辑器或外部编辑器打开、插入 `@` 路径、在文件管理器中显示、复制相对路径
-- 外部编辑器：自动探测 VS Code / Cursor / Windsurf / Zed / Sublime / JetBrains 系列；也可在 设置 → 环境 填自定义命令
+- 外部编辑器：启动后在后台探测 VS Code / Cursor / Windsurf / Zed / Sublime / JetBrains 系列；菜单带品牌图标，有多个时可选具体编辑器。设置 → 环境 可填自定义命令，并优先显示；文件管理器入口使用系统打开或定位接口，Windows 上可转换 WSL 路径
 
 **终端**
 - 底部终端面板（`Ctrl+Shift+T` 或标题栏按钮），可拖动上沿改高度，关闭面板后 shell 继续运行

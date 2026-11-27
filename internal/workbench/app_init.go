@@ -234,6 +234,7 @@ func newApp(cx *core.Scope) *app {
 		gitDiffPatch:           core.NewSignal(cx, ""),
 		gitDiffLoading:         core.NewSignal(cx, false),
 		clock:                  core.NewSignal(cx, cx.Now()),
+		externalEditors:        core.NewSignalFunc(cx, []extEditor(nil), nil),
 		env:                    core.NewSignalFunc(cx, envInfo{Probing: true}, nil),
 		pinned:                 core.NewSignalFunc(cx, []string(nil), nil),
 		favModels:              core.NewSignalFunc(cx, []string(nil), nil),
@@ -583,6 +584,7 @@ func newApp(cx *core.Scope) *app {
 	// pi's own sessions are read in the background, with the rest of the
 	// environment probe.
 	a.reloadFrameworks()
+	a.discoverEditors()
 
 	// Restore only tabs the user left open. A project with closed history
 	// stays on the welcome page and its sessions can be exported from the rail.

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/nsgo/core"
-	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // setLook applies a palette and the side it shows, and keeps both. An
@@ -91,9 +90,7 @@ func (a *app) openWorkspaceFolder(path string) {
 	if path == "" {
 		return
 	}
-	if err := revealFolder(localTarget, path); err != nil {
-		a.toast(ui.ToastError, "打不开文件夹", err.Error())
-	}
+	a.openFolder(localTarget, path)
 }
 
 // revealProject opens a workspace's folder on its own target.
@@ -101,9 +98,7 @@ func (a *app) revealProject(ws *workspace) {
 	if ws == nil {
 		return
 	}
-	if err := revealFolder(ws.Target, ws.Path); err != nil {
-		a.toast(ui.ToastError, "打不开文件夹", err.Error())
-	}
+	a.openFolder(ws.Target, ws.Path)
 }
 
 // revealSession shows a session where it lives: its file in pi's store, or
@@ -112,16 +107,9 @@ func (a *app) revealSession(s *session) {
 	if s == nil {
 		return
 	}
-	if s.External && s.File != "" {
-		if err := revealFile(s.Target, s.File); err != nil {
-			a.toast(ui.ToastError, "打不开位置", err.Error())
-		}
-		return
-	}
 	if s.File != "" {
-		if err := revealFile(s.Target, s.File); err == nil {
-			return
-		}
+		a.revealFilePath(s.Target, s.File)
+		return
 	}
 	a.revealProject(a.workspaceFor(s.Target, s.WS))
 }

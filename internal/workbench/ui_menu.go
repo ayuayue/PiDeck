@@ -612,7 +612,7 @@ func (a *app) projectMenuItems(w func() *workspace) []core.Node {
 			Children: []core.Node{
 				a.menuRow(a.cx, lucide.SquareTerminal, "在此打开终端", "", false, func() { a.openTerminalFor(w()) }),
 				a.menuRow(a.cx, lucide.GitBranch, "查看 Git 变更", "", false, func() { a.openGitFor(w()) }),
-				a.menuRow(a.cx, lucide.Code, "在编辑器中打开项目", "", false, func() { a.openPathInEditor(w().Path) }),
+				a.editorOpenItem(w().Path, "在编辑器中打开项目", "editor-open-menu"),
 				a.menuRow(a.cx, lucide.FolderOpen, "在文件管理器中打开", "", false, func() { a.revealProject(w()) }),
 				a.menuRow(a.cx, lucide.Copy, "复制项目路径", "", false, func() { a.copyText(w().Path, "路径") }),
 			}},

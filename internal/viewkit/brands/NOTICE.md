@@ -14,8 +14,12 @@ The non-AI service marks AI Logo ports from
 apart from the brands AI Logo lists in its own `THIRD_PARTY_NOTICES.md` under
 a published licence; none of the marks kept here are on that list.
 
+The editor marks — Visual Studio Code, Windsurf, Zed, Sublime Text and the
+JetBrains IDEs — also come from Simple Icons, CC0 1.0, and identify the
+editor the app opens a file with.
+
 ## Trademarks
 
 Each mark is a trademark of its owner and is used only to identify the
-provider, model or agent a row is about. Their presence here says nothing
-about any affiliation with or endorsement by those owners.
+provider, model, agent or editor a row is about. Their presence here says
+nothing about any affiliation with or endorsement by those owners.

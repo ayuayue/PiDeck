@@ -371,69 +371,31 @@ func TestSessionGroups(t *testing.T) {
 	}
 }
 
-// TestRevealCommands checks the file-manager commands each target builds.
-// Opening a folder is the platform's own program, and the WSL and SSH
-// targets only exist where a Windows host has them.
-func TestRevealCommands(t *testing.T) {
-	cmd, err := revealCmd(localTarget, "C:/proj")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(cmd.Args) == 0 {
-		t.Fatal("local reveal built no command")
-	}
-	switch program := strings.ToLower(filepath.Base(cmd.Args[0])); runtime.GOOS {
-	case "windows":
-		if program != "explorer.exe" {
-			t.Fatalf("local reveal runs %v", cmd.Args)
-		}
-	case "darwin":
-		if program != "open" {
-			t.Fatalf("local reveal runs %v", cmd.Args)
-		}
-	default:
-		if program != "xdg-open" {
-			t.Fatalf("local reveal runs %v", cmd.Args)
-		}
+// TestFileManagerPath checks the path the host's file manager gets for each
+// target: a WSL path is the Windows one, an SSH host has no file manager
+// here, and this machine's own path is unchanged.
+func TestFileManagerPath(t *testing.T) {
+	path, err := fileManagerPath(localTarget, "/proj/a.jsonl")
+	if err != nil || path != "/proj/a.jsonl" {
+		t.Fatalf("local path = %q, %v", path, err)
 	}
 
-	file, err := revealFileCmd(localTarget, "C:/proj/a.jsonl")
-	if err != nil {
-		t.Fatal(err)
-	}
-	joined := strings.Join(file.Args, " ")
-	switch runtime.GOOS {
-	case "windows":
-		if !strings.Contains(joined, "/select,") || !strings.Contains(joined, "a.jsonl") {
-			t.Fatalf("file reveal runs %q", joined)
-		}
-	case "darwin":
-		if !strings.Contains(joined, "-R") || !strings.Contains(joined, "a.jsonl") {
-			t.Fatalf("file reveal runs %q", joined)
-		}
-	default:
-		// No file manager protocol selects a file here: its folder opens.
-		if !strings.Contains(joined, "C:/proj") {
-			t.Fatalf("file reveal runs %q", joined)
-		}
-	}
-
-	wsl, err := revealCmd(target{Kind: targetWSL, Distro: "Ubuntu"}, "/mnt/c/Users/me/p")
+	wsl, err := fileManagerPath(target{Kind: targetWSL, Distro: "Ubuntu"}, "/mnt/c/Users/me/p")
 	if runtime.GOOS != "windows" {
 		if err == nil {
-			t.Fatalf("wsl reveal off Windows runs %v", wsl.Args)
+			t.Fatalf("a WSL folder opened off Windows: %q", wsl)
 		}
 	} else {
 		if err != nil {
 			t.Fatal(err)
 		}
-		wslJoined := strings.Join(wsl.Args, " ")
-		if !strings.Contains(wslJoined, "Ubuntu") || !strings.Contains(wslJoined, `C:\Users\me\p`) {
-			t.Fatalf("wsl reveal runs %q", wslJoined)
+		if wsl != `C:\Users\me\p` {
+			t.Fatalf("wsl path = %q", wsl)
 		}
 	}
-	if _, err := revealCmd(target{Kind: targetSSH, Host: "box"}, "/srv"); err == nil {
-		t.Fatal("ssh reveal should refuse")
+
+	if _, err := fileManagerPath(target{Kind: targetSSH, Host: "box"}, "/srv"); err == nil {
+		t.Fatal("an SSH folder claimed a file manager here")
 	}
 }
 
