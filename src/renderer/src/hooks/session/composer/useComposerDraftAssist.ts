@@ -6,7 +6,7 @@ import { resolveEnhanceTargetModel } from "../../../../../shared/enhanceModelPre
 import { enhanceIncludeContextAtom, enhanceModelAtom, promptSuggestionEnabledAtom, promptSuggestionModelAtom, sessionAttachmentsBySessionIdAtomFamily, sessionDraftByIdAtom, sessionMessageCacheBySessionIdAtomFamily } from "../../../atoms";
 import type { ComposerCaretRequest } from "../../../components/session/composer/types";
 import { getComposerCaretOffset, getComposerSelectionRange } from "../../../components/session/composer/caretCoords";
-import { resolveInsertCaret } from "../../../components/session/composer/insertCaret";
+import { insertFileReferences, resolveInsertCaret } from "../../../components/session/composer/insertCaret";
 import { formatFilePathRef } from "../../../components/session/composer/chips";
 import { t } from "../../../i18n";
 import { COMPOSER_ATTACHMENT_BUDGET_BYTES, ComposerImageError, attachmentBytes, base64DataBytes, processComposerImageFile } from "../../../utils/composerImages";
@@ -99,31 +99,26 @@ export function useComposerDraftAssist(options: ComposerDraftAssistOptions) {
 	/**
 	 * 把已格式化的引用文本（@path、@"a b/" 等）插入输入框当前光标处。
 	 * 文件树拖拽、OS 文件拖入/粘贴、「加入对话引用」按钮共用同一插入规则：
-	 * 只引用路径，不上传内容；与前字符之间按需补空格。
+	 * 只引用路径，不上传内容。
 	 */
 	const insertRefTexts = useCallback(
 		(refTexts: string[]) => {
 			if (refTexts.length === 0) return;
 			const liveDraft = liveDomDraftRef.current.sessionId === sessionId ? liveDomDraftRef.current.value : draft;
-			const liveCursor = resolveLiveInsertCaret(liveDraft);
-			const refText = refTexts.join(" ");
-			const previous = liveDraft[liveCursor - 1];
-			const spacer = liveCursor > 0 && previous !== " " && previous !== "\n" ? " " : "";
-			const next = liveDraft.slice(0, liveCursor) + spacer + refText + liveDraft.slice(liveCursor);
-			const nextCursor = liveCursor + spacer.length + refText.length;
-			liveDomDraftRef.current = { sessionId, value: next };
-			setDraft(next);
-			setCursor(nextCursor);
-			caretRef.current = { pos: nextCursor, forValue: next };
+			const request = insertFileReferences(liveDraft, resolveLiveInsertCaret(liveDraft), refTexts);
+			liveDomDraftRef.current = { sessionId, value: request.forValue };
+			caretRef.current = request;
+			setDraft(request.forValue);
+			setCursor(request.pos);
 			requestAnimationFrame(() => editorRef.current?.focus());
 		},
 		[draft, resolveLiveInsertCaret, sessionId, setDraft],
 	);
 
-	/** 本地路径以 @path 引用插入（OS 文件拖入/粘贴/文件选择器共用）；含空格路径自动加引号 */
+	/** 本地路径始终加引号，避免旧的无引号绝对路径规则将后续正文里的斜杠词并入引用。 */
 	const insertFilePathRefs = useCallback(
 		(paths: string[]) => {
-			insertRefTexts(paths.map((path) => formatFilePathRef(path, { isDirectory: /[\\/]$/.test(path) })));
+			insertRefTexts(paths.map((path) => formatFilePathRef(path, { isDirectory: /[\\/]$/.test(path), alwaysQuote: true })));
 		},
 		[insertRefTexts],
 	);

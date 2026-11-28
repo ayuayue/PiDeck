@@ -14,3 +14,12 @@ export function resolveInsertCaret(input: { pending: ComposerCaretRequest | null
 	if (input.pending !== null && input.pending.forValue === input.liveDraft) return input.pending.pos;
 	return input.domCaret ?? input.fallback;
 }
+
+/** 插入文件引用，并把光标放在分隔空格后，让后续输入有独立的文本位置。 */
+export function insertFileReferences(draft: string, caret: number, refs: readonly string[]): ComposerCaretRequest {
+	const before = draft.slice(0, caret);
+	const after = draft.slice(caret);
+	const prefix = before && !/\s$/.test(before) ? " " : "";
+	const text = before + prefix + refs.join(" ") + " ";
+	return { pos: text.length, forValue: text + (after.startsWith(" ") ? after.slice(1) : after) };
+}

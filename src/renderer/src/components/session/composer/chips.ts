@@ -93,7 +93,7 @@ function overlapsUrl(start: number, end: number, urlSpans: { start: number; end:
  */
 export function unwrapFileChipPath(raw: string): string {
 	const body = raw.startsWith("@") ? raw.slice(1) : raw;
-	let path = body.length >= 2 && body.startsWith('"') && body.endsWith('"') ? body.slice(1, -1) : body;
+	let path = body.length >= 2 && body.startsWith('"') && body.endsWith('"') ? body.slice(1, -1).replace(/\\"/g, '"') : body;
 	// 统一去掉目录标记尾斜杠（含 Windows 反斜杠），避免 FS API 拿到 "src/"
 	path = path.replace(/[/\\]+$/, "");
 	return path;
@@ -104,13 +104,13 @@ export function unwrapFileChipPath(raw: string): string {
  * 目录必须带尾斜杠（@src/），否则 chip 规则要求路径含 /\. 时，
  * 裸名 @src 不会渲染为文件 chip，模型也容易当成「智能体/人」mention。
  */
-export function formatFilePathRef(path: string, options?: { isDirectory?: boolean }): string {
+export function formatFilePathRef(path: string, options?: { isDirectory?: boolean; alwaysQuote?: boolean }): string {
 	// 先规范化：去掉已有尾分隔符，再按 isDirectory 统一追加 /
 	let normalized = path.replace(/[/\\]+$/, "");
 	if (options?.isDirectory) {
 		normalized = `${normalized}/`;
 	}
-	const needsQuote = /[\s"]/.test(normalized);
+	const needsQuote = options?.alwaysQuote || /[\s"@]/.test(normalized);
 	if (!needsQuote) return `@${normalized}`;
 	// 路径内若已有双引号，做简单转义；Windows 路径通常不含 "。
 	const escaped = normalized.replace(/"/g, '\\"');
@@ -191,13 +191,13 @@ export function parseRichInputChips(text: string, validCommandNames?: Set<string
 
 	// @path：无空格 / 引号含空格 / 目录尾斜杠；未加引号的绝对路径可含空格（逐段延伸）；
 	// 相对路径走白名单，绝对路径绕过。
-	const atRe = /(?<![:/.\w#!~])(@(?:"[^"]+"|[^\s@"]+))/g;
+	const atRe = /(?<![:/.\w#!~])(@(?:"(?:\\"|[^"\r\n])+"|[^\s@"]+))/g;
 	while ((m = atRe.exec(text)) !== null) {
 		const start = m.index;
 		let rawToken = m[1];
 		let end = start + rawToken.length;
 		// 未加引号的绝对路径：空格可能属于路径本身（@C:/Users/…/Tencent Files/…）。
-		// 只有「下一段含 / 或 \ 」才并入，避免把后续正文/URL 吞进路径；
+		// 兼容旧的无引号路径，但后续 @ 引用和 URL 有自己的起点，不能并入。
 		// 引号形式（@"…"）有明确边界，不需要延伸。
 		if (!rawToken.includes('"')) {
 			const body = rawToken.slice(1);
@@ -207,7 +207,7 @@ export function parseRichInputChips(text: string, validCommandNames?: Set<string
 					const segMatch = /^ ([^\s]+)/.exec(text.slice(end));
 					if (!segMatch) break;
 					const seg = segMatch[1];
-					if (!/[\\/]/.test(seg) || /^https?:\/\//i.test(seg)) break;
+					if (seg.startsWith("@") || !/[\\/]/.test(seg) || /^https?:\/\//i.test(seg)) break;
 					rawToken += ` ${seg}`;
 					end += segMatch[0].length;
 				}

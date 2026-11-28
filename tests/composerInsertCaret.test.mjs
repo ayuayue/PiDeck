@@ -2,17 +2,39 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { resolveInsertCaret } = loadTsCommonJs("src/renderer/src/components/session/composer/insertCaret.ts");
+const { resolveInsertCaret, insertFileReferences } = loadTsCommonJs("src/renderer/src/components/session/composer/insertCaret.ts");
+const { formatFilePathRef } = loadTsCommonJs("src/renderer/src/components/session/composer/chips.ts");
+const { plainTextToComposerDoc, composerDocToPlainText } = loadTsCommonJs("src/renderer/src/components/session/composer/tiptap/plainTextCodec.ts");
 
-/** #564：连续拖入文件时，第二次插入按过期的 DOM 选区拼接，把第一次的引用挤掉。 */
-test("a pending programmatic caret wins over a stale DOM selection", () => {
-	// 第一次 drop：草稿从 "" 变成 "@A"，编辑器还没跑 layout pass，DOM 选区仍是 0。
-	const afterFirst = "@A";
-	const first = resolveInsertCaret({ pending: { pos: 2, forValue: afterFirst }, liveDraft: afterFirst, domCaret: 0, fallback: 0 });
-	assert.equal(first, 2);
-	// 第二次 drop 在这个窗口里到达：按 2 拼接得到 "@A @B"，而不是被覆盖成 "@B"。
-	const next = afterFirst.slice(0, first) + " " + "@B" + afterFirst.slice(first);
-	assert.equal(next, "@A @B");
+/** #564：第二次拖放时，DOM 选区可能还停在第一次更新之前。 */
+test("consecutive drops use the pending caret instead of a stale DOM selection", () => {
+	const refs = ["/tmp/a.txt", "/tmp/b notes.md", "/tmp/c.txt"].map((path) => formatFilePathRef(path, { alwaysQuote: true }));
+	const first = insertFileReferences("", 0, refs.slice(0, 2));
+	const caret = resolveInsertCaret({ pending: first, liveDraft: first.forValue, domCaret: 0, fallback: 0 });
+	const next = insertFileReferences(first.forValue, caret, refs.slice(2));
+	const text = next.forValue.slice(0, next.pos) + "对比 docs/summary.md" + next.forValue.slice(next.pos);
+	const doc = plainTextToComposerDoc(text, { validFilePaths: new Set() });
+	const nodes = doc.content[0].content;
+	assert.deepEqual(
+		Array.from(
+			nodes.filter((node) => node.type === "mentionChip"),
+			(node) => node.attrs.raw,
+		),
+		refs,
+	);
+	assert.equal(nodes.at(-1).text, " 对比 docs/summary.md");
+	assert.equal(composerDocToPlainText(doc), refs.join(" ") + " 对比 docs/summary.md");
+});
+
+test("dropping into the middle of a draft preserves text on both sides and leaves a typing gap", () => {
+	for (const [draft, caret] of [
+		["前文后文", 2],
+		["前文 后文", 2],
+	]) {
+		const next = insertFileReferences(draft, caret, ["@project/result.txt"]);
+		assert.equal(next.forValue.slice(0, next.pos), "前文 @project/result.txt ");
+		assert.equal(next.forValue.slice(next.pos), "后文");
+	}
 });
 
 test("a stale request is not trusted: DOM caret, then the controlled cursor", () => {
