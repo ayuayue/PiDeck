@@ -56,6 +56,7 @@ test("入口给 entryId：一次取页，before=undefined、pageSize=200、befor
 	assert.equal(calls.read.length, 1);
 	assert.equal(calls.read[0].beforeEntryId, undefined, "不该传数值游标");
 	assert.equal(calls.read[0].options?.beforeEntryId, "e-target", "锚点必须是原样的 entryId");
+	assert.equal(calls.read[0].options?.includeBeforeEntry, true, "定位页必须包含目标 entry");
 	assert.ok(calls.read[0].pageSize > 0, "pageSize 必须有值");
 });
 
@@ -63,6 +64,7 @@ test("目录侧给投影消息 id：剥出后半段再当 entryId 用", async ()
 	const { ports, calls } = makePorts();
 	await useJumpPageFetch(ports)(pending("agent-1-history-e-real"), "owner-A");
 	assert.equal(calls.read[0].options?.beforeEntryId, "e-real", "必须剥掉 agentId-history- 前缀");
+	assert.equal(calls.read[0].options?.includeBeforeEntry, true, "投影 id 路径也必须请求含目标的页");
 	// 反例：不剥就传进去，主进程找不到锚点、页面回空并标成「没有更早历史」
 	assert.notEqual(calls.read[0].options?.beforeEntryId, "agent-1-history-e-real");
 });

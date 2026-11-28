@@ -28,7 +28,7 @@ import { SelectionToolbar } from "./timeline/SelectionToolbar";
 import { MessageContextMenu } from "./timeline/MessageContextMenu";
 import { deriveTimelineRunActivity } from "./timeline/timelineRunActivity";
 import { deriveRetryProgress } from "./timeline/retryProgress";
-import { canLoadSessionTimelineMore, deriveSessionSurfaceRuntime, type SessionTimelineController } from "../../hooks/useSessionTimelineController";
+import { deriveSessionSurfaceRuntime, type SessionTimelineController } from "../../hooks/useSessionTimelineController";
 import { t } from "../../i18n";
 import { cn } from "../../lib/utils";
 import { Loader2, LoaderCircle, Power } from "lucide-react";
@@ -45,7 +45,7 @@ import { resolveFreshTailIds } from "../../lib/pinTurnScroll";
 import { chatContentWidthStyle } from "./chatContentWidth";
 import { useSessionVisionBridgeExpected } from "../../hooks/useSessionVisionBridgeExpected";
 import { useAcpHistoryRestorePending } from "../../hooks/useAcpRestoreHint";
-import { countAgentRunItems, findAgentRunIndexByItemId, resolveAnchoredTurnWindow, shouldWindowTimelineTurns, TIMELINE_MOUNTED_TURN_LIMIT } from "./timeline/turnRenderWindow";
+import { findAgentRunIndexByItemId, resolveAnchoredTurnWindow } from "./timeline/turnRenderWindow";
 import { VirtualRunList } from "./timeline/VirtualRunList";
 import { isRenderableRunItem } from "./timeline/virtualTimelinePolicy";
 import { REVEAL_TIMELINE_ENTRY_EVENT, REVEAL_TIMELINE_ENTRY_TIMEOUT_MS } from "../../hooks/timeline/timelineRevealChannel";
@@ -159,7 +159,6 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 	const timelineRef = props.timelineRef ?? controller.timelineRef;
 	const activeMessages = controller.messages;
 	const paginatedMessages = controller.visibleMessages;
-	const hasMoreMessages = controller.hasMoreMessages;
 	const isLoadingMoreMessages = controller.isLoadingMoreMessages;
 	const hasActiveConversation = Boolean(session);
 	// ACP 激活重放窗口期：历史还没投影进来但一定会来。此时不挂居中起始页——输入框已经
@@ -189,7 +188,6 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 	// 不受此约束）窄且位置偏移，同一组件两副长相；起始页组件自身有 max-w-[980px]
 	// 居中控制，去掉约束后与引导页完全一致。有消息时保持原约束（消息列与输入框对齐契约）。
 	const showSurfaceEmptyState = !hasActiveConversation || (!isConversationLoading && paginatedMessages.length === 0);
-	const canLoadMoreMessages = canLoadSessionTimelineMore(modernSurfaceState.isStarting, paginatedMessages.length);
 	// 划选引用：选区落在同一条消息内时在选区上方提供「引用并提问」按钮
 	const { quote: selectionQuote, clear: clearSelectionQuote, toolbarRef: selectionToolbarRef } = useTimelineSelection(timelineRef);
 	// 消息右键菜单：复制来源（选区快照 / 命中消息 / live 正文回退）由 hook 解析，
@@ -231,7 +229,6 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 		isTurnActive: activeRuntimeState?.isTurnActive,
 	});
 	const cancellingUi = false;
-	const loadMoreMessages = controller.loadMoreMessages;
 	// ── 滚动接近顶部自动加载历史（2026-11 轮次模型）──
 	// 监听器已迁移到 useSessionTimelineController（程序化滚动抑制在同一 owner）：
 	// 用户接近顶部时先扩 DOM 窗口，挂满后触顶才按轮补历史；
@@ -470,23 +467,18 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 			frozenAt: last.askPending ? last.askPendingAt : undefined,
 		};
 	}, [isTurnRunning, reconciledRuns]);
-	// 渲染窗口（2026-08 黑屏治理）：贴底只挂尾部 3 轮；上滚查看历史也裁剪
-	// （controller.scrolledWindowTurns，初始 3 轮，接近顶部按 3 轮 cohort 自动扩大）——
-	// 历史全量放开挂载是大会话渲染进程内存峰值/黑屏的来源。数据仍在 atoms。
+	// The complete loaded history feeds VirtualRunList; only its visible rows become DOM nodes.
+	// This keeps scroll geometry stable while retaining bounded message-page reads.
 	//
-	// 关键不变量：锚点保存和恢复必须使用同一轮次窗口。恢复期若临时全量物化、
-	// restoreAt 后又收回尾部窗口，文档高度收缩会把已恢复的 scrollTop 截断，造成
-	// 切回位置漂移。锚点不在已保存窗口时，controller 会逐步扩窗后重试；跳转也走
-	// 同一扩窗策略，而不是绕过窗口约束。
-	// 跳转在途时不许按「贴底」压缩窗口：目标在更早的轮次，而流式输出期间贴底引擎每帧都把
-	// autoScroll 拉回 true；此时按贴底取 3 轮上限，扩窗结果立刻被忽略，目标轮永远挂不上
-	// （2026-11 真机：吐 token 时点刻度没反应）。
+	// 只在尚未落位的刻度跳转期间裁成锚点窗口；普通阅读始终保留完整数据范围，
+	// 由 VirtualRunList 虚拟化 DOM。这样滚动时总高度稳定，不再随窗口扩展而改变。
 	const followingForTurnWindow = controller.autoScroll && !controller.jumpPending;
-	const turnWindowTurns = followingForTurnWindow ? TIMELINE_MOUNTED_TURN_LIMIT : controller.scrolledWindowTurns;
-	const windowAnchorId = controller.jumpAnchorMessageId ?? controller.readPinnedMessageId?.() ?? null;
+	// Keep the virtualizer's item count stable while scrolling; it already mounts only visible rows.
+	const turnWindowTurns = 0;
+	const windowAnchorId = controller.jumpPending ? controller.jumpAnchorMessageId : null;
 	const displayRuns = useMemo(() => resolveAnchoredTurnWindow(reconciledRuns, turnWindowTurns, windowAnchorId), [reconciledRuns, turnWindowTurns, windowAnchorId]);
 	useEffect(() => {
-		// 多选关闭且回到底部后才允许缩回 turn 窗口：回底时锚点必在尾部窗口内，缩回不会丢行。
+		// Returning to follow mode releases the temporary multi-select full-run retention.
 		if (!multiSelectOpen && followingForTurnWindow) setRetainFullRuns(false);
 	}, [followingForTurnWindow, multiSelectOpen]);
 	// 身份判定（2026-08 perf）：位置判定（index / displayRuns.length）随滚动窗口切片
@@ -628,35 +620,8 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 		return clearIdle;
 	}, [hasLiveRuntime, isRuntimeBusy, runtime?.agentId, runtime?.runtimeGeneration, sessionId]);
 
-	// 轮数集中算一次供窗口判定用：reconciledRuns 在流式期间每帧重建，memo 只保证同一次渲染内不重复计数。
-	const agentRunCount = useMemo(() => countAgentRunItems(reconciledRuns), [reconciledRuns]);
-	const turnWindowActive = shouldWindowTimelineTurns(agentRunCount, turnWindowTurns);
-	// 方案 C（2026-12）渐进扩展：把「窗口是否仍可扩展」同步给 controller 的滚动监听——
-	// 接近窗口顶部且还有未挂载的已加载数据时，先自动扩窗口（本地 DOM，无网络往返），
-	// 而不是一次性把整个历史窗口挂出来导致滚动条骤变。渲染期写 ref，
-	// 与 ownerKeyRef 同模式；turnWindowActive 变化低频，不引发额外渲染。
-	controller.windowExpandableRef.current = turnWindowActive;
-	// 窗口轮数变化（上滚 3→6→9、点按钮扩大）会在顶部插入内容。
-	// 钉的是扩窗前正在看的那一轮（controller.pinBrowseRow），不是整页 scrollHeight 差；
-	// 数据翻页也走同一钉行；Markdown/图片后增高由内容 ResizeObserver 继续补漂移。
-	const turnWindowStateRef = useRef<{ windowed: boolean; turns: number }>({
-		windowed: false,
-		turns: 0,
-	});
-	const pinBrowseRow = controller.pinBrowseRow;
-	useLayoutEffect(() => {
-		const prev = turnWindowStateRef.current;
-		if (prev.windowed && prev.turns !== turnWindowTurns && !followingForTurnWindow) {
-			// 扩窗在顶部插入轮次：这一拍按钉住的行补齐位移。
-			// 整表渲染的开关不在这里：扩窗本身**不打开**它（钉行由 pinnedRunKeys 强制挂载），
-			// 只有 scroll 翻页会打开（beginPrependSolid），由锚点消费点或请求 finally 关闭。
-			pinBrowseRow();
-		}
-		turnWindowStateRef.current = {
-			windowed: turnWindowActive,
-			turns: turnWindowTurns,
-		};
-	}, [displayRuns, followingForTurnWindow, pinBrowseRow, turnWindowActive, turnWindowTurns]);
+	// Render virtualization now owns the full loaded range; scrolling never grows a turn window.
+	controller.windowExpandableRef.current = false;
 	// 文件修改由 SessionView 提取最近一轮并放在 composer 上方；时间线只负责渲染消息。
 	// 时间线里已有用户图片才解析模型目录：原生看图时气泡不能显示视觉桥「转换中」。
 	const hasUserImages = useMemo(() => activeMessages.some((message) => message.role === "user" && Boolean(message.images?.length)), [activeMessages]);
@@ -969,58 +934,10 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 				onScroll: controller.handleTimelineScroll,
 			}}
 		>
-			{(turnWindowActive || (hasMoreMessages && canLoadMoreMessages)) && (
-				<div
-					style={{
-						display: "flex",
-						justifyContent: "center",
-						padding: "12px 0",
-						borderBottom: "1px solid var(--border-color)",
-					}}
-				>
-					<button
-						onClick={() => {
-							// 有历史数据页就先翻数据：按钮写的是「加载更多对话」，用户要的是更多内容，
-							// 不是「把已加载的挂出来」。反过来（先 expandWindow）每次点击只扩 3 轮渲染
-							// 窗口、数据一步不走 —— 137 轮会话要点 45 次才轮到第一次翻页，观感就是
-							// 「点了没反应」（2026-11 真机反馈）。
-							if (hasMoreMessages && canLoadMoreMessages) {
-								// source 必须是 button：贴底时 loadMoreMessages 要按「显式请求」处理，
-								// 先脱离跟随再翻页。传 scroll 会被迟到的 following 门整条丢弃（界面零变化）。
-								loadMoreMessages("button");
-							} else if (turnWindowActive) {
-								controller.expandWindow();
-							}
-						}}
-						disabled={isLoadingMoreMessages}
-						style={{
-							display: "inline-flex",
-							alignItems: "center",
-							gap: "6px",
-							padding: "6px 16px",
-							border: "1px solid var(--border-color)",
-							borderRadius: "6px",
-							background: "var(--bg-secondary)",
-							color: "var(--text-primary)",
-							fontSize: "13px",
-							cursor: isLoadingMoreMessages ? "not-allowed" : "pointer",
-							opacity: isLoadingMoreMessages ? 0.6 : 1,
-							transition: "all 0.2s",
-						}}
-					>
-						{isLoadingMoreMessages ? (
-							// 加载动画：点击后立即出现，真正加载完成（finally 复位 isLoadingMessagePage）才消失
-							<>
-								<Loader2 className="size-3.5 animate-pideck-spin" aria-hidden="true" />
-								{t("timeline.loadingMore")}
-							</>
-						) : (
-							// 2026-12 统一文案：上滚窗口已由「接近顶部自动扩展」接管（无需再提示
-							// 剩余已加载轮数），按钮统一为「加载更多对话」——窗口可扩时点击本地扩
-							// 窗口，已挂满且有更早历史时点击翻页，对用户透明。
-							t("timeline.loadMoreTurns")
-						)}
-					</button>
+			{isLoadingMoreMessages && (
+				<div role="status" aria-live="polite" className="flex items-center justify-center gap-2 border-b border-border py-3 text-xs text-muted-foreground">
+					<Loader2 className="size-3.5 animate-pideck-spin" aria-hidden="true" />
+					{t("timeline.loadingMore")}
 				</div>
 			)}
 

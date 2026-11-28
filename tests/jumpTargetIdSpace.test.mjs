@@ -30,6 +30,13 @@ test("unknown + entryId 形态：必须命中（这就是「点任何刻度都�
 	const { resolveJumpMessageIndex } = load();
 	assert.equal(resolveJumpMessageIndex(messages(), { kind: "unknown", id: "525018cf" }), 1, "入口拿到的 id 可能是 entryId；只按 messageId 找会给 -1，跳转静默失败");
 });
+test("同一数组原地追加后，新 entryId 也必须能被刻度定位", () => {
+	const { resolveJumpMessageIndex } = load();
+	const appended = messages();
+	assert.equal(resolveJumpMessageIndex(appended, { kind: "entry", id: "entry-later" }), -1);
+	appended.push({ id: "m-later", meta: { entryId: "entry-later" } });
+	assert.equal(resolveJumpMessageIndex(appended, { kind: "unknown", id: "entry-later" }), 3);
+});
 
 test("unknown + messageId 形态：必须命中", () => {
 	const { resolveJumpMessageIndex } = load();

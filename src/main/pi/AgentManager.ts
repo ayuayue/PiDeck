@@ -165,7 +165,7 @@ export type PromptDisposition = "started" | "queued" | "handled";
  */
 function readPromptDisposition(data: unknown): PromptDisposition | undefined {
 	if (!data || typeof data !== "object" || Array.isArray(data)) return undefined;
-	const disposition = Reflect.get(data, "disposition");
+	const disposition = (data as Record<string, unknown>).disposition;
 	return disposition === "started" || disposition === "queued" || disposition === "handled" ? disposition : undefined;
 }
 
@@ -1816,8 +1816,8 @@ export class AgentManager {
 	}
 
 	/** 轮次维度显示分页：pageSize 复用为轮次数（readSessionDisplayTurnPage 内部夹紧上限） */
-	async readSessionDisplayTurnPage(sessionPath: string, agentId = "_viewer", before?: number, turnCount?: number, beforeEntryId?: string, options?: { projectId?: string }): Promise<SessionMessagePage> {
-		const page = await this.sessionHistoryReader.readSessionDisplayTurnPage(sessionPath, agentId, before, turnCount, beforeEntryId, { entryRendererTypes: this.resolveEntryRendererTypesForProject(options?.projectId) });
+	async readSessionDisplayTurnPage(sessionPath: string, agentId = "_viewer", before?: number, turnCount?: number, beforeEntryId?: string, options?: { projectId?: string; includeBeforeEntry?: boolean }): Promise<SessionMessagePage> {
+		const page = await this.sessionHistoryReader.readSessionDisplayTurnPage(sessionPath, agentId, before, turnCount, beforeEntryId, { entryRendererTypes: this.resolveEntryRendererTypesForProject(options?.projectId), includeBeforeEntry: options?.includeBeforeEntry });
 		return { ...page, messages: stripToolResultForDelivery(page.messages) };
 	}
 

@@ -131,22 +131,35 @@ export type JumpTargetId =
 	| { kind: "unknown"; id: string };
 
 type JumpMessage = { id: string; meta?: unknown };
-type JumpMessageIndex = { entry: Map<string, number>; message: Map<string, number> };
+type JumpMessageIndex = { entry: Map<string, number>; message: Map<string, number>; indexedLength: number };
 
-/** 同一份 combinedMessages 只建一次身份表；数组换引用时 WeakMap 自然失效。 */
+/**
+ * Identity lookup is cached by array identity, with append-only mutation handled incrementally.
+ * A truncated array is rebuilt; immutable replacement naturally gets a fresh WeakMap entry.
+ */
 const jumpMessageIndexCache = new WeakMap<ReadonlyArray<JumpMessage>, JumpMessageIndex>();
+
+function indexJumpMessage(index: JumpMessageIndex, message: JumpMessage, position: number): void {
+	// findIndex's contract is first match; later projections must not replace it.
+	if (!index.message.has(message.id)) index.message.set(message.id, position);
+	const entryId = readEntryId(message.meta);
+	if (entryId && !index.entry.has(entryId)) index.entry.set(entryId, position);
+}
 
 function buildJumpMessageIndex(messages: ReadonlyArray<JumpMessage>): JumpMessageIndex {
 	const cached = jumpMessageIndexCache.get(messages);
-	if (cached) return cached;
-	const index: JumpMessageIndex = { entry: new Map(), message: new Map() };
-	for (let position = 0; position < messages.length; position += 1) {
-		const message = messages[position];
-		// findIndex 的既有契约是首个命中；Map 不能被后来的重投影残影覆盖。
-		if (!index.message.has(message.id)) index.message.set(message.id, position);
-		const entryId = readEntryId(message.meta);
-		if (entryId && !index.entry.has(entryId)) index.entry.set(entryId, position);
+	if (cached && messages.length >= cached.indexedLength) {
+		for (let position = cached.indexedLength; position < messages.length; position += 1) {
+			indexJumpMessage(cached, messages[position], position);
+		}
+		cached.indexedLength = messages.length;
+		return cached;
 	}
+	const index: JumpMessageIndex = { entry: new Map(), message: new Map(), indexedLength: 0 };
+	for (let position = 0; position < messages.length; position += 1) {
+		indexJumpMessage(index, messages[position], position);
+	}
+	index.indexedLength = messages.length;
 	jumpMessageIndexCache.set(messages, index);
 	return index;
 }

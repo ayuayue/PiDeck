@@ -61,35 +61,13 @@ test("selectTimelineTurnWindow returns same reference when under the window", ()
 	assert.equal(windowing.selectTimelineTurnWindow(items, 15), items);
 });
 
-test("timeline wires the turn mount window helper", () => {
-	const source = readFileSync("src/renderer/src/components/session/SessionMessageTimeline.tsx", "utf8");
-	assert.match(source, /resolveAnchoredTurnWindow/);
-	assert.match(source, /TIMELINE_MOUNTED_TURN_LIMIT/);
-	assert.doesNotMatch(source, /TIMELINE_SCROLLED_MAX_ITEMS/, "item budget removed in turn-centric protocol");
-	// 跟随、恢复与普通历史浏览都必须使用有界窗口；跳转时窗口锚到目标，未命中才退回尾窗。
-	assert.match(source, /resolveAnchoredTurnWindow\(reconciledRuns, turnWindowTurns, windowAnchorId\)/);
-	assert.doesNotMatch(source, /Number\.MAX_SAFE_INTEGER/);
-	assert.match(source, /displayRuns\.map/);
-});
-
-test("scrolled window starts small and expands by one cohort (2026-12 progressive window)", () => {
-	// 方案 C：上滚初始窗口与贴底同为 3 轮；历史轮由「滚动接近窗口顶部自动扩窗口」渐进挂载。
-	// DOM 3 / atom 9 / main 12 模型：扩窗与翻页共用同一 3 轮 cohort，避免数据页 +3、窗口却 +10。
-	assert.equal(windowing.TIMELINE_SCROLLED_TURN_LIMIT, 3);
-	assert.equal(windowing.TIMELINE_WINDOW_EXPAND_STEP, 3);
-	// 小窗口裁剪行为仍正确：11 轮数据、窗口 3 轮 → 只保留尾部 3 轮
+test("zero turn-window keeps the entire loaded set available to the virtualizer", () => {
 	const items = runs("a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k");
-	assert.equal(windowing.shouldWindowTimelineTurns(11, 3), true);
-	const scrolled = windowing.selectTimelineTurnWindow(items, 3);
+	const visible = windowing.resolveAnchoredTurnWindow(items, 0, null);
+	assert.equal(visible.length, items.length);
 	assert.deepEqual(
-		scrolled.map((item) => item.id),
-		["i", "j", "k"],
-	);
-	// 3 轮 cohort 扩展：窗口 6 轮 → 保留尾部 6 轮
-	const six = windowing.selectTimelineTurnWindow(items, 6);
-	assert.deepEqual(
-		six.map((item) => item.id),
-		["f", "g", "h", "i", "j", "k"],
+		visible.map((item) => item.id),
+		items.map((item) => item.id),
 	);
 });
 
@@ -102,33 +80,6 @@ test("resolveAutoExpandThreshold scales with viewport but floors at 120px", () =
 	assert.equal(threshold.resolveAutoExpandThreshold(800), 320);
 	// 大视口（分屏/全屏）：提前量随视口继续放大
 	assert.equal(threshold.resolveAutoExpandThreshold(1600), 640);
-});
-
-test("auto-expand wiring: controller exposes windowExpandableRef and listens near top", () => {
-	const controllerSource = sessionTimelineControllerSource;
-	// 滚动监听进入「接近顶部」区间（scrollTop ≤ 视口比例阈值，下限 120px）且窗口仍可
-	// 扩展时先扩窗口：触顶也优先消费 atom 已加载的 cohort，不因一把拉到顶而跳过本地扩窗。
-	// 2026-09 强化：扩窗必须由引擎上报的用户上滚意图授权（shouldAutoExpandRenderWindow），
-	// 布局 resize/clamp 造成的 scrollTop 回退不再被当成用户上滑（见 scrollHistoryPolicy）。
-	assert.match(controllerSource, /TURN_WINDOW_AUTO_EXPAND_THRESHOLD/);
-	assert.match(controllerSource, /shouldAutoExpandRenderWindow\(\{/);
-	assert.match(controllerSource, /windowExpandable: windowExpandableRef\.current/);
-	assert.match(controllerSource, /scrollTop: timeline\.scrollTop,/);
-	assert.match(controllerSource, /resolveAutoExpandThreshold\(timeline\.clientHeight\)/);
-	assert.match(controllerSource, /windowExpandableRef/);
-	// 滚动触发的扩展走分批（每帧小批挂载），按钮/跳转走原子扩展
-	assert.match(controllerSource, /expandWindowBatched\(growth\)/);
-	assert.match(controllerSource, /requestAnimationFrame\(consumeExpandBatch\)/);
-	// 只在引擎逐次确认的真实上滚事件中预取；controller 不再从 scrollTop delta 猜意图。
-	assert.match(controllerSource, /const setUserScrollIntent = useCallback/);
-	assert.match(controllerSource, /if \(intent !== "up"\) return;/);
-	assert.match(controllerSource, /userScrollIntentFrameRef\.current = window\.requestAnimationFrame/);
-	assert.doesNotMatch(controllerSource, /userScrollIntentRef/);
-	assert.match(controllerSource, /loadMoreMessages\("scroll"\)/);
-	assert.match(controllerSource, /preserveAtTop/);
-	// 渲染层把 turnWindowActive 同步进 controller（窗口可扩判定）
-	const timelineSource = readFileSync("src/renderer/src/components/session/SessionMessageTimeline.tsx", "utf8");
-	assert.match(timelineSource, /windowExpandableRef\.current = turnWindowActive/);
 });
 
 test("countUserTurns merges consecutive user messages into one turn (speaker-hold semantics)", () => {

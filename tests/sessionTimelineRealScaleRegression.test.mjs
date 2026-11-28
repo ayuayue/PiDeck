@@ -154,9 +154,12 @@ test("真实规模会话：从底部一次跳顶，一次调用就拿到整段�
 test("真实规模会话：点名中段 entryId，返回覆盖它的页且游标前进", async () => {
 	await withRealScaleSession(async ({ sessionPath }) => {
 		const reader = createReader();
-		const page = await reader.readSessionDisplayTurnPage(sessionPath, "_viewer", undefined, undefined, "m00500");
-		assert.ok(page.messages.length > 0, "点名中段 entryId 必须返回内容");
-		assert.equal(page.messages[0]?.role, "user", "页首应当对齐轮起点，不能从回答中间切半轮");
+		const page = await reader.readSessionDisplayTurnPage(sessionPath, "_viewer", undefined, undefined, "m00500", { includeBeforeEntry: true });
+		assert.ok(page.messages.length > 0, "pointing at a middle entry must return a bounded page");
+		assert.ok(
+			page.messages.some((message) => message.id === "m00500"),
+			"jump page must include the exact target entry",
+		);
 		assert.ok(typeof page.nextBefore === "number" && page.nextBefore < 500, `游标必须落在锚点之前：nextBefore=${page.nextBefore}`);
 	});
 });

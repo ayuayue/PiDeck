@@ -5,7 +5,7 @@
  * 为什么需要：跳转入口拿到的是文件条目 id（会话内查找、刻度命中），而旧路径第一步就把它
  * 换成 messageId 去已加载列表里找 —— 目标没加载时必然 -1，于是只能「补一页、看看在不在、
  * 不在再补」。跳得越远补得越多，用户看到的是「一直在加载」「都要点很多次」。
- * 主进程 readRecordMessagePage 的 beforeEntryId 直接吃 entryId，一次取到含目标的整页。
+ * The main-process page reader includes the target entry in this one bounded read.
  *
  * 三条防呆，都是「别让它自己转起来」：
  * 1. 只取一次（pageFetched）：取回来还是没有，说明目标不在这一页之前，继续取是空转；
@@ -48,7 +48,7 @@ export interface JumpPageFetchPorts {
 	sessionId: string | undefined;
 	/** 历史前缀的版本号（缓存条目的 revision）；没有缓存时传 0，prepend 会自己拒。 */
 	revision: number | undefined;
-	readRecordMessagePage: (sessionId: string, before?: number, pageSize?: number, options?: { beforeEntryId?: string }) => Promise<SessionMessagePage>;
+	readRecordMessagePage: (sessionId: string, before?: number, pageSize?: number, options?: { beforeEntryId?: string; includeBeforeEntry?: boolean }) => Promise<SessionMessagePage>;
 	prependHistoryPage: (input: { sessionId: string; expectedRevision: number; before?: number | null; page: SessionMessagePage }) => boolean;
 	/**
 	 * 清掉该会话的历史前缀。只在 prepend 被拒后调用一次。
@@ -84,7 +84,7 @@ export function useJumpPageFetch(ports: JumpPageFetchPorts) {
 		const requestOwnerKey = pendingJump.ownerKey;
 		// 先落标记再发请求：无论成功失败都只发一次。
 		setPendingJump({ ownerKey: requestOwnerKey, value: { ...pendingJump.value, pageFetched: true, nonce: pendingJump.value.nonce + 1 } });
-		void readRecordMessagePage(sessionId, undefined, JUMP_PAGE_TURN_SIZE, { beforeEntryId: plan.beforeEntryId })
+		void readRecordMessagePage(sessionId, undefined, JUMP_PAGE_TURN_SIZE, { beforeEntryId: plan.beforeEntryId, includeBeforeEntry: true })
 			.then((page) => {
 				if (currentOwnerKey !== requestOwnerKey) return;
 				// 撑爆前缀上限时别 prepend：prependSessionHistoryPageAtom 会把整页丢掉并把游标置成

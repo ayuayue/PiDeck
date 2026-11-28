@@ -28,12 +28,12 @@ function parseSessionPageSize(value: unknown): number | undefined {
 	return value;
 }
 
-function parseSessionPageOptions(value: unknown): { beforeEntryId?: string } | undefined {
+function parseSessionPageOptions(value: unknown): { beforeEntryId?: string; includeBeforeEntry?: boolean } | undefined {
 	if (value === undefined) return undefined;
-	if (!isRecord(value) || Object.keys(value).some((key) => key !== "beforeEntryId")) throw new Error("INVALID_SESSION_PAGE_OPTIONS");
-	if (value.beforeEntryId === undefined) return {};
-	if (typeof value.beforeEntryId !== "string" || !value.beforeEntryId.trim() || value.beforeEntryId.length > 256) throw new Error("INVALID_SESSION_PAGE_OPTIONS");
-	return { beforeEntryId: value.beforeEntryId };
+	if (!isRecord(value) || Object.keys(value).some((key) => key !== "beforeEntryId" && key !== "includeBeforeEntry")) throw new Error("INVALID_SESSION_PAGE_OPTIONS");
+	if (value.beforeEntryId !== undefined && (typeof value.beforeEntryId !== "string" || !value.beforeEntryId.trim() || value.beforeEntryId.length > 256)) throw new Error("INVALID_SESSION_PAGE_OPTIONS");
+	if (value.includeBeforeEntry !== undefined && typeof value.includeBeforeEntry !== "boolean") throw new Error("INVALID_SESSION_PAGE_OPTIONS");
+	return { ...(typeof value.beforeEntryId === "string" ? { beforeEntryId: value.beforeEntryId } : {}), ...(value.includeBeforeEntry === true ? { includeBeforeEntry: true } : {}) };
 }
 
 export type SessionMessageReadIpcDeps = Pick<SessionIpcDeps, "sessionCatalog" | "sessionRuntimeCoordinator" | "agentManager" | "appLogger" | "getMainWindow" | "readImageSessionMessages" | "readRemoteSessionHistoryPage" | "readVideoSessionMessages"> & {
@@ -328,7 +328,7 @@ export function registerSessionMessageReadIpc(deps: SessionMessageReadIpcDeps): 
 			// 未命中（缓存未覆盖/非活跃会话）回退 SessionHistoryReader 读文件。
 			// 注意：缓存按 transient agentId 键控，必须经 coordinator 把稳定 sessionId
 			// 解析成当前运行时 agentId；解析不到（非活跃/终端绑定）直接走文件路径。
-			if (options?.beforeEntryId || typeof before === "number") {
+			if ((options?.beforeEntryId || typeof before === "number") && !options?.includeBeforeEntry) {
 				const target = sessionRuntimeCoordinator.getTarget(sessionId);
 				if (target) {
 					const cached = await agentManager
@@ -341,7 +341,7 @@ export function registerSessionMessageReadIpc(deps: SessionMessageReadIpcDeps): 
 					if (cached) return cached;
 				}
 			}
-			page = await agentManager.readSessionDisplayTurnPage(entry.filePath, sessionId, before, pageSize, options?.beforeEntryId, { projectId: entry.projectId });
+			page = await agentManager.readSessionDisplayTurnPage(entry.filePath, sessionId, before, pageSize, options?.beforeEntryId, { projectId: entry.projectId, includeBeforeEntry: options?.includeBeforeEntry });
 			await backfillHistoricalSessionMetadata(sessionId, page);
 			return page;
 		} catch (error) {
