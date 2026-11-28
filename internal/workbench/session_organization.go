@@ -136,7 +136,32 @@ func (a *app) setSessionGroup(id, path string) {
 	})
 }
 
+func (a *app) canChangeGroupPath(ws *workspace, from, to string) bool {
+	if ws == nil || (to != "" && sessionGroupPath(to) == "") {
+		return false
+	}
+	if to == "" {
+		return true
+	}
+	for id, group := range a.organization.Get().Groups {
+		if group != from && !strings.HasPrefix(group, from+"/") {
+			continue
+		}
+		s := a.findSession(id)
+		if s == nil || s.WS != ws.Path || s.Target != ws.Target {
+			continue
+		}
+		if sessionGroupPath(to+strings.TrimPrefix(group, from)) == "" {
+			return false
+		}
+	}
+	return true
+}
+
 func (a *app) changeGroupPath(ws *workspace, from, to string) {
+	if !a.canChangeGroupPath(ws, from, to) {
+		return
+	}
 	a.changeSessionOrganization(func(org *sessionOrganization) {
 		for id, group := range org.Groups {
 			if group != from && !strings.HasPrefix(group, from+"/") {
