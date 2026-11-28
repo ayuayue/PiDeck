@@ -8,7 +8,7 @@ import type { ChatMessage, ImageContent } from "../../../../shared/types";
 import { replaceExpandedRefBlocksWithLabels } from "./composer/quoteChip";
 import { Button } from "../ui-shadcn/button";
 import { DiagnosticMessageCard, EmptyState, MultiSelectModal, RespondingIndicator, TurnRow, UserBubble, stripMarkdown } from "./SurfaceParts";
-import { getMultiSelectImageCaptureIds, groupToolMessages, reconcileRuns, type RenderMessage } from "../app/AppUtils";
+import { getMultiSelectImageCaptureIds, groupToolMessages, groupToolMessagesCached, reconcileRuns, type RenderMessage } from "../app/AppUtils";
 import {
 	liveThinkingIdBySessionIdAtomFamily,
 	liveTextStreamingBySessionAtom,
@@ -394,18 +394,21 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 	// runtime history 变化只有三种：头部补页（prepend）、尾部并入 slideOut（append）、
 	// 版本失效重建。前两种保留旧消息引用，可增量 group，避免每次补页都全量重建历史。
 	const historyGroupStateRef = useRef<{
+		sessionId: string;
 		messages: readonly ChatMessage[] | undefined;
+		agentBusy: boolean;
 		groups: RenderMessage[];
-	}>({ messages: undefined, groups: [] });
+	}>({ sessionId, messages: undefined, agentBusy: false, groups: [] });
 	const groupedHistoryRuns = useMemo(() => {
 		const next = runtimeHistoryMessages;
 		const state = historyGroupStateRef.current;
 		if (next === undefined) {
-			historyGroupStateRef.current = { messages: undefined, groups: [] };
+			historyGroupStateRef.current = { sessionId, messages: undefined, agentBusy: isTurnRunning, groups: [] };
 			return null;
 		}
-		if (state.messages === next) return state.groups;
-		const prev = state.messages;
+		if (state.sessionId === sessionId && state.agentBusy === isTurnRunning && state.messages === next) return state.groups;
+		const canExtend = state.sessionId === sessionId && state.agentBusy === isTurnRunning;
+		const prev = canExtend ? state.messages : undefined;
 		let groups: RenderMessage[];
 		if (prev && isMessagePrefix(prev, next)) {
 			const appended = next.slice(prev.length);
@@ -414,13 +417,11 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 			const prepended = next.slice(0, next.length - prev.length);
 			groups = [...groupToolMessages(prepended, { agentBusy: isTurnRunning }), ...state.groups];
 		} else {
-			groups = groupToolMessages(next, { agentBusy: isTurnRunning });
+			groups = groupToolMessagesCached(next, { agentBusy: isTurnRunning });
 		}
-		historyGroupStateRef.current = { messages: next, groups };
-		// Turn activity participates in history grouping: when context compaction
-		// starts after agent_end, the preceding assistant reply becomes final.
+		historyGroupStateRef.current = { sessionId, messages: next, agentBusy: isTurnRunning, groups };
 		return groups;
-	}, [runtimeHistoryMessages, isTurnRunning]);
+	}, [sessionId, runtimeHistoryMessages, isTurnRunning]);
 	// The window segment follows the same turn-level activity rule as history.
 	// DSH 已作答回显内联注入：应答时记录的锚点（最后一条消息 id）即提问阻塞的
 	// 工具调用位置，把回显合成为 ask_question 工具消息插在其后，走 pi _askCard
@@ -440,12 +441,12 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 	}, [askEchoEntry, runtime?.agentId, runtime?.runtimeGeneration]);
 	const echoedWindowMessages = useMemo(() => injectAskEchoMessage(controller.messages, askEchoPlacement), [controller.messages, askEchoPlacement]);
 	const echoedPaginatedMessages = useMemo(() => injectAskEchoMessage(paginatedMessages, askEchoPlacement), [paginatedMessages, askEchoPlacement]);
-	const groupedWindowRuns = useMemo(() => groupToolMessages(echoedWindowMessages, { agentBusy: isTurnRunning }), [echoedWindowMessages, isTurnRunning]);
+	const groupedWindowRuns = useMemo(() => (groupedHistoryRuns ? groupToolMessagesCached(echoedWindowMessages, { agentBusy: isTurnRunning }) : null), [groupedHistoryRuns, echoedWindowMessages, isTurnRunning]);
 	const renderedRuns = useMemo(() => {
 		if (groupedHistoryRuns) {
-			return [...groupedHistoryRuns, ...groupedWindowRuns];
+			return [...groupedHistoryRuns, ...(groupedWindowRuns ?? [])];
 		}
-		return groupToolMessages(echoedPaginatedMessages, { agentBusy: isTurnRunning });
+		return groupToolMessagesCached(echoedPaginatedMessages, { agentBusy: isTurnRunning });
 	}, [groupedHistoryRuns, groupedWindowRuns, echoedPaginatedMessages, isTurnRunning]);
 	// 阶段0补强：对未变化的 run 复用旧对象引用，历史 run 的 memo 比较退化为 O(1)
 	const prevRenderedRunsRef = useRef<RenderMessage[] | undefined>(undefined);

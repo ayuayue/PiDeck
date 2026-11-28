@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+const { groupToolMessagesCached } = loadTsCommonJs("src/renderer/src/components/app/appUtils/groupMessages.ts");
 
 /**
  * 扩展输出条目（appendEntry 投影卡 meta.type=customEntry）折进过程组的分组行为。
@@ -189,6 +190,26 @@ test("groupTurnProcess 把扩展输出折进过程组且不计入工具数", () 
 		Array.from(nodes[0].members, (member) => member.kind),
 		["tool-entry", "extension-entry"],
 	);
+});
+test("groupToolMessagesCached reuses the same immutable snapshot", () => {
+	const messages = [userMessage("cache-user"), assistantMessage("cache-assistant", "回答", "stop")];
+	const first = groupToolMessagesCached(messages);
+	const second = groupToolMessagesCached(messages);
+	assert.equal(second, first, "same message array must reuse derived rows");
+});
+
+test("groupToolMessagesCached separates busy and idle derivations", () => {
+	const messages = [userMessage("busy-user"), assistantMessage("busy-assistant", "回答", "stop")];
+	const idle = groupToolMessagesCached(messages, { agentBusy: false });
+	const busy = groupToolMessagesCached(messages, { agentBusy: true });
+	assert.notEqual(busy, idle, "agentBusy changes error-boundary semantics");
+	assert.equal(groupToolMessagesCached(messages, { agentBusy: false }), idle);
+});
+
+test("groupToolMessagesCached invalidates a new array snapshot", () => {
+	const firstMessages = [userMessage("first-user"), assistantMessage("first-assistant", "第一版", "stop")];
+	const secondMessages = [...firstMessages, assistantMessage("second-assistant", "第二版", "stop")];
+	assert.notEqual(groupToolMessagesCached(firstMessages), groupToolMessagesCached(secondMessages));
 });
 
 test("sameAgentRunForRender 对 extension-entries 内容变化敏感", () => {

@@ -31,7 +31,7 @@ export { getMultiSelectImageCaptureIds, sameAgentRunForRender, sameChatMessageFo
 export { reconcileRuns } from "./appUtils/reconcileRuns";
 
 /* ── 消息分组 ── */
-export { groupToolMessages, messageEndedAt } from "./appUtils/groupMessages";
+export { groupToolMessages, groupToolMessagesCached, messageEndedAt } from "./appUtils/groupMessages";
 
 /* ── 会话大纲 ── */
 export { buildOutline } from "./appUtils/outline";
