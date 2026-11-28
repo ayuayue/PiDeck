@@ -18,7 +18,18 @@ func (a *app) remember() {
 		return
 	}
 	tabs := slices.Concat(a.tabs.GetUntracked(), a.pendingTabs)
+	preview := ""
+	if a.previewTab != nil {
+		preview = a.previewTab.GetUntracked()
+	}
+	tabs = slices.DeleteFunc(tabs, func(id string) bool { return id == preview })
 	last := a.activeID.GetUntracked()
+	if preview != "" && last == preview {
+		last = ""
+		if len(tabs) > 0 {
+			last = tabs[len(tabs)-1]
+		}
+	}
 	if a.pendingActive != "" {
 		last = a.pendingActive
 	}
@@ -63,7 +74,7 @@ func (a *app) selectSession(s *session) {
 	} else {
 		a.activeWS.Set("")
 	}
-	a.addTab(s.ID)
+	a.openSessionTab(s.ID)
 	a.revealTab(s.ID)
 	a.openSessionHistory(s)
 	if a.drawer.GetUntracked() && a.drawerTab.GetUntracked() == "git" {
@@ -89,8 +100,11 @@ func (a *app) openWorkspaceKey(key string) {
 	}
 }
 
-// addTab appends a tab once.
+// addTab appends a fixed tab once.
 func (a *app) addTab(id string) {
+	if a.isPreviewTab(id) {
+		a.previewTab.Set("")
+	}
 	found := false
 	for _, t := range a.tabs.GetUntracked() {
 		if t == id {
@@ -152,6 +166,9 @@ func (a *app) closeTab(id string) {
 		return
 	}
 	next := append(append([]string(nil), tabs[:ix]...), tabs[ix+1:]...)
+	if a.isPreviewTab(id) {
+		a.previewTab.Set("")
+	}
 	a.retireSessionPrewarm(a.byID[id])
 	a.tabs.Set(next)
 	a.forgetTab(id)

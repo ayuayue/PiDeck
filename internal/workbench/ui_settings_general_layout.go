@@ -57,9 +57,19 @@ func (a *app) generalLayoutSettings() core.Node {
 				OnChange:  func(v float64) { a.setTabWidthPct(int(v)) }},
 				func() string { return tabWidthLabel(a.tabWidthPct()) }, "紧凑", "宽松")),
 		setDivider(),
-		setRow("恢复布局默认值", "内容宽度恢复为 80%，标签页宽度恢复为标准。",
+		setRow("标签打开方式", "预览仅保留一个临时标签；双击或右键可固定。新建会话与发送消息时自动固定。",
+			ui.Select[string]{Options: []ui.Option[string]{
+				{Value: tabOpenPreview, Label: apptext.T("预览")}, {Value: tabOpenFixed, Label: apptext.T("固定")},
+			}, Value: func() string { return tabOpenMode(a.cfg.TabOpenMode) }, OnChange: a.setTabOpenMode,
+				Label: apptext.T("标签打开方式"), TestID: "tab-open-mode", Style: settingsSelectStyle()}),
+		setDivider(),
+		setRow("恢复布局默认值", "内容宽度恢复为 80%，标签页宽度恢复为标准，标签打开方式恢复为预览。",
 			ui.Button{Text: apptext.T("恢复默认"), Size: ui.SizeSmall, Variant: ui.ButtonGhost, TestID: "general-layout-reset",
-				OnPress: func() { a.setChatWidthPct(chatWidthPctDefault); a.setTabWidthPct(tabWidthPctDefault) }}),
+				OnPress: func() {
+					a.setChatWidthPct(chatWidthPctDefault)
+					a.setTabWidthPct(tabWidthPctDefault)
+					a.setTabOpenMode(tabOpenPreview)
+				}}),
 	)
 }
 

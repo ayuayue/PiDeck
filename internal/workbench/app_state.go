@@ -349,6 +349,8 @@ type app struct {
 	workspaces *core.Signal[[]*workspace]
 	activeWS   *core.Signal[string]
 	tabs       *core.Signal[[]string]
+	// previewTab is the one temporary session tab; it is not restored on launch.
+	previewTab *core.Signal[string]
 	activeID   *core.Signal[string]
 	// railTab is the rail's visible column: activity, chat or projects.
 	railTab *core.Signal[string]

@@ -72,10 +72,13 @@ func (a *app) tab(cx *core.Scope, id func() string) core.Node {
 		Trigger: core.View{
 			TestID: "tab",
 			Ref:    a.tabRef(id()),
-			OnPress: func(core.PressEvent) {
+			OnPress: func(event core.PressEvent) {
 				a.clearSessionHover()
 				if s := sess(); s != nil {
 					a.selectSession(s)
+					if event.Clicks >= 2 {
+						a.fixTab(s.ID)
+					}
 				}
 			},
 			Role: core.RoleButton, LabelFunc: func() string { return sess().title.Get() },
@@ -96,7 +99,13 @@ func (a *app) tab(cx *core.Scope, id func() string) core.Node {
 					}}
 				}},
 				core.Text{ContentFunc: func() string { return sess().title.Get() }, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-					Style: core.Style{FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 13, LineHeight: 18}, StyleFunc: ui.Colored(colors.Text)},
+					Style: core.Style{FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 13, LineHeight: 18}, StyleFunc: func() core.Style {
+						style := core.Style{Color: colors.Text(), FontStyle: core.FontStyleNormal}
+						if a.isPreviewTab(id()) {
+							style.FontStyle = core.FontStyleItalic
+						}
+						return style
+					}},
 				core.View{OnPress: func(core.PressEvent) { a.closeTab(id()) }, Role: core.RoleButton, Label: apptext.T("关闭标签页"),
 					StyleFunc: func() core.Style {
 						return core.Style{Width: core.Pt(19), Height: core.Pt(19), CornerRadius: 5, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
@@ -117,6 +126,9 @@ func (a *app) tab(cx *core.Scope, id func() string) core.Node {
 func (a *app) tabMenuItems(id func() string) []core.Node {
 	sess := func() *session { return a.byID[id()] }
 	return append([]core.Node{
+		core.Show{When: func() bool { return a.isPreviewTab(id()) }, Then: func(*core.Scope) core.Node {
+			return a.menuRow(a.cx, lucide.Pin, "固定标签页", "", false, func() { a.fixTab(id()) })
+		}},
 		a.menuRow(a.cx, lucide.X, "关闭标签页", "", false, func() { a.closeTab(id()) }),
 		ui.Submenu{Text: apptext.T("关闭多个标签"), Icon: lucide.PanelsTopLeft, Back: apptext.T("关闭多个标签"), TestID: "session-close-tabs-menu",
 			Children: []core.Node{

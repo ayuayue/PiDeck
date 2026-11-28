@@ -31,6 +31,7 @@ func newApp(cx *core.Scope) *app {
 		workspaces:        core.NewSignalFunc(cx, []*workspace{}, nil),
 		activeWS:          core.NewSignal(cx, ""),
 		tabs:              core.NewSignalFunc(cx, []string{}, nil),
+		previewTab:        core.NewSignal(cx, ""),
 		activeID:          core.NewSignal(cx, ""),
 		railTab:           core.NewSignal(cx, railTabProjects),
 		projectMoreOpen:   core.NewSignal(cx, ""),

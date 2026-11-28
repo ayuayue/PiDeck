@@ -30,6 +30,7 @@ func (a *app) newACPSession(ws *workspace, preset acpPreset) *session {
 	ws.ACPPreset = preset.ID
 	a.saveProjects()
 	ws.Sessions.Update(func(ss []*session) []*session { return append([]*session{s}, ss...) })
+	a.addTab(s.ID)
 	a.selectSession(s)
 	a.sessionCreated(s, "acp")
 	return s

@@ -16,7 +16,7 @@ import (
 
 // configVersion is the shape of config.json this build writes. A file
 // from an older build is migrated on load and written back once.
-const configVersion = 7
+const configVersion = 8
 
 // chatWidthPtMin and chatWidthPtMax were the old chat width slider's
 // range in points; they convert a config written before percentages. The
@@ -121,6 +121,12 @@ func migrateConfig(c *config, raw []byte) bool {
 		c.Version = 7
 		changed = true
 	}
+	if c.Version < 8 {
+		// Existing saved tabs remain fixed; newly opened sessions use previews.
+		c.TabOpenMode = tabOpenPreview
+		c.Version = 8
+		changed = true
+	}
 	return normalizeConfig(c) || changed
 }
 
@@ -145,6 +151,10 @@ func normalizeConfig(c *config) bool {
 		}
 	}
 	trim(&c.SessionSort)
+	if mode := tabOpenMode(strings.TrimSpace(c.TabOpenMode)); c.TabOpenMode != mode {
+		c.TabOpenMode = mode
+		changed = true
+	}
 	trim(&c.ProjectSort)
 	trim(&c.Language)
 	trim(&c.ProxyApp)

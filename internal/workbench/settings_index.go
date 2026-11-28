@@ -40,6 +40,7 @@ var settingsIndex = []settingEntry{
 	{"general", "语言", "language locale english chinese traditional korean japanese russian french 简体 繁体 韩文 日文 俄语 法语 한국어 日本語 Русский Français"},
 	{"general", "内容宽度", "chat width content reading column narrow wide percentage percent 宽度 百分比"},
 	{"general", "标签页宽度", "tab width bar label title compact wide Tab 栏宽度 标签 宽度 紧凑 宽松"},
+	{"general", "标签打开方式", "tab open mode preview fixed pin 标签 预览 固定 双击"},
 	{"general", "恢复布局默认值", "reset default layout width 布局 默认 恢复 宽度"},
 	{"general", "项目排序", "project sort order recent created title"},
 	{"general", "会话排序", "session sort name updated 会话 排序 名称 活动"},

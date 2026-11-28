@@ -103,6 +103,8 @@ type config struct {
 	// window width; 0 keeps the default. Long titles are the reason to
 	// widen it.
 	TabWidthPct int `json:"tabWidthPct,omitempty"`
+	// TabOpenMode opens sessions as a replaceable preview or a fixed tab.
+	TabOpenMode string `json:"tabOpenMode,omitempty"`
 	// GitChangesView lists the Git drawer's changes as a tree ("tree",
 	// the default) or as a flat list ("flat").
 	GitChangesView string `json:"gitChangesView,omitempty"`

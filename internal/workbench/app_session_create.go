@@ -141,6 +141,7 @@ func (a *app) newProjectSession(ws *workspace) *session {
 		a.expireHeldWarmPi(s, warm, piWarmTTL)
 	}
 	ws.Sessions.Update(func(ss []*session) []*session { return append([]*session{s}, ss...) })
+	a.addTab(s.ID)
 	a.selectSession(s)
 	origin := "project"
 	if ws.Chat {

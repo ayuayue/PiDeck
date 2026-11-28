@@ -49,6 +49,7 @@ func (a *app) submitTurn(s *session, text string, images []remotewire.Image, pla
 		a.askTrust(ws, func() { a.submitTurn(s, text, images, plan) })
 		return
 	}
+	a.fixTab(s.ID)
 	s.cancelPrewarm()
 	s.prewarming = false
 	original := text
