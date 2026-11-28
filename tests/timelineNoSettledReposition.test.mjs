@@ -101,6 +101,10 @@ function timelineHarness() {
 					{ kind: "message", message: messages[0] },
 					{ kind: "agent-run", id: "a1", steps: [], finalAnswer: messages[1] },
 				],
+				groupToolMessagesCached: () => [
+					{ kind: "message", message: messages[0] },
+					{ kind: "agent-run", id: "a1", steps: [], finalAnswer: messages[1] },
+				],
 				reconcileRuns: (_previous, next) => next,
 			},
 			"./SurfaceParts": {},

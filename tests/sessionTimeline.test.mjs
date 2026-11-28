@@ -178,16 +178,13 @@ test("prepend scroll compensation is skipped while following bottom and pins the
 	// 跟底中/浏览代数过期（autoScrollRef=true 或 generation 不匹配）不恢复旧锚点：
 	// 贴底引擎负责生长补偿，迟到分页也不得把刚回底的视口重新插页；
 	// 滚动翻页钉正在看的那一轮（pinBrowseRow），禁止按整页 scrollHeight 差写原生 scrollTop。
-	// 早退分支必须同时做两件事：释放锚点 + 释放 prependSolid。0a3bab5 在两者之间补了
-	// endPrependSolid()（否则 beginPrependSolid 只能靠 1.5s 超时解除，期间强制整表渲染），
-	// 原断言要求 return 紧跟 loadMoreAnchorRef 赋值，补了这一行就红——是测试跟不上代码。
-	assert.match(source, /if \(autoScrollRef\.current \|\| anchor\.value\.generation !== historyBrowseGenerationRef\.current\) \{\n\s*loadMoreAnchorRef\.current = undefined;[\s\S]{0,240}?endPrependSolid\(\);\n\s*return;\n\s*\}/);
+	// Stale pages may cache data, but must not restore a previous session's viewport.
+	assert.match(source, /if \(autoScrollRef\.current \|\| anchor\.value\.generation !== historyBrowseGenerationRef\.current\) \{\n\s*loadMoreAnchorRef\.current = undefined;\n\s*return;\n\s*\}/);
+	assert.doesNotMatch(source, /endPrependSolid/);
 	assert.match(source, /if \(anchor\.value\.preserveAtTop\) \{\n\s*pinBrowseRow\(\);/);
 	assert.doesNotMatch(source, /timeline\.scrollTop = nextScrollTop/);
 	// 顶部不补偿路径仍需抑制本帧 scroll；守卫由代数化 rAF 清理，不能再用会
 	// 被定时窗口永久锁住的独立 boolean。
-	// 窗口放宽到 600：该分支现在带「为什么不补偿」与「为什么必须 endPrependSolid」两段注释，
-	// 180 字符会被注释本身撑破（注释是正当改动，不该逼代码删注释）。
 	assert.match(source, /if \(nextScrollTop === null\) \{[\s\S]{0,600}?markProgrammaticScroll\(\);/);
 	assert.match(source, /finishProgrammaticScrollFrame\(guard, generation\)/);
 	assert.doesNotMatch(source, /programmaticScrollRef/);
@@ -255,81 +252,14 @@ test("prepend rejection surfaces a retryable message instead of failing silently
 	}
 });
 
-test("prepend solid frame close is invalidated by token so a later begin survives", () => {
-	// endPrependSolid 的「推迟一帧关掉整表渲染」原本不可取消：上一页的关闭会在下一帧无条件
-	// setPrependSolid(false)。若同一帧内又 begin 过（连点按钮、或多条路径同时补页），整表渲染
-	// 被提前撤掉 → 插进来的行随即被虚拟化卸载 → pinBrowseRow 找不到钉住的行、位移补不上，
-	// 表现为「内容变多了，但视口轻轻跳一下」。
-	// 这类守卫删掉后所有行为测试都不会红（只在竞态下失效），只能用源码断言钉住。
-	assert.match(source, /const token = \+\+prependSolidTokenRef\.current;/, "end 排帧前必须取代数");
-	assert.match(source, /if \(prependSolidTokenRef\.current !== token\) return;/, "rAF 回调必须比对代数，过期即放弃关闭");
-	assert.match(source, /const beginPrependSolid = useCallback\(\(\) => \{\n\s*prependSolidTokenRef\.current \+= 1;/, "begin 必须递增代数以作废旧帧");
-});
-
-test("prepend solid close is owned by batch consumption, not by the window layout effect", () => {
-	// 关闭整表渲染只能挂在「整批消费完」上：若挂回 SessionMessageTimeline 的 useLayoutEffect
-	// （每帧 turns 变化就关），连点时每帧关一次 → 上一帧的关闭把新 start 的状态撤掉 →
-	// 状态机卡在 true 直到 1.5s 兜底，中间每次插入都是一次重排，视口照跳。
-	// 这类职责搬家，行为测试全绿也发现不了，只能用源码断言钉住边界。
-	const timelineSource = readFileSync("src/renderer/src/components/session/SessionMessageTimeline.tsx", "utf8");
-	const layoutEffect = timelineSource.match(/useLayoutEffect\(\(\) => \{[\s\S]*?prev\.turns !== turnWindowTurns[\s\S]*?\}, \[[^\]]*\]\);/);
-	assert.ok(layoutEffect, "找不到扩窗布局效应的源码块");
-	assert.doesNotMatch(layoutEffect[0], /endPrependSolid/, "关闭整表渲染不得挂回每帧布局效应");
-	assert.match(layoutEffect[0], /pinBrowseRow\(\)/, "补位移仍必须留在这一拍");
-	assert.doesNotMatch(source, /\} else \{[\s\S]{0,420}?endPrependSolid\(\);/, "批次归零分支不得关闭整表渲染：扩窗不再打开它，这里关一次就会撤掉 scroll 路径正在等的整表渲染");
-});
-
-test("top-anchored prepend skips compensation but must still end prepend solid", () => {
-	// 视口贴顶（top <= HISTORY_AUTO_LOAD_THRESHOLD = 8px）时 resolveTimelineTopCompensation 返回 null，
-	// 脚本有意不补偿：插入内容留在上方，用户点「加载更多」要看到的就是这批更早的消息。
-	// 但「不补偿」不等于「不结束整表渲染」——漏掉 endPrependSolid 会让整表渲染拖到 1.5s 兜底超时，
-	// 超时那刻虚拟化接管、未挂载行从实测高度回退估算、总高度突变 → 重排 → 视口轻跳。
-	// 这类「分支里少一行」行为测试抓不到，只能钉源码。
-	const nullBranch = source.match(/if \(nextScrollTop === null\) \{[\s\S]*?\n\t\t\}/);
-	assert.ok(nullBranch, "找不到 nextScrollTop === null 分支");
-	assert.match(nullBranch[0], /endPrependSolid\(\)/, "贴顶分支消费完锚点后必须结束整表渲染");
-	assert.doesNotMatch(nullBranch[0], /pinViewportAfterPrepend/, "贴顶分支不得补偿，否则画面停在原地像点了没反应");
-});
-
-test("a page load that never commits must end prepend solid in finally", () => {
-	// 失败/空页/被拒/prepend 未落地：useLayoutEffect 依赖 visibleMessages.length，
-	// 没插入就不跑、也就没人 end —— 整表渲染只能等 1.5s 兜底，超时那刻虚拟化接管、
-	// 行高从实测回退估算、总高度突变 -> 重排 -> 视口抖。点几次就种几次跳。
-	const opens = source.match(/beginPrependSolid\(\);/g) ?? [];
-	assert.equal(opens.length, 2, "只剩两处 begin：分页两条 promise 链各一处；扩窗那处已移除（改由 pinnedRunKeys 强制挂载钉行）");
-	const finallyBlocks = source.match(/\.finally\(\(\) => \{[\s\S]*?if \(needsSolid && !insertionCommitted\) endPrependSolid\(\);/g) ?? [];
-	assert.equal(finallyBlocks.length, 2, "两条 promise 链各一个 finally");
-	for (const block of finallyBlocks) {
-		assert.match(block, /if \(needsSolid && !insertionCommitted\) endPrependSolid\(\);/, "没落地的请求必须在 finally 自己关整表渲染（且只在这次真的开过时才关）");
-	}
-	assert.equal((source.match(/insertionCommitted = true;/g) ?? []).length, 2, "只有真的 prepend 成功才算落地");
-});
-
-test("button 翻页不关闭虚拟化：只有 scroll 路径才开整表渲染", () => {
-	// 用户点「加载更多」时把 100+ 轮全部真实挂载，是「点了就卡」的主因。
-	// 只有 scroll 路径需要：它按 messageId 查 DOM 行做 pin（pinBrowseRow）。
-	// button / backfill 走 scrollHeight 差值补偿，不查 DOM。
-	assert.match(source, /const needsSolid = source === "scroll";/, "开关必须只由 source 决定");
-	const unguarded = source.match(/^\t+beginPrependSolid\(\);$/gm) ?? [];
-	assert.equal(unguarded.length, 0, "不允许任何无条件 begin：begin 的唯一来源是 needsSolid 分支，否则摘不掉扩窗期的整表渲染");
-	assert.equal((source.match(/if \(needsSolid && !insertionCommitted\) endPrependSolid\(\);/g) ?? []).length, 2, "finally 的 end 也必须带条件");
-	assert.doesNotMatch(source, /if \(!insertionCommitted\) endPrependSolid\(\);/, "不带条件的 end 会关掉别处开的整表渲染");
+test("top-pinned history insert keeps the current browse row stable", () => {
+	const branch = source.match(/if \(anchor\.value\.preserveAtTop\) \{[\s\S]*?\n\t\t\}/);
+	assert.ok(branch, "missing top-pinned prepend branch");
+	assert.match(branch[0], /pinBrowseRow\(\)/);
+	assert.doesNotMatch(branch[0], /scrollTop\s*=/);
 });
 
 test("empty history page expands the render window instead of leaving a dead button", () => {
-	// 数据已经到会话开头时，游标仍指向窗口首条带 entryId 的消息（runtime 没有
-	// windowStart 时无法区分「整段已加载」）。点「加载更多对话」会拿到 0 条，
-	// prepend 对空页返回 true 并清空游标；此时若不推进渲染窗口，这次点击毫无变化，
-	// 恢复链也永远挂不出窗口外的锚点（#477 e2e：点完仍在尾部、锚点未挂载）。
 	const branches = source.match(/else if \(page\.messages\.length === 0 && windowExpandableRef\.current\) \{[\s\S]*?expandWindowBatched\(TIMELINE_WINDOW_EXPAND_STEP\);/g) ?? [];
-	assert.equal(branches.length, 2, "disk / runtime 两条翻页链都要有空页回退");
-});
-
-test("没打开整表渲染的翻页不得调用 endPrependSolid", () => {
-	// end 会 ++token 并排一帧 setPrependSolid(false)。button 路径不开整表渲染，
-	// 若消费点仍无条件 end，就会把扩窗路径刚打开、还在消费中的整表渲染关掉。
-	const bare = source.match(/^\t+endPrependSolid\(\);$/gm) ?? [];
-	assert.equal(bare.length, 0, "不允许任何无条件 end：扩窗已不 begin，再 end 就是替别人关灯（与 651701300 同一形状）");
-	assert.equal((source.match(/if \(anchor\.value\.solidOpened\) endPrependSolid\(\);/g) ?? []).length, 4, "四处消费点都必须带 solidOpened 条件");
-	assert.match(source, /solidOpened: source === "scroll",/, "锚点必须记录这次是否开过整表渲染");
+	assert.equal(branches.length, 2, "disk / runtime reads both need the empty-page window fallback");
 });

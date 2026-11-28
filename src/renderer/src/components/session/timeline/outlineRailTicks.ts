@@ -178,28 +178,88 @@ export type OutlineRailItem = { id: string; role: string; title: string; time: s
  * 只合并用户提问：助手回复不进刻度（见 buildOutline），早先「助手挂到前一条用户消息」
  * 的分桶逻辑随之删除。
  */
+/**
+ * 状态栏「N 轮」取导轨的条数——**直接调 mergeOutlineRailItems**，不另算一遍。
+ *
+ * 为什么不另算：原先这里是 Math.max(countUserTurns(messages), directory.length)，
+ * 而 countUserTurns 对连续两条 user 只算 1 轮，导轨对每条 user 都留一个刻度。
+ * 用户连发两条时状态栏就比导轨少 1，真机看到的是「多出来的那个刻度」
+ * （面板 79 条 / 状态栏 78 轮，两条同时间戳、一条是另一条前缀）。
+ *
+ * 也不要用 max(每条user计数, 目录长度) 近似：目录里没有的已加载项会被 merge 追加到尾部，
+ * max 数不到那一条，差 1 会以另一种形式回来（实测 60 vs 61）。
+ * 同一真值只在一处算：算在 mergeOutlineRailItems 里，状态栏读它的 length。
+ *
+ * 判据：tests/outlineTurnCountParity.test.mjs。
+ */
+export function sessionTurnCountOf(loaded: readonly OutlineRailItem[], directoryEntryIds: readonly string[]): number {
+	return mergeOutlineRailItems(
+		loaded,
+		directoryEntryIds.map((entryId) => ({ entryId, title: "", time: "" })),
+	).length;
+}
+/**
+ * 导轨去重键：**entryId 与 messageId 是两个空间，不能混成一个键。**
+ *
+ * 反例（真的会发生）：某条已加载项的 entryId 恰好等于另一条的 messageId ——
+ * 用 `entryId ?? id` 当键时两条被判同一条，少一条刻度。少比多难发现：多了看得见，少要数。
+ * 加空间前缀后两个空间永不相等。判据：tests/outlineRailDuplicate.test.mjs。
+ */
+function railKeyOf(item: { entryId?: string; id: string }): string {
+	return item.entryId ? "e:" + item.entryId : "m:" + item.id;
+}
 export function mergeOutlineRailItems(loaded: readonly OutlineRailItem[], directory: readonly { entryId: string; title: string; time?: string }[]): OutlineRailItem[] {
 	const loadedUsers = loaded.filter((item) => item.role === "user");
-	if (directory.length === 0) return [...loadedUsers];
+	if (directory.length === 0) {
+		// 早退分支同样要去重：目录还没拉到（加载首帧、或索引未建）时走的就是这条路，
+		// 而「末尾多一条」正是在这种时刻出现的 —— 早退绕过去重等于判据只在有目录时成立。
+		const seen = new Set<string>();
+		const unique: OutlineRailItem[] = [];
+		for (const item of loadedUsers) {
+			const key = railKeyOf(item);
+			if (seen.has(key)) continue;
+			seen.add(key);
+			unique.push(item);
+		}
+		return unique;
+	}
 
 	const loadedByEntryId = new Map<string, OutlineRailItem>();
 	for (const item of loadedUsers) {
-		loadedByEntryId.set(item.entryId ?? item.id, item);
+		loadedByEntryId.set(railKeyOf(item), item);
 	}
 
 	const merged: OutlineRailItem[] = [];
 	const usedEntryIds = new Set<string>();
 	for (const entry of directory) {
-		const loadedItem = loadedByEntryId.get(entry.entryId);
+		// 目录里同一 entryId 出现两次时只留第一条：重复的刻度点下去落同一处，
+		// 用户看到的是「两条一样的」，而它们不是两条消息。
+		const key = "e:" + entry.entryId;
+		if (usedEntryIds.has(key)) continue;
+		// 读侧必须是同一个带前缀的键：Map 与 Set 共用一个键约定，否则跨空间撞键时
+		// 「目录那一格显示别的消息 + 真正那条消失 + 无关那条被追加」三件一起发生。
+		const loadedItem = loadedByEntryId.get(key);
 		if (loadedItem) {
 			merged.push(loadedItem);
-			usedEntryIds.add(entry.entryId);
+			usedEntryIds.add(key);
 			continue;
 		}
+		usedEntryIds.add(key);
 		merged.push({ id: `outline-pending:${entry.entryId}`, entryId: entry.entryId, role: "user", title: entry.title, time: entry.time ?? "", pending: true });
 	}
 	for (const item of loadedUsers) {
-		if (!usedEntryIds.has(item.entryId ?? item.id)) merged.push(item);
+		// 追加前也去重，并把键记进同一个 Set。
+		//
+		// 事故（真机 2026-11-27，用户描述「末尾有两个的 bug，还是没修好」）：
+		// 面板末尾出现两条一模一样的条目。盘上只有一条、目录也 112 条无重复、buildOutline
+		// 单跑也正常 —— 因为重复发生在**追加分支**：旧代码只检查 usedEntryIds（只在
+		// 「已加载项匹配到目录项」时才写入），若 loadedUsers 里出现两条同键（同 entryId，
+		// 或都没 entryId 于是都用 messageId），两条都不在 Set 里，于是都被追加 → 末尾两条一样的。
+		// 同一个 Set 既管「目录命中」又管「追加去重」，一次判定只有一个答案。
+		const key = railKeyOf(item);
+		if (usedEntryIds.has(key)) continue;
+		usedEntryIds.add(key);
+		merged.push(item);
 	}
 	return merged;
 }

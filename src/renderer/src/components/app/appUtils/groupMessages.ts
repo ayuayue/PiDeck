@@ -24,7 +24,7 @@ export function messageEndedAt(message: ChatMessage): number {
 	return typeof endedAt === "number" && Number.isFinite(endedAt) && endedAt > 0 ? endedAt : message.timestamp;
 }
 
-export function groupToolMessages(messages: ChatMessage[], options: { agentBusy?: boolean } = {}): RenderMessage[] {
+export function groupToolMessages(messages: readonly ChatMessage[], options: { agentBusy?: boolean } = {}): RenderMessage[] {
 	// agentBusy 决定 error 诊断卡是否打断当前 run（见下方 error 分支）
 	const { agentBusy = false } = options;
 	const result: RenderMessage[] = [];
@@ -373,4 +373,17 @@ export function groupToolMessages(messages: ChatMessage[], options: { agentBusy?
 	flushRun();
 
 	return result;
+}
+const groupedMessageCache = new WeakMap<readonly ChatMessage[], Map<boolean, RenderMessage[]>>();
+
+/** Reuse derived rows for an immutable message-array snapshot, including after switching sessions. */
+export function groupToolMessagesCached(messages: readonly ChatMessage[], options: { agentBusy?: boolean } = {}): RenderMessage[] {
+	const agentBusy = options.agentBusy ?? false;
+	const cached = groupedMessageCache.get(messages)?.get(agentBusy);
+	if (cached) return cached;
+	const groups = groupToolMessages(messages, { agentBusy });
+	const byBusyState = groupedMessageCache.get(messages) ?? new Map<boolean, RenderMessage[]>();
+	byBusyState.set(agentBusy, groups);
+	groupedMessageCache.set(messages, byBusyState);
+	return groups;
 }

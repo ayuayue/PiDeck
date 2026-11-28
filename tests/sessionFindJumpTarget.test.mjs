@@ -18,26 +18,26 @@ function projectedMessage(entryId, role = "assistant") {
 
 test("会话内查找命中（条目 id）归一到投影消息 id：这是跳转能落位的前提", () => {
 	const messages = [projectedMessage("e1", "user"), projectedMessage("e2"), projectedMessage("e3")];
-	assert.equal(resolveJumpMessageIndex(messages, "e2"), 1);
-	assert.equal(resolveJumpMessageIndex(messages, "e3"), 2);
+	assert.equal(resolveJumpMessageIndex(messages, { kind: "unknown", id: "e2" }), 1);
+	assert.equal(resolveJumpMessageIndex(messages, { kind: "unknown", id: "e3" }), 2);
 });
 
 test("刻度/大纲传投影 id 时仍走精确匹配（既有跳转语义不变）", () => {
 	const messages = [projectedMessage("e1"), projectedMessage("e2")];
-	assert.equal(resolveJumpMessageIndex(messages, "agent-1-history-e2"), 1);
+	assert.equal(resolveJumpMessageIndex(messages, { kind: "unknown", id: "agent-1-history-e2" }), 1);
 	// 消息 id 精确命中优先于 meta.entryId：同一条消息两种 id 都指它
-	assert.equal(resolveJumpMessageIndex(messages, "agent-1-history-e1"), 0);
+	assert.equal(resolveJumpMessageIndex(messages, { kind: "unknown", id: "agent-1-history-e1" }), 0);
 });
 
 test("目标还没加载进窗口时返回 -1：由挂起跳转按策略补页后重新归一", () => {
 	const messages = [projectedMessage("e5"), projectedMessage("e6")];
-	assert.equal(resolveJumpMessageIndex(messages, "e1"), -1);
+	assert.equal(resolveJumpMessageIndex(messages, { kind: "unknown", id: "e1" }), -1);
 });
 
 test("异常输入不抛：空 id / 没有 meta 的消息", () => {
-	assert.equal(resolveJumpMessageIndex([], "e1"), -1);
-	assert.equal(resolveJumpMessageIndex([projectedMessage("e1")], ""), -1);
-	assert.equal(resolveJumpMessageIndex([{ id: "synthetic-1" }, projectedMessage("e1")], "e1"), 1);
+	assert.equal(resolveJumpMessageIndex([], { kind: "unknown", id: "e1" }), -1);
+	assert.equal(resolveJumpMessageIndex([projectedMessage("e1")], { kind: "unknown", id: "" }), -1);
+	assert.equal(resolveJumpMessageIndex([{ id: "synthetic-1" }, projectedMessage("e1")], { kind: "unknown", id: "e1" }), 1);
 });
 
 /**
@@ -68,4 +68,22 @@ test("折叠隐藏的节点（display:none）退到所属轮次行", () => {
 test("隐藏又没有轮次行祖先时退回元素本身（不抛、不死循环）", () => {
 	const hidden = fakeElement({ visible: false, turnRow: null });
 	assert.equal(resolveJumpScrollTarget(hidden), hidden);
+});
+
+test("同一份消息数组重复跳转只建一次身份表：查找读数不随会话长度增加", () => {
+	const messages = [];
+	for (let index = 0; index < 12000; index += 1) messages.push(projectedMessage("e" + index));
+	let reads = 0;
+	const counted = new Proxy(messages, {
+		get(target, key, receiver) {
+			if (typeof key === "string" && /^\d+$/.test(key)) reads += 1;
+			return Reflect.get(target, key, receiver);
+		},
+	});
+	const before = reads;
+	assert.equal(resolveJumpMessageIndex(counted, { kind: "unknown", id: "e11999" }), 11999);
+	const firstBuildReads = reads - before;
+	assert.equal(resolveJumpMessageIndex(counted, { kind: "unknown", id: "e0" }), 0);
+	assert.equal(reads - before, firstBuildReads, "第二次命中必须复用 WeakMap 索引，不能再次扫 12000 条");
+	assert.ok(firstBuildReads <= 12000 + 2, "首次建表最多扫一遍，实际读数 " + firstBuildReads);
 });

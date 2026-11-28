@@ -30,7 +30,6 @@ import {
 	touchSessionMessagesAtom,
 	type SessionScrollAnchor,
 } from "../atoms";
-import { clearTimelineRevealAtom, requestTimelineRevealAtom } from "../atoms/timeline-reveal-atoms";
 import type { MessageScrollerScrollApi } from "../components/agents/message-scroller";
 import { TURN_WINDOW_AUTO_EXPAND_THRESHOLD, resolveAutoExpandThreshold } from "./timeline/autoExpandThreshold";
 import { shouldAutoExpandRenderWindow } from "./timeline/scrollHistoryPolicy";
@@ -39,13 +38,14 @@ import type { BrowsePin } from "./timeline/browsePin";
 import { countUserTurns, TIMELINE_MOUNTED_TURN_LIMIT, TIMELINE_SCROLLED_TURN_LIMIT, TIMELINE_WINDOW_EXPAND_STEP } from "../components/session/timeline/turnRenderWindow";
 import { readSessionFirstScreenPage } from "../components/session/sessionSubagentTranscript";
 import { resolveJumpPendingAction } from "../components/session/timeline/jumpWindowPolicy";
-import { resolveMissingAnchorNextStep } from "../components/session/timeline/restoreAnchorPolicy";
+import { useJumpPageFetch } from "../components/session/timeline/useJumpPageFetch";
 import { shouldDeferJumpUntilLoaded } from "./timeline/timelineRevealChannel";
 import { resolveJumpMessageIndex, resolveJumpScrollTarget } from "../components/session/timeline/jumpTarget";
 import { shouldResetExpandBudget } from "./timelineJumpGuard";
 import { BOTTOM_THRESHOLD, deriveSessionSurfaceRuntime, findBrowsePin, isKnownEmptySessionRecord, isTimelineAtBottom, matchesTimelineOwner, resolveSessionTimelineRestoreState, resolveTimelineTopCompensation, shouldSkipInitialDiskRead, timelineViewportTop } from "./session/timeline/timelineSurfacePolicy";
 import type { SessionTimelineController } from "./session/timeline/sessionTimelineControllerContract";
-import { type TaggedTimelineJumpRequest, useTimelineJumpNavigation } from "./session/timeline/useTimelineJumpNavigation";
+import { useTimelineJumpNavigation } from "./session/timeline/useTimelineJumpNavigation";
+import { JUMP_DOM_WAIT_MAX_FRAMES, useTimelineJumpState } from "./session/timeline/useTimelineJumpState";
 import { useTimelineScrollOwnership } from "./session/timeline/useTimelineScrollOwnership";
 
 /**
@@ -121,6 +121,7 @@ const NO_CACHE_ENTRY_ATOM = atom(undefined);
  *  anchor !== undefined → autoScroll=false → 正文继续输出却不再跟随、还冒出回底按钮。
  *  取跟底引擎回底窗口（followState STICK_TO_BOTTOM_OFFSET_PX = 70）的两倍，
  *  仍远小于真实上滚阅读的距离。 */
+/** 揭示提交后最多等约 1 秒；超过即走已有 fallback，不无限转。 */
 const FOLLOWING_ANCHOR_SKIP_PX = 140;
 const LEGACY_OWNER_KEY = "legacy";
 
@@ -275,63 +276,8 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 	/** Anchor snapshot is frozen for one session-switch restoration attempt. */
 	const [restoreAnchor, setRestoreAnchor] = useState<SessionScrollAnchor | undefined>(() => sessionAnchorSnapshot);
 	const [restorePhase, setRestorePhase] = useState<"pending" | "complete">("pending");
-	/**
-	 * 顶部插入（扩窗 / 数据翻页）在途：期间整表真实渲染，与锚点恢复同一套机制。
-	 *
-	 * 为什么必须这样：插入把视口里的那一轮整体推走，虚拟化会顺手把它卸载；之后
-	 * pinBrowseRow 读到 currentTop === null 就再也补不了位移 —— 用户看到的是「点一下
-	 * 显示更早，内容整体跳一下」。整表挂载期间 DOM 稳定，按行补偿照常工作。
-	 * e2e/timeline-virtualization.spec.ts 的「showing earlier turns keeps the pinned row
-	 * at the same viewport offset」就是这条的回归锁（2026-10 复审抓到的真回归）。
-	 *
-	 * 用超时兜底：分页失败 / 没有新内容时也必须解除，否则整表一直挂着。
-	 */
-	const [prependSolid, setPrependSolid] = useState(false);
-	const prependSolidTimeoutRef = useRef<number | undefined>(undefined);
-	// 整表渲染的「代数」：begin/end 都递增，end 排下的 rAF 回调比对代数，过期即放弃。
-	// 没有它时，上一页的 end 会在下一帧无条件 setPrependSolid(false)——若同一帧内又 begin 过
-	// （连点按钮、或多条路径同时补页），整表渲染被提前撤掉，插进来的行随即被虚拟化卸载，
-	// pinBrowseRow 找不到钉住的行、位移补不上，表现为「内容变多了，但视口轻轻跳一下」。
-	const prependSolidTokenRef = useRef(0);
-	// 与 autoScroll 初始值保持一致（有锚点的会话首帧即不跟底），避免首帧 ref/state 不一致
+	// Match the initial auto-follow value to the ref before the first effect runs.
 	const autoScrollRef = useRef(autoScroll);
-	/** 顶部插入期间开整表渲染；插入被消费（pin 补偿做完）或超时后关。 */
-	const beginPrependSolid = useCallback(() => {
-		prependSolidTokenRef.current += 1;
-		setPrependSolid(true);
-		if (prependSolidTimeoutRef.current !== undefined) window.clearTimeout(prependSolidTimeoutRef.current);
-		// 1.5s 兜底：请求失败、或这一页恰好没有新轮次时不会有「消费」事件，必须自己解除。
-		prependSolidTimeoutRef.current = window.setTimeout(() => {
-			prependSolidTimeoutRef.current = undefined;
-			setPrependSolid(false);
-		}, 1500);
-	}, []);
-	const endPrependSolid = useCallback(() => {
-		if (prependSolidTimeoutRef.current !== undefined) {
-			window.clearTimeout(prependSolidTimeoutRef.current);
-			prependSolidTimeoutRef.current = undefined;
-		}
-		// 推迟一帧：pin 补偿写在 useLayoutEffect 里，同帧关掉会让 React 立刻把行换回虚拟行，
-		// 补偿结果随之作废（切回虚拟行会重新挂载不同 DOM）。
-		// 取代数后再排帧：回调执行时若代数已变（期间又 begin 过），说明这次插入还没被消费，
-		// 必须放弃关闭，否则整表渲染被提前撤掉、pin 补偿落空。
-		const token = ++prependSolidTokenRef.current;
-		window.requestAnimationFrame(() => {
-			if (prependSolidTokenRef.current !== token) return;
-			setPrependSolid(false);
-		});
-	}, []);
-	// 卸载时清掉兜底定时器：会话切走/面板关闭后它还会 fire 一次 setState（React 18 静默忽略，
-	// 但那是「靠框架宽容活着」，不是我们想要的状态机）。
-	useEffect(
-		() => () => {
-			if (prependSolidTimeoutRef.current !== undefined) {
-				window.clearTimeout(prependSolidTimeoutRef.current);
-				prependSolidTimeoutRef.current = undefined;
-			}
-		},
-		[],
-	);
 	const programmaticScrollGuardRef = useRef(createProgrammaticScrollGuard());
 	/**
 	 * 历史浏览代数：回底/切会话时递增。在途历史分页与扩窗任务捕获发起时代数，
@@ -382,46 +328,8 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 	/** 刻度跳转进行中：不要钉浏览行，否则会把刚跳到的目标拽回旧视口。 */
 	const skipBrowsePinRef = useRef(false);
 	/**
-	 * 挂起的跳转：expandAttempts/loadAttempts 分别驱动指数兜底扩窗与补页防呆
-	 * （策略见 timeline/jumpWindowPolicy）。必须是 state 而非 ref——ref 赋值不会
-	 * 调度 effect，第二跳时（autoScroll 已断、状态无变化）点击会完全无反应；
-	 * nonce 保证连续点击同一目标也会重跑。
-	 */
-	const [pendingJump, setPendingJump] = useState<TaggedTimelineJumpRequest | undefined>(undefined);
-
-	const jumpNonceRef = useRef(0);
-	/**
-	 * 跳转事务的同步镜像。滚动回调是引擎每帧上报的，读 state 会读到「跳转已开始但渲染未落地」
-	 * 的旧值；用 ref 才能在同一个 cascade 里挡住贴底上报。
-	 *
-	 * 为什么需要挡（用户三次反馈「输出时点刻度跳不回去」）：流式输出时引擎每帧都在 resize，
-	 * 一旦它上报 following=true，autoScroll 变 true 的 effect 会清空 pendingExpandTurnsRef
-	 * 并 cancel 扩窗帧——挂起中的跳转永远等不到目标轮挂载，表现就是「点了没反应」，
-	 * 而停止输出后再点就正常（这时没有新的 resize 上报）。跳转期间不接受引擎的跟底上报，
-	 * 用户主动回底由引擎经 setUserScrollIntent 上报，不受这条影响。
-	 */
-	const pendingJumpRef = useRef(pendingJump);
-	// 渲染期同步（不做成 effect）：跳转与贴底上报常发生在同一帧，effect 太晚。
-	pendingJumpRef.current = pendingJump;
-	/**
-	 * 跳转揭示：目标消息已加载但 DOM 节点没挂载时（命中在已完成轮的执行过程折叠区里，
-	 * 折叠收起会把中间回答/工具整块卸载），先让包含它的 TurnRow 展开折叠，再走既有
-	 * pendingJump 重试循环完成落位。按会话隔离，切会话/跳转结算后清空。
-	 */
-	const revealSessionId = options.sessionId;
-	const requestRevealWrite = useSetAtom(requestTimelineRevealAtom);
-	const clearRevealWrite = useSetAtom(clearTimelineRevealAtom);
-	const requestTimelineReveal = useCallback(
-		(messageId: string) => {
-			if (!revealSessionId || !messageId) return;
-			requestRevealWrite({ sessionId: revealSessionId, messageId });
-		},
-		[requestRevealWrite, revealSessionId],
-	);
-	const clearTimelineReveal = useCallback(() => {
-		if (!revealSessionId) return;
-		clearRevealWrite(revealSessionId);
-	}, [clearRevealWrite, revealSessionId]);
+	/** 跳转事务状态、DOM 等待与折叠揭示的唯一 owner。 */
+	const { pendingJump, setPendingJump, pendingJumpRef, jumpAnchorMessageId, setJumpAnchorMessageId, jumpNonceRef, cancelJumpDomWait, scheduleJumpDomWait, requestTimelineReveal, clearTimelineReveal } = useTimelineJumpState({ ownerKeyRef, sessionId: options.sessionId });
 	const highlightTimersRef = useRef(new Map<number, number>());
 	// ── 上滚渲染窗口（2026-08 黑屏治理）──
 	// 贴底和上滚初始都只挂 3 轮；每次接近顶部最多扩一个 3 轮 cohort，
@@ -514,8 +422,6 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 			// 不再在这里收整表渲染：扩窗全程不再打开它。钉住的行由 rangeExtractor
 			// 强制挂载（VirtualRunList 的 pinnedRunKeys），不需要整表真实渲染就能查到行。
 		}
-		// 函数体已不再用 endPrependSolid：留着依赖会让它一变就重建 consumeExpandBatch，
-		// 进而重建 expandWindowBatched 和一串下游 useCallback。
 	}, []);
 	/**
 	 * 结束当前历史浏览事务。回底按钮和手动下滚重锁共用这条同步路径，确保
@@ -541,7 +447,9 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 			window.cancelAnimationFrame(userScrollIntentFrameRef.current);
 			userScrollIntentFrameRef.current = undefined;
 		}
+		cancelJumpDomWait();
 		loadMoreAnchorRef.current = undefined;
+		setJumpAnchorMessageId(null);
 		setPendingJump(undefined);
 		lastWindowExpandAtRef.current = 0;
 		lastHistoryLoadAtRef.current = 0;
@@ -722,7 +630,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 	});
 
 	// ── 历史窗口加载与分页（子 hook：请求编排 + 游标 + 失败文案）──
-	const { diskPage, earlierHistoryCursor, historyHasMore, hasEarlierPages, visibleMessages, isLoadingMessagePage, setIsLoadingMessagePage, loadMoreError, setLoadMoreError, loadMoreMessages, reloadFromDisk, startDshHostAndReload } = useTimelineHistoryPaging({
+	const { diskPage, historyHasMore, hasEarlierPages, visibleMessages, isLoadingMessagePage, setIsLoadingMessagePage, loadMoreError, setLoadMoreError, loadMoreMessages, reloadFromDisk, startDshHostAndReload } = useTimelineHistoryPaging({
 		sessionId: options.sessionId,
 		controllerEnabled,
 		messages,
@@ -741,8 +649,6 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		escapeAutoScroll,
 		captureBrowsePin,
 		expandWindowBatched,
-		beginPrependSolid,
-		endPrependSolid,
 		allocateLoadSequence,
 		trackLatestLoad,
 		getLatestLoad,
@@ -780,9 +686,9 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		highlightMessage,
 		requestTimelineReveal,
 		clearTimelineReveal,
-		expandWindowBatched,
 		setShowScrollToBottom,
 		setPendingJump,
+		setJumpAnchorMessageId,
 	});
 
 	useEffect(() => {
@@ -792,7 +698,9 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		skipBrowsePinRef.current = false;
 		// 切会话：取消旧会话遗留的挂起跳转与动画状态（揭示请求也一并清掉，
 		// 否则切回来的第一帧会把上一轮的折叠自动撑开）。
+		setJumpAnchorMessageId(null);
 		setPendingJump(undefined);
+		cancelJumpDomWait();
 		clearTimelineReveal();
 		clearProgrammaticTimelineScroll();
 		settleScrollCancelRef.current?.();
@@ -863,6 +771,11 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 			// 「最终回答安静定位」动画——动画自激发的 scroll 派生意图带 source="scroll"，
 			// 且被 programmaticScroll 窗口抑制，不会把自己取消掉（状态驱动取消）。
 			if (source === "input") {
+				cancelJumpDomWait();
+				setPendingJump(undefined);
+				setJumpAnchorMessageId(null);
+				browsePinRef.current = null;
+				browsePinFrozenRef.current = false;
 				sendScrollRef.current.cancel();
 				settleScrollCancelRef.current?.();
 				settleScrollCancelRef.current = undefined;
@@ -926,42 +839,23 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		const anchor = loadMoreAnchorRef.current;
 		const timeline = timelineRef.current;
 		if (!anchor || !timeline || !matchesTimelineOwner(anchor.ownerKey, ownerKey)) return;
-		// 跟底中 / 浏览代数已过期（回底、切会话）：恢复会把用户拽回旧位置或把刚收回的
-		// 窗口重新插页——迟到分页只允许写缓存，不恢复锚点。
 		if (autoScrollRef.current || anchor.value.generation !== historyBrowseGenerationRef.current) {
 			loadMoreAnchorRef.current = undefined;
-			// 插入已被消费（跟底中或代数过期，不恢复锚点），必须在这里释放：否则
-			// prependSolid 只能靠 beginPrependSolid 的 1.5s 超时解除，期间强制整表渲染。
-			if (anchor.value.solidOpened) endPrependSolid();
 			return;
 		}
-		// 滚动翻页：钉住正在看的那一轮（不是整页 scrollHeight 差）。
-		// 跳转驱动的补页（preserveAtTop 为空）仍走顶部阈值：点刻度时不要把视口焊回旧行。
 		if (anchor.value.preserveAtTop) {
 			pinBrowseRow();
 			loadMoreAnchorRef.current = undefined;
-			// 插入已被消费：解除整表渲染（推迟一帧，让这次补偿先落定）。
-			if (anchor.value.solidOpened) endPrependSolid();
 			return;
 		}
 		const heightDelta = timeline.scrollHeight - anchor.value.height;
 		const nextScrollTop = resolveTimelineTopCompensation(anchor.value.top, heightDelta);
 		if (nextScrollTop === null) {
-			// 视口贴顶（top <= HISTORY_AUTO_LOAD_THRESHOLD=8px）：**有意不补偿**——插入的内容留在上方，
-			// 用户点「加载更多」要看的就是这批更早的消息；补偿反而会让画面停在原地、像「点了没反应」。
-			// 但「不补偿」不等于「不结束整表渲染」：锚点已在下面置空、这次插入算消费完，按 beginPrependSolid
-			// 的约定就该关。漏掉这一行会让整表渲染拖到 1.5s 兜底超时，超时那一刻虚拟化接管、未挂载行
-			// 从实测高度回退估算、总高度突变 → 重排 → 视口轻跳（用户报的「点了几次，内容变多了，但有点抖」）。
 			loadMoreAnchorRef.current = undefined;
 			markProgrammaticScroll();
-			if (anchor.value.solidOpened) endPrependSolid();
 			return;
 		}
 		pinViewportAfterPrepend(nextScrollTop);
-		// 探针：默认静默，在控制台执行 window.__PIDECK_PREPEND_DEBUG__ = true 后生效。
-		// 用户报「跳/不跳」是主观描述；有了 delta 与写入前后的 scrollTop 才能判断
-		// 是估算高度差还是时序问题。（不用 import.meta.env.DEV：测试沙箱按 CJS 转译，
-		// import.meta 在那里不可用，会让整份 controller 加载失败。）
 		if ((window as { __PIDECK_PREPEND_DEBUG__?: boolean }).__PIDECK_PREPEND_DEBUG__ === true) {
 			console.info("[prepend-compensation]", {
 				delta: heightDelta,
@@ -971,8 +865,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 			});
 		}
 		loadMoreAnchorRef.current = undefined;
-		if (anchor.value.solidOpened) endPrependSolid();
-	}, [controllerEnabled, endPrependSolid, markProgrammaticScroll, ownerKey, pinBrowseRow, pinViewportAfterPrepend, visibleMessages.length]);
+	}, [controllerEnabled, markProgrammaticScroll, ownerKey, pinBrowseRow, pinViewportAfterPrepend, visibleMessages.length]);
 
 	// 浏览态内容后增高（历史 Markdown 轻量→全量、图片、mermaid）：扩窗那一帧的补偿不够，
 	// 按钉住的行继续补漂移。跟随时不碰——吸底引擎负责下方增长。
@@ -989,7 +882,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		observer.observe(target);
 		return () => observer.disconnect();
 	}, [controllerEnabled, ownerKey, pinBrowseRow]);
-
+	const fetchJumpPageOnce = useJumpPageFetch({ sessionId: options.sessionId, revision: cachedEntry?.revision, readRecordMessagePage: desktopApi.sessions.readRecordMessagePage, prependHistoryPage, clearHistory, setPendingJump });
 	useEffect(() => {
 		if (!controllerEnabled || !pendingJump) return;
 		if (!matchesTimelineOwner(pendingJump.ownerKey, ownerKey)) return;
@@ -997,8 +890,15 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		if (!timeline) return;
 		// 挂起期间每轮重新归一：目标可能是文件条目 id（会话内查找命中），补页把它
 		// 载入 combinedMessages 之后投影 id 才确定。
-		const targetIndex = resolveJumpMessageIndex(combinedMessages, pendingJump.value.messageId);
+		const targetIndex = resolveJumpMessageIndex(combinedMessages, { kind: "unknown", id: pendingJump.value.messageId });
 		const targetNodeId = targetIndex >= 0 ? combinedMessages[targetIndex].id : pendingJump.value.messageId;
+		if (targetIndex >= 0) {
+			setJumpAnchorMessageId(targetNodeId);
+			browsePinRef.current = { messageId: targetNodeId, expectedViewportTop: 0 };
+			browsePinFrozenRef.current = true;
+		} else {
+			setJumpAnchorMessageId(null);
+		}
 		const element = timeline.querySelector(`[data-message-id="${CSS.escape(targetNodeId)}"]`) as HTMLElement | null;
 		if (element) {
 			skipBrowsePinRef.current = false;
@@ -1017,20 +917,32 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		// 反过来的顺序很重要——**目标一旦挂载就先落位，不等整段历史挂完**：跳远时
 		// 一次推开几十轮，DOM 与布局要几百毫秒到几秒，先落位能让用户立刻到那儿；
 		// 后续批次在上方插入时，ResizeObserver 的 pinBrowseRow 维持这一行不动。
-		if (pendingExpandTurnsRef.current > 0) return;
+		// 已加载目标但 DOM 尚未出现：先请求一次折叠揭示，再用有界 rAF 等提交完成。
+		// 不再把固定锚点窗口扩成“目标到尾部”的线性窗口。
+		const stillInData = targetIndex >= 0;
+		if (stillInData) {
+			if (!pendingJump.value.revealRequested) {
+				requestTimelineReveal(targetNodeId);
+				setPendingJump((current) => (current ? { ...current, value: { ...current.value, revealRequested: true, domWaitFrames: 0, nonce: current.value.nonce + 1 } } : current));
+				return;
+			}
+			const domWaitFrames = pendingJump.value.domWaitFrames ?? 0;
+			if (domWaitFrames < JUMP_DOM_WAIT_MAX_FRAMES) {
+				scheduleJumpDomWait(ownerKey, pendingJump.value.messageId);
+				return;
+			}
+		}
 		// 目标未挂载：按策略兜底扩窗（指数步长）/ 跳转驱动补页 / 放弃（防呆上限）。
 		// give-up 保留旧行为兜底：目标已不在数据（压缩清理/删除）时不无限扩窗（2026-08 黑屏治理）。
-		const stillInData = targetIndex >= 0;
 		const hasMorePages = hasEarlierPages;
-		// 冷会话等待：目标还没进数据，但消息尚未上屏（首批未到 / 首屏加载中）。
-		// 这不是「目标不存在」—— give-up 会误报「跳转失败」并把插件导航丢掉（#401 复审 P0）。
-		// effect 依赖 combinedMessages：数据到达后自动重跑并落位。
+		// 冷会话等待：目标还没进数据、消息尚未上屏时 give-up 会误报「跳转失败」并丢掉插件导航（#401 复审 P0）；effect 依赖 combinedMessages，数据到达后自动重跑并落位。
 		if (!stillInData && shouldDeferJumpUntilLoaded({ targetIndex, messageCount: combinedMessages.length, surfaceLoading: isSurfaceLoading })) return;
 		// 补页失败：不推进预算、不自动重发。错误行已由 loadMoreMessages 弹给用户，
 		// 他点「加载更多」重试成功后 loadMoreError 清空，本 effect 重跑并继续落位。
 		// 放在 resolveJumpPendingAction 之前：失败要吃掉一次 loadAttempts 的话，
 		// 保险丝会被空转烧断，用户连点几次之后彻底跳不动。
 		if (!stillInData && loadMoreError) return;
+		if (fetchJumpPageOnce(pendingJump, ownerKeyRef.current, stillInData)) return;
 		const action = resolveJumpPendingAction({
 			targetInLoadedData: stillInData,
 			hasMorePages,
@@ -1106,15 +1018,14 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		expandWindow,
 		windowExpandableRef,
 		isSurfaceLoading,
-		navBlockingVirtualization: restorePhase !== "complete" || pendingJump !== undefined || prependSolid,
+		navBlockingVirtualization: restorePhase !== "complete",
 		/** 当前钉住的行（浏览态）。渲染层用它把所在 run 交给 VirtualRunList 的
 		 *  pinnedRunKeys，让 rangeExtractor 强制挂载 —— 扩窗/翻页在顶部插入后这一行会
 		 *  被推出 overscan，查不到就补不了位移。读 ref，不触发渲染。 */
 		readPinnedMessageId: () => browsePinRef.current?.messageId ?? null,
-		/** 顶部插入（扩窗/翻页）收尾通知：渲染层的 pin 补偿做完后调用，解除整表渲染。 */
+		jumpAnchorMessageId,
 		/** 跳转在途：渲染层据此暂停贴底窗口压缩（流式期间点刻度时目标轮必须能挂上）。 */
 		jumpPending: pendingJump !== undefined,
-		endPrependSolid,
 		knownEmpty,
 		reloadFromDisk,
 		startDshHostAndReload,

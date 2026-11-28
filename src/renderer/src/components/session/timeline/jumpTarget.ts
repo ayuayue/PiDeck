@@ -5,8 +5,8 @@
  * JSONL 行的顶层 `id`，在渲染层消息上落在 `meta.entryId`。而时间线节点/消息的
  * `id` 是投影 id（`${agentId}-history-${entryId}`，见 AgentMessageProjector）。
  * 两者不相等，直接拿命中 id 当消息 id 去查 `[data-message-id]` 永远查不到 →
- * 点击命中「什么都没发生」（2027-02 用户反馈）。这里统一归一：先按消息 id 精确
- * 匹配（刻度/大纲等调用方传的就是投影 id），再按条目 id 匹配（会话内查找命中）。
+ * 点击命中「什么都没发生」（2027-02 用户反馈）。这里统一归一：未知空间先按稳定的
+ * `entryId` 匹配，再按投影 `messageId` 匹配；显式空间只匹配自己的身份。
  */
 /**
  * 从消息 meta 里读条目 id。`ChatMessage.meta` 是 `Record<string, unknown> & I18nDescriptor`，
@@ -18,11 +18,164 @@ function readEntryId(meta: unknown): string | undefined {
 	return typeof entryId === "string" && entryId.length > 0 ? entryId : undefined;
 }
 
-export function resolveJumpMessageIndex(messages: ReadonlyArray<{ id: string; meta?: unknown }>, targetId: string): number {
-	if (!targetId) return -1;
-	const direct = messages.findIndex((message) => message.id === targetId);
-	if (direct >= 0) return direct;
-	return messages.findIndex((message) => readEntryId(message.meta) === targetId);
+/**
+ * 消息下标 → agent-run 序号（第几条 turn）。窗口锚点只要这一个换算。
+ *
+ * 为什么单独成一个函数（组 2 列的「两套下标要对同一个数组算」）：
+ * `resolveJumpMessageIndex` 给的是 messages 下标，`sliceByRunStarts` 吃的是 run 序号。
+ * 换算若散落在调用点，错一位的症状是「跳到上一轮」——看不出是 bug，看着像落位不准。
+ * 只留这一处，它可以单测。
+ *
+ * 返回 -1 表示：目标在该数组里没有（未加载／已被 context_edit 移出展示）。
+ * 判据：tests/jumpRunIndex.test.mjs。
+ */
+export function runIndexOfMessage(runs: ReadonlyArray<{ kind: string; items?: ReadonlyArray<{ id: string; meta?: unknown }> }>, target: { messageId?: string; entryId?: string }): number {
+	// 两个 id 空间分开扫，entryId 优先。
+	// 事故（组 2 实测）：同一条件里 item.id 与 readEntryId 并列，先命中先返回，
+	// 于 messageId 恰好等于另一条 entryId 时锚到错的轮（实测 0，应为 2）。
+	const runIndexAt = (predicate: (item: { id: string; meta?: unknown }) => boolean): number => {
+		let runIndex = -1;
+		for (const run of runs) {
+			if (run.kind === "agent-run") runIndex += 1;
+			for (const item of run.items ?? []) {
+				if (predicate(item)) return runIndex < 0 ? 0 : runIndex;
+			}
+		}
+		return -1;
+	};
+	if (target.entryId) {
+		const byEntry = runIndexAt((item) => readEntryId(item.meta) === target.entryId);
+		if (byEntry >= 0) return byEntry;
+	}
+	if (target.messageId) {
+		return runIndexAt((item) => item.id === target.messageId);
+	}
+	return -1;
+}
+/**
+ * 锚点 run id -> 窗口起点。**找不到返回 undefined（退回尾窗），绝不 clamp 到 0。**
+ *
+ * 为什么单独一层（组 2 的第 8 件）：runIndexOfMessage 找不到时返回 -1，
+ * 而 -1 直接喂 selectTimelineTurnWindow 会走 Math.max(0, -1) -> 0 -> **跳到会话开头**。
+ * 那是「跳到别处」那一类，比停在原地糟得多。
+ *
+ * 真会发生的两类：
+ *   context_edit 把那条移出展示
+ *   prepend 时基线重算、锚点那轮被合并（stalePrefix 分支把 baseMessages 置空）
+ *
+ * 策略选「退回尾窗 + 清锚点」（调用方清），不选「保留锚点等下次数据变」：
+ * 后者在切会话恢复路径上会留下「锚点在、id 已不在、每帧算一次 -1、每帧退回尾窗」，
+ * 表现是「切回来在末尾但回底按钮不亮」—— 状态不一致比「回到底部」更难解释。
+ * 收敛成一种：没有锚点就是跟流。
+ *
+ * 判据：tests/jumpWindowAnchorResolve.test.mjs。
+ */
+export type AnchorStartRun =
+	| { kind: "ok"; startRun: number }
+	/** 各空间都没找到：context_edit 移出展示 / 数据还没到 */
+	| { kind: "missing" }
+	/** 多个空间都命中但指向不同轮：我们的锚点写错了空间，是真 bug */
+	| { kind: "conflict"; hits: { run?: number; entry?: number; message?: number } };
+
+export function resolveAnchorStartRun(runs: ReadonlyArray<{ kind: string; id?: string; items?: ReadonlyArray<{ id: string; meta?: unknown }> }>, anchor: { runId?: string; entryId?: string; messageId?: string }): AnchorStartRun {
+	// 输入空间必须与名字对齐（组 2 的第 9 件），且三种结局必须可区分（第 10 件）。
+	//
+	// 为什么不能只返回 number | undefined：undefined 是二义的 ——
+	//   missing（数据侧的事，等数据/改数据层）
+	//   conflict（我们的锚点写错了空间，是真 bug 却长得像 missing）
+	// 两者都退回尾窗，用户看到的都是「点了刻度落到别处」，但修法完全不同。
+	// 分开之后，conflict 能打日志计数：频繁出现就说明写锚点那一侧存错了空间。
+	const byRunId = (id: string): number | undefined => {
+		let runIndex = -1;
+		for (const run of runs) {
+			if (run.kind === "agent-run") runIndex += 1;
+			if (run.id === id) return runIndex < 0 ? 0 : runIndex;
+		}
+		return undefined;
+	};
+
+	const hits: { run?: number; entry?: number; message?: number } = {};
+	if (anchor.runId) hits.run = byRunId(anchor.runId);
+	if (anchor.entryId) {
+		const index = runIndexOfMessage(runs, { entryId: anchor.entryId });
+		if (index >= 0) hits.entry = index;
+	}
+	if (anchor.messageId) {
+		const index = runIndexOfMessage(runs, { messageId: anchor.messageId });
+		if (index >= 0) hits.message = index;
+	}
+	const found = [hits.run, hits.entry, hits.message].filter((value) => typeof value === "number") as number[];
+	if (found.length === 0) return { kind: "missing" };
+	// 多个空间命中但指向不同轮：不猜（不静默取一个）
+	if (new Set(found).size > 1) return { kind: "conflict", hits };
+	return { kind: "ok", startRun: found[0] };
+}
+
+/**
+ * 跳转目标的 id 空间。入口拿到 id 时并不知道它属于哪个空间，所以要有 unknown。
+ *
+ * 为什么不是 { messageId?: string; entryId?: string }（第一版，已回归过）：
+ * 那个类型逼调用方在「不知道空间」时猜一个字段。猜 messageId 就把 entryId 那条路剪断 ——
+ * 实测 resolveJumpMessageIndex(messages, { messageId: "525018cf" }) 返回 -1，
+ * 而旧的两趟实现返回 1。于是 index = -1 -> jumpToMessage 静默 return -> 点任何刻度都不跳。
+ *
+ * 这是把「未知空间」塞进「已判别空间」的类型错误，不是逻辑错。
+ * unknown 的语义：同一个 id 的两种解释，按 entryId（重投影后仍稳定）优先试，命中即用，
+ * 不判冲突 —— 它与「两个独立来源指向不同轮」是两件事，后者才是真矛盾
+ * （见 resolveAnchorStartRun 的 conflict 分支）。
+ */
+export type JumpTargetId =
+	| { kind: "message"; id: string }
+	| { kind: "entry"; id: string }
+	/** 入口拿到的不确定空间 id：先 entryId 后 messageId，命中即用 */
+	| { kind: "unknown"; id: string };
+
+type JumpMessage = { id: string; meta?: unknown };
+type JumpMessageIndex = { entry: Map<string, number>; message: Map<string, number>; indexedLength: number };
+
+/**
+ * Identity lookup is cached by array identity, with append-only mutation handled incrementally.
+ * A truncated array is rebuilt; immutable replacement naturally gets a fresh WeakMap entry.
+ */
+const jumpMessageIndexCache = new WeakMap<ReadonlyArray<JumpMessage>, JumpMessageIndex>();
+
+function indexJumpMessage(index: JumpMessageIndex, message: JumpMessage, position: number): void {
+	// findIndex's contract is first match; later projections must not replace it.
+	if (!index.message.has(message.id)) index.message.set(message.id, position);
+	const entryId = readEntryId(message.meta);
+	if (entryId && !index.entry.has(entryId)) index.entry.set(entryId, position);
+}
+
+function buildJumpMessageIndex(messages: ReadonlyArray<JumpMessage>): JumpMessageIndex {
+	const cached = jumpMessageIndexCache.get(messages);
+	if (cached && messages.length >= cached.indexedLength) {
+		for (let position = cached.indexedLength; position < messages.length; position += 1) {
+			indexJumpMessage(cached, messages[position], position);
+		}
+		cached.indexedLength = messages.length;
+		return cached;
+	}
+	const index: JumpMessageIndex = { entry: new Map(), message: new Map(), indexedLength: 0 };
+	for (let position = 0; position < messages.length; position += 1) {
+		indexJumpMessage(index, messages[position], position);
+	}
+	index.indexedLength = messages.length;
+	jumpMessageIndexCache.set(messages, index);
+	return index;
+}
+
+export function resolveJumpMessageIndex(messages: ReadonlyArray<JumpMessage>, target: JumpTargetId): number {
+	if (!target.id) return -1;
+	const index = buildJumpMessageIndex(messages);
+	switch (target.kind) {
+		case "entry":
+			return index.entry.get(target.id) ?? -1;
+		case "message":
+			return index.message.get(target.id) ?? -1;
+		default:
+			// entryId 优先：它是文件里的稳定身份；messageId 是投影 id，重投影会变。
+			return index.entry.get(target.id) ?? index.message.get(target.id) ?? -1;
+	}
 }
 
 /**

@@ -16,8 +16,6 @@ export type TimelinePrependAnchor = {
 	generation: number;
 	/** 保持旧视口：即使原视口在顶部也只让新历史出现在上方。 */
 	preserveAtTop?: boolean;
-	/** 这次请求是否打开过整表渲染：只有打开过的才允许在消费点调用 end。 */
-	solidOpened?: boolean;
 };
 export type TaggedTimelinePrependAnchor = { ownerKey: string; value: TimelinePrependAnchor };
 
@@ -28,7 +26,7 @@ export type TaggedTimelinePrependAnchor = { ownerKey: string; value: TimelinePre
  * 是「滚动所有权 + 分页 + 跳转」的单一装配点，注入让依赖面在签名上可见，也让模块本身保持无状态可测。
  */
 export interface TimelineHistoryPagingPorts {
-	readRecordMessagePage: (sessionId: string, before?: number, pageSize?: number, options?: { beforeEntryId?: string }) => Promise<SessionMessagePage>;
+	readRecordMessagePage: (sessionId: string, before?: number, pageSize?: number, options?: { beforeEntryId?: string; includeBeforeEntry?: boolean }) => Promise<SessionMessagePage>;
 	startDshHost: () => Promise<boolean>;
 	setLoadState: (input: { sessionId: string; state: SessionLoadState }) => void;
 	cacheMessages: (input: { sessionId: string; messages: ChatMessage[]; source: "disk"; expectedRevision: number; page: SessionMessageCacheEntry["page"]; force?: boolean }) => void;
@@ -57,8 +55,6 @@ export interface TimelineHistoryPagingOptions {
 	escapeAutoScroll: () => void;
 	captureBrowsePin: (freeze: boolean) => void;
 	expandWindowBatched: (turns?: number) => void;
-	beginPrependSolid: () => void;
-	endPrependSolid: () => void;
 	allocateLoadSequence: () => number;
 	trackLatestLoad: (sessionId: string, sequence: number) => void;
 	getLatestLoad: (sessionId: string) => number | undefined;
@@ -107,8 +103,6 @@ export function useTimelineHistoryPaging(options: TimelineHistoryPagingOptions):
 		escapeAutoScroll,
 		captureBrowsePin,
 		expandWindowBatched,
-		beginPrependSolid,
-		endPrependSolid,
 		allocateLoadSequence,
 		trackLatestLoad,
 		getLatestLoad,
@@ -223,7 +217,6 @@ export function useTimelineHistoryPaging(options: TimelineHistoryPagingOptions):
 						top: timeline.scrollTop,
 						generation: historyBrowseGenerationRef.current,
 						...(source === "scroll" ? { preserveAtTop: true } : {}),
-						solidOpened: source === "scroll",
 					},
 				};
 			}
@@ -235,15 +228,8 @@ export function useTimelineHistoryPaging(options: TimelineHistoryPagingOptions):
 				const sequence = allocateLoadSequence();
 				trackLatestLoad(sessionId, sequence);
 				const expectedRevision = cachedEntry?.revision ?? 0;
-				// 只有 scroll（滚到顶部自动翻页）需要整表渲染：它要在 useLayoutEffect 里按 messageId
-				// 查 DOM 行做 pin 补偿（pinBrowseRow -> measurePinnedRowTop），虚拟区外的行不在
-				// DOM 里就量不到。button / backfill 走 resolveTimelineTopCompensation：补偿量 =
-				// scrollHeight 差值（虚拟区占位高度是渲染期同步算出的，两次读数即得），不查任何
-				// DOM —— 所以不必关闭虚拟化。用户点「加载更多」时把 100+ 轮全部真实挂载，正是
-				// 「点了就卡」的主因。
-				const needsSolid = source === "scroll";
-				if (needsSolid) beginPrependSolid();
-				let insertionCommitted = false;
+				// Keep the virtual list active during history reads; the pinned visible row and
+				// virtual spacer provide stable scroll compensation without mounting old rows.
 				setIsLoadingMessagePage(true);
 				// 重试时先清掉上一次的错误行
 				setLoadMoreError(null);
@@ -261,7 +247,6 @@ export function useTimelineHistoryPaging(options: TimelineHistoryPagingOptions):
 							return;
 						}
 						if (prependMessagePage({ sessionId, before, expectedRevision, page })) {
-							insertionCommitted = true;
 							// 历史消息页最多只开放一个 3 轮 cohort；数据页可能按消息数返回很多轮，
 							// 不能再固定 +10 把 DOM 一次性解锁，剩余已加载数据交给本地扩窗。
 							// 回底/切会话后到达（跟随或代数过期）只写缓存，不得扩窗——否则
@@ -301,7 +286,6 @@ export function useTimelineHistoryPaging(options: TimelineHistoryPagingOptions):
 						// 插入没落地（早退 / 失败 / 空页 / prepend 被拒）：useLayoutEffect 依赖 visibleMessages.length，
 						// 没插入就不跑，也就没人关整表渲染 —— 它只能等 1.5s 兜底，超时那刻虚拟化接管、
 						// 未挂载行从实测高度回退估算、总高度突变 -> 重排 -> 抖。点几次就种几次跳。
-						if (needsSolid && !insertionCommitted) endPrependSolid();
 					});
 				return;
 			}
@@ -319,15 +303,8 @@ export function useTimelineHistoryPaging(options: TimelineHistoryPagingOptions):
 				const sequence = allocateLoadSequence();
 				trackLatestLoad(sessionId, sequence);
 				const expectedRevision = cachedEntry?.revision ?? 0;
-				// 只有 scroll（滚到顶部自动翻页）需要整表渲染：它要在 useLayoutEffect 里按 messageId
-				// 查 DOM 行做 pin 补偿（pinBrowseRow -> measurePinnedRowTop），虚拟区外的行不在
-				// DOM 里就量不到。button / backfill 走 resolveTimelineTopCompensation：补偿量 =
-				// scrollHeight 差值（虚拟区占位高度是渲染期同步算出的，两次读数即得），不查任何
-				// DOM —— 所以不必关闭虚拟化。用户点「加载更多」时把 100+ 轮全部真实挂载，正是
-				// 「点了就卡」的主因。
-				const needsSolid = source === "scroll";
-				if (needsSolid) beginPrependSolid();
-				let insertionCommitted = false;
+				// Keep the virtual list active while reading history. The virtual spacer and pinned row
+				// preserve scroll position without mounting the full history.
 				setIsLoadingMessagePage(true);
 				// 重试时先清掉上一次的错误行
 				setLoadMoreError(null);
@@ -340,7 +317,6 @@ export function useTimelineHistoryPaging(options: TimelineHistoryPagingOptions):
 							return;
 						}
 						if (prependHistoryPage({ sessionId, expectedRevision, before, page })) {
-							insertionCommitted = true;
 							// runtime history 页与 DOM 使用同一 3 轮 cohort；缓存命中和文件回退
 							// 都只开放实际带回的轮数，避免数据 +3、窗口却 +10。
 							// 回底/切会话后到达（跟随或代数过期）只写缓存，不得扩窗。
@@ -376,10 +352,6 @@ export function useTimelineHistoryPaging(options: TimelineHistoryPagingOptions):
 					})
 					.finally(() => {
 						if (getLatestLoad(sessionId) === sequence) setIsLoadingMessagePage(false);
-						// 插入没落地（早退 / 失败 / 空页 / prepend 被拒）：useLayoutEffect 依赖 visibleMessages.length，
-						// 没插入就不跑，也就没人关整表渲染 —— 它只能等 1.5s 兜底，超时那刻虚拟化接管、
-						// 未挂载行从实测高度回退估算、总高度突变 -> 重排 -> 抖。点几次就种几次跳。
-						if (needsSolid && !insertionCommitted) endPrependSolid();
 					});
 				return;
 			}
@@ -387,12 +359,10 @@ export function useTimelineHistoryPaging(options: TimelineHistoryPagingOptions):
 		[
 			allocateLoadSequence,
 			autoScrollRef,
-			beginPrependSolid,
 			cachedEntry?.revision,
 			captureBrowsePin,
 			diskPage,
 			earlierHistoryCursor,
-			endPrependSolid,
 			escapeAutoScroll,
 			expandWindowBatched,
 			getLatestLoad,

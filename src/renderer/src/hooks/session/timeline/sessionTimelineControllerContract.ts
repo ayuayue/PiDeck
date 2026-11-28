@@ -79,21 +79,16 @@ export type SessionTimelineController = {
 	 */
 	isSurfaceLoading: boolean;
 	/**
-	/**
-	 * 需要「整表真实渲染」的时机（三处，同一套机制）：
-	 * 1. 恢复锚点 / 挂起跳转在途 —— 这两条路径按 [data-message-id] 查 DOM；
-	 * 2. 顶部插入（扩窗 / 数据翻页）在途 —— 插入会把视口里的行推走、被虚拟化卸载，
-	 *    之后 pinBrowseRow 拿不到 currentTop，补不了位移（用户看到内容跳一下）；
-	 * 3. 多选导出（渲染层自己的 state，不在这里）。
-	 * 虚拟区外的行不在 DOM 里，上述场景必须整表挂载。
+	 * Virtualization stays enabled. This blocks it only during initial viewport restoration.
+	 * Multi-select export owns its own rendering strategy.
 	 */
 	navBlockingVirtualization: boolean;
 	/** 当前钉住行的 messageId（浏览态）；无钉行时为 null。读 ref，不触发渲染。 */
 	readPinnedMessageId: () => string | null;
+	/** 跳转锚点（state）：窗口依它切到目标轮，ref 变化不会触发渲染。 */
+	jumpAnchorMessageId: string | null;
 	/** 跳转在途：贴底跟随的窗口压缩要让位，否则流式期间目标轮挂不上。 */
 	jumpPending: boolean;
-	/** 顶部插入收尾：渲染层做完 pin 补偿后调用，解除整表渲染。 */
-	endPrependSolid: () => void;
 	/** 本栏粘住的空会话：预热写 filePath/dshSessionId 后仍不闪历史骨架。 */
 	knownEmpty: boolean;
 	/**

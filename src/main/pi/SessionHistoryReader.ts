@@ -16,7 +16,7 @@ import { contextEditTextOf, customEntryHeadline, INDEX_PREVIEW_MAX_CHARS, extrac
 import { boundTurnWindowStart, clampTurnWindowStart, findTurnPageStart, resolveTurnPageBefore } from "./sessionReader/sessionTurnWindow";
 import { SessionSubagentProjection } from "./sessionReader/sessionSubagentProjection";
 import { SessionCardProjector } from "./sessionReader/sessionCardProjection";
-import { SessionDisplayPaging } from "./sessionReader/sessionDisplayPaging";
+import { SessionDisplayPaging, indexActiveMessages } from "./sessionReader/sessionDisplayPaging";
 
 export {
 	applySessionContextEdits,
@@ -117,6 +117,7 @@ export type SessionDisplayIndex = {
 	activeBranch: SessionDisplayEntry[];
 	/** 活动分支中的消息条目（分页/轮次计算用，派生自 activeBranch） */
 	activeMessageEntries: SessionDisplayEntry[];
+	activeMessagePositionById: Map<string, number>;
 	/** 活动分支模型与思考档位；与索引一起生成，避免历史页读取后再次扫描摘要 */
 	metadata: SessionHistoryMetadata;
 	/** 活动分支上生效的 context_edit（pi 原生移除/改写记录）汇总（含改写文本，供展示替换正文）。 */
@@ -270,10 +271,9 @@ export class SessionHistoryReader {
 	 * （2026-11 真机，156 轮会话）。
 	 *
 	 * 取值 200 的来历（可复算）：本机一份 156 轮会话 = 5156 条消息条目，即每轮约 33 条；
-	 * 200 轮 ≈ 6600 条 ≈ 13-26MB 单页负载，落在渲染层 DISK_HISTORY_MESSAGE_LIMIT(8000)
-	 * 之内，所以「一次读满一整份 156 轮会话」是可能的 —— 这正是用户要的「点一次就到位」。
-	 * 再大的意义在于覆盖更长的会话，但单页负载会超过渲染层预算（超了就被整页丢弃，
-	 * 反而跳不到），所以上限停在 200 轮 / PAGE_WINDOW_ENTRIES 条。
+	 * 200 轮 ≈ 6600 条 ≈ 13-26MB 单页负载；这是单次读取上限，后续页通过源游标继续读取。
+	 * 累计历史不再因 renderer 驻留阈值丢弃；渲染 DOM 仍由 VirtualRunList 限定在可视范围。
+	 * 更大的会话通过连续有界页覆盖，不把整份历史塞进一次 IPC。
 	 */
 	private static readonly MAX_TURN_PAGE_SIZE = 200;
 	/** 单页轮次上限（AgentManager 缓存优先路径复用，避免翻页超预算） */
@@ -290,9 +290,8 @@ export class SessionHistoryReader {
 	/**
 	 * 翻页单页的条目预算（轮数上界之上叠的条目硬上限）。
 	 * 防御「上滚翻页反而把渲染进程撑爆」——轮数受 MAX_TURN_PAGE_SIZE 限制，但单轮可能有
-	 * 数百条工具调用，200 轮照样能超。取 8000：与渲染层 DISK_HISTORY_MESSAGE_LIMIT
-	 * 同一预算（200 轮 × 33 条 ≈ 6600 条，留约 20% 余量），页再大就会被渲染层整页丢弃；
-	 * 单轮自身超预算时只能整轮保留。
+	 * 数百条工具调用，200 轮照样能超。取 8000 作为每页条目硬上限，限制单次 IPC 负载；
+	 * 超出部分由后续页按真实游标继续读取，单轮自身超预算时只能整轮保留。
 	 */
 	private static readonly MAX_PAGE_WINDOW_ENTRIES = 8000;
 
@@ -468,19 +467,14 @@ export class SessionHistoryReader {
 		return this.paging.readSessionDisplayTurnPage(sessionPath, agentId, before, turnCount, beforeEntryId, options);
 	}
 
-	/** entryId → 活动分支消息条目的绝对下标（文件下标空间）；不存在返回 undefined。 */
 	async resolveEntryPosition(sessionPath: string, entryId: string): Promise<number | undefined> {
 		if (!entryId) return undefined;
-		const index = await this.getSessionDisplayIndex(sessionPath);
-		const position = index.activeMessageEntries.findIndex((entry) => entry.id === entryId);
-		return position >= 0 ? position : undefined;
+		return (await this.getSessionDisplayIndex(sessionPath)).activeMessagePositionById.get(entryId);
 	}
 
 	/** 绝对下标（文件下标空间）→ entryId；越界/无条目返回 undefined。 */
 	async resolveEntryIdAtPosition(sessionPath: string, position: number): Promise<string | undefined> {
-		const index = await this.getSessionDisplayIndex(sessionPath);
-		const entry = index.activeMessageEntries[position];
-		return entry?.id;
+		return (await this.getSessionDisplayIndex(sessionPath)).activeMessageEntries[position]?.id;
 	}
 
 	/** 活动分支消息条目总数（SessionMessagePage.total 的文件口径）。 */
@@ -894,6 +888,7 @@ export class SessionHistoryReader {
 		for (const entry of inherited) entries.set(entry.id, entry);
 		for (const entry of own.entries.values()) entries.set(entry.id, entry);
 		const activeBranch = [...inherited, ...own.activeBranch];
+		const { activeMessageEntries, activeMessagePositionById } = indexActiveMessages(activeBranch);
 		return {
 			hostPath: own.hostPath,
 			size: version.size,
@@ -901,7 +896,8 @@ export class SessionHistoryReader {
 			hasCompaction: activeBranch.some((entry) => entry.type === "compaction"),
 			entries,
 			activeBranch,
-			activeMessageEntries: activeBranch.filter((entry) => entry.type === "message" && entry.hasMessage),
+			activeMessageEntries,
+			activeMessagePositionById,
 			metadata: deriveSessionHistoryMetadata(activeBranch),
 			contextEdits: collectSessionContextEdits(activeBranch),
 			endsWithNewline: own.endsWithNewline,
@@ -1046,6 +1042,7 @@ export class SessionHistoryReader {
 
 	/** 由分支 + 全量条目表组装最终索引（消息条目派生 + 压缩标记）。 */
 	private finishIndex(hostPath: string, version: { size: number; mtimeMs: number }, entries: Map<string, SessionDisplayEntry>, activeBranch: SessionDisplayEntry[], endsWithNewline: boolean): SessionDisplayIndex {
+		const { activeMessageEntries, activeMessagePositionById } = indexActiveMessages(activeBranch);
 		return {
 			hostPath,
 			size: version.size,
@@ -1055,7 +1052,8 @@ export class SessionHistoryReader {
 			hasCompaction: activeBranch.some((entry) => entry.type === "compaction"),
 			entries,
 			activeBranch,
-			activeMessageEntries: activeBranch.filter((entry) => entry.type === "message" && entry.hasMessage),
+			activeMessageEntries,
+			activeMessagePositionById,
 			metadata: deriveSessionHistoryMetadata(activeBranch),
 			contextEdits: collectSessionContextEdits(activeBranch),
 			endsWithNewline,

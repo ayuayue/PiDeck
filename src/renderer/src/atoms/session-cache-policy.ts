@@ -38,8 +38,8 @@ export function selectRetainedCacheEntryIds(lru: readonly string[], openedTabIds
 }
 /**
  * 已关闭 Tab 条目的合计字节预算（2026-10 内存轮）。
- * 条目数有 LRU 上限、单条目消息数有 DISK_HISTORY_MESSAGE_LIMIT 封顶，但消息的
- * **内容体积**没有界：大代码块/长思考/内联 base64 的会话单条目可达数十 MB，
+ * 会话条目按 LRU 与关闭 Tab 的字节预算淘汰；活动 Tab 的已翻历史仍可能增长，
+ * 因此消息内容体积必须纳入预算并避免重复驻留。大代码块/长思考/内联 base64 可达数十 MB，
  * 8 条「浏览过又关掉」的会话就是数百 MB 常驻。已关闭的条目不值得为回切流畅性
  * 全额保留——超预算按最旧先淘汰，切回时与 LRU 淘汰同路径重读盘（尾部 9 轮）。
  * 只作用于已关闭 Tab 的条目：打开中的 Tab 保持无条件保护（上面 selectRetained 的

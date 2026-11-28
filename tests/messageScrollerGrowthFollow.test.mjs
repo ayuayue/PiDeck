@@ -150,41 +150,6 @@ test("timeline controller restores via engine restoreAt and keeps negative offse
 	assert.match(source, /if \(viewStateOwnerKey !== ownerKey\) \{/);
 });
 
-test("turn-window expansion pins the visible row instead of native scrollTop", () => {
-	const timelineSource = readFileSync("src/renderer/src/components/session/SessionMessageTimeline.tsx", "utf8");
-	const controllerSource = sessionTimelineControllerSource;
-	// 扩窗补偿走 pinBrowseRow（钉正在看的那一轮），不再用整页高度差写原生 scrollTop。
-	// 补偿之后还要通知 controller 解除「整表渲染」（endPrependSolid）：扩窗在顶部插入轮次，
-	// 虚拟化会顺手卸载视口里被推走的那一行，之后 pin 拿不到 currentTop 就补不了位移。
-	assert.match(timelineSource, /pinBrowseRow\(\)/);
-	assert.doesNotMatch(timelineSource, /restoreTimelineAnchor\(timeline\.scrollTop, nextHeight - prev\.height\)/);
-	assert.doesNotMatch(timelineSource, /timeline\.scrollTop = nextTop/);
-	// 2026-11 结构变更后的现役判据：解除整表渲染不再写在时间线的依赖数组里，
-	// 而是挂在 controller 的批次收尾（finally）——那里同时知道「插入是否落地」。
-	// 旧断言钉的是 timelineSource 里的 endPrependSolid() 与那串依赖，结构一改就假红。
-	assert.match(controllerSource, /if \(needsSolid && !insertionCommitted\) endPrependSolid\(\);/);
-	assert.match(timelineSource, /\[displayRuns, followingForTurnWindow, pinBrowseRow, turnWindowActive, turnWindowTurns\]/);
-	assert.match(controllerSource, /api\.restoreAt\(nextTop\)/);
-	assert.match(controllerSource, /scrollerScrollApiRef\.current\?\.stopScroll\(\)/);
-	assert.match(controllerSource, /browsePinScrollTop/);
-});
-
-test("timeline keeps the same turn window through anchor restoration", () => {
-	const timelineSource = readFileSync("src/renderer/src/components/session/SessionMessageTimeline.tsx", "utf8");
-	const controllerSource = sessionTimelineControllerSource;
-	// 保存、恢复和正常历史浏览必须都按同一个 tail-window 裁剪。恢复期若改成全量，
-	// restoreAt 后再收回小窗口会让浏览器把 scrollTop 截断到新的最大值。
-	assert.match(timelineSource, /selectTimelineTurnWindow\(reconciledRuns, turnWindowTurns\)/);
-	assert.doesNotMatch(timelineSource, /isRestoringScrollAnchor/);
-	assert.doesNotMatch(timelineSource, /jumpNavigationActive/);
-	assert.doesNotMatch(timelineSource, /Number\.MAX_SAFE_INTEGER/);
-	// 跟随态可能在回底 effect 复位 scrolledWindowTurns 前收到一次滚动；保存锚点时
-	// 仍必须记录实际的 3 轮 DOM 窗口，而不是那份过期的大窗口状态。
-	assert.match(controllerSource, /const effectiveWindowTurns = autoScroll\s*\? TIMELINE_MOUNTED_TURN_LIMIT\s*:\s*scrolledWindowTurns;/);
-	assert.match(controllerSource, /renderedWindowTurnsRef\.current = effectiveWindowTurns;/);
-	assert.match(controllerSource, /ownerWindowTurnsRef\.current\.set\(ownerKey, effectiveWindowTurns\)/);
-});
-
 // 中间回复「消失→回来」循环的根因修复：live 挂载点必须要求「活动正文流」。
 // 中间回复 message_end 后槽删（streaming=false）→ 不再挂 live → 落回容器内 settled，
 // 消除双失明窗口（live 读空 + 容器内被跳过）；下一条 assistant 出现前不会空白。

@@ -48,7 +48,9 @@ export const sessionAtomsSource = sessionAtomsSources.map(({ path, source }) => 
  *   拿到的是可后填的桥对象（`loadSessionAtoms` 编译完回填），CJS 产物只在调用时取值，够用。
  */
 export function sessionAtomsLoaderImports({ compileModule, imports, entrySpecifier = "./session-atoms" }) {
-	const pathBySpecifier = new Map(domainPaths.map((path) => [`./${path.slice(path.lastIndexOf("/") + 1, -".ts".length)}`, path]));
+	// 按文件名建键：域内写 ./xxx、跨层写 ../../../shared/xxx，两种都落到同一张表。
+	const baseNameOf = (path) => path.slice(path.lastIndexOf("/") + 1).replace(/\.ts$/, "");
+	const pathBySpecifier = new Map(domainPaths.map((path) => ["./" + baseNameOf(path), path]));
 	const loaded = new Map();
 	// 入口模块exports：域模块（如 vanished-session-runtimes）会反查它的 atom。
 	const entryExports = {};
@@ -58,7 +60,8 @@ export function sessionAtomsLoaderImports({ compileModule, imports, entrySpecifi
 			const known = Reflect.get(target, specifier);
 			if (known !== undefined) return known;
 			if (specifier === entrySpecifier) return entryExports;
-			const path = pathBySpecifier.get(specifier);
+			// specifier 可能是 ./xxx 或 ../../../shared/xxx：都按最后一段查。
+			const path = pathBySpecifier.get("./" + specifier.slice(specifier.lastIndexOf("/") + 1));
 			if (!path) return undefined;
 			if (!loaded.has(path)) loaded.set(path, compileModule(path, bridge));
 			return loaded.get(path);

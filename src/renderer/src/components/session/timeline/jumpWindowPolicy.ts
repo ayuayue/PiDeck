@@ -94,3 +94,24 @@ export function estimateJumpExpandTurns(messages: ReadonlyArray<{ role?: string 
 	}
 	return turnsFromTargetToEnd + 1;
 }
+
+/**
+ * 跳转的取页策略：第一次就按 entryId 一次取到目标所在的页，不逐页逼近。
+ *
+ * 为什么改：旧路径只知道目标的 messageId，而 messageId 只有在已加载的列表里才查得到。
+ * 目标没加载时拿它查必然 -1，于是只能「补一页、看看在不在、不在再补」——跳得越远，
+ * 补的次数越多，用户看到的就是「一直在加载」「都要点很多次」。
+ * entryId 是文件里的稳定位置，主进程 readRecordMessagePage 的 beforeEntryId 直接吃它：
+ * 一次调用就能拿到含目标的整页。
+ *
+ * 取页只做一次（pageFetched）：拿回来还是没有，说明目标不在这一页之前的任何位置
+ * （已删除 / 被压缩掉），继续取是空转，交给扩窗与放弃。
+ */
+export type JumpPagePlan = { kind: "fetch-page"; beforeEntryId: string } | { kind: "expand"; turns: number } | { kind: "give-up"; reason: "attempts" };
+
+export function planJumpPageRequest(input: { entryId: string | undefined; pageFetched: boolean; expandAttempts: number }): JumpPagePlan {
+	if (!input.pageFetched && input.entryId) return { kind: "fetch-page", beforeEntryId: input.entryId };
+	if (input.expandAttempts >= JUMP_MAX_EXPAND_ATTEMPTS) return { kind: "give-up", reason: "attempts" };
+	const multiplier = Math.min(2 ** input.expandAttempts, JUMP_EXPAND_MAX_MULTIPLIER);
+	return { kind: "expand", turns: TIMELINE_WINDOW_EXPAND_STEP * multiplier };
+}

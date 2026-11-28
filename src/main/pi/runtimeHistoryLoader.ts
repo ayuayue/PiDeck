@@ -11,6 +11,8 @@ import { isRoleMessageRole } from "./sessionEntryIds";
 import { estimateMessagesPayloadBytes } from "./messagePayloadSize";
 import { countRoleMessagesBefore, stripToolResultForDelivery, trimHistoryMessages, turnTrimStartIndex } from "./agentUtils";
 
+import { runtimeEntryPositions } from "./runtimeEntryPositionIndex";
+
 /**
  * 历史加载域协作方的窄接口：全部是「宿主已有单一事实」的读取/发布入口（列表、投影、节流、
  * 会话文件版本），不引入新状态；拆出后 AgentManager 只保留编排与生命周期。
@@ -80,19 +82,18 @@ export class RuntimeHistoryLoader {
 
 		let pos = -1;
 		if (options.beforeEntryId) {
-			pos = list.findIndex((m) => m.meta?.entryId === options.beforeEntryId);
+			pos = runtimeEntryPositions(list).get(options.beforeEntryId) ?? -1;
 		} else if (options.before !== undefined) {
 			const entryId = await this.sessionHistoryReader.resolveEntryIdAtPosition(sessionPath, options.before);
 			if (!entryId) return null;
-			pos = list.findIndex((m) => m.meta?.entryId === entryId);
+			pos = runtimeEntryPositions(list).get(entryId) ?? -1;
 			// 锚点是缓存最旧条目：缓存里没有比它更早的内容，交给文件路径
 			if (pos === 0) return null;
 		}
 		if (pos < 0) return null;
 
 		const turnCount = Math.min(Math.max(1, Math.floor(options.turnCount ?? 3)), SessionHistoryReader.maxTurnPageSize());
-		const roles = list.map((m) => ({ role: m.role, byteLength: 0 }));
-		const start = boundTurnWindowStart(roles, pos, turnCount, SessionHistoryReader.maxPageWindowEntries());
+		const start = boundTurnWindowStart(list, pos, turnCount, SessionHistoryReader.maxPageWindowEntries());
 		if (start >= pos) return null;
 		const page = list.slice(start, pos);
 		// 窗口首条常常不是用户/助手消息，而是压缩摘要卡片或工具结果：这两类在会话文件里没有

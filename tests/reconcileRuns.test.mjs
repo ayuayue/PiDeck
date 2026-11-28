@@ -196,8 +196,8 @@ test("reconcileRuns removes stale runs when next shrinks", () => {
 // 契约：SessionMessageTimeline 用 reconcileRuns 复用引用，TurnRow memo 走快速路径
 test("timeline wires reconcileRuns and TurnRow memo fast path", () => {
 	const timeline = readFileSync("src/renderer/src/components/session/SessionMessageTimeline.tsx", "utf8");
-	assert.match(timeline, /reconcileRuns\(prevRenderedRunsRef\.current, renderedRuns\)/);
-	assert.match(timeline, /prevRenderedRunsRef = useRef<RenderMessage\[\] \| undefined>/);
+	assert.match(timeline, /reconcileRuns\(previous\?\.sessionId === sessionId \? previous\.runs : undefined, renderedRuns\)/);
+	assert.match(timeline, /prevRenderedRunsRef = useRef<\{ sessionId: string; runs: RenderMessage\[\] \} \| undefined>/);
 
 	const turnRow = readFileSync("src/renderer/src/components/session/turn/TurnRow.tsx", "utf8");
 	assert.match(turnRow, /sameAgentRunForRender\(prev\.run, next\.run\)/);

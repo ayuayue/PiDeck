@@ -5,6 +5,11 @@ import type { SessionDisplayReadOptions } from "./sessionEntryParsing";
 import { applySessionContextEdits, collectSessionContextEdits, roleMessageEntryIds } from "./sessionMessageProjection";
 import { boundTurnWindowStart, clampTurnWindowStart, resolveTurnPageBefore } from "./sessionTurnWindow";
 
+export function indexActiveMessages(entries: SessionDisplayEntry[]): Pick<SessionDisplayIndex, "activeMessageEntries" | "activeMessagePositionById"> {
+	const activeMessageEntries = entries.filter((entry) => entry.type === "message" && entry.hasMessage);
+	const activeMessagePositionById = new Map(activeMessageEntries.map((entry, position) => [entry.id, position]));
+	return { activeMessageEntries, activeMessagePositionById };
+}
 /**
  * 三个「显示读」入口与轮次页预取：整分支读取、加载窗口、轮次分页。
  *
@@ -209,7 +214,8 @@ export class SessionDisplayPaging {
 		// beforeEntryId：渲染层以「运行时窗口首条消息的 entryId」作为首次补历史的游标，
 		// 解析为该 entry 在活跃分支的绝对下标（运行时窗口与 JSONL 是两个下标空间，
 		// entryId 是唯一的对齐锚点）。解析失败回退为 undefined（= 从尾部起页）。
-		const boundedBefore = resolveTurnPageBefore(before, beforeEntryId, index.activeMessageEntries, total);
+		const targetPosition = beforeEntryId ? index.activeMessagePositionById.get(beforeEntryId) : undefined;
+		const boundedBefore = options?.includeBeforeEntry && beforeEntryId ? (targetPosition === undefined ? null : targetPosition + 1) : resolveTurnPageBefore(before, beforeEntryId, index.activeMessageEntries, total, index.activeMessagePositionById);
 		// 锚点解析失败且没有数值游标：明确回「没有更早历史」，不能静默回退到尾部（#474）。
 		if (boundedBefore === null) {
 			return { messages: [], total, nextBefore: null, nextBeforeEntryId: undefined, indexVersion: `${index.mtimeMs}:${index.size}`, ...index.metadata };

@@ -5,11 +5,10 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { flushSync } from "react-dom";
 import type { ComponentProps, ReactNode, Ref, RefObject } from "react";
 import type { ChatMessage, ImageContent } from "../../../../shared/types";
-import { MarkdownStream } from "./MarkdownStream";
 import { replaceExpandedRefBlocksWithLabels } from "./composer/quoteChip";
 import { Button } from "../ui-shadcn/button";
 import { DiagnosticMessageCard, EmptyState, MultiSelectModal, RespondingIndicator, TurnRow, UserBubble, stripMarkdown } from "./SurfaceParts";
-import { getMultiSelectImageCaptureIds, groupToolMessages, reconcileRuns, type RenderMessage } from "../app/AppUtils";
+import { getMultiSelectImageCaptureIds, groupToolMessages, groupToolMessagesCached, reconcileRuns, type RenderMessage } from "../app/AppUtils";
 import {
 	liveThinkingIdBySessionIdAtomFamily,
 	liveTextStreamingBySessionAtom,
@@ -29,7 +28,7 @@ import { SelectionToolbar } from "./timeline/SelectionToolbar";
 import { MessageContextMenu } from "./timeline/MessageContextMenu";
 import { deriveTimelineRunActivity } from "./timeline/timelineRunActivity";
 import { deriveRetryProgress } from "./timeline/retryProgress";
-import { canLoadSessionTimelineMore, deriveSessionSurfaceRuntime, type SessionTimelineController } from "../../hooks/useSessionTimelineController";
+import { deriveSessionSurfaceRuntime, type SessionTimelineController } from "../../hooks/useSessionTimelineController";
 import { t } from "../../i18n";
 import { cn } from "../../lib/utils";
 import { Loader2, LoaderCircle, Power } from "lucide-react";
@@ -46,7 +45,7 @@ import { resolveFreshTailIds } from "../../lib/pinTurnScroll";
 import { chatContentWidthStyle } from "./chatContentWidth";
 import { useSessionVisionBridgeExpected } from "../../hooks/useSessionVisionBridgeExpected";
 import { useAcpHistoryRestorePending } from "../../hooks/useAcpRestoreHint";
-import { countAgentRunItems, selectTimelineTurnWindow, shouldWindowTimelineTurns, TIMELINE_MOUNTED_TURN_LIMIT } from "./timeline/turnRenderWindow";
+import { findAgentRunIndexByItemId, resolveAnchoredTurnWindow } from "./timeline/turnRenderWindow";
 import { VirtualRunList } from "./timeline/VirtualRunList";
 import { isRenderableRunItem } from "./timeline/virtualTimelinePolicy";
 import { REVEAL_TIMELINE_ENTRY_EVENT, REVEAL_TIMELINE_ENTRY_TIMEOUT_MS } from "../../hooks/timeline/timelineRevealChannel";
@@ -56,8 +55,6 @@ type UserBubbleProps = ComponentProps<typeof UserBubble>;
 
 /** 一轮结束后、用户无操作的自动收起等待时间。 */
 const TURN_SETTLE_IDLE_COLLAPSE_MS = 1500;
-/** 折叠高度动画基本结束后再做「拉到中上方」定位，避免用折叠前的高度计算目标。 */
-const TURN_SETTLE_SCROLL_DELAY_MS = 320;
 
 // 失败/重试 toast 去重必须放模块级：分屏多栏、切走再切回都会重挂 effect。
 // 重试签名尤其不能放组件 ref——旧实现 lastRetryToastRef 在 sessionId 变化时被清空，
@@ -162,8 +159,6 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 	const timelineRef = props.timelineRef ?? controller.timelineRef;
 	const activeMessages = controller.messages;
 	const paginatedMessages = controller.visibleMessages;
-	const totalMessageCount = controller.totalMessageCount;
-	const hasMoreMessages = controller.hasMoreMessages;
 	const isLoadingMoreMessages = controller.isLoadingMoreMessages;
 	const hasActiveConversation = Boolean(session);
 	// ACP 激活重放窗口期：历史还没投影进来但一定会来。此时不挂居中起始页——输入框已经
@@ -193,7 +188,6 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 	// 不受此约束）窄且位置偏移，同一组件两副长相；起始页组件自身有 max-w-[980px]
 	// 居中控制，去掉约束后与引导页完全一致。有消息时保持原约束（消息列与输入框对齐契约）。
 	const showSurfaceEmptyState = !hasActiveConversation || (!isConversationLoading && paginatedMessages.length === 0);
-	const canLoadMoreMessages = canLoadSessionTimelineMore(modernSurfaceState.isStarting, paginatedMessages.length);
 	// 划选引用：选区落在同一条消息内时在选区上方提供「引用并提问」按钮
 	const { quote: selectionQuote, clear: clearSelectionQuote, toolbarRef: selectionToolbarRef } = useTimelineSelection(timelineRef);
 	// 消息右键菜单：复制来源（选区快照 / 命中消息 / live 正文回退）由 hook 解析，
@@ -235,7 +229,6 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 		isTurnActive: activeRuntimeState?.isTurnActive,
 	});
 	const cancellingUi = false;
-	const loadMoreMessages = controller.loadMoreMessages;
 	// ── 滚动接近顶部自动加载历史（2026-11 轮次模型）──
 	// 监听器已迁移到 useSessionTimelineController（程序化滚动抑制在同一 owner）：
 	// 用户接近顶部时先扩 DOM 窗口，挂满后触顶才按轮补历史；
@@ -401,18 +394,21 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 	// runtime history 变化只有三种：头部补页（prepend）、尾部并入 slideOut（append）、
 	// 版本失效重建。前两种保留旧消息引用，可增量 group，避免每次补页都全量重建历史。
 	const historyGroupStateRef = useRef<{
+		sessionId: string;
 		messages: readonly ChatMessage[] | undefined;
+		agentBusy: boolean;
 		groups: RenderMessage[];
-	}>({ messages: undefined, groups: [] });
+	}>({ sessionId, messages: undefined, agentBusy: false, groups: [] });
 	const groupedHistoryRuns = useMemo(() => {
 		const next = runtimeHistoryMessages;
 		const state = historyGroupStateRef.current;
 		if (next === undefined) {
-			historyGroupStateRef.current = { messages: undefined, groups: [] };
+			historyGroupStateRef.current = { sessionId, messages: undefined, agentBusy: isTurnRunning, groups: [] };
 			return null;
 		}
-		if (state.messages === next) return state.groups;
-		const prev = state.messages;
+		if (state.sessionId === sessionId && state.agentBusy === isTurnRunning && state.messages === next) return state.groups;
+		const canExtend = state.sessionId === sessionId && state.agentBusy === isTurnRunning;
+		const prev = canExtend ? state.messages : undefined;
 		let groups: RenderMessage[];
 		if (prev && isMessagePrefix(prev, next)) {
 			const appended = next.slice(prev.length);
@@ -421,13 +417,11 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 			const prepended = next.slice(0, next.length - prev.length);
 			groups = [...groupToolMessages(prepended, { agentBusy: isTurnRunning }), ...state.groups];
 		} else {
-			groups = groupToolMessages(next, { agentBusy: isTurnRunning });
+			groups = groupToolMessagesCached(next, { agentBusy: isTurnRunning });
 		}
-		historyGroupStateRef.current = { messages: next, groups };
-		// Turn activity participates in history grouping: when context compaction
-		// starts after agent_end, the preceding assistant reply becomes final.
+		historyGroupStateRef.current = { sessionId, messages: next, agentBusy: isTurnRunning, groups };
 		return groups;
-	}, [runtimeHistoryMessages, isTurnRunning]);
+	}, [sessionId, runtimeHistoryMessages, isTurnRunning]);
 	// The window segment follows the same turn-level activity rule as history.
 	// DSH 已作答回显内联注入：应答时记录的锚点（最后一条消息 id）即提问阻塞的
 	// 工具调用位置，把回显合成为 ask_question 工具消息插在其后，走 pi _askCard
@@ -447,21 +441,22 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 	}, [askEchoEntry, runtime?.agentId, runtime?.runtimeGeneration]);
 	const echoedWindowMessages = useMemo(() => injectAskEchoMessage(controller.messages, askEchoPlacement), [controller.messages, askEchoPlacement]);
 	const echoedPaginatedMessages = useMemo(() => injectAskEchoMessage(paginatedMessages, askEchoPlacement), [paginatedMessages, askEchoPlacement]);
-	const groupedWindowRuns = useMemo(() => groupToolMessages(echoedWindowMessages, { agentBusy: isTurnRunning }), [echoedWindowMessages, isTurnRunning]);
+	const groupedWindowRuns = useMemo(() => (groupedHistoryRuns ? groupToolMessagesCached(echoedWindowMessages, { agentBusy: isTurnRunning }) : null), [groupedHistoryRuns, echoedWindowMessages, isTurnRunning]);
 	const renderedRuns = useMemo(() => {
 		if (groupedHistoryRuns) {
-			return [...groupedHistoryRuns, ...groupedWindowRuns];
+			return [...groupedHistoryRuns, ...(groupedWindowRuns ?? [])];
 		}
-		return groupToolMessages(echoedPaginatedMessages, { agentBusy: isTurnRunning });
+		return groupToolMessagesCached(echoedPaginatedMessages, { agentBusy: isTurnRunning });
 	}, [groupedHistoryRuns, groupedWindowRuns, echoedPaginatedMessages, isTurnRunning]);
 	// 阶段0补强：对未变化的 run 复用旧对象引用，历史 run 的 memo 比较退化为 O(1)
-	const prevRenderedRunsRef = useRef<RenderMessage[] | undefined>(undefined);
+	// Reconcile within a session only; a session switch must not index the previous history.
+	const prevRenderedRunsRef = useRef<{ sessionId: string; runs: RenderMessage[] } | undefined>(undefined);
 	const reconciledRuns = useMemo(() => {
-		const next = reconcileRuns(prevRenderedRunsRef.current, renderedRuns);
-		prevRenderedRunsRef.current = next;
+		const previous = prevRenderedRunsRef.current;
+		const next = reconcileRuns(previous?.sessionId === sessionId ? previous.runs : undefined, renderedRuns);
+		prevRenderedRunsRef.current = { sessionId, runs: next };
 		return next;
-	}, [renderedRuns]);
-	// 状态条秒表（2026-10 由 TurnRow 末尾迁入）：取本轮最后一个 agent-run 的起点，
+	}, [renderedRuns, sessionId]);
 	// 口径与轮末固定耗时一致——startedAt + askWaitMs（等待用户回答不计），
 	// 阻塞提问期间冻结在 askPendingAt，避免把用户思考时间算成模型耗时。
 	// 只在轮内传：轮结束后由 TurnRow 末尾显示固定耗时，状态条不再读秒。
@@ -474,22 +469,18 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 			frozenAt: last.askPending ? last.askPendingAt : undefined,
 		};
 	}, [isTurnRunning, reconciledRuns]);
-	// 渲染窗口（2026-08 黑屏治理）：贴底只挂尾部 3 轮；上滚查看历史也裁剪
-	// （controller.scrolledWindowTurns，初始 3 轮，接近顶部按 3 轮 cohort 自动扩大）——
-	// 历史全量放开挂载是大会话渲染进程内存峰值/黑屏的来源。数据仍在 atoms。
+	// The complete loaded history feeds VirtualRunList; only its visible rows become DOM nodes.
+	// This keeps scroll geometry stable while retaining bounded message-page reads.
 	//
-	// 关键不变量：锚点保存和恢复必须使用同一轮次窗口。恢复期若临时全量物化、
-	// restoreAt 后又收回尾部窗口，文档高度收缩会把已恢复的 scrollTop 截断，造成
-	// 切回位置漂移。锚点不在已保存窗口时，controller 会逐步扩窗后重试；跳转也走
-	// 同一扩窗策略，而不是绕过窗口约束。
-	// 跳转在途时不许按「贴底」压缩窗口：目标在更早的轮次，而流式输出期间贴底引擎每帧都把
-	// autoScroll 拉回 true；此时按贴底取 3 轮上限，扩窗结果立刻被忽略，目标轮永远挂不上
-	// （2026-11 真机：吐 token 时点刻度没反应）。
+	// 只在尚未落位的刻度跳转期间裁成锚点窗口；普通阅读始终保留完整数据范围，
+	// 由 VirtualRunList 虚拟化 DOM。这样滚动时总高度稳定，不再随窗口扩展而改变。
 	const followingForTurnWindow = controller.autoScroll && !controller.jumpPending;
-	const turnWindowTurns = followingForTurnWindow ? TIMELINE_MOUNTED_TURN_LIMIT : controller.scrolledWindowTurns;
-	const displayRuns = useMemo(() => selectTimelineTurnWindow(reconciledRuns, turnWindowTurns), [reconciledRuns, turnWindowTurns]);
+	// Keep the virtualizer's item count stable while scrolling; it already mounts only visible rows.
+	const turnWindowTurns = 0;
+	const windowAnchorId = controller.jumpPending ? controller.jumpAnchorMessageId : null;
+	const displayRuns = useMemo(() => resolveAnchoredTurnWindow(reconciledRuns, turnWindowTurns, windowAnchorId), [reconciledRuns, turnWindowTurns, windowAnchorId]);
 	useEffect(() => {
-		// 多选关闭且回到底部后才允许缩回 turn 窗口：回底时锚点必在尾部窗口内，缩回不会丢行。
+		// Returning to follow mode releases the temporary multi-select full-run retention.
 		if (!multiSelectOpen && followingForTurnWindow) setRetainFullRuns(false);
 	}, [followingForTurnWindow, multiSelectOpen]);
 	// 身份判定（2026-08 perf）：位置判定（index / displayRuns.length）随滚动窗口切片
@@ -631,35 +622,8 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 		return clearIdle;
 	}, [hasLiveRuntime, isRuntimeBusy, runtime?.agentId, runtime?.runtimeGeneration, sessionId]);
 
-	// 轮数集中算一次供窗口判定用：reconciledRuns 在流式期间每帧重建，memo 只保证同一次渲染内不重复计数。
-	const agentRunCount = useMemo(() => countAgentRunItems(reconciledRuns), [reconciledRuns]);
-	const turnWindowActive = shouldWindowTimelineTurns(agentRunCount, turnWindowTurns);
-	// 方案 C（2026-12）渐进扩展：把「窗口是否仍可扩展」同步给 controller 的滚动监听——
-	// 接近窗口顶部且还有未挂载的已加载数据时，先自动扩窗口（本地 DOM，无网络往返），
-	// 而不是一次性把整个历史窗口挂出来导致滚动条骤变。渲染期写 ref，
-	// 与 ownerKeyRef 同模式；turnWindowActive 变化低频，不引发额外渲染。
-	controller.windowExpandableRef.current = turnWindowActive;
-	// 窗口轮数变化（上滚 3→6→9、点按钮扩大）会在顶部插入内容。
-	// 钉的是扩窗前正在看的那一轮（controller.pinBrowseRow），不是整页 scrollHeight 差；
-	// 数据翻页也走同一钉行；Markdown/图片后增高由内容 ResizeObserver 继续补漂移。
-	const turnWindowStateRef = useRef<{ windowed: boolean; turns: number }>({
-		windowed: false,
-		turns: 0,
-	});
-	const pinBrowseRow = controller.pinBrowseRow;
-	useLayoutEffect(() => {
-		const prev = turnWindowStateRef.current;
-		if (prev.windowed && prev.turns !== turnWindowTurns && !followingForTurnWindow) {
-			// 扩窗在顶部插入轮次：这一拍按钉住的行补齐位移。
-			// 整表渲染的开关不在这里：扩窗本身**不打开**它（钉行由 pinnedRunKeys 强制挂载），
-			// 只有 scroll 翻页会打开（beginPrependSolid），由锚点消费点或请求 finally 关闭。
-			pinBrowseRow();
-		}
-		turnWindowStateRef.current = {
-			windowed: turnWindowActive,
-			turns: turnWindowTurns,
-		};
-	}, [displayRuns, followingForTurnWindow, pinBrowseRow, turnWindowActive, turnWindowTurns]);
+	// Render virtualization now owns the full loaded range; scrolling never grows a turn window.
+	controller.windowExpandableRef.current = false;
 	// 文件修改由 SessionView 提取最近一轮并放在 composer 上方；时间线只负责渲染消息。
 	// 时间线里已有用户图片才解析模型目录：原生看图时气泡不能显示视觉桥「转换中」。
 	const hasUserImages = useMemo(() => activeMessages.some((message) => message.role === "user" && Boolean(message.images?.length)), [activeMessages]);
@@ -784,15 +748,8 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 	// 与 renderRunItem 首行、VirtualRunList 的 entries 共用同一份「是否产出 DOM」判据：
 	// 判定放宽会为空行多吃一条行距，收紧会把卡片从虚拟区静默丢掉（#401 评审）。
 	const isRenderableItem = useCallback((item: RenderMessage) => isRenderableRunItem(item), []);
-	/** 这一轮是否包含指定消息：钉行的 messageId 要映射到它所在的 run。 */
-	const runContainsMessageId = useCallback((item: RenderMessage, messageId: string): boolean => {
-		if (item.kind === "agent-run") {
-			// MessageItem 用 message.id；其余 group 类型的 id 与触发它的消息 id 一致（见 AppUtils）。
-			return item.items.some((sub) => (sub.kind === "message" ? sub.message.id === messageId : sub.id === messageId));
-		}
-		if (item.kind === "message") return item.message.id === messageId;
-		return item.id === messageId;
-	}, []);
+	// 锚点索引与窗口选择共用同一份 reconciledRuns；不存在时返回 -1，不猜轮次。
+	const readPinnedIndex = useCallback((messageId: string) => findAgentRunIndexByItemId(displayRuns, messageId), [displayRuns]);
 	// 恢复锚点 / 挂起跳转在途：这两条路径按 [data-message-id] 查 DOM，虚拟区外的行不在 DOM 里。
 	// 交给 VirtualRunList 的 solid 模式（同一组件内整表真实渲染），不换组件类型 ——
 	// 换类型会整棵卸载，heightsRef 的高度缓存丢失，恢复完成后按估值重排会跳位。
@@ -802,7 +759,8 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 	const pinnedRunKeys: readonly string[] = (() => {
 		const pinnedId = props.controller.readPinnedMessageId?.();
 		if (!pinnedId) return [];
-		const hit = displayRuns.find((item) => runContainsMessageId(item, pinnedId));
+		const pinnedIndex = readPinnedIndex(pinnedId);
+		const hit = pinnedIndex >= 0 ? displayRuns[pinnedIndex] : undefined;
 		return hit ? [virtualRunId(hit)] : [];
 	})();
 	// 宿主插件按 entryId 导航：目标轮可能在虚拟区外（没有 DOM）。hook 派发渲染层事件，
@@ -978,58 +936,10 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 				onScroll: controller.handleTimelineScroll,
 			}}
 		>
-			{(turnWindowActive || (hasMoreMessages && canLoadMoreMessages)) && (
-				<div
-					style={{
-						display: "flex",
-						justifyContent: "center",
-						padding: "12px 0",
-						borderBottom: "1px solid var(--border-color)",
-					}}
-				>
-					<button
-						onClick={() => {
-							// 有历史数据页就先翻数据：按钮写的是「加载更多对话」，用户要的是更多内容，
-							// 不是「把已加载的挂出来」。反过来（先 expandWindow）每次点击只扩 3 轮渲染
-							// 窗口、数据一步不走 —— 137 轮会话要点 45 次才轮到第一次翻页，观感就是
-							// 「点了没反应」（2026-11 真机反馈）。
-							if (hasMoreMessages && canLoadMoreMessages) {
-								// source 必须是 button：贴底时 loadMoreMessages 要按「显式请求」处理，
-								// 先脱离跟随再翻页。传 scroll 会被迟到的 following 门整条丢弃（界面零变化）。
-								loadMoreMessages("button");
-							} else if (turnWindowActive) {
-								controller.expandWindow();
-							}
-						}}
-						disabled={isLoadingMoreMessages}
-						style={{
-							display: "inline-flex",
-							alignItems: "center",
-							gap: "6px",
-							padding: "6px 16px",
-							border: "1px solid var(--border-color)",
-							borderRadius: "6px",
-							background: "var(--bg-secondary)",
-							color: "var(--text-primary)",
-							fontSize: "13px",
-							cursor: isLoadingMoreMessages ? "not-allowed" : "pointer",
-							opacity: isLoadingMoreMessages ? 0.6 : 1,
-							transition: "all 0.2s",
-						}}
-					>
-						{isLoadingMoreMessages ? (
-							// 加载动画：点击后立即出现，真正加载完成（finally 复位 isLoadingMessagePage）才消失
-							<>
-								<Loader2 className="size-3.5 animate-pideck-spin" aria-hidden="true" />
-								{t("timeline.loadingMore")}
-							</>
-						) : (
-							// 2026-12 统一文案：上滚窗口已由「接近顶部自动扩展」接管（无需再提示
-							// 剩余已加载轮数），按钮统一为「加载更多对话」——窗口可扩时点击本地扩
-							// 窗口，已挂满且有更早历史时点击翻页，对用户透明。
-							t("timeline.loadMoreTurns")
-						)}
-					</button>
+			{isLoadingMoreMessages && (
+				<div role="status" aria-live="polite" className="flex items-center justify-center gap-2 border-b border-border py-3 text-xs text-muted-foreground">
+					<Loader2 className="size-3.5 animate-pideck-spin" aria-hidden="true" />
+					{t("timeline.loadingMore")}
 				</div>
 			)}
 
@@ -1151,6 +1061,7 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 					<VirtualRunList
 						runs={multiSelectOpen || retainFullRuns ? reconciledRuns : displayRuns}
 						scrollRef={timelineRef}
+						cacheKey={sessionId}
 						renderRun={renderRunItem}
 						getRunId={virtualRunId}
 						isAgentRun={isAgentRunItem}

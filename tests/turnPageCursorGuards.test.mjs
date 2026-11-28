@@ -37,3 +37,19 @@ test("entryId 解析失败但带着数值游标：沿用数值游标", () => {
 	const entries = [{ id: "a" }];
 	assert.equal(resolveTurnPageBefore(1, "not-in-index", entries, 1), 1);
 });
+test("预建 entryId 位置表后，远距游标解析不读取消息数组", () => {
+	let indexedReads = 0;
+	const entries = new Proxy([{ id: "first" }, { id: "target" }, { id: "last" }], {
+		get(target, key, receiver) {
+			if (typeof key === "string" && /^\d+$/.test(key)) indexedReads += 1;
+			return Reflect.get(target, key, receiver);
+		},
+	});
+	const positions = new Map([
+		["first", 0],
+		["target", 1],
+		["last", 2],
+	]);
+	assert.equal(resolveTurnPageBefore(undefined, "target", entries, 3, positions), 1);
+	assert.equal(indexedReads, 0, "游标应直接从 Map 读，不得 findIndex 扫历史");
+});
