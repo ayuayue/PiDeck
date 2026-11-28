@@ -21,6 +21,7 @@ function makePorts(overrides = {}) {
 	const calls = { read: [], prepend: [], setPending: [], clear: [] };
 	const ports = {
 		sessionId: "s1",
+		isRequestCurrent: () => true,
 		revision: 7,
 		readRecordMessagePage: async (sessionId, before, pageSize, options) => {
 			calls.read.push({ sessionId, before, pageSize, options });
@@ -141,18 +142,30 @@ test("目标已在已加载数据里时不取页：白读一次盘还会把 200 
 	assert.equal(second.calls.read.length, 1);
 });
 
-test("已有历史前缀时也要能落地：prepend 被守卫拒掉后清前缀重试一次", async () => {
-	// prependSessionHistoryPageAtom 的守卫是 current.history.nextBefore !== input.before。
-	// 一次取页传 before: undefined，所以只要用户之前翻过页（history 存在），这次 prepend
-	// 必被拒——页白读，目标仍不在数据里，最后报「未能跳转」。
-	// 处置：被拒后清掉旧前缀再试一次（旧前缀对「跳到别处」本来就没用）。
+test("a stale revision rejection never clears history or retries", async () => {
 	const { ports, calls } = makePorts({ prependResult: false });
 	useJumpPageFetch(ports)(pending("e-target"), "owner-A", false);
 	await new Promise((resolve) => setTimeout(resolve, 10));
-	assert.equal(calls.clear.length, 1, "prepend 被拒后必须清一次旧前缀");
-	assert.equal(calls.prepend.length, 2, "清完要重试一次 prepend，总共两次");
+	assert.equal(calls.clear.length, 0);
+	assert.equal(calls.prepend.length, 1);
+	assert.equal(calls.prepend[0].replace, true);
 });
-
+test("a response arriving after a session or browse-generation change is ignored", async () => {
+	let current = true,
+		finish;
+	const { ports, calls } = makePorts({
+		isRequestCurrent: () => current,
+		readRecordMessagePage: () =>
+			new Promise((resolve) => {
+				finish = resolve;
+			}),
+	});
+	useJumpPageFetch(ports)(pending("e-target"), "owner-A", false);
+	current = false;
+	finish({ messages: [], nextBefore: null });
+	await new Promise((resolve) => setTimeout(resolve, 10));
+	assert.equal(calls.prepend.length, 0);
+});
 test("prepend 一次成功时不清前缀：别把用户翻出来的历史白白丢掉", async () => {
 	const { ports, calls } = makePorts();
 	useJumpPageFetch(ports)(pending("e-target"), "owner-A", false);

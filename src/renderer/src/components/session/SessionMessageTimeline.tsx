@@ -936,6 +936,11 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 				onScroll: controller.handleTimelineScroll,
 			}}
 		>
+			{controller.hasNewerMessages && (
+				<Button data-testid="timeline-load-newer" variant="outline" disabled={isLoadingMoreMessages} onClick={controller.loadNewerMessages}>
+					{t("timeline.loadNewer")}
+				</Button>
+			)}
 			{isLoadingMoreMessages && (
 				<div role="status" aria-live="polite" className="flex items-center justify-center gap-2 border-b border-border py-3 text-xs text-muted-foreground">
 					<Loader2 className="size-3.5 animate-pideck-spin" aria-hidden="true" />

@@ -102,7 +102,7 @@ export interface EarlierHistoryCursor {
 
 export interface EarlierHistoryCursorInput {
 	/** 运行时历史前缀（翻过页后存在）：它的游标是唯一真相，窗口段的下标不再适用。 */
-	runtimeHistory?: { nextBefore?: number | null; nextBeforeEntryId?: string | null } | null;
+	runtimeHistory?: { nextBefore?: number | null; nextBeforeEntryId?: string | null; recoveryBeforeEntryId?: string | null } | null;
 	/** 窗口段消息（按显示顺序；首条可能是无 entryId 的压缩/分支摘要卡片）。 */
 	windowMessages: ReadonlyArray<{ meta?: Record<string, unknown> }>;
 	/** 窗口首条消息在文件消息下标空间的位置；主进程算不出时缺席。 */
@@ -138,7 +138,11 @@ export function resolveEarlierHistoryCursor(input: EarlierHistoryCursorInput): E
 			return typeof entryId === "string" && entryId ? { before: nextBefore, beforeEntryId: entryId } : { before: nextBefore };
 		}
 		// nextBefore 为 null 但 entryId 锚点仍在：sliding 后的前缀只靠 entryId 续页。
-		// 若窗口自身已从文件头开始，这个锚点也不可能指向更早的消息。
+		// A recovery cursor was created by prefix eviction. It is already a stable entry-space
+		// boundary; a stale/zero windowStartFilePos must not hide it.
+		const recoveryEntryId = runtime.recoveryBeforeEntryId;
+		if (typeof recoveryEntryId === "string" && recoveryEntryId) return { before: null, beforeEntryId: recoveryEntryId };
+		// Without a recovery cursor, a null numeric cursor means the file head.
 		if (input.windowStartFilePos === 0) return null;
 		const entryId = runtime.nextBeforeEntryId;
 		return typeof entryId === "string" && entryId ? { before: null, beforeEntryId: entryId } : null;

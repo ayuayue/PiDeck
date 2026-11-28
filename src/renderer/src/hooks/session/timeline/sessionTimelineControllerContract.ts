@@ -23,6 +23,9 @@ export type SessionTimelineController = {
 	loadMoreError: string | null;
 	/** 补页后保持当前视口（新历史只出现在上方）。所有入口统一，不再有「新页直接出现」的跳动。 */
 	loadMoreMessages: (source?: "scroll" | "button" | "backfill") => void;
+	/** Newer-side history continuation for a bounded window; only present while the file has newer rows. */
+	hasNewerMessages: boolean;
+	loadNewerMessages: () => void;
 	/** 标记一次程序化滚动（turn 窗口展开补偿等组件内补偿用），抑制历史意图消费。
 	 *  durationMs > 0 时按时间窗口抑制（连续 smooth scroll 会派发多个 scroll 事件）。 */
 	markProgrammaticScroll: (durationMs?: number) => void;

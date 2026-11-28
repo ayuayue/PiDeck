@@ -227,7 +227,8 @@ export const sessionsApi = {
 		/** 回答上面的一次性确认；只有 approve 才执行不可恢复的远端删除。 */
 		answerDeleteArchivedRemoteRecord: (requestId: string, choice: "approve" | "deny") => ipcRenderer.invoke(ipcChannels.sessionsCatalogAnswerDeleteArchivedRemote, requestId, choice) as Promise<import("../../shared/types").RemoteArchivedSessionDeleteAnswerResult>,
 		readRecordMessages: (sessionId: string) => ipcRenderer.invoke(ipcChannels.sessionsCatalogReadMessages, sessionId) as Promise<import("../../shared/types").ChatMessage[]>,
-		readRecordMessagePage: (sessionId: string, before?: number, pageSize?: number, options?: { beforeEntryId?: string; includeBeforeEntry?: boolean }) => ipcRenderer.invoke(ipcChannels.sessionsCatalogReadMessagePage, sessionId, before, pageSize, options) as Promise<import("../../shared/types").SessionMessagePage>,
+		readRecordMessagePage: (sessionId: string, before?: number, pageSize?: number, options?: { beforeEntryId?: string; includeBeforeEntry?: boolean; afterEntryId?: string }) =>
+			ipcRenderer.invoke(ipcChannels.sessionsCatalogReadMessagePage, sessionId, before, pageSize, options) as Promise<import("../../shared/types").SessionMessagePage>,
 		/** 无 runtime 时直接改 JSONL（编辑）。运行中必须先停 Agent。 */
 		editCatalogMessage: (sessionId: string, messageId: string, newText: string, entryId?: string) => ipcRenderer.invoke(ipcChannels.sessionsCatalogEditMessage, sessionId, messageId, newText, entryId) as Promise<SessionCommandResult<void>>,
 		/** 原地移除单图：只传快照，main 在文件锁内校验目标；运行中必须先停。 */

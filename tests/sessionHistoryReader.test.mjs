@@ -213,6 +213,28 @@ test("SessionHistoryReader updates metadata when incremental history append chan
 	}
 });
 
+test("SessionHistoryReader reads a newer page from an entry anchor without rewriting the older cursor", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "pideck-history-after-"));
+	const sessionPath = join(directory, "session.jsonl");
+	try {
+		const line = (id, parentId, role, text) => JSON.stringify({ id, parentId, type: "message", message: { role, content: [{ type: "text", text }] } });
+		await writeFile(
+			sessionPath,
+			[JSON.stringify({ id: "session", type: "session" }), line("e1", "session", "user", "one"), line("e2", "e1", "assistant", "answer one"), line("e3", "e2", "user", "two"), line("e4", "e3", "assistant", "answer two"), line("e5", "e4", "user", "three"), line("e6", "e5", "assistant", "answer three")].join("\n") + "\n",
+			"utf8",
+		);
+		const reader = createReader((path) => path);
+		const first = await reader.readSessionDisplayTurnPage(sessionPath, "viewer", 2, 1);
+		assert.equal(first.nextAfterEntryId, "e2");
+		const newer = await reader.readSessionDisplayTurnPage(sessionPath, "viewer", undefined, 1, undefined, { afterEntryId: "e2" });
+		assert.equal(newer.messages.map((message) => message.text).join("|"), "two|answer two");
+		assert.equal(newer.nextBefore, 2);
+		assert.equal(newer.nextAfterEntryId, "e4");
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
 test("SessionHistoryReader incremental index picks up appended JSONL rows without full rebuild", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "pideck-history-append-"));
 	const sessionPath = join(directory, "session.jsonl");

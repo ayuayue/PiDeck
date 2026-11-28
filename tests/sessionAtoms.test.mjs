@@ -1485,23 +1485,48 @@ test("slideOut-only history keeps an entryId cursor so older pages stay reachabl
 	assert.equal(entry().history.nextBeforeEntryId, "e1");
 });
 
-test("runtime history prepend preserves every page and its cursor beyond the former retention threshold", () => {
-	const atoms = loadAtoms();
-	const store = createStore();
+test("runtime reader crosses the budget in both directions without dropping requested rows", () => {
+	const atoms = loadAtoms(),
+		store = createStore();
+	const all = Array.from({ length: 2048 }, (_, i) => ({ id: "m" + i, role: i % 2 ? "assistant" : "user", text: "body" + i, meta: { entryId: "e" + i } }));
 	const entry = () => store.get(atoms.sessionMessagesCacheAtom)["session-a"];
-	const LIMIT = 16_384;
-	const makeMessages = (count, tag, start) => Array.from({ length: count }, (_, i) => ({ id: `${tag}-${start + i}`, role: "user", text: `${tag}${start + i}`, meta: { entryId: `${tag}${start + i}` } }));
-	store.set(atoms.cacheSessionMessagesAtom, { sessionId: "session-a", messages: [{ id: "w1", role: "user", text: "win", meta: { entryId: "we1" } }], source: "runtime", windowStart: LIMIT, history: { messages: makeMessages(LIMIT - 1, "e", 0), nextBefore: 1, nextBeforeEntryId: "e0", version: "100:2000" } });
-	assert.equal(store.set(atoms.prependSessionHistoryPageAtom, { sessionId: "session-a", expectedRevision: entry().revision, before: 1, page: { messages: makeMessages(3, "h", -3), total: LIMIT + 5, nextBefore: -2, nextBeforeEntryId: "h-3", indexVersion: "100:2000" } }), true);
-	assert.equal(entry().history.messages.length, LIMIT + 2);
-	assert.equal(entry().history.messages[0].meta.entryId, "h-3");
-	assert.equal(entry().history.nextBefore, -2);
-	assert.equal(entry().history.nextBeforeEntryId, "h-3");
-	assert.equal(store.set(atoms.prependSessionHistoryPageAtom, { sessionId: "session-a", expectedRevision: entry().revision, before: -2, page: { messages: makeMessages(2, "g", -5), total: LIMIT + 5, nextBefore: -4, nextBeforeEntryId: "g-5", indexVersion: "100:2000" } }), true);
-	assert.equal(entry().history.messages.length, LIMIT + 4);
-	assert.equal(entry().history.messages[0].meta.entryId, "g-5");
-	assert.equal(entry().history.nextBefore, -4);
-	assert.equal(entry().messages[0].id, "w1");
+	store.set(atoms.cacheSessionMessagesAtom, { sessionId: "session-a", messages: all.slice(2000), source: "runtime", windowStart: 2000, windowStartFilePos: 2000 });
+	const visited = new Set();
+	for (let end = 2000; end > 0; ) {
+		const start = Math.max(0, end - 64),
+			current = entry();
+		assert.equal(
+			store.set(atoms.prependSessionHistoryPageAtom, { sessionId: "session-a", expectedRevision: current.revision, before: current.history?.nextBefore, page: { messages: all.slice(start, end), total: all.length, nextBefore: start || null, nextBeforeEntryId: start ? "e" + start : undefined, indexVersion: "1:10000" } }),
+			true,
+		);
+		const h = entry().history;
+		assert.ok(h.messages.length <= 512);
+		assert.equal(h.messages[0].meta.entryId, "e" + start, "requested oldest row must survive");
+		for (const m of h.messages) visited.add(m.meta.entryId);
+		end = start;
+	}
+	assert.equal(visited.size, 2000, "every older row was actually retained at least once");
+	let last = -1;
+	for (let attempts = 0; entry().history.nextAfterEntryId && attempts < 40; attempts++) {
+		const current = entry(),
+			afterEntryId = current.history.nextAfterEntryId,
+			after = Number(afterEntryId.slice(1));
+		assert.ok(after > last, "newer continuation strictly advances");
+		last = after;
+		const end = Math.min(all.length, after + 65);
+		assert.equal(
+			store.set(atoms.appendSessionMessagePageAtom, { sessionId: "session-a", expectedRevision: current.revision, afterEntryId, page: { messages: all.slice(after + 1, end), total: all.length, nextBefore: after + 1, nextAfterEntryId: end < all.length ? "e" + (end - 1) : undefined, indexVersion: "1:10000" } }),
+			true,
+		);
+		assert.ok(entry().history.messages.length <= 512);
+		const ids = entry().history.messages.map((m) => Number(m.meta.entryId.slice(1)));
+		assert.equal(new Set(ids).size, ids.length);
+		ids.forEach((id, i) => {
+			if (i) assert.equal(id, ids[i - 1] + 1);
+		});
+	}
+	assert.equal(entry().history.nextAfterEntryId, undefined, "reader rejoins live window");
+	assert.equal(entry().messages[0].meta.entryId, "e2000");
 });
 
 test("runtime slideOut keeps growing history without rewriting the source cursor", () => {
@@ -1535,18 +1560,13 @@ test("runtime slideOut keeps growing history without rewriting the source cursor
 			],
 		},
 	});
-	assert.equal(entry().history.messages.length, 16_386);
-	assert.equal(entry().history.messages[0].meta.entryId, "e0");
-	assert.deepEqual(
-		[
-			...entry()
-				.history.messages.slice(-2)
-				.map((message) => message.meta.entryId),
-		],
-		["sl1", "sl2"],
-	);
-	assert.equal(entry().history.nextBefore, 100);
-	assert.equal(entry().history.nextBeforeEntryId, "e0");
+	assert.equal(entry().history.messages.length, 512);
+	assert.equal(entry().history.messages[0].meta.entryId, "e15874");
+	assert.equal(entry().history.messages.at(-2).meta.entryId, "sl1");
+	assert.equal(entry().history.messages.at(-1).meta.entryId, "sl2");
+	assert.equal(entry().history.nextBefore, null);
+	assert.equal(entry().history.nextBeforeEntryId, undefined);
+	assert.equal(entry().history.recoveryBeforeEntryId, "e15874");
 });
 
 test("prependSessionHistoryPageAtom guards revision and cursor continuity, dedupes against segment", () => {
@@ -2137,23 +2157,69 @@ test("same-generation snapshots keep flowing while the binding is alive", () => 
 	assert.equal(store.get(atoms.sessionMessagesCacheAtom)["session-a"].messages[1].text, "final");
 });
 
-test("disk history prepend preserves all rows and the actual continuation cursor", () => {
+test("disk history sliding window preserves requested pages and both recovery edges", () => {
+	const atoms = loadAtoms(),
+		store = createStore();
+	const all = Array.from({ length: 4096 }, (_, i) => ({ id: "m" + i, role: "user", text: "body", meta: { entryId: "e" + i } }));
+	const entry = () => store.get(atoms.sessionMessagesCacheAtom)["session-a"];
+	store.set(atoms.cacheSessionMessagesAtom, { sessionId: "session-a", messages: all.slice(-64), source: "disk", page: { total: all.length, nextBefore: 4032, nextBeforeEntryId: "e4032" } });
+	const visited = new Set(entry().messages.map((m) => m.meta.entryId));
+	while (entry().page.nextBefore) {
+		const current = entry(),
+			end = Number(current.page.nextBeforeEntryId?.slice(1) ?? current.page.nextBefore),
+			start = Math.max(0, end - 64);
+		assert.equal(store.set(atoms.prependSessionMessagePageAtom, { sessionId: "session-a", expectedRevision: current.revision, before: current.page.nextBefore, page: { messages: all.slice(start, end), total: all.length, nextBefore: start || null, nextBeforeEntryId: start ? "e" + start : undefined } }), true);
+		assert.equal(entry().messages[0].meta.entryId, "e" + start);
+		assert.ok(entry().messages.length <= 512);
+		entry().messages.forEach((m) => visited.add(m.meta.entryId));
+	}
+	assert.equal(visited.size, all.length);
+	let previous = -1;
+	for (let n = 0; entry().page.nextAfterEntryId && n < 100; n++) {
+		const current = entry(),
+			afterEntryId = current.page.nextAfterEntryId,
+			after = Number(afterEntryId.slice(1)),
+			end = Math.min(all.length, after + 65);
+		assert.ok(after > previous);
+		previous = after;
+		assert.equal(store.set(atoms.appendSessionMessagePageAtom, { sessionId: "session-a", expectedRevision: current.revision, afterEntryId, page: { messages: all.slice(after + 1, end), total: all.length, nextBefore: after + 1, nextAfterEntryId: end < all.length ? "e" + (end - 1) : undefined } }), true);
+		assert.ok(entry().messages.length <= 512);
+		const ids = entry().messages.map((m) => Number(m.meta.entryId.slice(1)));
+		ids.forEach((id, i) => {
+			if (i) assert.equal(id, ids[i - 1] + 1);
+		});
+	}
+	assert.equal(entry().page.nextAfterEntryId, undefined);
+	assert.equal(entry().messages.at(-1).meta.entryId, "e4095");
+	assert.ok(entry().page.nextBeforeEntryId);
+});
+
+test("bidirectional disk page merge advances only the entry anchor and preserves the older cursor", () => {
 	const atoms = loadAtoms();
 	const store = createStore();
 	const entry = () => store.get(atoms.sessionMessagesCacheAtom)["session-a"];
-	const LIMIT = 16_384;
-	const makeMessages = (count, prefix, start) => Array.from({ length: count }, (_, i) => ({ id: `${prefix}${start + i}`, role: "user", text: `${prefix}${start + i}`, meta: { entryId: `e${start + i}` } }));
-	store.set(atoms.cacheSessionMessagesAtom, { sessionId: "session-a", messages: makeMessages(LIMIT - 1, "m", 0), source: "disk", page: { total: LIMIT + 5, nextBefore: LIMIT - 1 } });
-	assert.equal(store.set(atoms.prependSessionMessagePageAtom, { sessionId: "session-a", expectedRevision: entry().revision, before: LIMIT - 1, page: { messages: makeMessages(3, "h", -3), total: LIMIT + 5, nextBefore: LIMIT - 4 } }), true);
-	assert.equal(entry().messages.length, LIMIT + 2);
-	assert.equal(entry().messages[0].id, "h-3");
-	assert.equal(entry().page.nextBefore, LIMIT - 4);
-	const before = entry().page.nextBefore;
-	assert.equal(store.set(atoms.prependSessionMessagePageAtom, { sessionId: "session-a", expectedRevision: entry().revision, before, page: { messages: makeMessages(2, "g", -5), total: LIMIT + 5, nextBefore: before - 2 } }), true);
-	assert.equal(entry().messages.length, LIMIT + 4);
-	assert.equal(entry().messages[0].id, "g-5");
-	assert.equal(entry().page.nextBefore, before - 2);
-	assert.equal(entry().messages.at(-1).id, `m${LIMIT - 2}`);
+	store.set(atoms.cacheSessionMessagesAtom, { sessionId: "session-a", messages: [{ id: "m2", role: "assistant", text: "a1", meta: { entryId: "e2" } }], source: "disk", page: { total: 6, nextBefore: 2, nextAfterEntryId: "e2" } });
+	assert.equal(
+		store.set(atoms.appendSessionMessagePageAtom, {
+			sessionId: "session-a",
+			afterEntryId: "e2",
+			expectedRevision: entry().revision,
+			page: {
+				total: 6,
+				nextBefore: 2,
+				nextAfterEntryId: "e4",
+				messages: [
+					{ id: "m3", role: "user", text: "q2", meta: { entryId: "e3" } },
+					{ id: "m4", role: "assistant", text: "a2", meta: { entryId: "e4" } },
+				],
+			},
+		}),
+		true,
+	);
+	assert.deepEqual([...entry().messages.map((message) => message.meta.entryId)], ["e2", "e3", "e4"]);
+	assert.equal(entry().page.nextBefore, 2);
+	assert.equal(entry().page.nextAfterEntryId, "e4");
+	assert.equal(store.set(atoms.appendSessionMessagePageAtom, { sessionId: "session-a", afterEntryId: "e2", expectedRevision: entry().revision, page: { total: 6, nextBefore: 2, messages: [{ id: "duplicate", role: "user", text: "q2", meta: { entryId: "e3" } }] } }), false);
 });
 
 test("prependSessionMessagePageAtom dedupes overlapping pages by entryId", () => {
@@ -2383,50 +2449,35 @@ test("remote pages preserve byte cursors when older history is prepended", () =>
 	const atoms = loadAtoms();
 	const store = createStore();
 	const messages = (start, count) => Array.from({ length: count }, (_, i) => ({ id: `m${start + i}`, role: "user", text: "m", meta: { entryId: `e${start + i}` } }));
-	store.set(atoms.cacheSessionMessagesAtom, { sessionId: "session-a", messages: messages(0, 16_384), source: "remote", page: { total: 16_386, nextBefore: 9000, nextBeforeEntryId: "e0", indexVersion: "remote:42:1700000000:10000" } });
+	store.set(atoms.cacheSessionMessagesAtom, { sessionId: "session-a", messages: messages(0, 128), source: "remote", page: { total: 130, nextBefore: 9000, nextBeforeEntryId: "e0", indexVersion: "remote:42:1700000000:10000" } });
 	assert.equal(
-		store.set(atoms.prependSessionMessagePageAtom, { sessionId: "session-a", expectedRevision: store.get(atoms.sessionMessagesCacheAtom)["session-a"].revision, before: 9000, page: { messages: messages(-2, 2), total: 16_386, nextBefore: 8000, nextBeforeEntryId: "root", indexVersion: "remote:42:1700000001:11000" } }),
+		store.set(atoms.prependSessionMessagePageAtom, { sessionId: "session-a", expectedRevision: store.get(atoms.sessionMessagesCacheAtom)["session-a"].revision, before: 9000, page: { messages: messages(-2, 2), total: 130, nextBefore: 8000, nextBeforeEntryId: "root", indexVersion: "remote:42:1700000001:11000" } }),
 		true,
 	);
 	const entry = store.get(atoms.sessionMessagesCacheAtom)["session-a"];
-	assert.equal(entry.messages.length, 16_386);
+	assert.equal(entry.messages.length, 130);
 	assert.equal(entry.page.nextBefore, 8000, "byte cursor is copied, never adjusted by message counts");
 	assert.equal(entry.page.nextBeforeEntryId, "root");
 });
 
-test("翻过页后一次取页被游标守卫拒掉，清前缀后同一个页进得了缓存", () => {
-	// 跳转失败的真实机制：用户在时间线上翻过页（history 存在），此时一次取页传
-	// before: undefined，与已有 nextBefore（数字或 null）永不相等 —— 守卫直接拒。
-	// 这条在真 store 上跑完整条链：翻过页 → 被拒 → 清前缀 → 再 prepend 成功。
-	// 它守的是「结局」：目标页有没有真的进到缓存里，而不只是函数返回了什么。
-	const atoms = loadAtoms();
-	const store = createStore();
-	const sessionId = "session-jump";
-	const msg = (id, entryId) => ({ id, role: "user", text: id, meta: { entryId } });
+test("jump replacement is atomic and a page issued before clear cannot revive history", () => {
+	const atoms = loadAtoms(),
+		store = createStore(),
+		sessionId = "session-jump";
+	const msg = (id) => ({ id, role: "user", text: id, meta: { entryId: id } });
 	const entry = () => store.get(atoms.sessionMessagesCacheAtom)[sessionId];
-
-	store.set(atoms.cacheSessionMessagesAtom, { sessionId, messages: [msg("w1", "we1")], source: "runtime", windowStart: 900 });
-	const revision = entry().revision;
-
-	// 用户翻过一页：history 存在，nextBefore = 500
-	const prepend = (page) => store.set(atoms.prependSessionHistoryPageAtom, { sessionId, expectedRevision: revision, before: undefined, page });
-	assert.equal(prepend({ messages: [msg("h1", "he1")], nextBefore: 500, nextBeforeEntryId: "he1", indexVersion: "v1" }), true, "首次 prepend（history 不存在）应当接受");
-	assert.equal(entry().history.nextBefore, 500);
-
-	// 一次取页：before 恒为 undefined，与 500 不等 → 必被拒
-	const jumpPage = { messages: [msg("t1", "te1")], nextBefore: 120, indexVersion: "v1" };
-	assert.equal(prepend(jumpPage), false, "翻过页后一次取页必须被拒 —— 这就是「先翻几屏再点远刻度」失败的机制");
-	assert.equal(
-		entry().history.messages.some((m) => m.id === "t1"),
-		false,
-		"被拒时目标页不能进缓存",
+	store.set(atoms.cacheSessionMessagesAtom, { sessionId, messages: [msg("w1")], source: "runtime", windowStart: 900 });
+	const page = { messages: [msg("h1")], total: 902, nextBefore: 500, nextBeforeEntryId: "h1", nextAfterEntryId: "h1", indexVersion: "1:1000" };
+	assert.equal(store.set(atoms.prependSessionHistoryPageAtom, { sessionId, expectedRevision: entry().revision, page }), true);
+	const oldRevision = entry().revision;
+	const jumpPage = { ...page, messages: [msg("target")], nextBefore: 120, nextBeforeEntryId: "target", nextAfterEntryId: "target" };
+	assert.equal(store.set(atoms.prependSessionHistoryPageAtom, { sessionId, expectedRevision: oldRevision, page: jumpPage, replace: true }), true);
+	assert.deepEqual(
+		Array.from(entry().history.messages, (m) => m.id),
+		["target"],
 	);
-
-	// 修复路径：清前缀再 prepend，同一个页这次必须进缓存
-	assert.equal(store.set(atoms.clearSessionHistoryAtom, sessionId), true, "清前缀应当成功");
-	assert.equal(prepend(jumpPage), true, "清完前缀后一次取页必须被接受");
-	assert.ok(
-		entry().history.messages.some((m) => m.id === "t1"),
-		"目标页必须真的进到缓存里",
-	);
+	assert.equal(entry().history.nextAfterEntryId, "target");
+	assert.equal(store.set(atoms.clearSessionHistoryAtom, sessionId), true);
+	assert.equal(store.set(atoms.prependSessionHistoryPageAtom, { sessionId, expectedRevision: oldRevision, page }), false);
+	assert.equal(entry().history, undefined);
 });

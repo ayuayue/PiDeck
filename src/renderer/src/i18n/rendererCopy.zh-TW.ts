@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 716694e3f5b40747d89ce814aa344899b273b5928acab9808a358903fda1134a（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 43c47549d61c65557369895ce98acd0d263d759d8b0b846ed8f7d2a25553bda3（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -6756,6 +6756,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"timeline.emptySessionFileHint": "新建會話（包括微信、飛書等外部連線建立的會話）在收到第一條訊息之前不會寫入歷史檔案——訊息到達後內容會自動出現在這裡。",
 	"common.retry": "重試",
 	"timeline.loadingMore": "載入中…",
+	"timeline.loadNewer": "讀取更新的對話",
 	"timeline.loadEarlierTurns": "顯示更早的 {count} 輪對話",
 	"timeline.showEarlierSteps": "顯示更早的 {count} 條步驟",
 	"timeline.loadMoreHistory": "載入更多歷史訊息 ({count} 條)",

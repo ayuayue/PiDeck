@@ -81,7 +81,7 @@ export type SessionMessageCacheEntry = {
 	 * indexVersion/nextBeforeEntryId 也要留住：disk → runtime 交接时，磁盘页会整体转成
 	 * history 前缀，版本用来判断它是否与当前会话文件同代，游标用来继续向更早翻页。
 	 */
-	page?: Pick<SessionMessagePage, "total" | "nextBefore" | "nextBeforeEntryId" | "indexVersion">;
+	page?: Pick<SessionMessagePage, "total" | "nextBefore" | "nextBeforeEntryId" | "nextAfterEntryId" | "indexVersion">;
 	/** 激活显示窗口起点（runtime 数组下标空间，2026-08 激活分页）；>0 表示窗口前还有历史。 */
 	windowStart?: number;
 	/**
@@ -100,6 +100,10 @@ export type SessionMessageCacheEntry = {
 		nextBefore: number | null;
 		/** 下一页续页锚点（页最旧条目的 entryId，2026-11 缓存优先路径用） */
 		nextBeforeEntryId?: string | null;
+		/** Sliding-window recovery anchor: when the oldest cached prefix is evicted, refetch before this retained entry. */
+		recoveryBeforeEntryId?: string | null;
+		/** Detached historical window: newer payload was evicted and must be read after this edge. */
+		nextAfterEntryId?: string;
 		version?: string;
 	};
 };

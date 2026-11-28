@@ -6749,6 +6749,7 @@ export const zhCN = {
 	"timeline.emptySessionFileHint": "新建会话（包括微信、飞书等外部连接建立的会话）在收到第一条消息之前不会写入历史文件——消息到达后内容会自动出现在这里。",
 	"common.retry": "重试",
 	"timeline.loadingMore": "加载中…",
+	"timeline.loadNewer": "读取更新的对话",
 	"timeline.loadEarlierTurns": "显示更早的 {count} 轮对话",
 	"timeline.showEarlierSteps": "显示更早的 {count} 条步骤",
 	"timeline.loadMoreHistory": "加载更多历史消息 ({count} 条)",

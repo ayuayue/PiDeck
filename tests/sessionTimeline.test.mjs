@@ -227,7 +227,8 @@ test("auto history load consumes engine intent without a competing scroll listen
 	// stick 引擎逐次上报真实用户输入；controller 下一帧读取最终位置后直接决策。
 	// 普通 scroll 仅保存锚点，resize/clamp/动画不能凭 scrollTop 变化取得扩窗权限。
 	assert.match(source, /const setUserScrollIntent = useCallback/);
-	assert.match(source, /if \(intent !== "up"\) return;/);
+	assert.match(source, /if \(intent !== "up"\) \{/);
+	assert.match(source, /nextAfterEntryId[\s\S]*loadNewerMessages\(\)/);
 	assert.match(source, /userScrollIntentFrameRef\.current = window\.requestAnimationFrame/);
 	assert.match(source, /if \(isProgrammaticScrollActive\(programmaticScrollGuardRef\.current, performance\.now\(\)\)\) return;/);
 	assert.match(source, /HISTORY_AUTO_LOAD_THRESHOLD/);

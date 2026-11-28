@@ -162,10 +162,22 @@ export class SessionCardProjector {
 	 * 但不消耗条目下标，所以落在它之后的通知要 +1 补偿，否则会错位一格。
 	 * （是否真的插了压缩卡片按消息 meta 实判，避免依赖调用方的假设。）
 	 */
-	applyCustomMessageCards(messages: ChatMessage[], cards: Array<{ offset: number; card: ChatMessage }>, windowEntries: ReadonlyArray<{ role?: string }>, windowStart: number, compactionInsertOffset?: number): ChatMessage[] {
+	applyCustomMessageCards(messages: ChatMessage[], cards: Array<{ offset: number; card: ChatMessage }>, windowEntries: ReadonlyArray<{ role?: string; id?: string }>, windowStart: number, compactionInsertOffset?: number): ChatMessage[] {
 		if (cards.length === 0) return messages;
 		const hasCompactionCard = messages.some((message) => message.meta?.type === "compaction");
+		// Empty assistant/tool-call-only records consume file slots but project no row.
+		// Locate insertions through surviving entry identities rather than counting raw roles.
+		const positions = new Map(windowEntries.flatMap((entry, i) => (entry.id ? [[entry.id, windowStart + i] as const] : [])));
+		const hasProjectedIds = messages.some((message) => typeof message.meta?.entryId === "string" && positions.has(message.meta.entryId));
 		return spliceCardsByOffset(messages, cards, (offset) => {
+			if (hasProjectedIds) {
+				const next = messages.findIndex((message) => {
+					if (message.meta?.type === "compaction") return compactionInsertOffset !== undefined && offset < compactionInsertOffset;
+					const position = typeof message.meta?.entryId === "string" ? positions.get(message.meta.entryId) : undefined;
+					return position !== undefined && position >= offset;
+				});
+				return next < 0 ? messages.length : next;
+			}
 			const afterCompaction = hasCompactionCard && compactionInsertOffset !== undefined && offset >= compactionInsertOffset;
 			return messageIndexFromEntryOffset(windowEntries, offset, windowStart) + (afterCompaction ? 1 : 0);
 		});
@@ -191,6 +203,7 @@ export class SessionCardProjector {
 				compactionId: lastCompaction.id,
 				compactionCount: index.activeBranch.filter((entry) => entry.type === "compaction").length,
 				firstKeptEntryId: lastCompaction.firstKeptEntryId,
+				entryId: lastCompaction.id,
 				tokensBefore: lastCompaction.tokensBefore,
 			},
 		};
@@ -218,7 +231,9 @@ export class SessionCardProjector {
 		// 页外判断用条目空间；映射到消息数组下标必须跳过 system 等非角色条目
 		// （0.86：它们不生成 ChatMessage），否则卡片整体后移或被挤到页尾。
 		if (insertAt < start || insertAt > start + windowEntries.length) return messages; // 卡片在本页之外
-		const rel = messageIndexFromEntryOffset(windowEntries, insertAt, start);
+		const positions = new Map(windowEntries.map((entry, i) => [entry.id, start + i]));
+		const next = messages.findIndex((message) => typeof message.meta?.entryId === "string" && (positions.get(message.meta.entryId) ?? -1) >= insertAt);
+		const rel = next < 0 ? messages.length : next;
 		const card: ChatMessage = {
 			id: `${agentId}-meta-1`,
 			agentId,

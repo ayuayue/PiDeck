@@ -321,7 +321,7 @@ export type SessionIpcDeps = {
 	 * **绝不**落回本机/生图那条「没有会话文件」的分支——那条分支会把远端历史读成一个空页，
 	 * 再被渲染层 force 写进缓存（重启后点开远端会话看不到历史）。
 	 */
-	readRemoteSessionHistoryPage?: (input: { hostId: string; locator: import("../../shared/projectLocation").SshSessionLocator; before?: number; beforeEntryId?: string }) => Promise<import("../../shared/types").SessionMessagePage>;
+	readRemoteSessionHistoryPage?: (input: { hostId: string; locator: import("../../shared/projectLocation").SshSessionLocator; before?: number; beforeEntryId?: string; afterEntryId?: string }) => Promise<import("../../shared/types").SessionMessagePage>;
 	copyCatalogSession: (sessionId: string) => Promise<{ cancelled: boolean; targetSessionId?: string }>;
 	exportCatalogSessionHtml: (sessionId: string) => Promise<Record<string, unknown> & { path: string }>;
 	/**

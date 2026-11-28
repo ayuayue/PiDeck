@@ -29,6 +29,8 @@ export type SessionMessagePage = {
 	 * 到顶（nextBefore === null）时缺省。
 	 */
 	nextBeforeEntryId?: string;
+	/** Next newer page starts after this entry id; present only while newer history exists. */
+	nextAfterEntryId?: string;
 	/** 会话文件版本标识：本机为 `mtime:size`，远端为 `remote:<inode>:<mtime>:<size>`，用于跨页拒绝异代历史。 */
 	indexVersion?: string;
 };

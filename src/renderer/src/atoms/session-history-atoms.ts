@@ -17,11 +17,15 @@ import type { SessionMessageCacheEntry } from "./session-atoms-types";
 import { allocateSessionMessageOutlineRevision } from "./session-message-cache-atoms";
 import { sessionMessagesCacheAtom } from "./session-state-atoms";
 
-/**
-/**
- * Paged history atoms preserve every accepted page and its source cursor. DOM virtualization is
- * separate; these atoms currently retain fetched message objects for the active session.
- */
+import { boundHistoryWindow, entryIdOf, HISTORY_WINDOW_MESSAGE_LIMIT, HISTORY_WINDOW_BYTE_BUDGET } from "./session-history-window";
+export const RUNTIME_HISTORY_MESSAGE_LIMIT = HISTORY_WINDOW_MESSAGE_LIMIT;
+export const RUNTIME_HISTORY_BYTE_BUDGET = HISTORY_WINDOW_BYTE_BUDGET;
+
+/** Live slideOut keeps the newest prefix; user paging separately keeps the requested edge. */
+export function boundHistoryPrefix(input: NonNullable<SessionMessageCacheEntry["history"]>): NonNullable<SessionMessageCacheEntry["history"]> {
+	const result = boundHistoryWindow(input.messages, { total: input.messages.length, nextBefore: input.nextBefore, nextBeforeEntryId: input.nextBeforeEntryId ?? undefined, indexVersion: input.version }, "newer");
+	return { ...input, messages: result.messages, ...(result.messages !== input.messages ? { nextBefore: null, nextBeforeEntryId: undefined, recoveryBeforeEntryId: entryIdOf(result.messages[0]) } : {}) };
+}
 
 export const prependSessionMessagePageAtom = atom(
 	null,
@@ -48,22 +52,28 @@ export const prependSessionMessagePageAtom = atom(
 		// （正常路径无重叠，过滤是幂等保险）。
 		const existingKeys = new Set(current.messages.map(messageEntryKey));
 		const freshMessages = input.page.messages.filter((message) => !existingKeys.has(messageEntryKey(message)));
-		const messages = [...freshMessages, ...current.messages];
-		const nextBefore = input.page.nextBefore;
+		const merged = [...freshMessages, ...current.messages];
+		const bounded = boundHistoryWindow(merged, { ...input.page, nextAfterEntryId: current.page?.nextAfterEntryId }, "older");
+		if (remotePage && bounded.messages !== merged) throw new Error("REMOTE_SESSION_WINDOW_SLIDE_UNSUPPORTED");
+		const messages = bounded.messages;
+		const nextBefore = bounded.page.nextBefore;
 		releaseSessionOutlineProjection(input.sessionId);
 		// Keep the file-provided continuation cursor unchanged. Renderer virtualization bounds DOM;
 		// clipping this cumulative cache would make older history unreachable.
-		const nextBeforeEntryId = input.page.nextBeforeEntryId;
+		const nextBeforeEntryId = bounded.page.nextBeforeEntryId;
 		const indexVersion = input.page.indexVersion ?? current.page?.indexVersion;
 		set(sessionMessagesCacheAtom, {
 			...get(sessionMessagesCacheAtom),
 			[input.sessionId]: {
 				...current,
+				revision: current.revision + 1,
+				bytes: undefined,
 				messages,
 				page: {
 					total: input.page.total,
 					nextBefore,
 					...(nextBefore !== null && nextBeforeEntryId !== undefined ? { nextBeforeEntryId } : {}),
+					...(bounded.page.nextAfterEntryId ? { nextAfterEntryId: bounded.page.nextAfterEntryId } : {}),
 					...(indexVersion !== undefined ? { indexVersion } : {}),
 				},
 				updatedAt: Date.now(),
@@ -74,6 +84,44 @@ export const prependSessionMessagePageAtom = atom(
 		return true;
 	},
 );
+export const appendSessionMessagePageAtom = atom(null, (get, set, input: { sessionId: string; afterEntryId: string; expectedRevision: number; page: SessionMessagePage }) => {
+	const current = get(sessionMessagesCacheAtom)[input.sessionId];
+	const history = current?.source === "runtime" ? current.history : undefined;
+	const cursor = history ? history.nextAfterEntryId : current?.page?.nextAfterEntryId;
+	if (!current || current.revision !== input.expectedRevision || cursor !== input.afterEntryId) return false;
+	const version = history?.version ?? current.page?.indexVersion;
+	if (version && input.page.indexVersion && !isSameSessionFileGeneration(version, input.page.indexVersion)) return false;
+	if (input.page.nextAfterEntryId === input.afterEntryId) return false;
+	const base = history?.messages ?? current.messages;
+	const seen = new Set(base.map(messageEntryKey));
+	const merged = [
+		...base,
+		...input.page.messages.filter((message) => {
+			const key = messageEntryKey(message);
+			if (seen.has(key)) return false;
+			seen.add(key);
+			return true;
+		}),
+	];
+	const bounded = boundHistoryWindow(
+		merged,
+		{ total: input.page.total, nextBefore: history?.nextBefore ?? current.page?.nextBefore ?? null, nextBeforeEntryId: history?.nextBeforeEntryId ?? current.page?.nextBeforeEntryId ?? undefined, nextAfterEntryId: input.page.nextAfterEntryId, indexVersion: input.page.indexVersion ?? version },
+		"newer",
+	);
+	const runtimeKeys = new Set(current.messages.map(messageEntryKey));
+	const joined = Boolean(history && input.page.messages.some((message) => runtimeKeys.has(messageEntryKey(message))));
+	const updatedHistory = history
+		? { messages: bounded.messages.filter((message) => !joined || !runtimeKeys.has(messageEntryKey(message))), nextBefore: bounded.page.nextBefore, nextBeforeEntryId: bounded.page.nextBeforeEntryId, nextAfterEntryId: joined ? undefined : bounded.page.nextAfterEntryId, version: bounded.page.indexVersion }
+		: undefined;
+	releaseSessionOutlineProjection(input.sessionId);
+	const messages = history ? current.messages : bounded.messages;
+	set(sessionMessagesCacheAtom, {
+		...get(sessionMessagesCacheAtom),
+		[input.sessionId]: { ...current, revision: current.revision + 1, bytes: undefined, messages, ...(history ? { history: updatedHistory } : { page: bounded.page }), updatedAt: Date.now(), outlineRevision: allocateSessionMessageOutlineRevision(), outlineLastUserIndex: findLastUserMessageIndex(messages) },
+	});
+	return true;
+});
+
 /** 历史前缀/窗口段的去重键：优先 pi entryId（跨下标空间稳定），缺省回退消息 id。 */
 function messageEntryKey(message: ChatMessage): string {
 	const entryId = message.meta?.entryId;
@@ -114,7 +162,8 @@ export function isSameSessionFileGeneration(prefixVersion: string | undefined, f
 		if (prefix.identity !== undefined && flush.identity !== undefined && prefix.identity !== flush.identity) return false;
 		if (prefix.size === flush.size && prefix.modifiedAt !== undefined && flush.modifiedAt !== undefined && prefix.modifiedAt !== flush.modifiedAt) return false;
 	}
-	// 追加：本机文件只需体积不缩小；远端还需 inode 不变，且同体积 mtime 相同。
+	if (!prefixRemote && !flushRemote && prefixSize === flushSize && prefixVersion !== flushVersion) return false;
+	// 普通追加允许继续；同体积重写拒绝。
 	return flushSize >= prefixSize;
 }
 
@@ -132,6 +181,8 @@ export function reconcileHistoryPrefix(history: SessionMessageCacheEntry["histor
 	if (fileVersion && !isSameSessionFileGeneration(history?.version, fileVersion)) {
 		history = undefined;
 	}
+	// A detached reader window must not absorb live slideOut across an unloaded gap.
+	if (history?.nextAfterEntryId) return history;
 	const segmentKeys = new Set(segment.map(messageEntryKey));
 	// 滑出轮与窗口段去重（防御：理论上不重叠），再与既有前缀去重，避免接缝重复
 	const slideMessages = (slideOut ?? []).filter((message) => !segmentKeys.has(messageEntryKey(message)));
@@ -149,26 +200,28 @@ export function reconcileHistoryPrefix(history: SessionMessageCacheEntry["histor
 		}
 		return undefined;
 	}
-	// Preserve the complete prefix; its cursor must continue to represent the disk boundary.
-	const retainedMessages = messages;
 	// 无滑出轮且前缀未被触碰：保留原对象引用，避免无谓的 atom 更新
+	const retainedMessages = messages;
 	if (slideMessages.length === 0 && retainedMessages.length === (history?.messages.length ?? 0)) {
 		return history;
 	}
-	// 仅 slideOut 重建前缀时，游标不是 null：下一页应从 slideOut 最旧消息继续向上翻。
-	// 保留 nextBeforeEntryId（文件/主进程缓存路径都能消费），否则 historyHasMore 会把
-	// 刚滑出的前缀误判为「已经到最早」，窗口右移后更早历史无法继续翻页。
+	// 仅 slideOut 重建前缀时，用滑出轮最旧条目作为可恢复边界。
 	let nextBeforeEntryId = history?.nextBeforeEntryId;
 	if (!history) {
 		const slideAnchor = slideMessages.find((message) => typeof message.meta?.entryId === "string" && Boolean(message.meta.entryId));
 		const slideAnchorEntryId = slideAnchor?.meta?.entryId;
 		if (typeof slideAnchorEntryId === "string") nextBeforeEntryId = slideAnchorEntryId;
 	}
-	return {
-		nextBefore: history?.nextBefore ?? null,
-		...(nextBeforeEntryId !== undefined ? { nextBeforeEntryId } : {}),
-		version: history?.version ?? fileVersion,
+	// The visible runtime window stays intact; only the prepend-only prefix is bounded.
+	const bounded = boundHistoryPrefix({
 		messages: retainedMessages,
+		nextBefore: history?.nextBefore ?? null,
+		nextBeforeEntryId,
+		version: history?.version ?? fileVersion,
+		recoveryBeforeEntryId: history?.recoveryBeforeEntryId,
+	});
+	return {
+		...bounded,
 	};
 }
 
@@ -234,6 +287,7 @@ export function historyPrefixFromDiskPage(current: SessionMessageCacheEntry | un
 		// 磁盘页到顶（null）就是到顶；否则沿用它的续页游标，上滑还能继续往更早翻。
 		nextBefore: current.page?.nextBefore ?? null,
 		...(current.page?.nextBeforeEntryId ? { nextBeforeEntryId: current.page.nextBeforeEntryId } : {}),
+		...(current.page?.nextAfterEntryId ? { nextAfterEntryId: current.page.nextAfterEntryId } : {}),
 		version,
 	};
 }
@@ -250,16 +304,22 @@ export const prependSessionHistoryPageAtom = atom(
 		input: {
 			sessionId: string;
 			expectedRevision: number;
+			replace?: boolean;
 			/** Continuation cursor; undefined denotes the first history page. */
 			before?: number | null;
 			page: SessionMessagePage;
 		},
 	) => {
 		const current = get(sessionMessagesCacheAtom)[input.sessionId];
+		if (input.replace && current && current.source === "disk" && current.revision === input.expectedRevision) {
+			const bounded = boundHistoryWindow(input.page.messages, input.page, "newer");
+			set(sessionMessagesCacheAtom, { ...get(sessionMessagesCacheAtom), [input.sessionId]: { ...current, ...bounded, revision: current.revision + 1, updatedAt: Date.now(), outlineRevision: allocateSessionMessageOutlineRevision(), outlineLastUserIndex: findLastUserMessageIndex(bounded.messages) } });
+			return true;
+		}
 		if (!current || current.source !== "runtime" || current.revision !== input.expectedRevision) {
 			return false;
 		}
-		if (current.history && current.history.nextBefore !== input.before) return false;
+		if (!input.replace && current.history && current.history.nextBefore !== input.before) return false;
 		// 首屏历史页的游标：pi 是「文件头/entryId 锚点」（before 缺省），ACP 没有会话文件，
 		// 首屏游标就是投递窗口起点（数组下标）。两种都接受，其余数值一律拒绝，
 		// 否则一次错游标会把「窗口前那段」以外的消息拼进来。
@@ -267,28 +327,28 @@ export const prependSessionHistoryPageAtom = atom(
 
 		const segmentKeys = new Set(current.messages.map(messageEntryKey));
 		const pageMessages = input.page.messages.filter((message) => !segmentKeys.has(messageEntryKey(message)));
-		const stalePrefix = Boolean(current.history?.version && input.page.indexVersion && current.history.version !== input.page.indexVersion);
-		const baseMessages = stalePrefix ? [] : (current.history?.messages ?? []);
+		const stalePrefix = Boolean(current.history?.version && input.page.indexVersion && !isSameSessionFileGeneration(current.history.version, input.page.indexVersion));
+		const baseMessages = stalePrefix || input.replace ? [] : (current.history?.messages ?? []);
 		const baseKeys = new Set(baseMessages.map(messageEntryKey));
 		const freshMessages = pageMessages.filter((message) => !baseKeys.has(messageEntryKey(message)));
 		const merged = [...freshMessages, ...baseMessages];
-		const messages = merged;
-		const nextBefore: number | null = input.page.nextBefore;
-		const nextBeforeEntryId: string | undefined = input.page.nextBeforeEntryId || undefined;
+		const window = boundHistoryWindow(
+			merged,
+			{ total: input.page.total, nextBefore: input.page.nextBefore, nextBeforeEntryId: input.page.nextBeforeEntryId, nextAfterEntryId: input.replace ? input.page.nextAfterEntryId : current.history?.nextAfterEntryId, indexVersion: input.page.indexVersion ?? current.history?.version },
+			input.replace ? "newer" : "older",
+		);
+		const bounded = { messages: window.messages, nextBefore: window.page.nextBefore, nextBeforeEntryId: window.page.nextBeforeEntryId, nextAfterEntryId: window.page.nextAfterEntryId, version: window.page.indexVersion };
 		releaseSessionOutlineProjection(input.sessionId);
 
 		set(sessionMessagesCacheAtom, {
 			...get(sessionMessagesCacheAtom),
 			[input.sessionId]: {
 				...current,
+				revision: current.revision + 1,
+				bytes: undefined,
 				// 即使第一页只有隐藏的 system 条目（投影后为空），也要保存 nextBefore:null，
 				// 否则窗口首条 entryId 在下一次渲染时仍会误报「还有更早历史」。
-				history: {
-					messages,
-					nextBefore,
-					...(nextBeforeEntryId !== undefined ? { nextBeforeEntryId } : {}),
-					version: input.page.indexVersion ?? current.history?.version,
-				},
+				history: bounded,
 				updatedAt: Date.now(),
 				outlineRevision: allocateSessionMessageOutlineRevision(),
 				outlineLastUserIndex: current.outlineLastUserIndex ?? findLastUserMessageIndex(current.messages),
@@ -313,6 +373,8 @@ export const clearSessionHistoryAtom = atom(null, (get, set, sessionId: string) 
 		...get(sessionMessagesCacheAtom),
 		[sessionId]: {
 			...current,
+			revision: current.revision + 1,
+			bytes: undefined,
 			history: undefined,
 			updatedAt: Date.now(),
 			outlineRevision: allocateSessionMessageOutlineRevision(),

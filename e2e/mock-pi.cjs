@@ -877,7 +877,8 @@ function handleCommand(cmd) {
 						message: { role: "assistant", content: [{ type: "text", text: "崩溃前最后输出" }] },
 						assistantMessageEvent: { type: "text_delta", delta: "崩溃前最后输出" },
 					});
-					setTimeout(() => process.exit(1), 80);
+					// 留出一整帧 IPC/renderer 处理窗口，确保最后一个崩溃前 chunk 可观测。
+					setTimeout(() => process.exit(1), 250);
 				}, 80);
 				return;
 			}

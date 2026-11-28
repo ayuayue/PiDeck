@@ -6777,6 +6777,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"timeline.emptySessionFileHint": "New sessions (including sessions created by external connections such as WeChat and Feishu) do not write a history file until the first message arrives — content will appear here once it does.",
 	"common.retry": "Retry",
 	"timeline.loadingMore": "Loading…",
+	"timeline.loadNewer": "Load newer messages",
 	"timeline.loadEarlierTurns": "Show {count} earlier turns",
 	"timeline.showEarlierSteps": "Show {count} earlier steps",
 	"timeline.loadMoreHistory": "Load more history messages ({count})",

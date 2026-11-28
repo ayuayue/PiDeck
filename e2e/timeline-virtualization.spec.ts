@@ -80,24 +80,15 @@ function loadMoreButton(window: Page) {
 	return window.getByRole("button", { name: /^(加载更多对话|显示更早)$/ }).first();
 }
 
-/** 跳顶 + 派发 scroll，触发 controller 的扩窗（每次 cohort +3 轮），直到虚拟区出现。 */
+/** Real input leaves follow mode; programmatic scroll alone cannot acquire browse ownership. */
 async function expandIntoVirtualRegion(window: Page) {
-	for (let attempt = 0; attempt < 14; attempt += 1) {
-		const snapshot = await window.locator(".message-timeline").evaluate((timeline) => ({
-			virtual: timeline.querySelectorAll("[data-virtual-run-id]").length,
-			solid: timeline.querySelectorAll("[data-solid-run-id]").length,
-			turns: timeline.querySelectorAll(".turn-row").length,
-			top: Math.round(timeline.scrollTop),
-			height: Math.round(timeline.scrollHeight),
-			client: timeline.clientHeight,
-			loadMore: Array.from(document.querySelectorAll("button")).some((button) => /加载更多对话|显示更早/.test(button.textContent ?? "")),
-		}));
-		if (snapshot.virtual > 0) return snapshot.virtual;
-		// 扩窗按钮（「加载更多对话」/「显示更早」）是 controller 的原子 expandWindow 入口；
-		// 直接派发点击，避免真实 click 先把按钮滚入视口而改变窗口状态。
-		const button = loadMoreButton(window);
-		if ((await button.count()) > 0) await button.dispatchEvent("click");
-		await window.waitForTimeout(800);
+	const timeline = window.locator(".message-timeline");
+	await timeline.hover();
+	for (let attempt = 0; attempt < 20; attempt++) {
+		await window.mouse.wheel(0, -600);
+		await window.waitForTimeout(150);
+		const count = await window.locator("[data-virtual-run-id]").count();
+		if (count > 0) return count;
 	}
 	return window.locator("[data-virtual-run-id]").count();
 }
@@ -204,7 +195,7 @@ test("scrolling the virtualized history stays put and recycles earlier rows", as
 	expect(await window.locator(`[data-virtual-run-id="${pinned.id}"]`).count()).toBe(0);
 });
 
-test("showing earlier turns keeps the pinned row at the same viewport offset", async ({ app, window }) => {
+test("resizing a virtualized history keeps the pinned row at the same viewport offset", async ({ app, window }) => {
 	test.setTimeout(300_000);
 	await constrainTimelineViewport(app);
 	await buildHistory(window);
@@ -215,14 +206,14 @@ test("showing earlier turns keeps the pinned row at the same viewport offset", a
 	expect(pinned).not.toBeNull();
 	if (!pinned) return;
 
-	const loadMore = loadMoreButton(window);
-	await expect(loadMore).toBeVisible({ timeout: 10_000 });
-	const beforeHeight = await window.locator(".message-timeline").evaluate((element) => element.scrollHeight);
-	// 常规 click 会先把按钮滚入视口（改变窗口状态）；直接派发已验证的点击 handler。
-	await loadMore.dispatchEvent("click");
-	// 必须证明真的插入了更早的轮次：虚拟区只挂视口附近的行，.turn-row 数量不一定变，
-	// 但文档总高一定增长（新增轮次按实测/估值占位）；只看偏移断言会把「点到步骤按钮」判成通过。
-	await expect.poll(() => window.locator(".message-timeline").evaluate((element) => element.scrollHeight), { timeout: 15_000 }).toBeGreaterThan(beforeHeight);
+	// All loaded turns are already in the virtual range: there is no "show earlier" button.
+	// A viewport resize must still preserve the same pinned content, not merely scrollTop.
+	await app.evaluate(({ BrowserWindow }) => {
+		const target = BrowserWindow.getAllWindows().find((win) => !win.webContents.getURL().includes("selection-tool"));
+		const bounds = target?.getBounds();
+		if (!target || !bounds) throw new Error("main window missing");
+		target.setBounds({ ...bounds, height: bounds.height + 80 });
+	});
 	await window.waitForTimeout(400);
 
 	const after = await rowOffset(window, pinned.id);
@@ -238,13 +229,14 @@ test("returning to the live edge and back keeps the virtual region usable", asyn
 	const beforeBottom = await virtualStats(window);
 	expect(beforeBottom.virtualRows).toBeGreaterThan(0);
 
-	// 回底：窗口收回尾部 3 轮（真实区），虚拟区整块卸载。
+	// 回底必须抵达真实尾端；虚拟列表仍保留轻量占位，不能要求它整块卸载。
 	const bottom = window.getByRole("button", { name: /移动到最新|Scroll to bottom/ }).first();
 	expect(await bottom.count()).toBeGreaterThan(0);
 	await bottom.click();
 	await window.waitForTimeout(1200);
 	const atBottom = await virtualStats(window);
-	expect(atBottom.virtualRows).toBe(0);
+	expect(atBottom.virtualRows).toBeLessThanOrEqual(10);
+	expect(atBottom.scrollHeight - atBottom.scrollTop - atBottom.viewport).toBeLessThanOrEqual(70);
 	expect(atBottom.solidRows).toBeLessThanOrEqual(8);
 
 	// 再回历史：窗口重新扩到虚拟化阈值以上，虚拟区恢复且测量收敛（行不漂移）。

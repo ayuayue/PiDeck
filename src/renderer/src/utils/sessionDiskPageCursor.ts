@@ -14,12 +14,14 @@ export function sessionDiskPageCursor(page: SessionMessagePage): {
 	total: number;
 	nextBefore: number | null;
 	nextBeforeEntryId?: string;
+	nextAfterEntryId?: string;
 	indexVersion?: string;
 } {
 	return {
 		total: page.total,
 		nextBefore: page.nextBefore,
 		...(page.nextBeforeEntryId ? { nextBeforeEntryId: page.nextBeforeEntryId } : {}),
+		...(page.nextAfterEntryId ? { nextAfterEntryId: page.nextAfterEntryId } : {}),
 		...(page.indexVersion ? { indexVersion: page.indexVersion } : {}),
 	};
 }

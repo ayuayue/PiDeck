@@ -26,11 +26,12 @@ export type TaggedTimelinePrependAnchor = { ownerKey: string; value: TimelinePre
  * 是「滚动所有权 + 分页 + 跳转」的单一装配点，注入让依赖面在签名上可见，也让模块本身保持无状态可测。
  */
 export interface TimelineHistoryPagingPorts {
-	readRecordMessagePage: (sessionId: string, before?: number, pageSize?: number, options?: { beforeEntryId?: string; includeBeforeEntry?: boolean }) => Promise<SessionMessagePage>;
+	readRecordMessagePage: (sessionId: string, before?: number, pageSize?: number, options?: { beforeEntryId?: string; includeBeforeEntry?: boolean; afterEntryId?: string }) => Promise<SessionMessagePage>;
 	startDshHost: () => Promise<boolean>;
 	setLoadState: (input: { sessionId: string; state: SessionLoadState }) => void;
 	cacheMessages: (input: { sessionId: string; messages: ChatMessage[]; source: "disk"; expectedRevision: number; page: SessionMessageCacheEntry["page"]; force?: boolean }) => void;
 	prependMessagePage: (input: { sessionId: string; before: number; expectedRevision: number; page: SessionMessagePage }) => boolean;
+	appendMessagePage: (input: { sessionId: string; afterEntryId: string; expectedRevision: number; page: SessionMessagePage }) => boolean;
 	prependHistoryPage: (input: { sessionId: string; expectedRevision: number; before?: number | null; page: SessionMessagePage }) => boolean;
 	clearHistory: (sessionId: string) => boolean;
 	translate: (key: TranslationKey) => string;
@@ -74,6 +75,7 @@ export interface TimelineHistoryPagingState {
 	loadMoreError: string | null;
 	setLoadMoreError: (error: string | null) => void;
 	loadMoreMessages: (source?: "scroll" | "button" | "backfill") => void;
+	loadNewerMessages: () => void;
 	reloadFromDisk: () => Promise<void>;
 	startDshHostAndReload: () => Promise<boolean>;
 }
@@ -109,8 +111,7 @@ export function useTimelineHistoryPaging(options: TimelineHistoryPagingOptions):
 		isTimelineAtBottom,
 		ports,
 	} = options;
-	const { readRecordMessagePage, startDshHost, setLoadState, cacheMessages, prependMessagePage, prependHistoryPage, clearHistory, translate: t } = ports;
-
+	const { readRecordMessagePage, startDshHost, setLoadState, cacheMessages, prependMessagePage, appendMessagePage, prependHistoryPage, clearHistory, translate: t } = ports;
 	const reloadFromDisk = useCallback(async () => {
 		if (!sessionId) return;
 		const sequence = allocateLoadSequence();
@@ -382,6 +383,31 @@ export function useTimelineHistoryPaging(options: TimelineHistoryPagingOptions):
 		],
 	);
 
+	const loadNewerMessages = useCallback(() => {
+		const afterEntryId = diskPage?.nextAfterEntryId ?? runtimeHistory?.nextAfterEntryId;
+		if (!sessionId || !afterEntryId || isLoadingMessagePage) return;
+		const sequence = allocateLoadSequence();
+		trackLatestLoad(sessionId, sequence);
+		const expectedRevision = cachedEntry?.revision ?? 0;
+		setIsLoadingMessagePage(true);
+		setLoadMoreError(null);
+		void readRecordMessagePage(sessionId, undefined, resolveHistoryPageSize("button"), { afterEntryId })
+			.then((page) => {
+				if (getLatestLoad(sessionId) !== sequence) return;
+				if (sessionHistoryUnavailableState(page)) {
+					setLoadMoreError(t("timeline.loadMoreFailed"));
+					return;
+				}
+				if (!appendMessagePage({ sessionId, afterEntryId, expectedRevision, page })) setLoadMoreError(t("timeline.loadMoreRetryable"));
+			})
+			.catch((error: unknown) => {
+				if (getLatestLoad(sessionId) === sequence) setLoadMoreError(error instanceof Error ? error.message : String(error));
+			})
+			.finally(() => {
+				if (getLatestLoad(sessionId) === sequence) setIsLoadingMessagePage(false);
+			});
+	}, [appendMessagePage, allocateLoadSequence, cachedEntry?.revision, diskPage?.nextAfterEntryId, runtimeHistory?.nextAfterEntryId, getLatestLoad, isLoadingMessagePage, readRecordMessagePage, sessionId, t, trackLatestLoad]);
+
 	// ── 回底清理临时历史（2026-11 轮次模型）──
 	// 贴底稳定 1.5s 后清掉翻过的历史前缀（atom 只留运行时窗口段），渲染层内存回到最小；
 	// 再次上翻走「atom → 主进程缓存 → 文件」重新拉取（主进程 12 轮内命中，无感）。
@@ -390,7 +416,7 @@ export function useTimelineHistoryPaging(options: TimelineHistoryPagingOptions):
 	useEffect(() => {
 		if (!controllerEnabled) return;
 		if (!sessionId) return;
-		if (autoScroll && runtimeHistory) {
+		if (autoScroll && runtimeHistory && !runtimeHistory.nextAfterEntryId) {
 			if (historyClearTimerRef.current != null) return;
 			const clearNow = () => {
 				historyClearTimerRef.current = undefined;
@@ -435,6 +461,7 @@ export function useTimelineHistoryPaging(options: TimelineHistoryPagingOptions):
 		loadMoreError,
 		setLoadMoreError,
 		loadMoreMessages,
+		loadNewerMessages,
 		reloadFromDisk,
 		startDshHostAndReload,
 	};

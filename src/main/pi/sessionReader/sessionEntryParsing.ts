@@ -198,7 +198,7 @@ export const INTERNAL_CUSTOM_TYPE_PREFIXES: readonly string[] = ["subagents:", "
 
 /** 显示读入口（时间线窗口/分页）的投影上下文：entryRendererTypes 是「本次会话加载的扩展源码里
  * registerEntryRenderer 注册的 customType 集合」，由调用方按项目扩展配置扫描（extensionEntryRendererScan.ts）。 */
-export type SessionDisplayReadOptions = { entryRendererTypes?: readonly string[]; includeBeforeEntry?: boolean };
+export type SessionDisplayReadOptions = { entryRendererTypes?: readonly string[]; includeBeforeEntry?: boolean; afterEntryId?: string };
 /** 扩展输出卡片的 data 载荷上限（序列化后字符数）：超出则不携带原始数据、只带标题，避免大体量快照进渲染层。 */
 export const CUSTOM_ENTRY_DATA_MAX_JSON_LENGTH = 16 * 1024;
 

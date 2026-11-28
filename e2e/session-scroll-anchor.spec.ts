@@ -61,16 +61,20 @@ async function returnToLiveEdge(window: Page) {
 	}
 }
 
-/** 展开一批已加载轮次，让较早锚点进入当前 DOM 窗口。 */
-async function expandTurnWindow(window: Page) {
-	const loadMore = window.getByRole("button", { name: "加载更多对话", exact: true });
-	await expect(loadMore).toBeVisible({ timeout: 10_000 });
-	// 常规 click 会先把顶部按钮滚入视口，进而触发 near-top 自动扩窗并使按钮
-	// 在 click 前卸载。直接触发其已验证的用户点击 handler，避免测试自身改变窗口状态。
-	await loadMore.dispatchEvent("click");
+/** 通过真实滚轮向历史端移动，直到目标轮次进入当前 DOM 窗口。 */
+async function expandTurnWindow(window: Page, targetText?: string) {
+	const target = targetText ? window.locator(".message-timeline").locator("article.user-turn", { hasText: targetText }).first() : undefined;
+	const timeline = window.locator(".message-timeline");
+	await timeline.hover();
+	for (let attempt = 0; attempt < 24; attempt += 1) {
+		if (!target || (await target.isVisible().catch(() => false))) return;
+		await window.mouse.wheel(0, -1200);
+		await window.waitForTimeout(450);
+	}
+	if (target) await expect(target).toBeVisible({ timeout: 10_000 });
 }
 
-/** 反复走「加载更多/展开窗口」直到按钮消失（= 已加载数据全部进入渲染窗口）。 */
+/** 兼容旧调用：滚轮入口已取代固定的“加载更多对话”按钮。 */
 async function expandAllTurns(window: Page, maxAttempts = 8) {
 	const loadMore = window.getByRole("button", { name: "加载更多对话", exact: true });
 	for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
@@ -100,7 +104,7 @@ async function scrollThenOpenNewSession(window: Page, anchorText: string, desire
 			const newSession = sidebar?.querySelector<HTMLElement>('button[aria-label="新建会话"]');
 			if (!timeline || !anchor || !newSession) throw new Error("immediate switch target is not mounted");
 			const currentOffset = anchor.getBoundingClientRect().top - timeline.getBoundingClientRect().top;
-			timeline.scrollTop += currentOffset - requestedOffset;
+			timeline.scrollTo({ top: timeline.scrollTop + currentOffset - requestedOffset, behavior: "instant" });
 			const placedOffset = anchor.getBoundingClientRect().top - timeline.getBoundingClientRect().top;
 			timeline.dispatchEvent(new Event("scroll", { bubbles: true }));
 			// Click in the same task: React commits the target session before the
@@ -128,15 +132,16 @@ async function waitForAnchorRestore(window: Page, anchorText: string, expectedOf
 
 async function placeAnchorInViewport(window: Page, desiredOffset: number, anchorText = ANCHOR_TEXT): Promise<number> {
 	await window.evaluate(
-		({ targetText, desiredOffset: requestedOffset }) => {
+		({ targetText, requestedOffset }) => {
 			const timeline = document.querySelector<HTMLElement>(".message-timeline");
 			const anchor = Array.from(document.querySelectorAll<HTMLElement>("article.user-turn")).find((element) => element.textContent?.includes(targetText));
 			if (!timeline || !anchor) throw new Error("scroll anchor is not mounted");
+			anchor.scrollIntoView({ block: "center", behavior: "instant" });
 			const currentOffset = anchor.getBoundingClientRect().top - timeline.getBoundingClientRect().top;
-			timeline.scrollTop += currentOffset - requestedOffset;
+			timeline.scrollTo({ top: timeline.scrollTop + currentOffset - requestedOffset, behavior: "instant" });
 			timeline.dispatchEvent(new Event("scroll", { bubbles: true }));
 		},
-		{ targetText: anchorText, desiredOffset },
+		{ targetText: anchorText, requestedOffset: desiredOffset },
 	);
 	await window.waitForTimeout(350);
 	return readAnchorOffset(window, anchorText);
@@ -155,7 +160,7 @@ test("session switch restores a historical viewport after turn-window expansion"
 
 	const timeline = window.locator(".message-timeline");
 	// 数据首开可达 9 轮，但 DOM 基础窗口仍为尾部 3 轮；先走真实的本地扩窗入口。
-	await expandTurnWindow(window);
+	await expandTurnWindow(window, ANCHOR_TEXT);
 	const anchorRow = timeline.locator("article.user-turn", { hasText: ANCHOR_TEXT }).first();
 	await expect(anchorRow).toBeVisible({ timeout: 10_000 });
 
@@ -190,7 +195,7 @@ test("a streaming agent does not pull restored historical reading position to th
 	}
 
 	const timeline = window.locator(".message-timeline");
-	await expandTurnWindow(window);
+	await expandTurnWindow(window, TAIL_WINDOW_ANCHOR_TEXT);
 	// 流式新增一轮会把扩展窗口再向尾部推进；选用稳定处于尾部 cohort 的锚点，
 	// 使本用例只验证「流式不能重新贴底」，不耦合另一个历史扩窗策略。
 	const anchorRow = timeline.locator("article.user-turn", { hasText: TAIL_WINDOW_ANCHOR_TEXT }).first();
@@ -304,14 +309,15 @@ test("session switch restores an anchor older than the first screen page", async
 	}
 
 	const anchorText = LONG_HISTORY_TURNS[1];
-	// 尾随态只挂虚拟区内的行：先把窗口扩到全部已加载数据，再回到顶部把早期轮挂出来。
-	await expandAllTurns(window);
-	await window.locator(".message-timeline").evaluate((element) => {
-		element.scrollTop = 0;
-		element.dispatchEvent(new Event("scroll", { bubbles: true }));
-	});
-	await window.waitForTimeout(400);
+	// 通过真实滚轮意图扩展本地窗口并在窗口耗尽后取历史页；仅改 scrollTop 不会触发用户意图。
 	const anchorRow = window.locator(".message-timeline").locator("article.user-turn", { hasText: anchorText }).first();
+	const timeline = window.locator(".message-timeline");
+	await timeline.hover();
+	for (let attempt = 0; attempt < 24; attempt += 1) {
+		if (await anchorRow.isVisible().catch(() => false)) break;
+		await window.mouse.wheel(0, -1200);
+		await window.waitForTimeout(450);
+	}
 	await expect(anchorRow).toBeVisible({ timeout: 10_000 });
 	const beforeOffset = await placeAnchorInViewport(window, 96, anchorText);
 	expect(beforeOffset).toBeGreaterThanOrEqual(40);
@@ -358,7 +364,7 @@ test("session switch keeps go-bottom available when the restored tail is tool ca
 			if (!timeline || !anchor) throw new Error("scroll anchor is not mounted");
 			timeline.dispatchEvent(new WheelEvent("wheel", { deltaY: -240, bubbles: true, cancelable: true }));
 			const currentOffset = anchor.getBoundingClientRect().top - timeline.getBoundingClientRect().top;
-			timeline.scrollTop += currentOffset - requestedOffset;
+			timeline.scrollTo({ top: timeline.scrollTop + currentOffset - requestedOffset, behavior: "instant" });
 			timeline.dispatchEvent(new Event("scroll", { bubbles: true }));
 			return anchor.getBoundingClientRect().top - timeline.getBoundingClientRect().top;
 		},

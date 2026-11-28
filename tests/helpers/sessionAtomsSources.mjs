@@ -19,6 +19,7 @@ const domainPaths = [
 	"src/renderer/src/atoms/session-cache-policy.ts",
 	"src/renderer/src/atoms/session-message-cache-atoms.ts",
 	"src/renderer/src/atoms/session-history-atoms.ts",
+	"src/renderer/src/atoms/session-history-window.ts", // 双向驻留窗口与两端恢复边界。
 	"src/renderer/src/atoms/session-runtime-ui-atoms.ts",
 	"src/renderer/src/atoms/session-state-atoms.ts",
 	"src/renderer/src/atoms/session-timeline-atoms.ts",

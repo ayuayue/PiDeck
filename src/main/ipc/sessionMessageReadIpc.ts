@@ -6,7 +6,7 @@ import { ipcMain } from "electron";
 import { ipcChannels } from "../../shared/ipc";
 import { canonicalizeSessionPath, getSessionEnvironment } from "../../shared/sessionIdentity";
 import { createSessionModelPreference } from "../../shared/modelDisplayName";
-import type { SessionRecord, SessionBranchTree, SessionMessagePage, SessionModelPreference } from "../../shared/types";
+import type { SessionBranchTree, SessionMessagePage, SessionModelPreference } from "../../shared/types";
 import { dshUnavailablePageFor } from "../dsh/dshManualStop";
 import { dshRuntimeMissingPageFor } from "../dsh/dshRuntimeMissing";
 import { dshSessionModelPatch } from "../dsh/dshSessionModelSync";
@@ -28,12 +28,14 @@ function parseSessionPageSize(value: unknown): number | undefined {
 	return value;
 }
 
-function parseSessionPageOptions(value: unknown): { beforeEntryId?: string; includeBeforeEntry?: boolean } | undefined {
+function parseSessionPageOptions(value: unknown): { beforeEntryId?: string; includeBeforeEntry?: boolean; afterEntryId?: string } | undefined {
 	if (value === undefined) return undefined;
-	if (!isRecord(value) || Object.keys(value).some((key) => key !== "beforeEntryId" && key !== "includeBeforeEntry")) throw new Error("INVALID_SESSION_PAGE_OPTIONS");
+	if (!isRecord(value) || Object.keys(value).some((key) => key !== "beforeEntryId" && key !== "includeBeforeEntry" && key !== "afterEntryId")) throw new Error("INVALID_SESSION_PAGE_OPTIONS");
 	if (value.beforeEntryId !== undefined && (typeof value.beforeEntryId !== "string" || !value.beforeEntryId.trim() || value.beforeEntryId.length > 256)) throw new Error("INVALID_SESSION_PAGE_OPTIONS");
+	if (value.afterEntryId !== undefined && (typeof value.afterEntryId !== "string" || !value.afterEntryId.trim() || value.afterEntryId.length > 256)) throw new Error("INVALID_SESSION_PAGE_OPTIONS");
 	if (value.includeBeforeEntry !== undefined && typeof value.includeBeforeEntry !== "boolean") throw new Error("INVALID_SESSION_PAGE_OPTIONS");
-	return { ...(typeof value.beforeEntryId === "string" ? { beforeEntryId: value.beforeEntryId } : {}), ...(value.includeBeforeEntry === true ? { includeBeforeEntry: true } : {}) };
+	if (value.afterEntryId !== undefined && (value.beforeEntryId !== undefined || value.includeBeforeEntry === true)) throw new Error("INVALID_SESSION_PAGE_OPTIONS");
+	return { ...(typeof value.beforeEntryId === "string" ? { beforeEntryId: value.beforeEntryId } : {}), ...(value.includeBeforeEntry === true ? { includeBeforeEntry: true } : {}), ...(typeof value.afterEntryId === "string" ? { afterEntryId: value.afterEntryId } : {}) };
 }
 
 export type SessionMessageReadIpcDeps = Pick<SessionIpcDeps, "sessionCatalog" | "sessionRuntimeCoordinator" | "agentManager" | "appLogger" | "getMainWindow" | "readImageSessionMessages" | "readRemoteSessionHistoryPage" | "readVideoSessionMessages"> & {
@@ -256,6 +258,7 @@ export function registerSessionMessageReadIpc(deps: SessionMessageReadIpcDeps): 
 		// 路由到远端有界读取（同一个 SessionMessagePage 契约，渲染层无需分叉）。
 		const remoteLocator = entry?.locator?.kind === "ssh" ? entry.locator : undefined;
 		if (remoteLocator) {
+			if (options?.afterEntryId) throw new Error("REMOTE_SESSION_NEWER_PAGE_UNSUPPORTED");
 			// 游标含义：本地页是「活动分支消息下标」，这里是**远端文件字节偏移**（上一个窗口首行的偏移）；
 			// 两者都是 number|null 的同一契约字段。`options.beforeEntryId` 是本地缓存路径的锚点，对远端不适用。
 			if (!readRemoteSessionHistoryPage) throw new Error("REMOTE_SESSION_HISTORY_UNAVAILABLE");
@@ -279,6 +282,7 @@ export function registerSessionMessageReadIpc(deps: SessionMessageReadIpcDeps): 
 				throw error;
 			}
 		}
+		if (options?.afterEntryId && (entry?.backend === "acp" || entry?.backend === "dsh")) throw new Error("SESSION_NEWER_PAGE_UNSUPPORTED");
 		if (entry?.backend === "acp") return acpMessagePage((await readAcpMessages?.(entry.acpSessionId ?? "")) ?? [], before, pageSize);
 		// 顺序要求（2026-10 修复）：本机路径解析必须在远端分流之后 —— ssh 条目的 filePath 在规范化时
 		// 已被清空，一旦远端分支被挪到它后面就会变成不可达的死代码。合并后本机路径就是 dev 的
@@ -328,7 +332,7 @@ export function registerSessionMessageReadIpc(deps: SessionMessageReadIpcDeps): 
 			// 未命中（缓存未覆盖/非活跃会话）回退 SessionHistoryReader 读文件。
 			// 注意：缓存按 transient agentId 键控，必须经 coordinator 把稳定 sessionId
 			// 解析成当前运行时 agentId；解析不到（非活跃/终端绑定）直接走文件路径。
-			if ((options?.beforeEntryId || typeof before === "number") && !options?.includeBeforeEntry) {
+			if ((options?.beforeEntryId || typeof before === "number") && !options?.includeBeforeEntry && !options?.afterEntryId) {
 				const target = sessionRuntimeCoordinator.getTarget(sessionId);
 				if (target) {
 					const cached = await agentManager
@@ -341,7 +345,7 @@ export function registerSessionMessageReadIpc(deps: SessionMessageReadIpcDeps): 
 					if (cached) return cached;
 				}
 			}
-			page = await agentManager.readSessionDisplayTurnPage(entry.filePath, sessionId, before, pageSize, options?.beforeEntryId, { projectId: entry.projectId, includeBeforeEntry: options?.includeBeforeEntry });
+			page = await agentManager.readSessionDisplayTurnPage(entry.filePath, sessionId, before, pageSize, options?.beforeEntryId, { projectId: entry.projectId, includeBeforeEntry: options?.includeBeforeEntry, afterEntryId: options?.afterEntryId });
 			await backfillHistoricalSessionMetadata(sessionId, page);
 			return page;
 		} catch (error) {

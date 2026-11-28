@@ -3,7 +3,7 @@ import type { SessionArchiveData, SessionDisplayEntry, SessionDisplayIndex } fro
 import type { SessionCardProjector } from "./sessionCardProjection";
 import type { SessionDisplayReadOptions } from "./sessionEntryParsing";
 import { applySessionContextEdits, collectSessionContextEdits, roleMessageEntryIds } from "./sessionMessageProjection";
-import { boundTurnWindowStart, clampTurnWindowStart, resolveTurnPageBefore } from "./sessionTurnWindow";
+import { boundTurnWindowStart, clampTurnWindowStart, collectTurnStartIndices, resolveTurnPageBefore } from "./sessionTurnWindow";
 
 export function indexActiveMessages(entries: SessionDisplayEntry[]): Pick<SessionDisplayIndex, "activeMessageEntries" | "activeMessagePositionById"> {
 	const activeMessageEntries = entries.filter((entry) => entry.type === "message" && entry.hasMessage);
@@ -51,6 +51,29 @@ export class SessionDisplayPaging {
 	 * 命中缓存免磁盘 IO。只在「上一页已返回且还有下一页」时预取一页，不连锁递归。
 	 */
 	private readonly prefetchCache = new Map<string, SessionMessagePage>();
+
+	/** Stable card ids occupy boundaries between raw message slots, not message slots. */
+	/** Card IDs denote message-slot boundaries rather than entries in the message index. */
+	private resolveMessageBoundary(index: SessionDisplayIndex, id: string, after: boolean): number | undefined {
+		const position = index.activeMessagePositionById.get(id);
+		if (position !== undefined) return position + Number(after);
+		const card = index.activeBranch.find((entry) => entry.id === id);
+		if (!card) return undefined;
+		if (card.type === "compaction") return this.host.cards.resolveCompactionInsertOffset(index);
+		if (card.type !== "custom_message" && card.type !== "custom") return undefined;
+		const branchPosition = index.activeBranch.indexOf(card);
+		return index.activeBranch.slice(0, branchPosition).filter((entry) => entry.type === "message" && entry.hasMessage).length;
+	}
+	private async readTurnPageAfterCore(index: SessionDisplayIndex, agentId: string, start: number, end: number, entryRendererTypes: readonly string[]): Promise<SessionMessagePage> {
+		const total = index.activeMessageEntries.length;
+		const entries = index.activeMessageEntries.slice(start, end);
+		const rawMessages = await this.host.readSessionMessages(index.hostPath, entries);
+		const messages = index.hasCompaction ? await this.host.cards.convertCompactionPageMessages(index, agentId, rawMessages, roleMessageEntryIds(entries), start, entries) : this.host.convertMessages(agentId, rawMessages, roleMessageEntryIds(entries));
+		const cards = await this.host.cards.buildCustomMessageCards(index, agentId, { start, end, isTailWindow: end >= total, entryRendererTypes });
+		const projected = this.host.cards.applyCustomMessageCards(messages, cards, entries, start, index.hasCompaction ? this.host.cards.resolveCompactionInsertOffset(index) : undefined);
+		const nextAfterEntryId = end < total ? index.activeMessageEntries[end - 1]?.id : undefined;
+		return { messages: applySessionContextEdits(projected, index.contextEdits), total, nextBefore: start > 0 ? start : null, ...(nextAfterEntryId ? { nextAfterEntryId } : {}), indexVersion: `${index.mtimeMs}:${index.size}`, ...index.metadata };
+	}
 
 	constructor(private readonly host: SessionDisplayPagingHost) {}
 
@@ -214,13 +237,21 @@ export class SessionDisplayPaging {
 		// beforeEntryId：渲染层以「运行时窗口首条消息的 entryId」作为首次补历史的游标，
 		// 解析为该 entry 在活跃分支的绝对下标（运行时窗口与 JSONL 是两个下标空间，
 		// entryId 是唯一的对齐锚点）。解析失败回退为 undefined（= 从尾部起页）。
-		const targetPosition = beforeEntryId ? index.activeMessagePositionById.get(beforeEntryId) : undefined;
-		const boundedBefore = options?.includeBeforeEntry && beforeEntryId ? (targetPosition === undefined ? null : targetPosition + 1) : resolveTurnPageBefore(before, beforeEntryId, index.activeMessageEntries, total, index.activeMessagePositionById);
+		const targetPosition = beforeEntryId ? this.resolveMessageBoundary(index, beforeEntryId, false) : undefined;
+		const boundedTurnCount = Number.isFinite(turnCount) ? Math.min(Math.max(1, Math.floor(turnCount)), this.host.maxTurnPageSize) : this.host.defaultTurnPageSize;
+		if (options?.afterEntryId) {
+			const start = this.resolveMessageBoundary(index, options.afterEntryId, true);
+			if (start === undefined) return { messages: [], total, nextBefore: null, indexVersion: `${index.mtimeMs}:${index.size}`, ...index.metadata };
+			if (start >= total) return { messages: [], total, nextBefore: start > 0 ? start : null, indexVersion: `${index.mtimeMs}:${index.size}`, ...index.metadata };
+			const turnStarts = collectTurnStartIndices(index.activeMessageEntries, total).filter((position) => position > start);
+			const end = turnStarts[Math.min(turnStarts.length, boundedTurnCount - 1)] ?? total;
+			return this.readTurnPageAfterCore(index, agentId, start, Math.max(start + 1, end), options.entryRendererTypes ?? []);
+		}
+		const boundedBefore = beforeEntryId && targetPosition !== undefined ? Math.min(total, targetPosition + Number(Boolean(options?.includeBeforeEntry))) : resolveTurnPageBefore(before, beforeEntryId, index.activeMessageEntries, total, index.activeMessagePositionById);
 		// 锚点解析失败且没有数值游标：明确回「没有更早历史」，不能静默回退到尾部（#474）。
 		if (boundedBefore === null) {
 			return { messages: [], total, nextBefore: null, nextBeforeEntryId: undefined, indexVersion: `${index.mtimeMs}:${index.size}`, ...index.metadata };
 		}
-		const boundedTurnCount = Number.isFinite(turnCount) ? Math.min(Math.max(1, Math.floor(turnCount)), this.host.maxTurnPageSize) : this.host.defaultTurnPageSize;
 
 		// 预取命中：直接返回缓存页（键 = 文件版本 + 游标 + 页大小，版本变化即失效）。
 		const entryRendererTypes = options?.entryRendererTypes ?? [];
@@ -269,6 +300,7 @@ export class SessionDisplayPaging {
 				total,
 				nextBefore: start > 0 ? start : null,
 				nextBeforeEntryId: start > 0 ? index.activeMessageEntries[start]?.id : undefined,
+				...(boundedBefore < total && entries.length > 0 ? { nextAfterEntryId: entries.at(-1)?.id } : {}),
 				indexVersion: `${index.mtimeMs}:${index.size}`,
 				...index.metadata,
 			};
@@ -289,6 +321,7 @@ export class SessionDisplayPaging {
 			total,
 			nextBefore: start > 0 ? start : null,
 			nextBeforeEntryId: start > 0 ? index.activeMessageEntries[start]?.id : undefined,
+			...(boundedBefore < total && entries.length > 0 ? { nextAfterEntryId: entries.at(-1)?.id } : {}),
 			indexVersion: `${index.mtimeMs}:${index.size}`,
 			...index.metadata,
 		};

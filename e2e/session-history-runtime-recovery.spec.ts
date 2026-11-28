@@ -18,10 +18,11 @@ test("Agent 崩溃后的历史编辑会激活新 runtime 再 fork", async ({ win
 	await expect(timeline).toContainText("崩溃前最后输出", { timeout: 30_000 });
 	await expect(window.locator(".composer-send-primary")).toHaveAttribute("aria-label", "发送", { timeout: 20_000 });
 
-	const turn = timeline.locator(".turn-row").filter({ hasText: firstReply });
-	await turn.getByTitle("编辑").click();
+	// 编辑 user 才走 fork + 新回复；assistant 编辑只修改原回答正文。
+	const turn = timeline.locator(".user-turn").filter({ hasText: "崩溃前完整轮" });
+	await turn.locator(".user-turn-actions").getByTitle("编辑", { exact: true }).click();
 	await timeline.locator("textarea").fill("崩溃恢复后的编辑");
-	await timeline.getByRole("button", { name: "保存" }).click();
+	await timeline.getByRole("button", { name: "发送", exact: true }).click();
 
 	await expect(timeline).toContainText("崩溃恢复后的编辑", { timeout: 45_000 });
 	await expect(timeline).toContainText("Mock 回复：「崩溃恢复后的编辑」流式渲染验证完成。", { timeout: 30_000 });

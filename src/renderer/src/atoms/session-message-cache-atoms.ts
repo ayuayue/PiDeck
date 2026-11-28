@@ -8,6 +8,7 @@
  * 入口 `session-atoms.ts` 用 `export *` 转出，所有既有 import 不变。
  */
 import { atom } from "jotai";
+import { boundHistoryWindow } from "./session-history-window";
 import { atomFamily, selectAtom } from "jotai/utils";
 import type { ChatMessage, SessionMessagePage } from "../../../shared/types";
 import { findLastUserMessageIndex } from "./outlineRevision";
@@ -41,7 +42,7 @@ export const cacheSessionMessagesAtom = atom(
 			// 本地页与 runtime 更新只写 disk/runtime，这里放宽是为了让远端历史页能原样转存。
 			source: "disk" | "runtime" | "remote";
 			expectedRevision?: number;
-			page?: Pick<SessionMessagePage, "total" | "nextBefore" | "nextBeforeEntryId" | "indexVersion">;
+			page?: Pick<SessionMessagePage, "total" | "nextBefore" | "nextBeforeEntryId" | "nextAfterEntryId" | "indexVersion">;
 			/** runtime 窗口协议字段（2026-08 激活分页） */
 			windowStart?: number;
 			/** 窗口段头部的系统摘要卡片数（全量 flush 推导，增量合并偏移用） */
@@ -87,6 +88,11 @@ export const cacheSessionMessagesAtom = atom(
 		// force：用户刚改过 JSONL（编辑/删除/重发），disk 才是权威，必须覆盖 runtime。
 		if (!input.force && input.source === "disk" && current?.source !== "disk" && current?.messages?.length >= input.messages.length) {
 			return false;
+		}
+		if (input.source === "disk" && input.page) {
+			const bounded = boundHistoryWindow(input.messages, input.page, "newer");
+			if (historySource === "remote" && bounded.messages !== input.messages) throw new Error("REMOTE_SESSION_WINDOW_SLIDE_UNSUPPORTED");
+			input = { ...input, messages: bounded.messages, page: bounded.page };
 		}
 		const outlineChanged = input.outlineChanged !== false;
 		const shouldReplaceOutlineProjection = outlineChanged || current?.outlineRevision === undefined;

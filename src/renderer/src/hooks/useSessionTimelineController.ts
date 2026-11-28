@@ -17,6 +17,7 @@ import {
 	clearSessionHistoryAtom,
 	prependSessionHistoryPageAtom,
 	prependSessionMessagePageAtom,
+	appendSessionMessagePageAtom,
 	sessionMessageLoadStateAtom,
 	sessionMessagesCacheAtom,
 	sessionMessageCacheBySessionIdAtomFamily,
@@ -176,9 +177,10 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 	const cachedEntry = useAtomValue(options.sessionId ? sessionMessageCacheBySessionIdAtomFamily(options.sessionId) : NO_CACHE_ENTRY_ATOM);
 	// 预热空窗口期间历史仍在前缀；加载/空态必须看完整显示数组，不能只看 runtime 窗口。
 	const runtimeHistory = controllerEnabled && cachedEntry?.source === "runtime" ? cachedEntry.history : undefined;
-	const combinedMessages = useMemo(() => (runtimeHistory ? [...runtimeHistory.messages, ...messages] : messages), [runtimeHistory, messages]);
+	const combinedMessages = useMemo(() => (runtimeHistory?.nextAfterEntryId ? runtimeHistory.messages : runtimeHistory ? [...runtimeHistory.messages, ...messages] : messages), [runtimeHistory, messages]);
 	const cacheMessages = useSetAtom(cacheSessionMessagesAtom);
 	const prependMessagePage = useSetAtom(prependSessionMessagePageAtom);
+	const appendMessagePage = useSetAtom(appendSessionMessagePageAtom);
 	const prependHistoryPage = useSetAtom(prependSessionHistoryPageAtom);
 	const setLoadState = useSetAtom(setSessionMessageLoadStateAtom);
 	const touchMessages = useSetAtom(touchSessionMessagesAtom);
@@ -630,7 +632,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 	});
 
 	// ── 历史窗口加载与分页（子 hook：请求编排 + 游标 + 失败文案）──
-	const { diskPage, historyHasMore, hasEarlierPages, visibleMessages, isLoadingMessagePage, setIsLoadingMessagePage, loadMoreError, setLoadMoreError, loadMoreMessages, reloadFromDisk, startDshHostAndReload } = useTimelineHistoryPaging({
+	const { diskPage, historyHasMore, hasEarlierPages, visibleMessages, isLoadingMessagePage, setIsLoadingMessagePage, loadMoreError, setLoadMoreError, loadMoreMessages, loadNewerMessages, reloadFromDisk, startDshHostAndReload } = useTimelineHistoryPaging({
 		sessionId: options.sessionId,
 		controllerEnabled,
 		messages,
@@ -659,6 +661,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 			setLoadState,
 			cacheMessages,
 			prependMessagePage,
+			appendMessagePage,
 			prependHistoryPage,
 			clearHistory,
 			translate: t,
@@ -785,7 +788,11 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 				// 读者主动回底时，浏览钉不能再拦住跟随状态更新。
 				if (intent === "relock" && controllerEnabled && ownerKeyRef.current === ownerKey && !autoScrollRef.current) setAutoScrollFromScroller(true, true);
 			}
-			if (intent !== "up") return;
+			if (intent !== "up") {
+				const timeline = timelineRef.current;
+				if (timeline && (diskPage?.nextAfterEntryId || runtimeHistory?.nextAfterEntryId) && timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight < 600) loadNewerMessages();
+				return;
+			}
 
 			const requestOwnerKey = ownerKey;
 			userScrollIntentFrameRef.current = window.requestAnimationFrame(() => {
@@ -831,7 +838,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 				}
 			});
 		},
-		[captureBrowsePin, controllerEnabled, escapeAutoScroll, expandWindowBatched, hasEarlierPages, isLoadingMessagePage, loadMoreMessages, ownerKey, setAutoScrollFromScroller],
+		[captureBrowsePin, controllerEnabled, escapeAutoScroll, expandWindowBatched, hasEarlierPages, isLoadingMessagePage, loadMoreMessages, loadNewerMessages, diskPage?.nextAfterEntryId, runtimeHistory?.nextAfterEntryId, ownerKey, setAutoScrollFromScroller],
 	);
 
 	useLayoutEffect(() => {
@@ -865,7 +872,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 			});
 		}
 		loadMoreAnchorRef.current = undefined;
-	}, [controllerEnabled, markProgrammaticScroll, ownerKey, pinBrowseRow, pinViewportAfterPrepend, visibleMessages.length]);
+	}, [controllerEnabled, markProgrammaticScroll, ownerKey, pinBrowseRow, pinViewportAfterPrepend, visibleMessages]);
 
 	// 浏览态内容后增高（历史 Markdown 轻量→全量、图片、mermaid）：扩窗那一帧的补偿不够，
 	// 按钉住的行继续补漂移。跟随时不碰——吸底引擎负责下方增长。
@@ -882,7 +889,15 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		observer.observe(target);
 		return () => observer.disconnect();
 	}, [controllerEnabled, ownerKey, pinBrowseRow]);
-	const fetchJumpPageOnce = useJumpPageFetch({ sessionId: options.sessionId, revision: cachedEntry?.revision, readRecordMessagePage: desktopApi.sessions.readRecordMessagePage, prependHistoryPage, clearHistory, setPendingJump });
+	const jumpRequestGeneration = historyBrowseGenerationRef.current;
+	const fetchJumpPageOnce = useJumpPageFetch({
+		sessionId: options.sessionId,
+		revision: cachedEntry?.revision,
+		isRequestCurrent: () => ownerKeyRef.current === ownerKey && historyBrowseGenerationRef.current === jumpRequestGeneration,
+		readRecordMessagePage: desktopApi.sessions.readRecordMessagePage,
+		prependHistoryPage,
+		setPendingJump,
+	});
 	useEffect(() => {
 		if (!controllerEnabled || !pendingJump) return;
 		if (!matchesTimelineOwner(pendingJump.ownerKey, ownerKey)) return;
@@ -991,6 +1006,8 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		visibleMessages: diskPage ? messages : visibleMessages,
 		totalMessageCount: diskPage ? diskPage.total : combinedMessages.length,
 		hasMoreMessages: hasEarlierPages,
+		hasNewerMessages: Boolean(diskPage?.nextAfterEntryId ?? runtimeHistory?.nextAfterEntryId),
+		loadNewerMessages,
 		// 下一次「加载更多」是否触发 disk 轮次分页（窗口前还有历史）：
 		// 2026-11 轮次模型：runtime 会话一律按轮补页（无内存扩窗阶段），文案恒为「加载更多对话」
 		nextLoadIsHistory: controllerEnabled && !diskPage && historyHasMore,
