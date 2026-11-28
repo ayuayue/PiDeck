@@ -1,11 +1,13 @@
 package officedoc
 
 import (
+	"archive/zip"
 	"bytes"
 	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
+	"path"
 	"strconv"
 	"strings"
 )
@@ -13,8 +15,8 @@ import (
 // Where a workbook keeps its strings and its worksheets.
 const (
 	sharedStringsPart = "xl/sharedStrings.xml"
-	sheetsPrefix      = "xl/worksheets/"
-	sheetsSuffix      = ".xml"
+	workbookPart      = "xl/workbook.xml"
+	workbookRelsPart  = "xl/_rels/workbook.xml.rels"
 )
 
 // Sheet is what a spreadsheet's first worksheet holds, as a preview shows it.
@@ -48,11 +50,62 @@ func XlsxSheet(data []byte, maxRows, maxColumns int) (Sheet, error) {
 	} else if !errors.Is(err, ErrFormat) {
 		return Sheet{}, err
 	}
-	part, err := firstPart(zr, sheetsPrefix, sheetsSuffix)
+	part, err := firstSheetPart(zr)
 	if err != nil {
 		return Sheet{}, err
 	}
 	return sheetRows(part, shared, maxRows, maxColumns)
+}
+
+// firstSheetPart follows workbook order; worksheet file names need not match it.
+func firstSheetPart(zr *zip.Reader) ([]byte, error) {
+	part, err := readPart(zr, workbookPart)
+	if err != nil {
+		return nil, err
+	}
+	var workbook struct {
+		Sheets []struct {
+			ID string `xml:"id,attr"`
+		} `xml:"sheets>sheet"`
+	}
+	if err := xml.Unmarshal(part, &workbook); err != nil {
+		return nil, fmt.Errorf("%w: workbook: %v", ErrFormat, err)
+	}
+	if len(workbook.Sheets) == 0 || workbook.Sheets[0].ID == "" {
+		return nil, fmt.Errorf("%w: no first worksheet", ErrFormat)
+	}
+	part, err = readPart(zr, workbookRelsPart)
+	if err != nil {
+		return nil, err
+	}
+	var relationships struct {
+		Items []struct {
+			ID         string `xml:"Id,attr"`
+			Type       string `xml:"Type,attr"`
+			Target     string `xml:"Target,attr"`
+			TargetMode string `xml:"TargetMode,attr"`
+		} `xml:"Relationship"`
+	}
+	if err := xml.Unmarshal(part, &relationships); err != nil {
+		return nil, fmt.Errorf("%w: workbook relationships: %v", ErrFormat, err)
+	}
+	for _, rel := range relationships.Items {
+		if rel.ID != workbook.Sheets[0].ID {
+			continue
+		}
+		if rel.Target == "" || !strings.HasSuffix(rel.Type, "/worksheet") || (rel.TargetMode != "" && rel.TargetMode != "Internal") {
+			return nil, fmt.Errorf("%w: first sheet is not an internal worksheet", ErrFormat)
+		}
+		name := path.Clean(strings.TrimPrefix(rel.Target, "/"))
+		if !strings.HasPrefix(rel.Target, "/") {
+			name = path.Join(path.Dir(workbookPart), rel.Target)
+		}
+		if name == ".." || strings.HasPrefix(name, "../") {
+			return nil, fmt.Errorf("%w: worksheet target outside archive", ErrFormat)
+		}
+		return readPart(zr, name)
+	}
+	return nil, fmt.Errorf("%w: first worksheet relationship missing", ErrFormat)
 }
 
 // sheetRows reads a worksheet part.
@@ -75,7 +128,17 @@ func sheetRows(part []byte, shared []string, maxRows, maxColumns int) (Sheet, er
 		case xml.StartElement:
 			switch t.Name.Local {
 			case "row":
-				if len(sheet.Rows) >= maxRows {
+				at := len(sheet.Rows) + 1
+				if raw := attribute(t, "r"); raw != "" {
+					at, err = strconv.Atoi(raw)
+					if err != nil || at <= len(sheet.Rows) {
+						return sheet, fmt.Errorf("%w: invalid row number %q", ErrFormat, raw)
+					}
+				}
+				for len(sheet.Rows) < min(at-1, maxRows) {
+					sheet.Rows = append(sheet.Rows, nil)
+				}
+				if at > maxRows {
 					sheet.Limited = true
 					return sheet, nil
 				}

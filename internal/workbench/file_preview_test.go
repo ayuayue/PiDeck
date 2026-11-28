@@ -79,8 +79,10 @@ func TestPreviewReadXLSX(t *testing.T) {
 	var buf bytes.Buffer
 	archive := zip.NewWriter(&buf)
 	for name, body := range map[string]string{
-		"xl/sharedStrings.xml":     shared,
-		"xl/worksheets/sheet1.xml": sheet,
+		"xl/workbook.xml":            `<workbook xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="First" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+		"xl/_rels/workbook.xml.rels": `<Relationships><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`,
+		"xl/sharedStrings.xml":       shared,
+		"xl/worksheets/sheet1.xml":   sheet,
 	} {
 		f, err := archive.Create(name)
 		if err != nil {

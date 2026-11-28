@@ -73,8 +73,10 @@ func TestXlsxSheet(t *testing.T) {
 <row r="3"><c r="B3" t="b"><v>1</v></c></row>
 </sheetData></worksheet>`
 	data := archive(t, map[string]string{
-		"xl/sharedStrings.xml":     shared,
-		"xl/worksheets/sheet1.xml": sheet,
+		"xl/workbook.xml":            testXLSXWorkbook,
+		"xl/_rels/workbook.xml.rels": testXLSXRelationships,
+		"xl/sharedStrings.xml":       shared,
+		"xl/worksheets/sheet1.xml":   sheet,
 	})
 	got, err := XlsxSheet(data, 100, 48)
 	if err != nil {
@@ -106,7 +108,11 @@ func TestXlsxSheetLimits(t *testing.T) {
 <row r="1"><c r="A1"><v>1</v></c><c r="B1"><v>2</v></c></row>
 <row r="2"><c r="A2"><v>3</v></c></row>
 </sheetData></worksheet>`
-	data := archive(t, map[string]string{"xl/worksheets/sheet1.xml": sheet})
+	data := archive(t, map[string]string{
+		"xl/workbook.xml":            testXLSXWorkbook,
+		"xl/_rels/workbook.xml.rels": testXLSXRelationships,
+		"xl/worksheets/sheet1.xml":   sheet,
+	})
 
 	rows, err := XlsxSheet(data, 1, 48)
 	if err != nil {

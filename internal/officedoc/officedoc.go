@@ -13,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"slices"
 	"strings"
 )
 
@@ -67,22 +66,6 @@ func readPart(zr *zip.Reader, name string) ([]byte, error) {
 		return data, nil
 	}
 	return nil, fmt.Errorf("%w: no %s", ErrFormat, name)
-}
-
-// firstPart returns the bytes of the first part whose name starts with
-// prefix and ends with suffix, in the archive's order.
-func firstPart(zr *zip.Reader, prefix, suffix string) ([]byte, error) {
-	names := make([]string, 0, len(zr.File))
-	for _, f := range zr.File {
-		if strings.HasPrefix(f.Name, prefix) && strings.HasSuffix(f.Name, suffix) {
-			names = append(names, f.Name)
-		}
-	}
-	if len(names) == 0 {
-		return nil, fmt.Errorf("%w: no %s*%s", ErrFormat, prefix, suffix)
-	}
-	slices.Sort(names)
-	return readPart(zr, names[0])
 }
 
 // text collects a document's words, one line at a time: it tracks the last
