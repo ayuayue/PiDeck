@@ -320,12 +320,6 @@ test("planSessionCacheTrim counts stopped open tabs as closed-class and reconcil
 	assert.deepEqual([...missing.retained], ["s1"]);
 	assert.deepEqual([...missing.evicted], ["ghost"]);
 });
-test("disk history retention covers the 694-turn long-session fixture without mounting its full DOM", () => {
-	const atoms = loadAtoms();
-	assert.equal(atoms.DISK_HISTORY_MESSAGE_LIMIT, 16_384);
-	assert.ok(atoms.DISK_HISTORY_MESSAGE_LIMIT > 12_581);
-	assert.equal(atoms.RUNTIME_HISTORY_PREFIX_MESSAGE_LIMIT, atoms.DISK_HISTORY_MESSAGE_LIMIT);
-});
 
 test("stopping a runtime stops protecting its open tab: over-budget stopped entries are evicted on trim", () => {
 	const atoms = loadAtoms();
@@ -1491,136 +1485,68 @@ test("slideOut-only history keeps an entryId cursor so older pages stay reachabl
 	assert.equal(entry().history.nextBeforeEntryId, "e1");
 });
 
-test("prependSessionHistoryPageAtom caps runtime history prefix and advances cursor", () => {
+test("runtime history prepend preserves every page and its cursor beyond the former retention threshold", () => {
 	const atoms = loadAtoms();
 	const store = createStore();
 	const entry = () => store.get(atoms.sessionMessagesCacheAtom)["session-a"];
-	const LIMIT = atoms.RUNTIME_HISTORY_PREFIX_MESSAGE_LIMIT;
-	const makeMessages = (count, tag, start) =>
-		Array.from({ length: count }, (_, i) => ({
-			id: `${tag}-${start + i}`,
-			role: "user",
-			text: `${tag}${start + i}`,
-			meta: { entryId: `${tag}${start + i}` },
-		}));
-
-	// runtime 条目：历史前缀差 1 条到上限（游标 = 保留段最旧文件下标）
-	store.set(atoms.cacheSessionMessagesAtom, {
-		sessionId: "session-a",
-		messages: [{ id: "w1", role: "user", text: "win", meta: { entryId: "we1" } }],
-		source: "runtime",
-		windowStart: LIMIT,
-		history: { messages: makeMessages(LIMIT - 1, "e", 0), nextBefore: 1, nextBeforeEntryId: "e0", version: "100:2000" },
-	});
-	assert.equal(entry().history.messages.length, LIMIT - 1);
-
-	// prepend 3 条更早页 → 溢出 2 → 只丢新页头部 2 条；游标 = 页最旧下标(-2) + 丢弃数(2) = 0，
-	// 锚点重算到保留段最旧条目 h-1
-	assert.equal(
-		store.set(atoms.prependSessionHistoryPageAtom, {
-			sessionId: "session-a",
-			expectedRevision: entry().revision,
-			before: 1,
-			page: {
-				messages: makeMessages(3, "h", -3),
-				total: LIMIT + 5,
-				nextBefore: -2,
-				nextBeforeEntryId: "h-3",
-				indexVersion: "100:2000",
-			},
-		}),
-		true,
-	);
-	assert.equal(entry().history.messages.length, LIMIT, "裁剪后不超过上限");
-	assert.equal(entry().history.messages[0].meta.entryId, "h-1", "新页头部两条被丢弃，第三条保留");
-	assert.equal(entry().history.nextBefore, -2 + 2, "部分丢弃：游标 = 页最旧下标 + 丢弃数");
-	assert.equal(entry().history.nextBeforeEntryId, "h-1", "锚点重算到保留段最旧条目");
-	assert.equal(entry().messages[0].id, "w1", "运行时窗口段不受影响");
-
-	// 整页装不下：这次 prepend 必须被**拒绝**（返回 false），而不是「接受但把游标置 null」。
-	// 两种写法的区别是诚不诚实：置 null 等于告诉用户「这条没有更早历史」，而历史还在盘上，
-	// 只是这一页太大；拒绝则内容与游标都不动，调用方拿到 false 可以退回扩窗或如实报失败。
-	// 也不许退回请求游标：那会下次取到同一页、再次被丢掉，成「一直在加载」。
-	assert.equal(
-		store.set(atoms.prependSessionHistoryPageAtom, {
-			sessionId: "session-a",
-			expectedRevision: entry().revision,
-			before: 0,
-			page: {
-				messages: makeMessages(2, "g", -2),
-				total: LIMIT + 5,
-				nextBefore: -2,
-				nextBeforeEntryId: "g-2",
-				indexVersion: "100:2000",
-			},
-		}),
-		false,
-	);
-	assert.equal(entry().history.messages.length, LIMIT);
-	assert.equal(entry().history.nextBefore, -2 + 2, "拒绝：游标停在原处，没有被改成「没有更早」");
-	assert.equal(entry().history.messages[0].meta.entryId, "h-1", "新页整体丢弃，原前缀原样保留");
-	assert.equal(entry().history.nextBeforeEntryId, "h-1");
+	const LIMIT = 16_384;
+	const makeMessages = (count, tag, start) => Array.from({ length: count }, (_, i) => ({ id: `${tag}-${start + i}`, role: "user", text: `${tag}${start + i}`, meta: { entryId: `${tag}${start + i}` } }));
+	store.set(atoms.cacheSessionMessagesAtom, { sessionId: "session-a", messages: [{ id: "w1", role: "user", text: "win", meta: { entryId: "we1" } }], source: "runtime", windowStart: LIMIT, history: { messages: makeMessages(LIMIT - 1, "e", 0), nextBefore: 1, nextBeforeEntryId: "e0", version: "100:2000" } });
+	assert.equal(store.set(atoms.prependSessionHistoryPageAtom, { sessionId: "session-a", expectedRevision: entry().revision, before: 1, page: { messages: makeMessages(3, "h", -3), total: LIMIT + 5, nextBefore: -2, nextBeforeEntryId: "h-3", indexVersion: "100:2000" } }), true);
+	assert.equal(entry().history.messages.length, LIMIT + 2);
+	assert.equal(entry().history.messages[0].meta.entryId, "h-3");
+	assert.equal(entry().history.nextBefore, -2);
+	assert.equal(entry().history.nextBeforeEntryId, "h-3");
+	assert.equal(store.set(atoms.prependSessionHistoryPageAtom, { sessionId: "session-a", expectedRevision: entry().revision, before: -2, page: { messages: makeMessages(2, "g", -5), total: LIMIT + 5, nextBefore: -4, nextBeforeEntryId: "g-5", indexVersion: "100:2000" } }), true);
+	assert.equal(entry().history.messages.length, LIMIT + 4);
+	assert.equal(entry().history.messages[0].meta.entryId, "g-5");
+	assert.equal(entry().history.nextBefore, -4);
+	assert.equal(entry().messages[0].id, "w1");
 });
 
-test("slideOut reconcile caps history prefix growth and advances cursor", () => {
+test("runtime slideOut keeps growing history without rewriting the source cursor", () => {
 	const atoms = loadAtoms();
 	const store = createStore();
 	const entry = () => store.get(atoms.sessionMessagesCacheAtom)["session-a"];
-	const emit = (payload) =>
-		store.set(atoms.applySessionRuntimeEventAtom, {
-			sessionId: "session-a",
-			agentId: "agent-a",
-			runtimeGeneration: 1,
-			sourceChannel: "agents:message",
-			payload,
-		});
-	const LIMIT = atoms.RUNTIME_HISTORY_PREFIX_MESSAGE_LIMIT;
-	const makeMessages = (count, tag, start) =>
-		Array.from({ length: count }, (_, i) => ({
-			id: `${tag}-${start + i}`,
-			role: "user",
-			text: `${tag}${start + i}`,
-			meta: { entryId: `${tag}${start + i}` },
-		}));
-
-	// runtime 条目：前缀已到上限，游标 = 0（保留段最旧文件下标）
 	store.set(atoms.cacheSessionMessagesAtom, {
 		sessionId: "session-a",
 		messages: [{ id: "w1", role: "user", text: "win", meta: { entryId: "we1" } }],
 		source: "runtime",
-		windowStart: LIMIT,
-		history: { messages: makeMessages(LIMIT, "e", 0), nextBefore: 0, nextBeforeEntryId: "e0", version: "100:2000" },
+		windowStart: 16_384,
+		history: { messages: Array.from({ length: 16_384 }, (_, i) => ({ id: `e-${i}`, role: "user", text: "e", meta: { entryId: `e${i}` } })), nextBefore: 100, nextBeforeEntryId: "e0", version: "100:2000" },
 	});
-
-	// 窗口右移：slideOut 2 条滑入前缀尾部 → 前缀 LIMIT+2 → 超限 2 条从最旧端丢弃，
-	// 数值游标推进 0→2，锚点重算到新头部 e2
-	emit({
+	store.set(atoms.applySessionRuntimeEventAtom, {
+		sessionId: "session-a",
 		agentId: "agent-a",
-		windowStart: LIMIT + 3,
-		totalLength: LIMIT + 4,
-		fileVersion: "100:2000",
-		slideOut: [
-			{ id: "s1", role: "user", text: "sl1", meta: { entryId: "sl1" } },
-			{ id: "s2", role: "user", text: "sl2", meta: { entryId: "sl2" } },
-		],
-		messages: [
-			{ id: "w2", role: "user", text: "win2", meta: { entryId: "we2" } },
-			{ id: "w3", role: "user", text: "win3", meta: { entryId: "we3" } },
-		],
+		runtimeGeneration: 1,
+		sourceChannel: "agents:message",
+		payload: {
+			agentId: "agent-a",
+			windowStart: 16_387,
+			totalLength: 16_388,
+			fileVersion: "100:2000",
+			slideOut: [
+				{ id: "s1", role: "user", text: "sl1", meta: { entryId: "sl1" } },
+				{ id: "s2", role: "user", text: "sl2", meta: { entryId: "sl2" } },
+			],
+			messages: [
+				{ id: "w2", role: "user", text: "win2", meta: { entryId: "we2" } },
+				{ id: "w3", role: "user", text: "win3", meta: { entryId: "we3" } },
+			],
+		},
 	});
-	assert.equal(entry().history.messages.length, LIMIT, "slideOut 合入后仍不超过上限");
-	assert.equal(entry().history.messages[0].meta.entryId, "e2", "最旧两条溢出被丢弃");
+	assert.equal(entry().history.messages.length, 16_386);
+	assert.equal(entry().history.messages[0].meta.entryId, "e0");
 	assert.deepEqual(
 		[
 			...entry()
 				.history.messages.slice(-2)
-				.map((m) => m.meta.entryId),
+				.map((message) => message.meta.entryId),
 		],
 		["sl1", "sl2"],
-		"滑出轮接在保留段尾部",
 	);
-	assert.equal(entry().history.nextBefore, 2, "数值游标按丢弃量推进");
-	assert.equal(entry().history.nextBeforeEntryId, "e2", "锚点重算到保留段新头部");
+	assert.equal(entry().history.nextBefore, 100);
+	assert.equal(entry().history.nextBeforeEntryId, "e0");
 });
 
 test("prependSessionHistoryPageAtom guards revision and cursor continuity, dedupes against segment", () => {
@@ -2211,74 +2137,29 @@ test("same-generation snapshots keep flowing while the binding is alive", () => 
 	assert.equal(store.get(atoms.sessionMessagesCacheAtom)["session-a"].messages[1].text, "final");
 });
 
-test("prependSessionMessagePageAtom trims overflowing oldest messages and advances cursor", () => {
+test("disk history prepend preserves all rows and the actual continuation cursor", () => {
 	const atoms = loadAtoms();
 	const store = createStore();
 	const entry = () => store.get(atoms.sessionMessagesCacheAtom)["session-a"];
-	const LIMIT = atoms.DISK_HISTORY_MESSAGE_LIMIT;
-	const makeMessages = (count, prefix, start) =>
-		Array.from({ length: count }, (_, i) => ({
-			id: `${prefix}${start + i}`,
-			role: "user",
-			text: `${prefix}${start + i}`,
-			meta: { entryId: `e${start + i}` },
-		}));
-
-	// 初始 disk 缓存恰好差 1 条到上限（游标 = 文件下标空间，nextBefore = 最旧下标）
-	store.set(atoms.cacheSessionMessagesAtom, {
-		sessionId: "session-a",
-		messages: makeMessages(LIMIT - 1, "m", 0),
-		source: "disk",
-		page: { total: LIMIT + 5, nextBefore: LIMIT - 1 },
-	});
-	assert.equal(entry().messages.length, LIMIT - 1);
-
-	// prepend 3 条更早页 → 溢出 2 条，只丢新页头部 2 条：
-	// 保留段最旧一条的下标 = 页最旧下标(2396) + 丢弃数(2) = 2398
-	assert.equal(
-		store.set(atoms.prependSessionMessagePageAtom, {
-			sessionId: "session-a",
-			expectedRevision: entry().revision,
-			before: LIMIT - 1,
-			page: {
-				messages: makeMessages(3, "h", -3),
-				total: LIMIT + 5,
-				nextBefore: LIMIT - 4,
-			},
-		}),
-		true,
-	);
-	assert.equal(entry().messages.length, LIMIT, "裁剪后不超过上限");
-	assert.equal(entry().messages[0].id, "h-1", "最旧的溢出条被丢弃，第三条保留");
-	assert.equal(entry().page.nextBefore, LIMIT - 4 + 2, "部分丢弃：游标 = 页最旧下标 + 丢弃数");
-	assert.equal(entry().messages[LIMIT - 1].id, `m${LIMIT - 2}`, "当前视窗尾部不受影响");
-
-	// 整页丢弃：再 prepend 2 条更早页（无重叠）→ 溢出 2 条恰好等于整页。
-	// 游标置空而不是退回请求值，否则重取同一页 = 死循环（见 runtime 路径同款判据）。
-	const beforeCursor = entry().page.nextBefore;
-	assert.equal(
-		store.set(atoms.prependSessionMessagePageAtom, {
-			sessionId: "session-a",
-			expectedRevision: entry().revision,
-			before: beforeCursor,
-			page: {
-				messages: makeMessages(2, "g", -5),
-				total: LIMIT + 5,
-				nextBefore: beforeCursor - 2,
-			},
-		}),
-		true,
-	);
-	assert.equal(entry().messages.length, LIMIT);
-	assert.equal(entry().page.nextBefore, null, "整页丢弃：游标置空，不再重取同一页");
-	assert.equal(entry().messages[0].id, "h-1", "新页整体丢弃，原视窗原样保留");
+	const LIMIT = 16_384;
+	const makeMessages = (count, prefix, start) => Array.from({ length: count }, (_, i) => ({ id: `${prefix}${start + i}`, role: "user", text: `${prefix}${start + i}`, meta: { entryId: `e${start + i}` } }));
+	store.set(atoms.cacheSessionMessagesAtom, { sessionId: "session-a", messages: makeMessages(LIMIT - 1, "m", 0), source: "disk", page: { total: LIMIT + 5, nextBefore: LIMIT - 1 } });
+	assert.equal(store.set(atoms.prependSessionMessagePageAtom, { sessionId: "session-a", expectedRevision: entry().revision, before: LIMIT - 1, page: { messages: makeMessages(3, "h", -3), total: LIMIT + 5, nextBefore: LIMIT - 4 } }), true);
+	assert.equal(entry().messages.length, LIMIT + 2);
+	assert.equal(entry().messages[0].id, "h-3");
+	assert.equal(entry().page.nextBefore, LIMIT - 4);
+	const before = entry().page.nextBefore;
+	assert.equal(store.set(atoms.prependSessionMessagePageAtom, { sessionId: "session-a", expectedRevision: entry().revision, before, page: { messages: makeMessages(2, "g", -5), total: LIMIT + 5, nextBefore: before - 2 } }), true);
+	assert.equal(entry().messages.length, LIMIT + 4);
+	assert.equal(entry().messages[0].id, "g-5");
+	assert.equal(entry().page.nextBefore, before - 2);
+	assert.equal(entry().messages.at(-1).id, `m${LIMIT - 2}`);
 });
 
 test("prependSessionMessagePageAtom dedupes overlapping pages by entryId", () => {
 	const atoms = loadAtoms();
 	const store = createStore();
 	const entry = () => store.get(atoms.sessionMessagesCacheAtom)["session-a"];
-	const LIMIT = atoms.DISK_HISTORY_MESSAGE_LIMIT;
 
 	store.set(atoms.cacheSessionMessagesAtom, {
 		sessionId: "session-a",
@@ -2498,27 +2379,19 @@ test("prependSessionMessagePageAtom rejects a remote page from another file gene
 	assert.equal(entry().page.indexVersion, "remote:42:1700000000:900");
 });
 
-test("remote message-budget trimming never adds message counts to a byte cursor", () => {
+test("remote pages preserve byte cursors when older history is prepended", () => {
 	const atoms = loadAtoms();
 	const store = createStore();
-	const limit = atoms.DISK_HISTORY_MESSAGE_LIMIT;
-	const makeMessages = (start, count) => Array.from({ length: count }, (_, i) => ({ id: `m${start + i}`, role: "user", text: `m${start + i}`, meta: { entryId: `e${start + i}` } }));
-	store.set(atoms.cacheSessionMessagesAtom, {
-		sessionId: "session-a",
-		messages: makeMessages(0, limit),
-		source: "remote",
-		page: { total: limit + 2, nextBefore: 9000, nextBeforeEntryId: "e0", indexVersion: "remote:42:1700000000:10000" },
-	});
+	const messages = (start, count) => Array.from({ length: count }, (_, i) => ({ id: `m${start + i}`, role: "user", text: "m", meta: { entryId: `e${start + i}` } }));
+	store.set(atoms.cacheSessionMessagesAtom, { sessionId: "session-a", messages: messages(0, 16_384), source: "remote", page: { total: 16_386, nextBefore: 9000, nextBeforeEntryId: "e0", indexVersion: "remote:42:1700000000:10000" } });
 	assert.equal(
-		store.set(atoms.prependSessionMessagePageAtom, {
-			sessionId: "session-a",
-			expectedRevision: store.get(atoms.sessionMessagesCacheAtom)["session-a"].revision,
-			before: 9000,
-			page: { messages: makeMessages(-2, 2), total: limit + 2, nextBefore: 8000, nextBeforeEntryId: "root", indexVersion: "remote:42:1700000001:11000" },
-		}),
+		store.set(atoms.prependSessionMessagePageAtom, { sessionId: "session-a", expectedRevision: store.get(atoms.sessionMessagesCacheAtom)["session-a"].revision, before: 9000, page: { messages: messages(-2, 2), total: 16_386, nextBefore: 8000, nextBeforeEntryId: "root", indexVersion: "remote:42:1700000001:11000" } }),
 		true,
 	);
-	assert.equal(store.get(atoms.sessionMessagesCacheAtom)["session-a"].page.nextBefore, null, "字节游标不可按消息溢出量做算术");
+	const entry = store.get(atoms.sessionMessagesCacheAtom)["session-a"];
+	assert.equal(entry.messages.length, 16_386);
+	assert.equal(entry.page.nextBefore, 8000, "byte cursor is copied, never adjusted by message counts");
+	assert.equal(entry.page.nextBeforeEntryId, "root");
 });
 
 test("翻过页后一次取页被游标守卫拒掉，清前缀后同一个页进得了缓存", () => {

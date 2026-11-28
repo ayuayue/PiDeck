@@ -85,13 +85,14 @@ test("先落标记再发请求：effect 重跑不会打出第二串 IPC", () => 
 	assert.equal(marked.nonce, 2, "nonce 推进，让 effect 重跑而不是被 deps 判为同一次");
 });
 
-test("超上限的整页不 prepend：宁可跳不到，也不给「没有更早历史」的假结论", async () => {
+test("a full bounded jump page is prepended without a renderer retention cutoff", async () => {
 	const { ports, calls } = makePorts({
-		readRecordMessagePage: async () => ({ messages: new Array(LIMIT).fill(0).map((_, i) => ({ id: "m" + i })), nextBefore: 0 }),
+		readRecordMessagePage: async () => ({ messages: Array.from({ length: LIMIT }, (_, i) => ({ id: "m" + i })), nextBefore: 0 }),
 	});
 	useJumpPageFetch(ports)(pending("e-target"), "owner-A");
 	await new Promise((resolve) => setTimeout(resolve, 10));
-	assert.equal(calls.prepend.length, 0, "整页装不下就不该 prepend");
+	assert.equal(calls.prepend.length, 1);
+	assert.equal(calls.prepend[0].page.messages.length, LIMIT);
 });
 
 test("切会话后到达的页作废：不污染新会话的历史", async () => {

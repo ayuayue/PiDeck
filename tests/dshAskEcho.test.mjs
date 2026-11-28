@@ -196,8 +196,8 @@ test("timeline injects the echo into both grouping inputs and dropped the tail c
 	// 写进消息缓存会被 DSH host 全量折叠投影冲掉。
 	assert.match(timeline, /injectAskEchoMessage\(controller\.messages,\s*askEchoPlacement\)/);
 	assert.match(timeline, /injectAskEchoMessage\(paginatedMessages,\s*askEchoPlacement\)/);
-	assert.match(timeline, /groupToolMessages\(echoedWindowMessages,/);
-	assert.match(timeline, /groupToolMessages\(echoedPaginatedMessages,/);
+	assert.match(timeline, /groupToolMessagesCached\(echoedWindowMessages,/);
+	assert.match(timeline, /groupToolMessagesCached\(echoedPaginatedMessages,/);
 	// 尾部固定回显卡已废弃（用户反馈：应显示在工具调用处，而不是钉在底部）。
 	assert.doesNotMatch(timeline, /SessionAskEcho/);
 });

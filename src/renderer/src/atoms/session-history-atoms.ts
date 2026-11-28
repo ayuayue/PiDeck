@@ -18,30 +18,10 @@ import { allocateSessionMessageOutlineRevision } from "./session-message-cache-a
 import { sessionMessagesCacheAtom } from "./session-state-atoms";
 
 /**
- * disk 来源历史消息数组的驻留上限（2026 内存排查：浏览历史时 atom 数组无界增长）。
- * The 16,384-message budget covers the observed 694-turn sample (12,581 messages). Larger histories
- * still require paging; the cache must not be treated as an unbounded source of truth.
- */
-/** Historical message retention budget. VirtualRunList bounds DOM independently. */
-export const DISK_HISTORY_MESSAGE_LIMIT = 16_384;
-
 /**
- * runtime 会话历史前缀（history.messages）的条数驻留上限，与 disk 路径同预算（2026-12
- * 内存排查根因 E：上翻页合并 merged=[...fresh,...base] 与 slideOut 长期累积均无上界，
- * 用户停在中途不回底时 clearSessionHistory 不会触发，前缀在 atom 缓存里无限增长）。
- * 超限同样从最旧端丢弃并校正续页游标：被丢段可经「显示更早」按新游标重新拉回，
- * 不产生永久丢失；两条翻页路径（disk / runtime）从此对称。
+ * Paged history atoms preserve every accepted page and its source cursor. DOM virtualization is
+ * separate; these atoms currently retain fetched message objects for the active session.
  */
-export const RUNTIME_HISTORY_PREFIX_MESSAGE_LIMIT = DISK_HISTORY_MESSAGE_LIMIT;
-
-/** 前缀最旧条目的 entryId（主进程缓存优先续页锚点）；整段无 entryId 时返回 undefined。 */
-function firstHistoryEntryId(messages: ChatMessage[]): string | undefined {
-	for (const message of messages) {
-		const entryId = message.meta?.entryId;
-		if (typeof entryId === "string" && entryId) return entryId;
-	}
-	return undefined;
-}
 
 export const prependSessionMessagePageAtom = atom(
 	null,
@@ -69,33 +49,11 @@ export const prependSessionMessagePageAtom = atom(
 		const existingKeys = new Set(current.messages.map(messageEntryKey));
 		const freshMessages = input.page.messages.filter((message) => !existingKeys.has(messageEntryKey(message)));
 		const messages = [...freshMessages, ...current.messages];
-		// 条数封顶：只允许丢弃新页头部（current 是用户当前视窗，不能截断）；
-		// 游标换算：页内下标连续，部分丢弃 → 旧游标 + 丢弃数；整页丢弃 → 回到请求游标。
-		let nextBefore = input.page.nextBefore;
-		const overflow = messages.length - DISK_HISTORY_MESSAGE_LIMIT;
-		if (overflow > 0 && freshMessages.length > 0) {
-			const dropCount = Math.min(overflow, freshMessages.length);
-			messages.splice(0, dropCount);
-			if (remotePage) {
-				// 远端 nextBefore 是字节偏移，不能像本地消息下标那样按 dropCount 做加法。
-				// 驻留预算触顶时停止继续翻页，避免重读同一页或跳过未知字节边界。
-				nextBefore = null;
-			} else if (overflow >= freshMessages.length) {
-				// 整页都被预算丢掉：**不能**把游标退回请求游标 —— 退回去下次只会取到同一页，
-				// 而同一页每次都会被同样丢掉，形成「一直在加载、永远加载不出来」的死循环
-				// （2026-11 真机）。预算耗尽即更早的历史不可取，明确置空让「加载更多」消失。
-				nextBefore = null;
-			} else if (input.page.nextBefore !== null) {
-				// 部分丢弃：保留段最旧一条 = 页最旧下标 + 丢弃条数
-				nextBefore = input.page.nextBefore + dropCount;
-			}
-		}
+		const nextBefore = input.page.nextBefore;
 		releaseSessionOutlineProjection(input.sessionId);
-		// 续页游标必须四个字段一起留住：只写回 total/nextBefore 会静默丢掉
-		// `nextBeforeEntryId`（主进程缓存锚点 + 远端跨页活动链叶子种子）与 `indexVersion`
-		// （同代证明，体积串被后续比对）——翻过一页之后就必须还能续页、还能证明同代。
-		// 这是 2026-12 远端上翻“第二页之后又乱又缺”的直接成因：卡在 atom 的字段重建里。
-		const nextBeforeEntryId = overflow > 0 ? (firstHistoryEntryId(messages) ?? input.page.nextBeforeEntryId) : input.page.nextBeforeEntryId;
+		// Keep the file-provided continuation cursor unchanged. Renderer virtualization bounds DOM;
+		// clipping this cumulative cache would make older history unreachable.
+		const nextBeforeEntryId = input.page.nextBeforeEntryId;
 		const indexVersion = input.page.indexVersion ?? current.page?.indexVersion;
 		set(sessionMessagesCacheAtom, {
 			...get(sessionMessagesCacheAtom),
@@ -191,14 +149,10 @@ export function reconcileHistoryPrefix(history: SessionMessageCacheEntry["histor
 		}
 		return undefined;
 	}
-	// 条数封顶（RUNTIME_HISTORY_PREFIX_MESSAGE_LIMIT）：slideOut 随窗口右移长期累积会把
-	// 前缀推过上限——用户停在中途不上滑时 clearSessionHistory 不会触发，这里是唯一维护点。
-	// 从最旧端丢弃：数值游标按丢弃量推进（前缀下标连续），entryId 锚点重算到保留段
-	// 最旧条目，保证被丢段仍可经「显示更早」重新翻页拉回。
-	const overflow = messages.length - RUNTIME_HISTORY_PREFIX_MESSAGE_LIMIT;
-	const cappedMessages = overflow > 0 ? messages.slice(overflow) : messages;
+	// Preserve the complete prefix; its cursor must continue to represent the disk boundary.
+	const retainedMessages = messages;
 	// 无滑出轮且前缀未被触碰：保留原对象引用，避免无谓的 atom 更新
-	if (slideMessages.length === 0 && cappedMessages.length === (history?.messages.length ?? 0)) {
+	if (slideMessages.length === 0 && retainedMessages.length === (history?.messages.length ?? 0)) {
 		return history;
 	}
 	// 仅 slideOut 重建前缀时，游标不是 null：下一页应从 slideOut 最旧消息继续向上翻。
@@ -210,16 +164,11 @@ export function reconcileHistoryPrefix(history: SessionMessageCacheEntry["histor
 		const slideAnchorEntryId = slideAnchor?.meta?.entryId;
 		if (typeof slideAnchorEntryId === "string") nextBeforeEntryId = slideAnchorEntryId;
 	}
-	if (overflow > 0) {
-		// 封顶丢弃后锚点必须重算：旧锚点指向被丢段时，缓存优先路径会从过期锚点继续翻页；
-		// 保留段无 entryId 时退回旧锚点，维持 historyHasMore 的可见性。
-		nextBeforeEntryId = firstHistoryEntryId(cappedMessages) ?? history?.nextBeforeEntryId;
-	}
 	return {
-		nextBefore: overflow > 0 && typeof history?.nextBefore === "number" ? history.nextBefore + overflow : (history?.nextBefore ?? null),
+		nextBefore: history?.nextBefore ?? null,
 		...(nextBeforeEntryId !== undefined ? { nextBeforeEntryId } : {}),
 		version: history?.version ?? fileVersion,
-		messages: cappedMessages,
+		messages: retainedMessages,
 	};
 }
 
@@ -323,27 +272,9 @@ export const prependSessionHistoryPageAtom = atom(
 		const baseKeys = new Set(baseMessages.map(messageEntryKey));
 		const freshMessages = pageMessages.filter((message) => !baseKeys.has(messageEntryKey(message)));
 		const merged = [...freshMessages, ...baseMessages];
-		// 条数封顶（RUNTIME_HISTORY_PREFIX_MESSAGE_LIMIT）：语义与 disk 路径的
-		// prependSessionMessagePageAtom 一致——只允许丢新页头部（base 是用户已翻到的
-		// 历史段不能截断）；整页丢弃时数值游标回退到请求游标（下次重取同页），部分丢弃时
-		// 按页内连续下标推进 dropCount；entryId 锚点一律重算到保留段最旧条目。
-		const overflow = merged.length - RUNTIME_HISTORY_PREFIX_MESSAGE_LIMIT;
-		let cappedMessages = merged;
-		let nextBefore: number | null = input.page.nextBefore;
-		let nextBeforeEntryId: string | undefined = input.page.nextBeforeEntryId || undefined;
-		if (overflow > 0 && freshMessages.length > 0) {
-			const dropCount = Math.min(overflow, freshMessages.length);
-			cappedMessages = merged.slice(dropCount);
-			if (dropCount >= freshMessages.length) {
-				// 整页都装不下：拒绝这次 prepend，不要置 nextBefore = null。
-				// 置空等于对用户撒谎「这条没有更早历史」——历史还在盘上，只是这一页太大；
-				// 拒绝则内容与游标都不动，调用方拿到 false 可退回扩窗或如实报失败。
-				return false;
-			} else if (input.page.nextBefore !== null) {
-				nextBefore = input.page.nextBefore + dropCount;
-			}
-			nextBeforeEntryId = firstHistoryEntryId(cappedMessages);
-		}
+		const messages = merged;
+		const nextBefore: number | null = input.page.nextBefore;
+		const nextBeforeEntryId: string | undefined = input.page.nextBeforeEntryId || undefined;
 		releaseSessionOutlineProjection(input.sessionId);
 
 		set(sessionMessagesCacheAtom, {
@@ -353,7 +284,7 @@ export const prependSessionHistoryPageAtom = atom(
 				// 即使第一页只有隐藏的 system 条目（投影后为空），也要保存 nextBefore:null，
 				// 否则窗口首条 entryId 在下一次渲染时仍会误报「还有更早历史」。
 				history: {
-					messages: cappedMessages,
+					messages,
 					nextBefore,
 					...(nextBeforeEntryId !== undefined ? { nextBeforeEntryId } : {}),
 					version: input.page.indexVersion ?? current.history?.version,

@@ -59,8 +59,6 @@ export interface JumpPageFetchPorts {
 	 * 目标仍不在数据里，最后报「未能跳转」。旧前缀对「跳到别处」本来也没用，清掉是对的。
 	 */
 	clearHistory: (sessionId: string) => boolean;
-	/** 历史前缀条数上限，由 controller 注入（唯一真值在 session-history-atoms）。见文件头「依赖方向」。 */
-	historyPrefixMessageLimit: number;
 	setPendingJump: Dispatch<SetStateAction<TaggedTimelineJumpRequest | undefined>>;
 }
 
@@ -70,7 +68,7 @@ export interface JumpPageFetchPorts {
  */
 export function useJumpPageFetch(ports: JumpPageFetchPorts) {
 	return (pendingJump: TaggedTimelineJumpRequest, currentOwnerKey: string, targetInLoadedData: boolean): boolean => {
-		const { sessionId, revision, readRecordMessagePage, prependHistoryPage, clearHistory, setPendingJump, historyPrefixMessageLimit } = ports;
+		const { sessionId, revision, readRecordMessagePage, prependHistoryPage, clearHistory, setPendingJump } = ports;
 		if (!sessionId || pendingJump.value.pageFetched) return false;
 		// 目标已在已加载数据里就不取页：点在屏幕上的消息是最常见的情况，此时取页只是白读
 		// 13-26MB（200 轮），还会把这 200 轮塞进历史前缀，改变用户回到顶部时看到的东西。
@@ -89,9 +87,6 @@ export function useJumpPageFetch(ports: JumpPageFetchPorts) {
 				if (currentOwnerKey !== requestOwnerKey) return;
 				// 撑爆前缀上限时别 prepend：prependSessionHistoryPageAtom 会把整页丢掉并把游标置成
 				// 「没有更早历史」，用户看到的是「这条根本没有历史」——比原来的「连点几次」更糟，
-				// 而且是撒谎（历史在盘上，只是这页太大）。这时宁可不取这页，退回扩窗与放弃，
-				// 由 resolveJumpPendingAction 给出如实的失败提示。
-				if (page.messages.length >= historyPrefixMessageLimit) return;
 				const prepend = { sessionId, expectedRevision: revision ?? 0, before: undefined, page };
 				// 第一次可能被「游标接不上」的守卫拒掉（用户翻过页时必然如此）：清掉旧前缀再试一次。
 				if (!prependHistoryPage(prepend)) {

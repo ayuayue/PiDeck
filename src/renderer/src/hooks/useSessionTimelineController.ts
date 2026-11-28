@@ -29,7 +29,6 @@ import {
 	setSessionMessageLoadStateAtom,
 	touchSessionMessagesAtom,
 	type SessionScrollAnchor,
-	RUNTIME_HISTORY_PREFIX_MESSAGE_LIMIT,
 } from "../atoms";
 import type { MessageScrollerScrollApi } from "../components/agents/message-scroller";
 import { TURN_WINDOW_AUTO_EXPAND_THRESHOLD, resolveAutoExpandThreshold } from "./timeline/autoExpandThreshold";
@@ -883,7 +882,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		observer.observe(target);
 		return () => observer.disconnect();
 	}, [controllerEnabled, ownerKey, pinBrowseRow]);
-	const fetchJumpPageOnce = useJumpPageFetch({ sessionId: options.sessionId, revision: cachedEntry?.revision, readRecordMessagePage: desktopApi.sessions.readRecordMessagePage, prependHistoryPage, clearHistory, setPendingJump, historyPrefixMessageLimit: RUNTIME_HISTORY_PREFIX_MESSAGE_LIMIT });
+	const fetchJumpPageOnce = useJumpPageFetch({ sessionId: options.sessionId, revision: cachedEntry?.revision, readRecordMessagePage: desktopApi.sessions.readRecordMessagePage, prependHistoryPage, clearHistory, setPendingJump });
 	useEffect(() => {
 		if (!controllerEnabled || !pendingJump) return;
 		if (!matchesTimelineOwner(pendingJump.ownerKey, ownerKey)) return;
