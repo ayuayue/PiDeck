@@ -83,6 +83,25 @@ func piRegistryRunner() (string, error) {
 }
 
 func findPiAIProvidersModule(piPath string) (string, error) {
+	findIn := func(root string) string {
+		if root == "" {
+			return ""
+		}
+		for _, candidate := range []string{
+			filepath.Join(root, "node_modules", "@earendil-works", "pi-coding-agent", "node_modules", "@earendil-works", "pi-ai", "dist", "providers", "all.js"),
+			filepath.Join(root, "node_modules", "@earendil-works", "pi-ai", "dist", "providers", "all.js"),
+			filepath.Join(root, "@earendil-works", "pi-coding-agent", "node_modules", "@earendil-works", "pi-ai", "dist", "providers", "all.js"),
+			filepath.Join(root, "@earendil-works", "pi-ai", "dist", "providers", "all.js"),
+		} {
+			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+				return candidate
+			}
+		}
+		return ""
+	}
+	if module := findIn(os.Getenv("PI_PACKAGE_DIR")); module != "" {
+		return module, nil
+	}
 	paths := make([]string, 0, 4)
 	seenPaths := map[string]bool{}
 	addPath := func(path string) {
@@ -112,15 +131,8 @@ func findPiAIProvidersModule(piPath string) (string, error) {
 			continue
 		}
 		for dir, depth := filepath.Dir(abs), 0; dir != filepath.Dir(dir) && depth < 12; dir, depth = filepath.Dir(dir), depth+1 {
-			for _, candidate := range []string{
-				filepath.Join(dir, "node_modules", "@earendil-works", "pi-coding-agent", "node_modules", "@earendil-works", "pi-ai", "dist", "providers", "all.js"),
-				filepath.Join(dir, "node_modules", "@earendil-works", "pi-ai", "dist", "providers", "all.js"),
-				filepath.Join(dir, "@earendil-works", "pi-coding-agent", "node_modules", "@earendil-works", "pi-ai", "dist", "providers", "all.js"),
-				filepath.Join(dir, "@earendil-works", "pi-ai", "dist", "providers", "all.js"),
-			} {
-				if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-					return candidate, nil
-				}
+			if module := findIn(dir); module != "" {
+				return module, nil
 			}
 		}
 	}
@@ -132,12 +144,19 @@ func findPiAIProvidersModule(piPath string) (string, error) {
 		filepath.Join(os.Getenv("PI_CODING_AGENT_DIR"), "npm", "node_modules"),
 	}
 	for _, root := range roots {
-		for _, candidate := range []string{
-			filepath.Join(root, "@earendil-works", "pi-coding-agent", "node_modules", "@earendil-works", "pi-ai", "dist", "providers", "all.js"),
-			filepath.Join(root, "@earendil-works", "pi-ai", "dist", "providers", "all.js"),
-		} {
-			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-				return candidate, nil
+		if module := findIn(root); module != "" {
+			return module, nil
+		}
+	}
+	// Version-manager shims need not point at their installation on disk.
+	if npm, err := exec.LookPath("npm"); err == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		cmd := piCommand(ctx, npm, "root", "-g")
+		cmd.Dir = loginDir()
+		if output, err := cmd.Output(); err == nil {
+			if module := findIn(strings.TrimSpace(string(output))); module != "" {
+				return module, nil
 			}
 		}
 	}

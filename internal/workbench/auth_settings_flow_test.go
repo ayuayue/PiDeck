@@ -5,6 +5,7 @@ package workbench
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -13,7 +14,13 @@ import (
 
 func TestAuthSettingsUserJourney(t *testing.T) {
 	pi, _ := authBridgeFixture(t)
+	runner, err := piRegistryRunner()
+	if err != nil {
+		t.Fatal(err)
+	}
 	a, screen := startNativeSettingsApp(t)
+	// This journey explicitly runs the fixture SDK; the settings fixture hides CLIs.
+	t.Setenv("PATH", filepath.Dir(runner))
 	onNativeUI(t, screen, a, func() {
 		a.cfg.PiExecutable = pi
 		a.authMethods.Set([]piAuthProvider{
