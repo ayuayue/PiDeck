@@ -21,7 +21,13 @@ import (
 	"example.com/pideck/internal/appinfo"
 )
 
-const wechatBase = "https://ilinkai.weixin.qq.com"
+const (
+	wechatBase = "https://ilinkai.weixin.qq.com"
+	// Tencent's client protocol requires its channel version as the prefix;
+	// the host application's own identity follows it as a suffix.
+	wechatChannelVersion   = "3.0.0"
+	wechatAppClientVersion = 3 << 16
+)
 
 var errWechatExpired = errors.New("iLink session expired; sign in again")
 
@@ -82,15 +88,19 @@ func (c wechatClient) request(ctx context.Context, method, path string, body any
 	if err != nil {
 		return err
 	}
-	var random [4]byte
-	if _, err := rand.Read(random[:]); err != nil {
-		return err
-	}
-	req.Header.Set("AuthorizationType", "ilink_bot_token")
-	req.Header.Set("X-WECHAT-UIN", base64.StdEncoding.EncodeToString([]byte(strconv.FormatUint(uint64(binary.BigEndian.Uint32(random[:])), 10))))
-	req.Header.Set("Content-Type", "application/json")
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("iLink-App-Id", "bot")
+	req.Header.Set("iLink-App-ClientVersion", strconv.Itoa(wechatAppClientVersion))
+	if method == http.MethodPost {
+		var random [4]byte
+		if _, err := rand.Read(random[:]); err != nil {
+			return err
+		}
+		req.Header.Set("AuthorizationType", "ilink_bot_token")
+		req.Header.Set("X-WECHAT-UIN", base64.StdEncoding.EncodeToString([]byte(strconv.FormatUint(uint64(binary.BigEndian.Uint32(random[:])), 10))))
+		req.Header.Set("Content-Type", "application/json")
+		if c.token != "" {
+			req.Header.Set("Authorization", "Bearer "+c.token)
+		}
 	}
 	// Never forward a bot credential through an HTTP redirect.
 	client := *appHTTPLongClient
@@ -130,9 +140,7 @@ func (c wechatClient) request(ctx context.Context, method, path string, body any
 }
 
 func wechatInfo() map[string]string {
-	// Tencent defines this as the channel implementation version, not a
-	// protocol revision. Do not impersonate another client's app ID/version.
-	return map[string]string{"channel_version": appinfo.Version, "bot_agent": "PiDeck-V2"}
+	return map[string]string{"channel_version": wechatChannelVersion + "/pideck-" + appinfo.Version, "bot_agent": "PiDeck-V2"}
 }
 func (c wechatClient) updates(ctx context.Context, cursor string) (wechatUpdates, error) {
 	var out wechatUpdates

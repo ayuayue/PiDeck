@@ -2,9 +2,9 @@
 
 package workbench
 
-// Feishu inbound: the group bot's event callback. Feishu posts a message
-// event here, the app sends its text to the active session, and the
-// answer can go back to the group.
+// Feishu inbound: an application's event callback dispatches each source
+// chat to an independent built-in conversation. Optional replies use the
+// separately configured custom bot webhook.
 
 import (
 	"crypto/subtle"
@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"strings"
 
+	"example.com/pideck/internal/apptext"
 	"example.com/pideck/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -33,107 +34,165 @@ type feishuCallback struct {
 		EventType string `json:"event_type"`
 		Token     string `json:"token"`
 	} `json:"header"`
-	Event json.RawMessage `json:"event"`
+	Event struct {
+		Type      string `json:"type"`
+		Text      string `json:"text"`
+		ChatID    string `json:"open_chat_id"`
+		MessageID string `json:"open_message_id"`
+		Sender    struct {
+			Type string `json:"sender_type"`
+		} `json:"sender"`
+		Message struct {
+			ID      string `json:"message_id"`
+			ChatID  string `json:"chat_id"`
+			Type    string `json:"message_type"`
+			Content string `json:"content"`
+		} `json:"message"`
+	} `json:"event"`
+	chatID, messageID string
 }
 
-// parseFeishuCallback reads a callback: its challenge, verification
-// token, and a message's text.
-func parseFeishuCallback(raw []byte) (challenge, token, text string, err error) {
+// decodeFeishuCallback accepts message events from people, never bot echoes.
+func decodeFeishuCallback(raw []byte) (feishuCallback, error) {
 	var cb feishuCallback
 	if json.Unmarshal(raw, &cb) != nil {
-		return "", "", "", fmt.Errorf("不是飞书回调")
+		return cb, fmt.Errorf("不是飞书回调")
 	}
-	challenge = strings.TrimSpace(cb.Challenge)
-	token = strings.TrimSpace(cb.Header.Token)
-	if token == "" {
-		token = strings.TrimSpace(cb.Token)
+	cb.Challenge = strings.TrimSpace(cb.Challenge)
+	cb.Token = strings.TrimSpace(firstNonEmpty(cb.Header.Token, cb.Token))
+	text := cb.Text
+	cb.Text = ""
+	if cb.Header.EventType != "" && cb.Header.EventType != "im.message.receive_v1" {
+		return cb, nil
 	}
-	// v1: the event's type and text sit at the top level.
-	if cb.Type == "message" && cb.Text != "" {
-		text = cb.Text
+	if cb.Event.Sender.Type != "" && cb.Event.Sender.Type != "user" {
+		return cb, nil
 	}
-	if len(cb.Event) > 0 {
-		var ev struct {
-			Type    string `json:"type"`
-			Text    string `json:"text"`
-			Message struct {
-				ChatID      string `json:"chat_id"`
-				MessageType string `json:"message_type"`
-				Content     string `json:"content"`
-			} `json:"message"`
+	switch {
+	case cb.Event.Message.Type == "text" && cb.Event.Message.Content != "":
+		var content struct {
+			Text string `json:"text"`
 		}
-		if json.Unmarshal(cb.Event, &ev) == nil {
-			switch {
-			case ev.Message.MessageType == "text" && ev.Message.Content != "":
-				var content struct {
-					Text string `json:"text"`
-				}
-				if json.Unmarshal([]byte(ev.Message.Content), &content) == nil {
-					text = content.Text
-				}
-			case ev.Type == "message" && ev.Text != "":
-				text = ev.Text
-			}
+		if json.Unmarshal([]byte(cb.Event.Message.Content), &content) != nil {
+			return cb, fmt.Errorf("不是飞书回调")
 		}
+		cb.Text = content.Text
+		cb.chatID, cb.messageID = cb.Event.Message.ChatID, cb.Event.Message.ID
+	case cb.Event.Type == "message":
+		cb.Text = cb.Event.Text
+		cb.chatID, cb.messageID = cb.Event.ChatID, cb.Event.MessageID
+	case cb.Type == "message":
+		cb.Text = text
 	}
-	text = strings.TrimSpace(feishuMention.ReplaceAllString(text, ""))
-	return challenge, token, text, nil
+	cb.Text = strings.TrimSpace(feishuMention.ReplaceAllString(cb.Text, ""))
+	return cb, nil
+}
+
+// parseFeishuCallback reads the challenge, verification token and message text.
+func parseFeishuCallback(raw []byte) (challenge, token, text string, err error) {
+	cb, err := decodeFeishuCallback(raw)
+	return cb.Challenge, cb.Token, cb.Text, err
 }
 
 // handleFeishu receives Feishu's event callback. It answers the URL
-// challenge, and sends a message's text to the active session.
+// challenge, and dispatches each source chat to its own built-in conversation.
 func (h *remoteHost) handleFeishu(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	cfg := h.app.cfg
-	if !cfg.FeishuInbound {
+	h.app.st.mu.Lock()
+	enabled, want := h.app.st.c.FeishuInbound, strings.TrimSpace(h.app.st.c.FeishuVerifyToken)
+	h.app.st.mu.Unlock()
+	if !enabled {
 		writeRemoteJSON(w, http.StatusForbidden, map[string]string{"error": "没有开启接收群消息"})
 		return
 	}
-	raw, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	raw, err := io.ReadAll(io.LimitReader(r.Body, (1<<20)+1))
 	if err != nil {
 		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": "读取请求失败"})
 		return
 	}
-	challenge, token, text, err := parseFeishuCallback(raw)
+	if len(raw) > 1<<20 {
+		w.WriteHeader(http.StatusRequestEntityTooLarge)
+		return
+	}
+	cb, err := decodeFeishuCallback(raw)
 	if err != nil {
 		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	want := strings.TrimSpace(cfg.FeishuVerifyToken)
-	if want == "" || subtle.ConstantTimeCompare([]byte(token), []byte(want)) != 1 {
+	if want == "" || subtle.ConstantTimeCompare([]byte(cb.Token), []byte(want)) != 1 {
 		writeRemoteJSON(w, http.StatusUnauthorized, map[string]string{"error": "验证 Token 不匹配"})
 		return
 	}
-	if challenge != "" {
-		writeRemoteJSON(w, http.StatusOK, map[string]string{"challenge": challenge})
+	if cb.Challenge != "" {
+		writeRemoteJSON(w, http.StatusOK, map[string]string{"challenge": cb.Challenge})
 		return
 	}
-	if text != "" {
-		h.app.feishuPrompt(text)
+	if cb.Text != "" {
+		if cb.chatID == "" || cb.messageID == "" {
+			writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": "不是飞书回调"})
+			return
+		}
+		if h.rememberFeishuMessage(cb.messageID) {
+			h.feishuPrompt(cb.chatID, cb.Text)
+		}
 	}
 	writeRemoteJSON(w, http.StatusOK, map[string]any{"code": 0})
 }
 
-// feishuPrompt sends a group message's text to the active session, or to
-// a new built-in chat when none is open.
-func (a *app) feishuPrompt(text string) {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return
+func (h *remoteHost) rememberFeishuMessage(id string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.feishuSeen[id] {
+		return false
 	}
-	a.cx.Post(func() {
-		s := a.active()
-		if s == nil {
-			s = a.openChat()
+	if h.feishuSeen == nil {
+		h.feishuSeen = map[string]bool{}
+	}
+	h.feishuSeen[id] = true
+	h.feishuOrder = append(h.feishuOrder, id)
+	if len(h.feishuOrder) > 256 {
+		delete(h.feishuSeen, h.feishuOrder[0])
+		h.feishuOrder = h.feishuOrder[1:]
+	}
+	return true
+}
+
+// feishuSession keeps incoming messages out of the project currently on screen.
+func (h *remoteHost) feishuSession(chatID string) *session {
+	a := h.app
+	if s := a.byID[h.feishuSessions[chatID]]; s != nil && !s.External && !s.deleting {
+		return s
+	}
+	s := a.openChat()
+	if s != nil {
+		if h.feishuSessions == nil {
+			h.feishuSessions = map[string]string{}
 		}
+		h.feishuSessions[chatID] = s.ID
+	}
+	return s
+}
+
+// feishuPrompt starts a turn only when the source chat's session is available.
+func (h *remoteHost) feishuPrompt(chatID, text string) {
+	a := h.app
+	a.cx.Post(func() {
+		if !a.cfg.FeishuInbound {
+			return
+		}
+		s := h.feishuSession(chatID)
 		if s == nil {
 			return
 		}
-		if ws := a.workspaceOf(s.WS); ws != nil && !a.projectTrusted(ws) {
+		if ws := a.workspaceFor(s.Target, s.WS); ws == nil || !a.projectTrusted(ws) {
 			a.toast(ui.ToastWarning, "飞书消息被信任拦截", "先在应用里信任这个项目。")
+			return
+		}
+		if s.busyNow() || a.composerBlocked(s) {
+			a.toast(ui.ToastWarning, "飞书", s.title.GetUntracked()+" · "+apptext.T("运行中"))
 			return
 		}
 		a.feishuMu.Lock()
@@ -174,6 +233,5 @@ func (a *app) onFeishuTurn(ev appEvent) {
 	if answer := strings.TrimSpace(ev.Data["answer"]); answer != "" {
 		text += "\n" + viewkit.FirstLine(answer, 1500)
 	}
-	secret := a.cfg.FeishuSecret
-	go func() { _ = sendFeishu(webhook, secret, text) }()
+	a.sendFeishu(webhook, a.cfg.FeishuSecret, text)
 }

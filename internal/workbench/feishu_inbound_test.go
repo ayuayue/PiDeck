@@ -45,11 +45,11 @@ func TestFeishuInboundHandler(t *testing.T) {
 		h.handleFeishu(rec, req)
 		return rec
 	}
-	off := &remoteHost{app: &app{cfg: config{FeishuVerifyToken: "tok"}}}
+	off := &remoteHost{app: &app{st: &store{c: &config{FeishuVerifyToken: "tok"}}}}
 	if rec := post(off, `{"challenge":"abc","token":"tok"}`); rec.Code != http.StatusForbidden {
 		t.Fatalf("off = %d", rec.Code)
 	}
-	h := &remoteHost{app: &app{cfg: config{FeishuInbound: true, FeishuVerifyToken: "tok"}}}
+	h := &remoteHost{app: &app{st: &store{c: &config{FeishuInbound: true, FeishuVerifyToken: "tok"}}}}
 	rec := post(h, `{"challenge":"abc","token":"tok"}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("challenge = %d %s", rec.Code, rec.Body.String())
@@ -61,7 +61,7 @@ func TestFeishuInboundHandler(t *testing.T) {
 	if rec := post(h, `{"challenge":"abc","token":"nope"}`); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("wrong token = %d", rec.Code)
 	}
-	noToken := &remoteHost{app: &app{cfg: config{FeishuInbound: true}}}
+	noToken := &remoteHost{app: &app{st: &store{c: &config{FeishuInbound: true}}}}
 	if rec := post(noToken, `{"challenge":"abc","token":""}`); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("empty token = %d", rec.Code)
 	}

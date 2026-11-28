@@ -134,7 +134,7 @@ func (a *app) receiveWechat(client wechatClient, m wechatMessage) {
 		a.rejectWechat(client, m, apptext.T("请先在应用中信任绑定会话的项目。"))
 		return
 	}
-	if s.busyNow() || h.pending != nil {
+	if s.busyNow() || a.composerBlocked(s) || h.pending != nil {
 		a.rejectWechat(client, m, apptext.T("会话正在运行，微信消息未提交；请稍后重发。"))
 		return
 	}

@@ -79,6 +79,10 @@ type remoteHost struct {
 	detecting bool
 	search    *searchCache
 
+	feishuSeen     map[string]bool // protected by mu; Feishu retries use message_id
+	feishuOrder    []string
+	feishuSessions map[string]string // UI-owned: one built-in conversation per source chat
+
 	// tokenExpire is the rotation switch and tokenIssued when the current
 	// token was made, unix milliseconds; prevToken and prevReplaced are the
 	// token it replaced and when, so its grace window counts from the

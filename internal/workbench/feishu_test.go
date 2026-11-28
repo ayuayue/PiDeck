@@ -36,7 +36,7 @@ func TestSendFeishu(t *testing.T) {
 		_, _ = w.Write([]byte(`{"code":0,"msg":"success"}`))
 	}))
 	defer srv.Close()
-	if err := sendFeishu(srv.URL, "secret", "hello"); err != nil {
+	if err := sendFeishu(t.Context(), srv.URL, "secret", "hello"); err != nil {
 		t.Fatal(err)
 	}
 	if body["msg_type"] != "text" {
@@ -62,13 +62,13 @@ func TestSendFeishuErrors(t *testing.T) {
 		_, _ = w.Write([]byte("boom"))
 	}))
 	defer srv.Close()
-	if err := sendFeishu(srv.URL, "", "hi"); err == nil || !strings.Contains(err.Error(), "500") {
+	if err := sendFeishu(t.Context(), srv.URL, "", "hi"); err == nil || !strings.Contains(err.Error(), "500") {
 		t.Fatalf("http error = %v", err)
 	}
-	if err := sendFeishu(srv.URL+"/bad", "", "hi"); err == nil || !strings.Contains(err.Error(), "19021") {
+	if err := sendFeishu(t.Context(), srv.URL+"/bad", "", "hi"); err == nil || !strings.Contains(err.Error(), "19021") {
 		t.Fatalf("feishu error = %v", err)
 	}
-	if err := sendFeishu("ftp://example.com", "", "hi"); err == nil {
+	if err := sendFeishu(t.Context(), "ftp://example.com", "", "hi"); err == nil {
 		t.Fatal("a non-http webhook was accepted")
 	}
 }

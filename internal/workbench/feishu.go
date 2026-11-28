@@ -8,6 +8,7 @@ package workbench
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -18,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"example.com/pideck/internal/apptext"
 	"example.com/pideck/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -31,7 +33,9 @@ func feishuSign(secret string, timestamp int64) string {
 }
 
 // sendFeishu posts one text message to a custom bot's webhook.
-func sendFeishu(webhook, secret, text string) error {
+func sendFeishu(ctx context.Context, webhook, secret, text string) error {
+	ctx, cancel := context.WithTimeout(ctx, 12*time.Second)
+	defer cancel()
 	webhook = strings.TrimSpace(webhook)
 	if !strings.HasPrefix(webhook, "https://") && !strings.HasPrefix(webhook, "http://") {
 		return fmt.Errorf("Webhook 需要是 http(s) 地址")
@@ -49,7 +53,7 @@ func sendFeishu(webhook, secret, text string) error {
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequest(http.MethodPost, webhook, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, webhook, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -59,23 +63,33 @@ func sendFeishu(webhook, secret, text string) error {
 		return err
 	}
 	defer resp.Body.Close()
-	data, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, (8<<10)+1))
+	if err != nil {
+		return err
+	}
+	if len(data) > 8<<10 {
+		return fmt.Errorf("%s: %w", apptext.T("飞书"), io.ErrShortBuffer)
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("HTTP %d：%s", resp.StatusCode, shorten(string(data), 160))
 	}
 	var answer struct {
-		Code       int    `json:"code"`
+		Code       *int   `json:"code"`
 		Msg        string `json:"msg"`
-		StatusCode int    `json:"StatusCode"`
+		StatusCode *int   `json:"StatusCode"`
 		StatusMsg  string `json:"StatusMessage"`
 	}
-	if json.Unmarshal(data, &answer) == nil {
-		if answer.Code != 0 {
-			return fmt.Errorf("飞书返回 %d：%s", answer.Code, answer.Msg)
-		}
-		if answer.StatusCode != 0 {
-			return fmt.Errorf("飞书返回 %d：%s", answer.StatusCode, answer.StatusMsg)
-		}
+	if err := json.Unmarshal(data, &answer); err != nil {
+		return err
+	}
+	if answer.Code == nil && answer.StatusCode == nil {
+		return fmt.Errorf("%s: %w", apptext.T("飞书"), io.ErrUnexpectedEOF)
+	}
+	if answer.Code != nil && *answer.Code != 0 {
+		return fmt.Errorf("飞书返回 %d：%s", *answer.Code, answer.Msg)
+	}
+	if answer.StatusCode != nil && *answer.StatusCode != 0 {
+		return fmt.Errorf("飞书返回 %d：%s", *answer.StatusCode, answer.StatusMsg)
 	}
 	return nil
 }
@@ -85,12 +99,27 @@ func (a *app) notifyFeishu(s *session, status, body string) {
 	if !a.cfg.FeishuEnabled || strings.TrimSpace(a.cfg.FeishuWebhook) == "" || s == nil {
 		return
 	}
+	a.feishuMu.Lock()
+	replying := a.feishuPending[s.ID] && a.cfg.FeishuReply
+	a.feishuMu.Unlock()
+	if replying {
+		return
+	}
 	text := s.title.GetUntracked() + "\n" + status
 	if body = strings.TrimSpace(body); body != "" {
 		text += "\n" + viewkit.FirstLine(body, 200)
 	}
-	webhook, secret := a.cfg.FeishuWebhook, a.cfg.FeishuSecret
-	go func() { _ = sendFeishu(webhook, secret, text) }()
+	a.sendFeishu(a.cfg.FeishuWebhook, a.cfg.FeishuSecret, text)
+}
+
+// sendFeishu reports asynchronous notification and reply failures in the app.
+func (a *app) sendFeishu(webhook, secret, text string) {
+	ctx := a.cx.Context()
+	go func() {
+		if err := sendFeishu(ctx, webhook, secret, text); err != nil && ctx.Err() == nil {
+			a.cx.Post(func() { a.toast(ui.ToastError, "飞书", err.Error()) })
+		}
+	}()
 }
 
 // testFeishu posts a test message and says how it went.
@@ -100,8 +129,9 @@ func (a *app) testFeishu() {
 		a.toast(ui.ToastWarning, "还没有 Webhook", "先在飞书群里添加自定义机器人，把它的地址填进来。")
 		return
 	}
+	ctx, secret := a.cx.Context(), a.cfg.FeishuSecret
 	go func() {
-		err := sendFeishu(webhook, a.cfg.FeishuSecret, "PiDeck 测试消息：连接正常。")
+		err := sendFeishu(ctx, webhook, secret, "PiDeck 测试消息：连接正常。")
 		a.cx.Post(func() {
 			if err != nil {
 				a.toast(ui.ToastError, "飞书测试失败", err.Error())

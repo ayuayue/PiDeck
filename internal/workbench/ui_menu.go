@@ -522,6 +522,7 @@ func (a *app) sessionMenuItems(sess func() *session) []core.Node {
 		a.menuSeparator(a.cx),
 		ui.Submenu{Text: apptext.T("Agent 控制"), Icon: lucide.Bot, Back: apptext.T("Agent 控制"),
 			TestID: "session-agent-menu", Children: a.sessionRunMenuItems(sess)},
+		a.wechatSessionMenu(sess),
 		ui.Submenu{Text: apptext.T("复制与位置"), Icon: lucide.Copy, Back: apptext.T("复制与位置"), TestID: "session-location-menu",
 			Children: []core.Node{
 				a.menuRow(a.cx, lucide.Copy, "复制会话 ID", "", false, func() { a.copyText(sess().ID, "会话 ID") }),

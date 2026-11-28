@@ -7,6 +7,7 @@ import (
 
 	"example.com/pideck/internal/apptext"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
@@ -32,24 +33,54 @@ func (a *app) setWechatEnabled(on bool) {
 	}
 }
 
-func (a *app) bindWechatSession() {
+func (a *app) bindWechatSession(s *session) {
 	h := a.wechat
-	s := a.active()
-	if s == nil || s.External || s.deleting {
-		h.status.Set(apptext.T("请先打开一个应用内的会话。"))
+	if h == nil || !h.ready.GetUntracked() || !h.linked.GetUntracked() {
+		a.toast(ui.ToastWarning, "微信 iLink", apptext.T("先登录微信并绑定会话。"))
+		return
+	}
+	if s == nil || s.External || s.deleting || a.byID[s.ID] != s {
+		a.toast(ui.ToastWarning, "微信 iLink", apptext.T("请先打开一个应用内的会话。"))
+		return
+	}
+	if h.pending != nil {
+		a.toast(ui.ToastWarning, "微信 iLink", apptext.T("会话正在运行，微信消息未提交；请稍后重发。"))
 		return
 	}
 	ws := a.workspaceFor(s.Target, s.WS)
 	if ws == nil || !a.projectTrusted(ws) {
-		h.status.Set(apptext.T("请先在应用中信任绑定会话的项目。"))
+		a.toast(ui.ToastWarning, "微信 iLink", apptext.T("请先在应用中信任绑定会话的项目。"))
 		return
 	}
-	h.connection.Session = s.ID
-	a.saveWechat()
-	h.status.Set(apptext.T("已绑定当前会话。"))
-	if a.cfg.WeChatEnabled {
-		a.startWechat()
+	if h.connection.Session != s.ID {
+		h.connection.Session = s.ID
+		a.saveWechat()
+		if a.cfg.WeChatEnabled {
+			a.startWechat()
+		}
 	}
+	h.status.Set(apptext.T("已绑定当前会话。"))
+	a.toast(ui.ToastSuccess, "已绑定当前会话。", s.title.GetUntracked())
+}
+
+// wechatSessionMenu binds the session whose menu was opened, including background tabs.
+func (a *app) wechatSessionMenu(sess func() *session) core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		s, h := sess(), a.wechat
+		if h == nil || s == nil || s.External || s.deleting {
+			return nil
+		}
+		h.status.Get()
+		label := "绑定当前会话"
+		if h.connection.Session == s.ID {
+			label = "已绑定当前会话。"
+		}
+		item := a.menuRow(cx, lucide.Link, label, "", false, func() { a.bindWechatSession(sess()) })
+		item.TestID = "wechat-bind"
+		item.Disabled = func() bool { return !h.ready.Get() || !h.linked.Get() || h.pending != nil }
+		return ui.Submenu{Text: apptext.T("微信 iLink"), Icon: lucide.MessageCircle, Back: apptext.T("微信 iLink"),
+			TestID: "session-wechat-menu", Children: []core.Node{item}}
+	})
 }
 
 func (a *app) logoutWechat() {
@@ -76,9 +107,10 @@ func (a *app) wechatSettings() core.Node {
 		return setGroup("微信 iLink",
 			setRow("接收微信消息", "仅接收扫码登录账号的私聊，提交到绑定且已信任的会话；权限确认仍在应用内完成。",
 				ui.Switch{Checked: func() bool { return a.cfg.WeChatEnabled }, OnChange: a.setWechatEnabled, Disabled: func() bool { return !h.ready.Get() }, Label: apptext.T("接收微信消息"), TestID: "wechat-enabled"}),
+			core.Text{Content: apptext.T("会话") + " → " + apptext.T("微信 iLink") + " → " + apptext.T("绑定当前会话"),
+				Style: core.Style{FontSize: 11, LineHeight: 16, Padding: core.Symmetric(6, 2)}, StyleFunc: ui.Colored(colors.Muted)},
 			core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: []core.Node{
 				ui.Button{Text: apptext.T("扫码登录微信"), Size: ui.SizeSmall, Variant: ui.ButtonSecondary, Disabled: func() bool { return !h.ready.Get() }, TestID: "wechat-login", OnPress: a.loginWechat},
-				ui.Button{Text: apptext.T("绑定当前会话"), Size: ui.SizeSmall, Variant: ui.ButtonGhost, TestID: "wechat-bind", Disabled: func() bool { return !h.linked.Get() }, OnPress: a.bindWechatSession},
 				ui.Button{Text: apptext.T("退出登录"), Size: ui.SizeSmall, Variant: ui.ButtonGhost, TestID: "wechat-logout", OnPress: a.logoutWechat},
 			}},
 			core.Dynamic(func(*core.Scope) core.Node {
