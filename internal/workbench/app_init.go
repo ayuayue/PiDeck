@@ -27,6 +27,8 @@ func newApp(cx *core.Scope) *app {
 	a := &app{
 		lifetime:          cx.Context(),
 		cx:                cx,
+		transfer:          core.NewSignal(cx, sessionTransferState{}),
+		transferOpen:      core.NewSignal(cx, false),
 		byID:              map[string]*session{},
 		workspaces:        core.NewSignalFunc(cx, []*workspace{}, nil),
 		activeWS:          core.NewSignal(cx, ""),
@@ -667,5 +669,6 @@ func newApp(cx *core.Scope) *app {
 	a.registerAutomationTools()
 	// Where the app draws the window's buttons, the platform's are hidden.
 	hideSystemWindowControls(cx)
+	a.startLegacyMigration()
 	return a
 }

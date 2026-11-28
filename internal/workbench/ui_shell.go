@@ -57,6 +57,7 @@ func (a *app) view() core.Node {
 		a.archiveDialog(),
 		a.sessionManagerDialog(),
 		a.importDialog(),
+		a.sessionTransferDialog(),
 		// The file browser opens on top of the import dialog, which asks for
 		// one more file.
 		a.pickerDialog(),
@@ -125,7 +126,7 @@ func (a *app) shell() core.Node {
 		// The drawer's own header carries these while it shows, so they
 		// stay at the window's edge instead of sliding with the content.
 		Actions:            []core.Node{a.headActions(false)},
-		Content:            []core.Node{a.workArea()},
+		Content:            []core.Node{a.sessionTransferBanner(), a.workArea()},
 		Right:              []core.Node{a.drawerPanel()},
 		RightHeader:        []core.Node{a.headActions(true)},
 		RightOpen:          a.drawer.Get,

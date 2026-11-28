@@ -24,11 +24,13 @@ import (
 type app struct {
 	// Capture while constructing the app: Scope.Context resolves the current
 	// reactive owner and must not be sampled from a transient control later.
-	lifetime context.Context
-	cx       *core.Scope
-	st       *store
-	cfg      config
-	dataDir  string
+	lifetime     context.Context
+	cx           *core.Scope
+	st           *store
+	cfg          config
+	dataDir      string
+	transfer     *core.Signal[sessionTransferState]
+	transferOpen *core.Signal[bool]
 	// sounds plays the notification sounds; customSound is the imported
 	// file's bytes, read when the config loads and after an import, so an
 	// alert never reads the disk on the UI thread. alertVolumeSeq drops a

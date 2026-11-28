@@ -7,8 +7,8 @@ package workbench
 // sessions a terminal pi or PiDeck may have open.
 
 import (
-	"bufio"
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -23,41 +23,18 @@ import (
 // importSession copies a session file into the app's own store, so it can
 // be resumed here without sharing a file with another app.
 func (s *store) importSession(src string) (sessionMeta, error) {
-	f, err := os.Open(src)
-	if err != nil {
-		return sessionMeta{}, err
+	result := s.transferPiSessions(context.Background(), []string{src}, nil, nil, nil)
+	if result.Err != nil {
+		return sessionMeta{}, result.Err
 	}
-	var head struct {
-		Type string `json:"type"`
-		ID   string `json:"id"`
-		Cwd  string `json:"cwd"`
-	}
-	err = json.NewDecoder(bufio.NewReader(f)).Decode(&head)
-	f.Close()
-	if err != nil || head.Type != "session" || !validPiSessionID(head.ID) {
+	meta, ok := result.BySource[src]
+	if !ok {
 		return sessionMeta{}, fmt.Errorf("不是有效的 pi 会话文件")
 	}
-	existing, _ := filepath.Glob(filepath.Join(s.sessions, "*", "*_"+head.ID+".jsonl"))
-	if len(existing) > 0 {
+	if result.Skipped != 0 {
 		return sessionMeta{}, fmt.Errorf("这个会话已经导入过了")
 	}
-	dir := filepath.Join(s.sessions, encodeCwd(filepath.Clean(head.Cwd)))
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return sessionMeta{}, err
-	}
-	dst := filepath.Join(dir, time.Now().UTC().Format("2006-01-02T15-04-05-000Z")+"_"+head.ID+".jsonl")
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return sessionMeta{}, err
-	}
-	if err := writeFileAtomic(dst, data, 0o644); err != nil {
-		return sessionMeta{}, err
-	}
-	m, ok := s.readMeta(dst, nil)
-	if !ok {
-		return sessionMeta{}, fmt.Errorf("导入后无法读取该会话")
-	}
-	return m, nil
+	return meta, nil
 }
 
 // validPiSessionID keeps imported IDs portable and safe in filename globs.

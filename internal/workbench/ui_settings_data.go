@@ -47,6 +47,10 @@ func (a *app) settingsData() core.Node {
 					setRow("导入会话", "导入其他工具或本机的历史会话，保留原文件。",
 						ui.Button{Text: apptext.T("导入会话"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "data-import-sessions", OnPress: a.openImportDialog}),
 					setDivider(),
+					setRow("从目录导入会话", "选择任意会话目录，递归导入 pi 的 .jsonl 文件，保留原文件并跳过重复会话。",
+						ui.Button{Text: apptext.T("选择目录…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "data-import-directory", Disabled: a.transferRunning, OnPress: a.pickSessionDirectory}),
+					a.sessionTransferSettings(),
+					setDivider(),
 					setRow("导出文件", "查看已导出的设置备份和会话文件。",
 						ui.Button{Text: apptext.T("打开文件夹"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "data-open-exports",
 							Disabled: func() bool { return unavailable || opening.Get() }, OnPress: func() {

@@ -21,6 +21,8 @@ type store struct {
 	path                string // config.json
 	mu                  sync.Mutex
 	writeMu             sync.Mutex
+	importMu            sync.Mutex
+	fresh               bool // config.json did not exist when the store opened
 	c                   *config
 	organizationMu      sync.Mutex
 	organizationWriteMu sync.Mutex
@@ -70,7 +72,9 @@ func newStore(dataDir string) (*store, error) {
 	}
 	s.loadMetaCache()
 	s.organization = readSessionOrganization(dataDir)
-	if raw, err := os.ReadFile(s.path); err == nil {
+	raw, readErr := os.ReadFile(s.path)
+	s.fresh = os.IsNotExist(readErr)
+	if readErr == nil {
 		var c config
 		if json.Unmarshal(raw, &c) == nil {
 			if c.Titles == nil {

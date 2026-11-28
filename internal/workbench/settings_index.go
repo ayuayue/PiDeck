@@ -145,6 +145,8 @@ var settingsIndex = []settingEntry{
 	{"data", "会话目录", "sessions directory path 会话 目录 路径"},
 	{"data", "管理会话", "manage sessions archive batch 会话 管理 归档 批量"},
 	{"data", "导入会话", "import sessions history 会话 导入 历史"},
+	{"data", "从目录导入会话", "import directory folder pi jsonl migration 手动 导入 目录 迁移"},
+	{"data", "迁移与导入状态", "migration import progress 迁移 导入 进度 状态"},
 	{"data", "导出文件", "exports files folder directory 导出 文件 文件夹"},
 	{"data", "备份设置", "export settings backup zip 导出 设置 备份"},
 	{"data", "恢复设置", "import restore settings backup zip 导入 恢复 设置 备份"},

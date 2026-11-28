@@ -198,6 +198,8 @@ func (a *app) importFooter() []core.Node {
 			Style: core.Style{FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)})
 	}
 	return append([]core.Node{
+		ui.Button{Text: apptext.T("选择目录…"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "import-directory",
+			Disabled: a.transferRunning, OnPress: a.pickSessionDirectory},
 		ui.Button{Text: apptext.T("选择文件…"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "import-file",
 			OnPress: func() { a.openPicker("import") }},
 		ui.Button{Text: apptext.T("重新扫描"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "import-rescan",
