@@ -12,13 +12,13 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck/internal/remotewire"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
 func TestMobileBatchAskAnswersEveryQuestion(t *testing.T) {
 	const token = "ask-token"
-	state := remotewire.Snapshot{Name: "PiDeck V2", Host: "desk", Projects: []remotewire.Project{{
+	state := remotewire.Snapshot{Name: "PiDeck", Host: "desk", Projects: []remotewire.Project{{
 		Path: "/tmp/project", Name: "电脑项目", Sessions: []remotewire.Session{{ID: "s1", Title: "批量提问的会话"}},
 	}}}
 	batch := &remotewire.Ask{Method: remotewire.AskMethodBatch, Title: "批量提问", Questions: []remotewire.AskQuestion{
@@ -40,7 +40,7 @@ func TestMobileBatchAskAnswersEveryQuestion(t *testing.T) {
 	}
 	mux.HandleFunc("/api/ping", func(w http.ResponseWriter, r *http.Request) {
 		if check(w, r) {
-			_ = json.NewEncoder(w).Encode(map[string]any{"name": "PiDeck V2", "host": "desk"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"name": "PiDeck", "host": "desk"})
 		}
 	})
 	mux.HandleFunc("/api/state", func(w http.ResponseWriter, r *http.Request) {
@@ -133,7 +133,7 @@ func TestMobileBatchAskAnswersEveryQuestion(t *testing.T) {
 
 func TestMobileBatchAskSkipAndCancel(t *testing.T) {
 	const token = "ask-token"
-	state := remotewire.Snapshot{Name: "PiDeck V2", Host: "desk", Projects: []remotewire.Project{{
+	state := remotewire.Snapshot{Name: "PiDeck", Host: "desk", Projects: []remotewire.Project{{
 		Path: "/tmp/project", Name: "电脑项目", Sessions: []remotewire.Session{{ID: "s1", Title: "跳过与取消"}},
 	}}}
 	batch := &remotewire.Ask{Method: remotewire.AskMethodBatch, Title: "批量提问", Questions: []remotewire.AskQuestion{
@@ -152,7 +152,7 @@ func TestMobileBatchAskSkipAndCancel(t *testing.T) {
 	}
 	mux.HandleFunc("/api/ping", func(w http.ResponseWriter, r *http.Request) {
 		if check(w, r) {
-			_ = json.NewEncoder(w).Encode(map[string]any{"name": "PiDeck V2", "host": "desk"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"name": "PiDeck", "host": "desk"})
 		}
 	})
 	mux.HandleFunc("/api/state", func(w http.ResponseWriter, r *http.Request) {

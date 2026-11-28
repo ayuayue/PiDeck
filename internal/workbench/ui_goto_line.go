@@ -5,8 +5,8 @@ package workbench
 // Go to a line in the editor.
 
 import (
-	"example.com/pideck-v2/internal/apptext"
-	"example.com/pideck-v2/internal/viewkit"
+	"example.com/pideck/internal/apptext"
+	"example.com/pideck/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"

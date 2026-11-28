@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-v2/assets"
-	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck/assets"
+	"example.com/pideck/internal/remotewire"
 )
 
 // TestComposerImagePreview checks the pasted picture's own actions.

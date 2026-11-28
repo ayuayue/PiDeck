@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck/internal/remotewire"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
@@ -38,7 +38,7 @@ func viewerPicture(t *testing.T) []byte {
 func TestMobileImageViewerFillsTheScreen(t *testing.T) {
 	const token = "viewer-token"
 	pic := viewerPicture(t)
-	state := remotewire.Snapshot{Name: "PiDeck V2", Host: "desk", Projects: []remotewire.Project{{
+	state := remotewire.Snapshot{Name: "PiDeck", Host: "desk", Projects: []remotewire.Project{{
 		Path: "/tmp/project", Name: "电脑项目",
 		Sessions: []remotewire.Session{{ID: "s1", Title: "带图片的会话", Updated: time.Now().UnixMilli()}},
 	}}}
@@ -57,7 +57,7 @@ func TestMobileImageViewerFillsTheScreen(t *testing.T) {
 	}
 	mux.HandleFunc("/api/ping", func(w http.ResponseWriter, r *http.Request) {
 		if check(w, r) {
-			_ = json.NewEncoder(w).Encode(map[string]any{"name": "PiDeck V2", "host": "desk"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"name": "PiDeck", "host": "desk"})
 		}
 	})
 	mux.HandleFunc("/api/state", func(w http.ResponseWriter, r *http.Request) {

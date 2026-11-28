@@ -13,7 +13,7 @@
 package alerts
 
 import (
-	"example.com/pideck-v2/assets"
+	"example.com/pideck/assets"
 	"github.com/nsgo-dev/nsgo/audio"
 	"github.com/nsgo-dev/nsgo/core"
 )

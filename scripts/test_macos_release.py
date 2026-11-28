@@ -82,8 +82,8 @@ class MacOSReleaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             previous = Path.cwd()
-            app = root / "dist" / f"PiDeck V2-{version}-{target}" / "PiDeck V2.app"
-            dmg = root / "dist" / "releases" / f"pideck-v2-{version}-{target.replace('_', '-')}.dmg"
+            app = root / "dist" / f"PiDeck-{version}-{target}" / "PiDeck.app"
+            dmg = root / "dist" / "releases" / f"pideck-{version}-{target.replace('_', '-')}.dmg"
 
             def command(*args, **kwargs):
                 calls.append(args)
@@ -164,7 +164,7 @@ class MacOSReleaseTests(unittest.TestCase):
 
     def test_verification_rejects_bundle_identifier_team_and_runtime_mismatches(self):
         with tempfile.TemporaryDirectory() as temporary:
-            app = Path(temporary) / "PiDeck V2.app"
+            app = Path(temporary) / "PiDeck.app"
             (app / "Contents").mkdir(parents=True)
             with (app / "Contents" / "Info.plist").open("wb") as output:
                 plistlib.dump({"CFBundleIdentifier": "dev.nsgo.pideckv2"}, output)

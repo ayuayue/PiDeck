@@ -17,7 +17,7 @@ import (
 	"testing"
 	"unicode"
 
-	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck/internal/apptext"
 )
 
 // Check lookup calls as well as direct UI labels. Catalog parity then

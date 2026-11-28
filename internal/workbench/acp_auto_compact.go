@@ -2,7 +2,7 @@
 
 package workbench
 
-import "example.com/pideck-v2/internal/remotewire"
+import "example.com/pideck/internal/remotewire"
 
 const acpAutoCompactThreshold = 80
 

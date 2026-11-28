@@ -22,7 +22,7 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck/internal/apptext"
 )
 
 const (
@@ -152,7 +152,7 @@ func listenTokenDanceCode() (*tokenDanceCallback, error) {
 			_, _ = io.WriteString(w, "<p>没有收到授权码，回到应用重试。</p>")
 			return
 		}
-		_, _ = io.WriteString(w, "<p>授权完成，可以关闭这个页面回到 PiDeck V2。</p>")
+		_, _ = io.WriteString(w, "<p>授权完成，可以关闭这个页面回到 PiDeck。</p>")
 		select {
 		case cb.codes <- code:
 		default:

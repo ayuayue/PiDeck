@@ -10,8 +10,8 @@ import (
 	"bytes"
 	"strings"
 
-	"example.com/pideck-v2/internal/apptext"
-	"example.com/pideck-v2/internal/viewkit"
+	"example.com/pideck/internal/apptext"
+	"example.com/pideck/internal/viewkit"
 )
 
 // configVersion is the shape of config.json this build writes. A file

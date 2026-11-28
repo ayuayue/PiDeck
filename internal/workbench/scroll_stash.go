@@ -7,7 +7,7 @@ package workbench
 // handed back. The stash itself is shared with the phone client (viewkit).
 
 import (
-	"example.com/pideck-v2/internal/viewkit"
+	"example.com/pideck/internal/viewkit"
 )
 
 // scrollbarGutter keeps content clear of overlay scrollbars at every nested scroll edge.

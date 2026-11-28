@@ -5,7 +5,7 @@
   "name": "代码审查工具箱",
   "version": "1.0.0",
   "description": "配置审查范围、准备或主动发送审查提示词、选择审查智能体；提交后刷新 Git 状态。",
-  "author": "PiDeck V2",
+  "author": "PiDeck",
   "themes": [
     {
       "name": "示例审查绿",

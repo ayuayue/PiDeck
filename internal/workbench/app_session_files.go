@@ -9,9 +9,9 @@ import (
 	"slices"
 	"strings"
 
-	"example.com/pideck-v2/internal/apptext"
-	"example.com/pideck-v2/internal/remotewire"
-	"example.com/pideck-v2/internal/sessionimport"
+	"example.com/pideck/internal/apptext"
+	"example.com/pideck/internal/remotewire"
+	"example.com/pideck/internal/sessionimport"
 	"github.com/nsgo-dev/nsgo/ui"
 	"github.com/nsgo-dev/nsgo/ui/chat"
 )

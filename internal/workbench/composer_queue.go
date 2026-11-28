@@ -5,7 +5,7 @@ package workbench
 import (
 	"time"
 
-	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck/internal/remotewire"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )

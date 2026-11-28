@@ -21,7 +21,7 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-v2/internal/appinfo"
+	"example.com/pideck/internal/appinfo"
 )
 
 // Where the feed lives, and how often it is read.

@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-v2/internal/appinfo"
-	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck/internal/appinfo"
+	"example.com/pideck/internal/apptext"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
@@ -63,7 +63,7 @@ func TestTelemetryHeartbeat(t *testing.T) {
 	}
 	for key, want := range map[string]any{
 		"app":            "pideck-v2",
-		"app_name":       "PiDeck V2",
+		"app_name":       "PiDeck",
 		"app_version":    appinfo.Version,
 		"platform":       "windows",
 		"arch":           "amd64",

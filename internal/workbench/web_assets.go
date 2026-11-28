@@ -3,7 +3,7 @@
 package workbench
 
 import (
-	"example.com/pideck-v2/webassets"
+	"example.com/pideck/webassets"
 )
 
 // webAssets can be replaced by HTTP tests without changing the embedded files.

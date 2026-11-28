@@ -9,7 +9,7 @@ package client
 import (
 	"slices"
 
-	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck/internal/remotewire"
 )
 
 // sameMessages says two transcripts carry the same lines.

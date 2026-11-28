@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-v2/assets"
-	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck/assets"
+	"example.com/pideck/internal/remotewire"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 	"github.com/nsgo-dev/nsgo/ui"

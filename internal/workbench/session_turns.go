@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-v2/internal/viewkit"
+	"example.com/pideck/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/ui/chat"
 )
 

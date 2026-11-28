@@ -2,7 +2,7 @@
 
 [返回首页](../README.md) · [贡献指南](../CONTRIBUTING.md) · [架构说明](../ARCHITECTURE.md)
 
-本文面向从源码运行、调试或打包 PiDeck V2 的开发者。日常使用和安装入口见[首页](../README.md#下载)，远程连接见[手机与 Web](REMOTE.md)。
+本文面向从源码运行、调试或打包 PiDeck 的开发者。日常使用和安装入口见[首页](../README.md#下载)，远程连接见[手机与 Web](REMOTE.md)。
 
 ## 环境准备
 
@@ -150,7 +150,7 @@ macOS 构建复用 Electron / `dev` 分支的同名仓库 Secrets，不需要另
 ### 通道与自动更新
 
 - 稳定版读取 `releases/download/nsgo-stable/appcast-<目标>.xml`，Dev 版读取 `nsgo-dev` 通道；两者使用独立的应用标识与数据目录。
-- V2 的 Release 使用 `make_latest: false`，共享仓库的全局 Latest 留给 Electron。下载入口应明确指向 V2 通道。
+- 原生版的 Release 使用 `make_latest: false`，共享仓库的全局 Latest 留给 Electron。下载入口应明确指向原生版通道。
 - 更新公钥位于 `nsgo.yaml` 的 `updates.key`（另存 `updates.pub`）；私钥 `updates.key` 不入库。维护者可用 `go tool nsgo keygen updates` 生成密钥。
 - macOS / Windows 由 Sparkle / WinSparkle 安装更新，Linux / Android 由应用下载并验证签名后交给系统安装器。应用入口是「设置 → 关于 → 检查更新」或同名命令。
 - 本地没有更新私钥时，不生成 macOS / Windows appcast；开发构建不检查更新。发布工作流会核对各目标的 appcast，避免更新地址缺失。
@@ -161,7 +161,7 @@ macOS 构建复用 Electron / `dev` 分支的同名仓库 Secrets，不需要另
 | 文件 | 职责 |
 | --- | --- |
 | [`ci.yml`](../.github/workflows/ci.yml) | `nsgo` push / PR 的桌面测试、交叉构建、移动端与 Web 预算检查 |
-| [`sync-atomgit.yml`](../.github/workflows/sync-atomgit.yml) | 将 V2 的 `nsgo` 同步到 AtomGit `ayuayue/PiDeck-V2` 的 `main`；同步 V2 稳定标签、发布正文与附件 |
+| [`sync-atomgit.yml`](../.github/workflows/sync-atomgit.yml) | 将原生版的 `nsgo` 同步到 AtomGit `ayuayue/PiDeck-V2` 的 `main`；同步原生版稳定标签、发布正文与附件 |
 | [`deploy-relay.yml`](../.github/workflows/deploy-relay.yml) | 手动部署 Cloudflare 中继，配置方法见[中继说明](../infra/relay-worker/README.md) |
 | [`.github/dependabot.yml`](../.github/dependabot.yml) | 依赖更新检查；非默认分支需在默认分支设置 `target-branch: nsgo` |
 

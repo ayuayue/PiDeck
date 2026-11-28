@@ -12,7 +12,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck/internal/apptext"
 	yaml "go.yaml.in/yaml/v3"
 )
 

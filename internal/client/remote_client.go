@@ -1,6 +1,6 @@
 package client
 
-// The mobile build's HTTP client for a desktop PiDeck V2 server.
+// The mobile build's HTTP client for a desktop PiDeck server.
 
 import (
 	"bytes"
@@ -19,10 +19,10 @@ import (
 	"syscall"
 	"time"
 
-	"example.com/pideck-v2/internal/apptext"
-	"example.com/pideck-v2/internal/relaywire"
-	"example.com/pideck-v2/internal/remotewire"
-	"example.com/pideck-v2/internal/viewkit"
+	"example.com/pideck/internal/apptext"
+	"example.com/pideck/internal/relaywire"
+	"example.com/pideck/internal/remotewire"
+	"example.com/pideck/internal/viewkit"
 )
 
 // errRemoteAuth says the token was refused, so the phone must reconnect.

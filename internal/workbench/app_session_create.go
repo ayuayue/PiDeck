@@ -6,9 +6,9 @@ package workbench
 // views read; pi's events are folded in here, on the UI thread.
 
 import (
-	"example.com/pideck-v2/internal/apptext"
-	"example.com/pideck-v2/internal/remotewire"
-	"example.com/pideck-v2/internal/viewkit"
+	"example.com/pideck/internal/apptext"
+	"example.com/pideck/internal/remotewire"
+	"example.com/pideck/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )

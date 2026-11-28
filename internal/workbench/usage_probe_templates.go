@@ -10,7 +10,7 @@ import (
 	"regexp"
 	"strings"
 
-	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck/internal/apptext"
 )
 
 func usageProbeBuiltinCandidates() []usageProbeCandidate {

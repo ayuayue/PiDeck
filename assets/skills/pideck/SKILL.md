@@ -1,11 +1,11 @@
 ---
 name: pideck-v2
-description: PiDeck V2 桌面端的内置能力入口：生成图片、导出诊断、手机/远程连接、MCP、技能与提示词。用户提到生图/画图、PiDeck V2 出问题、连手机、配 MCP、找技能或提示词时先读本技能。
+description: PiDeck 桌面端的内置能力入口：生成图片、导出诊断、手机/远程连接、MCP、技能与提示词。用户提到生图/画图、PiDeck 出问题、连手机、配 MCP、找技能或提示词时先读本技能。
 ---
 
-# PiDeck V2 内置能力
+# PiDeck 内置能力
 
-这是 PiDeck V2（Go + NSGo 原生桌面端）的能力索引，不是 PiDeck Electron 版的手册。
+这是 PiDeck（Go + NSGo 原生桌面端）的能力索引，不是 PiDeck Electron 版的手册。
 不确定某个入口时先让用户打开对应设置页，不要凭 PiDeck 旧版的文件路径或 HTTP 接口猜。
 
 ## 生图
@@ -42,4 +42,4 @@ description: PiDeck V2 桌面端的内置能力入口：生成图片、导出诊
 
 - 会话文件归 pi 所有；不要手改别的进程正在写的会话。
 - 不要为了一个界面操作去改 `config.json`；优先让用户走设置页。
-- 遇到 pi 原始报错，原样转述，不要改写成 V2 的报错。
+- 遇到 pi 原始报错，原样转述，不要改写成 PiDeck 的报错。

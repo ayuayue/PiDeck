@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck/internal/apptext"
 )
 
 const (

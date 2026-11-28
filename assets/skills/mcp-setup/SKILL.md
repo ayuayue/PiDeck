@@ -12,7 +12,7 @@ description: 帮用户接入/配置 MCP（Model Context Protocol）服务。当�
 1. 弄清用户想接什么服务、拿来做什么；
 2. 查该服务**官方**的 MCP 接入文档（官网 docs / 官方 GitHub README；优先官方源，不用第三方目录的转述）；
 3. 按下方 schema 生成配置，写入 `~/.pi/agent/mcp.json`（全局）或项目 `.pi/mcp.json`（仅当前项目）；
-4. 运行 `pi mcp list` 验证；需要 OAuth 的引导用户去 PiDeck V2 的「设置 → MCP」点「登录」；
+4. 运行 `pi mcp list` 验证；需要 OAuth 的引导用户去 PiDeck 的「设置 → MCP」点「登录」；
 5. 向用户汇报：加了什么、写到哪、怎么验证、如何撤销。
 
 ## pi 的 mcp.json 结构（唯一权威 schema）
@@ -45,7 +45,7 @@ description: 帮用户接入/配置 MCP（Model Context Protocol）服务。当�
 
 | 服务方文档说 | 写法 |
 |---|---|
-| OAuth / 浏览器登录 / 无需 token | 只写 `url`；连接后 `pi mcp list` 显示 needs-auth，引导用户在 PiDeck V2「设置 → MCP」对应服务行点「登录」 |
+| OAuth / 浏览器登录 / 无需 token | 只写 `url`；连接后 `pi mcp list` 显示 needs-auth，引导用户在 PiDeck「设置 → MCP」对应服务行点「登录」 |
 | API Key / PAT，放请求头 | `headers: {"Authorization": "Bearer <key>"}`（或文档指定的自定义头名） |
 | API Key 放环境变量 | stdio：`env: {"<文档规定的变量名>": "<key>"}` |
 | 无认证 | 只写传输字段 |
@@ -53,7 +53,7 @@ description: 帮用户接入/配置 MCP（Model Context Protocol）服务。当�
 
 ## 写文件规则（防止破坏用户配置）
 
-1. **先读后写**：读整个 mcp.json，解析 JSON；解析失败立即停手，让用户先在 PiDeck V2 的「原始配置」修复，绝不猜着覆盖；
+1. **先读后写**：读整个 mcp.json，解析 JSON；解析失败立即停手，让用户先在 PiDeck 的「原始配置」修复，绝不猜着覆盖；
 2. **合并而非覆盖**：只新增/替换本次服务的键，其余条目原样保留；
 3. **保格式**：写回时 2 空格缩进、键序尽量维持原样；
 4. **密钥安全**：密钥值直接写入文件（mcp.json 是明文，这是 pi 的存储方式）；但**不要**把密钥回显到对话或日志里；
@@ -67,7 +67,7 @@ pi mcp list --json   # 程序化形态
 ```
 
 - `connected`（带工具数）→ 成功；告诉用户工具经 tool_search 可发现，正常对话即可用；
-- `needs-auth` → 指导用户打开 PiDeck V2「设置 → MCP」，该服务行会出现「登录」按钮（或用 `pi mcp login <服务名>`）；
+- `needs-auth` → 指导用户打开 PiDeck「设置 → MCP」，该服务行会出现「登录」按钮（或用 `pi mcp login <服务名>`）；
 - `error` → 读错误信息定位：URL 打错 / 密钥无效 / npx 包名错 / Node 缺失。stdio 服务首次连接会 npx 拉包，稍慢是正常的；
 - 修改的是**正在运行会话**读不到的：新配置从下一个会话/下一轮对话生效。
 

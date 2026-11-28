@@ -5,7 +5,7 @@ package workbench
 import (
 	"encoding/json"
 	"errors"
-	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck/internal/apptext"
 	"os"
 	"path/filepath"
 	"strings"

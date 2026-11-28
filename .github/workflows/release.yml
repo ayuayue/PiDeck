@@ -139,7 +139,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: pideck-v2-${{ matrix.target }}
+          name: pideck-${{ matrix.target }}
           path: out
           if-no-files-found: warn
 
@@ -191,7 +191,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: pideck-v2-android-arm64
+          name: pideck-android-arm64
           path: |
             dist/releases/*.apk
             dist/releases/appcast-android_arm64.xml
@@ -274,7 +274,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: pideck-v2-ios
+          name: pideck-ios
           path: |
             dist/releases/*.ipa
             ${{ runner.temp }}/ios-simulator.zip
@@ -329,7 +329,7 @@ jobs:
       - uses: softprops/action-gh-release@v3
         if: '!contains(github.ref_name, ''-dev'')'
         with:
-          name: PiDeck V2 ${{ github.ref_name }}
+          name: PiDeck ${{ github.ref_name }}
           files: artifacts/**
           generate_release_notes: true
           make_latest: false
@@ -354,7 +354,7 @@ jobs:
         if: '!contains(github.ref_name, ''-dev'')'
         with:
           tag_name: nsgo-stable
-          name: PiDeck V2 Stable (${{ github.ref_name }})
+          name: PiDeck Stable (${{ github.ref_name }})
           make_latest: false
           files: artifacts/**
 
@@ -362,7 +362,7 @@ jobs:
         if: contains(github.ref_name, '-dev')
         with:
           tag_name: nsgo-dev
-          name: PiDeck V2 Dev (${{ github.ref_name }})
+          name: PiDeck Dev (${{ github.ref_name }})
           prerelease: true
           make_latest: false
           files: artifacts/**

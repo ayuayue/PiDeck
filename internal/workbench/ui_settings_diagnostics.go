@@ -12,10 +12,10 @@ import (
 	"runtime"
 	"strings"
 
-	"example.com/pideck-v2/internal/appinfo"
-	"example.com/pideck-v2/internal/apptext"
-	"example.com/pideck-v2/internal/crashlog"
-	"example.com/pideck-v2/internal/viewkit"
+	"example.com/pideck/internal/appinfo"
+	"example.com/pideck/internal/apptext"
+	"example.com/pideck/internal/crashlog"
+	"example.com/pideck/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )

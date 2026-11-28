@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"strings"
 
-	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck/internal/apptext"
 )
 
 // sameEditorCommand also recognizes a legacy PATH name after discovery has

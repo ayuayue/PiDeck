@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-v2/internal/apptext"
-	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck/internal/apptext"
+	"example.com/pideck/internal/remotewire"
 )
 
 // sessionAnswer answers the question a session is waiting on, so a turn

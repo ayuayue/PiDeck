@@ -20,8 +20,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"example.com/pideck-v2/internal/remotewire"
-	"example.com/pideck-v2/internal/viewkit"
+	"example.com/pideck/internal/remotewire"
+	"example.com/pideck/internal/viewkit"
 )
 
 // acpCommand is one command an ACP agent offers.

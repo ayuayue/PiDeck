@@ -1,6 +1,6 @@
 package client
 
-// The phone build: it connects to a desktop PiDeck V2 server and browses
+// The phone build: it connects to a desktop PiDeck server and browses
 // its projects, sessions and transcripts. The same package builds the
 // desktop; Root picks this screen on iOS and Android (or with
 // PIDECK_V2_MOBILE=1 for a preview on a desktop).
@@ -11,10 +11,10 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"example.com/pideck-v2/internal/alerts"
-	"example.com/pideck-v2/internal/apptext"
-	"example.com/pideck-v2/internal/remotewire"
-	"example.com/pideck-v2/internal/viewkit"
+	"example.com/pideck/internal/alerts"
+	"example.com/pideck/internal/apptext"
+	"example.com/pideck/internal/remotewire"
+	"example.com/pideck/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -301,7 +301,7 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		busy:                core.NewSignal(cx, false),
 		err:                 core.NewSignal(cx, ""),
 		connected:           core.NewSignal(cx, false),
-		serverName:          core.NewSignal(cx, "PiDeck V2"),
+		serverName:          core.NewSignal(cx, "PiDeck"),
 		desktopVersion:      core.NewSignal(cx, ""),
 		state:               core.NewSignalFunc(cx, remotewire.Snapshot{}, sameSnapshot),
 		active:              core.NewSignal(cx, ""),

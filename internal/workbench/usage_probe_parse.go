@@ -12,7 +12,7 @@ import (
 	"time"
 	"unicode"
 
-	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck/internal/apptext"
 )
 
 type usageProbeResult struct {

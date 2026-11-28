@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-v2/internal/viewkit"
+	"example.com/pideck/internal/viewkit"
 )
 
 // gitRunner is an action's repository: commands stay on the project that

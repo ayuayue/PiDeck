@@ -5,7 +5,7 @@
   "name": "基础界面示例",
   "version": "1.0.0",
   "description": "演示宿主生成的四种设置控件、主题与命令入口；不注入自定义面板。",
-  "author": "PiDeck V2",
+  "author": "PiDeck",
   "themes": [
     {
       "name": "示例雾蓝",

@@ -9,7 +9,7 @@ import (
 
 func (h *helper) menu() {
 	for {
-		h.printHeader("PiDeck V2 助手")
+		h.printHeader("PiDeck 助手")
 		h.printItems([]item{
 			{"1", "桌面开发（热重载）", "go tool nsgo dev"},
 			{"2", "开发 Android 真机/模拟器", "go tool nsgo dev -target android"},
@@ -194,7 +194,7 @@ func (h *helper) wait() bool {
 }
 
 func (h *helper) help() {
-	fmt.Print(`PiDeck V2 开发助手
+	fmt.Print(`PiDeck 开发助手
 
   go run ./scripts                    打开菜单（推荐）
   go run ./scripts dev                桌面热重载

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-v2/internal/appinfo"
+	"example.com/pideck/internal/appinfo"
 )
 
 func TestCrashReport(t *testing.T) {
@@ -23,7 +23,7 @@ func TestCrashReport(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(raw)
-	for _, want := range []string{"PiDeck V2 " + appinfo.Version, "boom", "goroutine 1 [running]"} {
+	for _, want := range []string{"PiDeck " + appinfo.Version, "boom", "goroutine 1 [running]"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("report is missing %q:\n%s", want, text)
 		}

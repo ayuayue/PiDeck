@@ -1,4 +1,4 @@
-name: PiDeck V2
+name: PiDeck
 id: dev.nsgo.pideckv2
 version: 2.0.0
 appearance: light
@@ -36,8 +36,8 @@ dev:
 
 apple:
   info:
-    NSLocalNetworkUsageDescription: "连接同一局域网内电脑上的 PiDeck V2。"
-    NSCameraUsageDescription: "扫描你对准的二维码以连接电脑上的 PiDeck V2。"
+    NSLocalNetworkUsageDescription: "连接同一局域网内电脑上的 PiDeck。"
+    NSCameraUsageDescription: "扫描你对准的二维码以连接电脑上的 PiDeck。"
 
 i18n:
   dir: locales

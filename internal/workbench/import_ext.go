@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-v2/internal/sessionimport"
+	"example.com/pideck/internal/sessionimport"
 )
 
 // writeFileImport writes one picked file's parsed session for cwd.

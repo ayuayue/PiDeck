@@ -59,7 +59,7 @@ func (r webRoute) hash() string {
 func webPageTitle(connected bool, session string) string {
 	session = strings.TrimSpace(session)
 	if !connected || session == "" {
-		return "PiDeck V2"
+		return "PiDeck"
 	}
-	return session + " · PiDeck V2"
+	return session + " · PiDeck"
 }

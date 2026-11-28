@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck/internal/apptext"
 )
 
 // credits renders a cost the way a footer does.

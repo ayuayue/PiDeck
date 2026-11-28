@@ -1,7 +1,7 @@
 package client
 
 import (
-	"example.com/pideck-v2/internal/viewkit"
+	"example.com/pideck/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 )
 

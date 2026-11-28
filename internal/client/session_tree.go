@@ -3,7 +3,7 @@ package client
 import (
 	"time"
 
-	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck/internal/remotewire"
 )
 
 type mobileSessionBranch struct {

@@ -13,7 +13,7 @@ import (
 	"sort"
 	"strings"
 
-	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck/internal/apptext"
 )
 
 const providerTransferLimit = 8 << 20

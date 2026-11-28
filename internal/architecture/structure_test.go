@@ -16,7 +16,7 @@ import (
 	"testing"
 )
 
-const module = "example.com/pideck-v2/"
+const module = "example.com/pideck/"
 
 // Dependencies point from application hosts toward smaller reusable packages.
 // Tests follow the same rule so a test helper cannot reconnect isolated hosts.

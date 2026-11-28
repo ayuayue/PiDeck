@@ -23,9 +23,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"example.com/pideck-v2/internal/apptext"
-	"example.com/pideck-v2/internal/remotewire"
-	"example.com/pideck-v2/internal/viewkit"
+	"example.com/pideck/internal/apptext"
+	"example.com/pideck/internal/remotewire"
+	"example.com/pideck/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 	"golang.org/x/image/bmp"

@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-v2/internal/appinfo"
+	"example.com/pideck/internal/appinfo"
 )
 
 const wechatBase = "https://ilinkai.weixin.qq.com"

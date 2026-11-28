@@ -20,8 +20,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"example.com/pideck-v2/assets"
-	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck/assets"
+	"example.com/pideck/internal/apptext"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 

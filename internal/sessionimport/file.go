@@ -15,7 +15,7 @@ import (
 	"io"
 	"os"
 
-	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck/internal/apptext"
 )
 
 // readHeadBytes reads the first bytes of a file, for sniffing its format.

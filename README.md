@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/Icon.png" width="88" alt="PiDeck V2 图标">
+  <img src="assets/Icon.png" width="88" alt="PiDeck 图标">
 </p>
 
-<h1 align="center">PiDeck V2</h1>
+<h1 align="center">PiDeck</h1>
 
 <p align="center"><strong>为 pi 与 ACP 智能体打造的原生工作台</strong></p>
 
@@ -25,13 +25,15 @@
   <a href="https://github.com/ayuayue/PiDeck/issues">反馈</a>
 </p>
 
-![PiDeck V2 工作台：左侧项目与会话，中间对话，右侧文件、Git 与会话概览](assets/screenshot.png)
+![PiDeck 工作台：左侧项目与会话，中间对话，右侧文件、Git 与会话概览](assets/screenshot.png)
 
-PiDeck V2 将 [pi](https://pi.dev/) 与支持 [ACP](https://agentclientprotocol.com/) 的命令行智能体带到同一个图形工作台：并行处理多个项目，查看实时工具过程，编辑文件、检查差异，再从手机或浏览器接着处理。
+PiDeck 将 [pi](https://pi.dev/) 与支持 [ACP](https://agentclientprotocol.com/) 的命令行智能体带到同一个图形工作台：并行处理多个项目，查看实时工具过程，编辑文件、检查差异，再从手机或浏览器接着处理。
 
 主界面由 [NSGo](https://nsgo.dev/) 原生渲染，桌面程序以一个 Go 二进制运行；内置浏览器按需使用系统 WebView。智能体进程、项目文件和 Git 操作由桌面宿主管理，Android、iOS 与 Web 共用远程客户端。
 
-> **分支说明**：V2 在 [`nsgo`](https://github.com/ayuayue/PiDeck/tree/nsgo) 分支开发，与 Electron 版共用仓库、Star 和 Issues。旧版位于 `main` / `dev`；V2 的应用标识、数据目录与插件格式独立。提交 V2 的 PR 时，请选择 `nsgo` 为目标分支。
+> **分支说明**：原生版在 [`nsgo`](https://github.com/ayuayue/PiDeck/tree/nsgo) 分支开发，与 Electron 版共用仓库、Star 和 Issues。旧版位于 `main` / `dev`；原生版的应用标识、数据目录与插件格式独立。提交原生版的 PR 时，请选择 `nsgo` 为目标分支。
+
+产品名称统一为 **PiDeck**，版本号单独显示（当前为 `2.0.0`）。既有安装 ID、环境变量、数据路径和插件运行时标识保留兼容，避免配置、会话和已安装插件失效；外部仓库地址及第三方协议的版本标记不随产品名称替换。
 
 ## 核心能力
 
@@ -54,7 +56,7 @@ PiDeck V2 将 [pi](https://pi.dev/) 与支持 [ACP](https://agentclientprotocol.
 
 ## 下载
 
-从 [V2 稳定通道](https://github.com/ayuayue/PiDeck/releases/tag/nsgo-stable)或 [V2 开发通道](https://github.com/ayuayue/PiDeck/releases/tag/nsgo-dev)查看发布记录并选择对应平台的附件。以通道实际提供的构建为准；仓库的全局「Latest」可能指向 Electron 版。
+从 [原生版稳定通道](https://github.com/ayuayue/PiDeck/releases/tag/nsgo-stable)或 [原生版开发通道](https://github.com/ayuayue/PiDeck/releases/tag/nsgo-dev)查看发布记录并选择对应平台的附件。以通道实际提供的构建为准；仓库的全局「Latest」可能指向 Electron 版。
 
 | 平台 | 架构 | 分发形式 |
 | --- | --- | --- |
@@ -91,7 +93,7 @@ PiDeck V2 将 [pi](https://pi.dev/) 与支持 [ACP](https://agentclientprotocol.
 <details>
 <summary>从源码运行</summary>
 
-需要 [go.mod](go.mod) 声明的 Go 工具链，NSGo 版本由模块固定。克隆时选择 V2 分支：
+需要 [go.mod](go.mod) 声明的 Go 工具链，NSGo 版本由模块固定。克隆时选择原生版分支：
 
 ```sh
 git clone --branch nsgo https://github.com/ayuayue/PiDeck.git
@@ -115,7 +117,7 @@ go run ./scripts
 
 ## 数据与隐私
 
-- **本地数据**：会话、配置与日志由各自宿主管理。V2 数据目录独立于旧版；可用 `PIDECK_V2_HOME` 指定位置。模型请求仍会发送到你选择的服务商。
+- **本地数据**：会话、配置与日志由各自宿主管理。原生版数据目录独立于旧版；可用 `PIDECK_V2_HOME` 指定位置。模型请求仍会发送到你选择的服务商。
 - **分享与备份**：分享副本默认隐藏工具过程等内容，并遮盖常见路径和凭据，发送前仍需检查。设置包可能包含凭据，请妥善保管。
 - **远程访问**：连接链接包含访问令牌。局域网直连使用 HTTP；虚拟网络提供链路加密，App 中继使用隧道内 TLS 与证书指纹校验。
 - **使用统计**：匿名 PostHog 统计默认开启，每天最多一次，包含版本、平台与功能数量，不含会话内容、项目路径、文件名或凭据；可在「设置 → 通用 → 安全与隐私」关闭。
@@ -138,6 +140,6 @@ go run ./scripts
 
 欢迎提交问题、改进文档、翻译与代码。反馈问题时请说明版本、系统、所用后端和复现步骤；可从「设置 → 诊断」导出诊断包，分享前检查其中内容。
 
-V2 的改动请提交到 **`nsgo` 分支**。开发前阅读[贡献指南](CONTRIBUTING.md)；涉及包边界或状态所有权时同时参考[架构说明](ARCHITECTURE.md)。七种语言的译文与新增用户可见文案需同步维护。
+原生版的改动请提交到 **`nsgo` 分支**。开发前阅读[贡献指南](CONTRIBUTING.md)；涉及包边界或状态所有权时同时参考[架构说明](ARCHITECTURE.md)。七种语言的译文与新增用户可见文案需同步维护。
 
 感谢 [pi](https://pi.dev/)、[NSGo](https://nsgo.dev/) 与 [ACP](https://agentclientprotocol.com/) 生态的工作，以及每一位贡献代码、反馈和翻译的参与者。

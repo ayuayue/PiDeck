@@ -10,7 +10,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"example.com/pideck-v2/extensions"
+	"example.com/pideck/extensions"
 )
 
 // PiDeck marks pi's process when it injects proxy variables, and its

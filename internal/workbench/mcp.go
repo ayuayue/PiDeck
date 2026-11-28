@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-v2/internal/viewkit"
+	"example.com/pideck/internal/viewkit"
 )
 
 // mcpServer is one server as pi mcp list reports it.

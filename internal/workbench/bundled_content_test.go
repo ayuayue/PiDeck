@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"example.com/pideck-v2/assets"
+	"example.com/pideck/assets"
 )
 
 func TestParsePiExtensionManifest(t *testing.T) {

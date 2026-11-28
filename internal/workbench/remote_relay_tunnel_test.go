@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-v2/internal/relaywire"
+	"example.com/pideck/internal/relaywire"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 	"golang.org/x/net/websocket"
@@ -126,7 +126,7 @@ func TestRelayTunnelServesTheAPI(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&ping); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if ping.Name != "PiDeck V2" {
+	if ping.Name != "PiDeck" {
 		t.Fatalf("ping = %+v", ping)
 	}
 

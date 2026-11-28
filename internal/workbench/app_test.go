@@ -36,7 +36,7 @@ func TestMain(m *testing.M) {
 func TestWelcome(t *testing.T) {
 	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
-	app.Find(`text:"PiDeck V2"`)
+	app.Find(`text:"PiDeck"`)
 	app.Find("text:添加工作区")
 	app.Find("text:导入会话")
 }

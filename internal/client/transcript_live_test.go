@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck/internal/remotewire"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -22,7 +22,7 @@ import (
 func liveTranscriptDesktop(t *testing.T, transcript func() remotewire.Transcript) (*nsgotest.App, *mobileApp) {
 	t.Helper()
 	const token = "live-token"
-	state := remotewire.Snapshot{Name: "PiDeck V2", Host: "desk", Projects: []remotewire.Project{{
+	state := remotewire.Snapshot{Name: "PiDeck", Host: "desk", Projects: []remotewire.Project{{
 		Path: "/tmp/project", Name: "电脑项目", Sessions: []remotewire.Session{{ID: "s1", Title: "正在跑的会话", Running: true}},
 	}}}
 	mux := http.NewServeMux()
@@ -35,7 +35,7 @@ func liveTranscriptDesktop(t *testing.T, transcript func() remotewire.Transcript
 	}
 	mux.HandleFunc("/api/ping", func(w http.ResponseWriter, r *http.Request) {
 		if check(w, r) {
-			_ = json.NewEncoder(w).Encode(map[string]any{"name": "PiDeck V2", "host": "desk"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"name": "PiDeck", "host": "desk"})
 		}
 	})
 	mux.HandleFunc("/api/state", func(w http.ResponseWriter, r *http.Request) {

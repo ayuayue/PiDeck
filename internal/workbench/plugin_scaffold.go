@@ -83,7 +83,7 @@ func (a *app) createPlugin(id, name, desc string) (string, error) {
 	}
 	readme := "# " + name + "\n\n" + strings.TrimSpace(desc) + "\n\n" +
 		"这个文件夹里的 `plugin.json` 就是这个插件：命令、设置、主题、键位、钩子和智能体都写在 `contributes` 里。\n" +
-		"改完保存，回到 PiDeck V2 执行「重新加载」，命令面板里就能看到它。\n"
+		"改完保存，回到 PiDeck 执行「重新加载」，命令面板里就能看到它。\n"
 	if err := writeFileAtomic(filepath.Join(path, "README.md"), []byte(readme), 0o644); err != nil {
 		return "", err
 	}

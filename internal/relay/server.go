@@ -1,4 +1,4 @@
-// Package relay is the small service a PiDeck V2 desktop dials out to so
+// Package relay is the small service a PiDeck desktop dials out to so
 // a phone can reach it without a VPN on either side. It pairs one desktop
 // with one phone per environment and copies bytes between their WebSocket
 // connections; everything above those bytes is the desktop's own TLS, so
@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"example.com/pideck-v2/internal/relaywire"
+	"example.com/pideck/internal/relaywire"
 	"golang.org/x/net/websocket"
 )
 

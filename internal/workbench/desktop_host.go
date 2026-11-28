@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-v2/assets"
-	"example.com/pideck-v2/internal/apptext"
-	"example.com/pideck-v2/internal/viewkit"
+	"example.com/pideck/assets"
+	"example.com/pideck/internal/apptext"
+	"example.com/pideck/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/desktop"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -38,7 +38,7 @@ func (a *app) setupDesktop() {
 	a.tray = desktop.NewTray(a.cx, desktop.TrayOptions{
 		Icon:     icon,
 		Template: template,
-		Tooltip:  "PiDeck V2",
+		Tooltip:  "PiDeck",
 		Menu:     a.trayMenu,
 	})
 	a.setupNotifications()
@@ -155,9 +155,9 @@ func (a *app) updateTray() {
 		return
 	}
 	n := len(a.runningSessions())
-	tip := "PiDeck V2"
+	tip := "PiDeck"
 	if n > 0 {
-		tip = apptext.T("PiDeck V2 · %d 个会话运行中", n)
+		tip = apptext.T("PiDeck · %d 个会话运行中", n)
 	}
 	a.tray.SetTooltip(tip)
 }
@@ -170,7 +170,7 @@ func (a *app) syncRunState() {
 	}
 	if len(a.runningSessions()) > 0 {
 		if a.keepAwake == nil {
-			a.keepAwake = a.cx.KeepAwake("PiDeck V2: an agent is running", core.KeepAwakeOptions{})
+			a.keepAwake = a.cx.KeepAwake("PiDeck: an agent is running", core.KeepAwakeOptions{})
 		}
 		a.cx.SetTaskProgress(core.TaskProgress{State: core.TaskProgressIndeterminate})
 		return

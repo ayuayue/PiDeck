@@ -1,4 +1,4 @@
-module example.com/pideck-v2
+module example.com/pideck
 
 go 1.27.3
 

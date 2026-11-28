@@ -1,6 +1,6 @@
 ---
 name: nsgo
-description: 写或改 PiDeck V2 里的 NSGo 界面/测试代码前先读它：指向与 go.mod 版本匹配的官方 NSGo 技能（API 事实、组件、测试、打包），并说明本项目的规则优先。Use when touching core/base/ui elements, signals, styles, layout, nsgotest, nsgo.yaml, or go tool nsgo commands.
+description: 写或改 PiDeck 里的 NSGo 界面/测试代码前先读它：指向与 go.mod 版本匹配的官方 NSGo 技能（API 事实、组件、测试、打包），并说明本项目的规则优先。Use when touching core/base/ui elements, signals, styles, layout, nsgotest, nsgo.yaml, or go tool nsgo commands.
 ---
 
 # NSGo：本项目入口

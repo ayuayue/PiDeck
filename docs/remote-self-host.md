@@ -33,7 +33,7 @@ PiDeck 的远程服务只监听电脑的 `8787` 端口（可在「设置 → 远
    - **Domain**：你的域名，例如 `example.com`
    - **Service**：`HTTP` → `localhost:8787`
 5. 保存后，在电脑浏览器打开 `https://pideck.example.com/api/ping`：
-   - 返回一段 JSON（`{"name":"PiDeck V2",...}`）或 `401` 都说明隧道通了；`401` 只是没带令牌。
+   - 返回一段 JSON（`{"name":"PiDeck",...}`）或 `401` 都说明隧道通了；`401` 只是没带令牌。
    - `1033` / `1016` / `522` 表示 connector 没连上或 hostname 没配好。
 6. 回到 PiDeck：**设置 → 远程 → 自定义公网地址**，填 `https://pideck.example.com`，点「应用地址」。
 7. 这一栏会出现带令牌的链接和二维码，手机扫码即可。

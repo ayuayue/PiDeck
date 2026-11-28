@@ -6,8 +6,8 @@ package workbench
 // its bytes go to the clipboard or to the platform's save dialog.
 
 import (
-	"example.com/pideck-v2/internal/apptext"
-	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck/internal/apptext"
+	"example.com/pideck/internal/remotewire"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"

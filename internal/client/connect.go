@@ -1,6 +1,6 @@
 package client
 
-// The phone build: it connects to a desktop PiDeck V2 server and browses
+// The phone build: it connects to a desktop PiDeck server and browses
 // its projects, sessions and transcripts. The same package builds the
 // desktop; Root picks this screen on iOS and Android (or with
 // PIDECK_V2_MOBILE=1 for a preview on a desktop).
@@ -17,12 +17,12 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-v2/assets"
-	"example.com/pideck-v2/internal/appinfo"
-	"example.com/pideck-v2/internal/apptext"
-	"example.com/pideck-v2/internal/relaywire"
-	"example.com/pideck-v2/internal/remotewire"
-	"example.com/pideck-v2/internal/viewkit"
+	"example.com/pideck/assets"
+	"example.com/pideck/internal/appinfo"
+	"example.com/pideck/internal/apptext"
+	"example.com/pideck/internal/relaywire"
+	"example.com/pideck/internal/remotewire"
+	"example.com/pideck/internal/viewkit"
 	"github.com/makiuchi-d/gozxing"
 	"github.com/makiuchi-d/gozxing/qrcode"
 	"github.com/nsgo-dev/nsgo/core"
@@ -100,7 +100,7 @@ func (a *mobileApp) connectView(cx *core.Scope) core.Node {
 		core.Image{Source: core.ImageSource{Data: assets.LogoPNG}, ResizeMode: core.Contain, Label: "PiDeck",
 			Style: core.Style{Width: core.Pt(64), Height: core.Pt(64), CornerRadius: 18, AlignSelf: core.AlignCenter}},
 		core.View{Style: core.Style{Gap: 4, AlignItems: core.AlignCenter}, Children: []core.Node{
-			ui.Text("PiDeck V2", 24, ui.Bold, colors.Text),
+			ui.Text("PiDeck", 24, ui.Bold, colors.Text),
 			ui.Text(apptext.T("连接电脑上的会话"), 13, ui.Regular, colors.Muted),
 		}},
 		card,

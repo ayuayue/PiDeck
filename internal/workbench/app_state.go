@@ -7,14 +7,14 @@ package workbench
 
 import (
 	"context"
-	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck/internal/remotewire"
 	"sync"
 	"time"
 
-	"example.com/pideck-v2/internal/alerts"
-	"example.com/pideck-v2/internal/sessionimport"
-	"example.com/pideck-v2/internal/viewkit"
-	"example.com/pideck-v2/internal/volcvoice"
+	"example.com/pideck/internal/alerts"
+	"example.com/pideck/internal/sessionimport"
+	"example.com/pideck/internal/viewkit"
+	"example.com/pideck/internal/volcvoice"
 	"github.com/nsgo-dev/nsgo/base/textview"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"

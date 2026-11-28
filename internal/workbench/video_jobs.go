@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck/internal/apptext"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 	"go.yaml.in/yaml/v3"

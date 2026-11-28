@@ -89,7 +89,7 @@ Use stable domain IDs for keyed UI. Read reactive signals inside render callback
 
 ## Code style
 
-Follow standard Go naming and error handling. Imports are grouped as standard library, third-party modules, then `example.com/pideck-v2/...`. Comments explain why and ownership; avoid repeating function names. Keep package APIs narrow and avoid global mutable state.
+Follow standard Go naming and error handling. Imports are grouped as standard library, third-party modules, then `example.com/pideck/...`. Comments explain why and ownership; avoid repeating function names. Keep package APIs narrow and avoid global mutable state.
 
 Wrap user-visible text with `apptext.T`, add all translations under `internal/apptext/locales`, and test catalog parity. Keep external file formats and credential semantics intact unless a migration is part of the task.
 

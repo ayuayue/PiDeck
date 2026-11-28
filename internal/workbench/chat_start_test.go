@@ -8,7 +8,7 @@ import (
 
 	"github.com/nsgo-dev/nsgo/ui/chat"
 
-	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck/internal/apptext"
 )
 
 func TestChatStartKeepsComposerAcrossFirstTurn(t *testing.T) {

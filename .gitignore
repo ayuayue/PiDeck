@@ -2,7 +2,7 @@
 /dist/
 /*.exe
 /pideck-lite
-/pideck-v2
+/pideck
 *.syso
 *.test
 

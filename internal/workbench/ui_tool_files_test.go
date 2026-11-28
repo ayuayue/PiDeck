@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-v2/assets"
+	"example.com/pideck/assets"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 	"github.com/nsgo-dev/nsgo/ui/chat"
 )

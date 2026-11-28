@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck/internal/apptext"
 )
 
 // applyLanguage sets the interface language from the config and the

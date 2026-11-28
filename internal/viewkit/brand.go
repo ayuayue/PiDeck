@@ -6,7 +6,7 @@ package viewkit
 // box that pushes the row out of line. Both hosts read a list the same way.
 
 import (
-	"example.com/pideck-v2/internal/viewkit/brands"
+	"example.com/pideck/internal/viewkit/brands"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )

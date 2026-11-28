@@ -1,6 +1,6 @@
 //go:build !js && !android && !ios
 
-// Command pideck-relay is the public relay PiDeck V2 desktops dial out
+// Command pideck-relay is the public relay PiDeck desktops dial out
 // to. It is meant for the product's own host, behind a TLS proxy; users
 // never run it.
 package main
@@ -15,7 +15,7 @@ import (
 	"syscall"
 	"time"
 
-	"example.com/pideck-v2/internal/relay"
+	"example.com/pideck/internal/relay"
 )
 
 func main() {

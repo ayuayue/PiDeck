@@ -12,15 +12,15 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-v2/internal/appinfo"
-	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck/internal/appinfo"
+	"example.com/pideck/internal/remotewire"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
 func TestMobileSessionActions(t *testing.T) {
 	const token = "phone-token"
 	var mu sync.Mutex
-	state := remotewire.Snapshot{Name: "PiDeck V2", Version: appinfo.Version, Host: "desk", Projects: []remotewire.Project{{
+	state := remotewire.Snapshot{Name: "PiDeck", Version: appinfo.Version, Host: "desk", Projects: []remotewire.Project{{
 		Path: "/tmp/project", Name: "电脑项目", Sessions: []remotewire.Session{
 			{ID: "s1", Title: "电脑上的会话", Status: "idle", Updated: time.Now().UnixMilli(),
 				Tokens: 1234, Context: 1234, ContextWindow: 128000, Cost: 0.02},
@@ -39,7 +39,7 @@ func TestMobileSessionActions(t *testing.T) {
 		reply := func(v any) { _ = json.NewEncoder(w).Encode(v) }
 		switch {
 		case r.URL.Path == "/api/ping":
-			reply(map[string]any{"name": "PiDeck V2", "host": "desk"})
+			reply(map[string]any{"name": "PiDeck", "host": "desk"})
 		case r.URL.Path == "/api/state":
 			reply(state)
 		case r.URL.Path == "/api/sessions" && r.Method == http.MethodPost:

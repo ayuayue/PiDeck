@@ -3,8 +3,8 @@
 package main
 
 import (
-	"example.com/pideck-v2/internal/client"
-	"example.com/pideck-v2/internal/workbench"
+	"example.com/pideck/internal/client"
+	"example.com/pideck/internal/workbench"
 	"github.com/nsgo-dev/nsgo/core"
 )
 

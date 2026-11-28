@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-v2/internal/apptext"
-	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck/internal/apptext"
+	"example.com/pideck/internal/remotewire"
 )
 
 // handleAgents lists the ways of working a new session can start with.

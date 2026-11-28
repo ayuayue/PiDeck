@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck/internal/remotewire"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
@@ -25,9 +25,9 @@ func TestMobileFiles(t *testing.T) {
 		reply := func(v any) { _ = json.NewEncoder(w).Encode(v) }
 		switch {
 		case r.URL.Path == "/api/ping":
-			reply(map[string]any{"name": "PiDeck V2", "host": "desk"})
+			reply(map[string]any{"name": "PiDeck", "host": "desk"})
 		case r.URL.Path == "/api/state":
-			reply(remotewire.Snapshot{Name: "PiDeck V2", Projects: []remotewire.Project{{
+			reply(remotewire.Snapshot{Name: "PiDeck", Projects: []remotewire.Project{{
 				Path: "/tmp/project", Name: "电脑项目",
 				Sessions: []remotewire.Session{{ID: "s1", Title: "会话一", Status: "idle", Updated: time.Now().UnixMilli()}},
 			}}})

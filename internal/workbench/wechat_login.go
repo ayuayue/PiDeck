@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"time"
 
-	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck/internal/apptext"
 	qrcode "github.com/skip2/go-qrcode"
 )
 

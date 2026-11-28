@@ -8,7 +8,7 @@ package workbench
 // the LAN, over Tailscale or over EasyTier.
 
 import (
-	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck/internal/remotewire"
 )
 
 // remoteGitOf maps the drawer's state to the wire.

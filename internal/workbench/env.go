@@ -20,7 +20,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"example.com/pideck-v2/internal/viewkit"
+	"example.com/pideck/internal/viewkit"
 	"golang.org/x/text/encoding/simplifiedchinese"
 )
 

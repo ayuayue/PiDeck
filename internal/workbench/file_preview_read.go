@@ -14,8 +14,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"example.com/pideck-v2/internal/apptext"
-	"example.com/pideck-v2/internal/officedoc"
+	"example.com/pideck/internal/apptext"
+	"example.com/pideck/internal/officedoc"
 )
 
 // What a preview reads, and refuses past it: a table keeps a thousand rows

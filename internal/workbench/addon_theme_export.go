@@ -26,7 +26,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"example.com/pideck-v2/internal/viewkit"
+	"example.com/pideck/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -91,7 +91,7 @@ func (a *app) exportTheme() {
 		appearance = spec.Appearance
 	}
 	id := "exported-" + time.Now().Format("20060102-150405")
-	f := themeFile{ID: id, Name: name, Author: "PiDeck V2", Appearance: appearance,
+	f := themeFile{ID: id, Name: name, Author: "PiDeck", Appearance: appearance,
 		Light: paletteRoleMap(base.Light), Dark: paletteRoleMap(base.Dark), Tokens: base.Tokens,
 		Sans: base.Sans, Mono: base.Mono}
 	if base.Radius > 0 {

@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-v2/internal/viewkit"
+	"example.com/pideck/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
@@ -101,7 +101,7 @@ func (a *app) testFeishu() {
 		return
 	}
 	go func() {
-		err := sendFeishu(webhook, a.cfg.FeishuSecret, "PiDeck V2 测试消息：连接正常。")
+		err := sendFeishu(webhook, a.cfg.FeishuSecret, "PiDeck 测试消息：连接正常。")
 		a.cx.Post(func() {
 			if err != nil {
 				a.toast(ui.ToastError, "飞书测试失败", err.Error())

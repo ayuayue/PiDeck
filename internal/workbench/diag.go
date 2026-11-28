@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-v2/internal/appinfo"
-	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck/internal/appinfo"
+	"example.com/pideck/internal/apptext"
 )
 
 // diagEvent is one log line.
@@ -239,7 +239,7 @@ func (a *app) processList() []procInfo {
 // diagnosticText is the report copied for a bug report.
 func (a *app) diagnosticText() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "PiDeck V2 %s\n", appinfo.Version)
+	fmt.Fprintf(&b, "PiDeck %s\n", appinfo.Version)
 	fmt.Fprintf(&b, "%s/%s · Go %s\n", runtime.GOOS, runtime.GOARCH, runtime.Version())
 	if a.st != nil {
 		fmt.Fprintf(&b, "数据目录：%s\n", a.st.dir)

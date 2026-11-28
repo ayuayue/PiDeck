@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck/internal/apptext"
 )
 
 // replyText is every assistant prose segment, excluding system notes and

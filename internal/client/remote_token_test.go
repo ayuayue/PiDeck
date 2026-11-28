@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck/internal/remotewire"
 )
 
 // TestRemoteClientTakesRotatedToken has the server refuse the first token

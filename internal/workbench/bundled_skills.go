@@ -10,7 +10,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"example.com/pideck-v2/assets"
+	"example.com/pideck/assets"
 )
 
 // pideckSkillPath is the skill directory passed to pi with --skill, "" when

@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-v2/extensions"
+	"example.com/pideck/extensions"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 	"github.com/nsgo-dev/nsgo/ui"

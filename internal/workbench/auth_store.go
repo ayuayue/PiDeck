@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck/internal/apptext"
 )
 
 // Where an api_key entry's value comes from.

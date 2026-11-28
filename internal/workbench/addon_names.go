@@ -24,7 +24,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck/internal/apptext"
 )
 
 // isThemeFile reports whether a name is one the theme loader reads.

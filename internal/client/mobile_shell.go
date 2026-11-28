@@ -10,11 +10,11 @@ import (
 	"fmt"
 	"strings"
 
-	"example.com/pideck-v2/assets"
-	"example.com/pideck-v2/internal/appinfo"
-	"example.com/pideck-v2/internal/apptext"
-	"example.com/pideck-v2/internal/remotewire"
-	"example.com/pideck-v2/internal/viewkit"
+	"example.com/pideck/assets"
+	"example.com/pideck/internal/appinfo"
+	"example.com/pideck/internal/apptext"
+	"example.com/pideck/internal/remotewire"
+	"example.com/pideck/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -128,7 +128,7 @@ func (a *mobileApp) railBrand(cx *core.Scope) core.Node {
 				core.Text{ContentFunc: func() string {
 					name := strings.TrimSpace(a.serverName.Get())
 					if name == "" {
-						name = "PiDeck V2"
+						name = "PiDeck"
 					}
 					return apptext.T("电脑") + " · " + name
 				}, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle, Style: core.Style{FontSize: 10},
@@ -342,7 +342,7 @@ func (a *mobileApp) pageHeader(cx *core.Scope, title, subtitle string, actions .
 func (a *mobileApp) initView(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	return core.View{Style: ui.FillRest, StyleFunc: ui.Filled(colors.Background), Children: []core.Node{
-		a.pageHeader(cx, "PiDeck V2", a.serverName.Get()),
+		a.pageHeader(cx, "PiDeck", a.serverName.Get()),
 		a.appNotice(cx),
 		core.Scroll{Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pct(100), Padding: core.Edges{Top: 24, Right: 20, Bottom: 6, Left: 20},

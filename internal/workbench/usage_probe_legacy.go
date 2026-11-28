@@ -9,7 +9,7 @@ import (
 	"reflect"
 	"strings"
 
-	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck/internal/apptext"
 )
 
 type usageProbeCandidate struct {

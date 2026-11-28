@@ -5,7 +5,7 @@ package workbench
 import (
 	"encoding/json"
 
-	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck/internal/remotewire"
 )
 
 // askToolResult is the extension's existing result projection. The session

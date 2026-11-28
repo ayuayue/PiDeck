@@ -20,7 +20,7 @@ import (
 	"regexp"
 	"time"
 
-	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck/internal/apptext"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 

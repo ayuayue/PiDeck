@@ -17,7 +17,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
-	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck/internal/apptext"
 )
 
 var (

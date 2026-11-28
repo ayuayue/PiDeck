@@ -30,7 +30,7 @@ func (h *helper) pack(target string) error {
 	fmt.Println("\n构建（安装器随 -installers 产出，带页面时自动加 -tags=webassets）：")
 	if err := h.runEnv(env, "go", "tool", "nsgo", "build", "-target", target, "-installers=true"); err != nil {
 		if runtime.GOOS == "windows" && strings.HasPrefix(target, "windows") {
-			fmt.Println("\n提示：目标程序正在运行时 Windows 会锁住 exe；先关掉 PiDeck V2 再打包。")
+			fmt.Println("\n提示：目标程序正在运行时 Windows 会锁住 exe；先关掉 PiDeck 再打包。")
 		}
 		return err
 	}

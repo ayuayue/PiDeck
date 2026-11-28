@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"example.com/pideck-v2/internal/appinfo"
+	"example.com/pideck/internal/appinfo"
 )
 
 // TestDiagRing keeps only the newest events and writes them to disk.
@@ -61,7 +61,7 @@ func TestDiagnosticText(t *testing.T) {
 	t.Cleanup(a.closeDiag)
 	a.diagf("error", "something broke")
 	text := a.diagnosticText()
-	for _, want := range []string{"PiDeck V2 " + appinfo.Version, "进程：", "something broke"} {
+	for _, want := range []string{"PiDeck " + appinfo.Version, "进程：", "something broke"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("report lacks %q:\n%s", want, text)
 		}

@@ -13,7 +13,7 @@ import (
 	"strings"
 	"sync"
 
-	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck/internal/apptext"
 )
 
 // usageProbeConfig mirrors the providers entries in pi's usage-probes.json.

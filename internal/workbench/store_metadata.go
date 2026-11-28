@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-v2/internal/viewkit"
+	"example.com/pideck/internal/viewkit"
 )
 
 // metaRead is what reading one session file produced.

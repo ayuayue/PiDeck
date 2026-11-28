@@ -4,7 +4,7 @@ package client
 // the phone's reading size, with the room a wide window has.
 
 import (
-	"example.com/pideck-v2/internal/viewkit"
+	"example.com/pideck/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	uidiff "github.com/nsgo-dev/nsgo/ui/diff"
 )

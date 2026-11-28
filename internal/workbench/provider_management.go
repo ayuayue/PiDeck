@@ -14,7 +14,7 @@ import (
 	"strings"
 	"sync"
 
-	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck/internal/apptext"
 )
 
 // All models.json writers merge their own fields into the latest document.

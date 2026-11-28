@@ -49,13 +49,13 @@ func TestWebPageTitle(t *testing.T) {
 		session   string
 		want      string
 	}{
-		{false, "", "PiDeck V2"},
-		{true, "", "PiDeck V2"},
-		{true, "   ", "PiDeck V2"},
-		{true, "修一下导入", "修一下导入 · PiDeck V2"},
+		{false, "", "PiDeck"},
+		{true, "", "PiDeck"},
+		{true, "   ", "PiDeck"},
+		{true, "修一下导入", "修一下导入 · PiDeck"},
 		// A session open on a connection that has since dropped keeps the
 		// app's name alone: the page is back on the connect screen.
-		{false, "修一下导入", "PiDeck V2"},
+		{false, "修一下导入", "PiDeck"},
 	}
 	for _, tt := range cases {
 		if got := webPageTitle(tt.connected, tt.session); got != tt.want {

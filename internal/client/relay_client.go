@@ -20,7 +20,7 @@ import (
 	"net/url"
 	"time"
 
-	"example.com/pideck-v2/internal/relaywire"
+	"example.com/pideck/internal/relaywire"
 	"golang.org/x/net/websocket"
 )
 

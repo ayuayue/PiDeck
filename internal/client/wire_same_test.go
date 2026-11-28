@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck/internal/remotewire"
 )
 
 // TestMobileUnchangedPollDrawsNothing drives the real signals with an answer

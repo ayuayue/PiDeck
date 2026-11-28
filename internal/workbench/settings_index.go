@@ -9,7 +9,7 @@ package workbench
 import (
 	"strings"
 
-	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck/internal/apptext"
 )
 
 // settingEntry is one setting in the index.

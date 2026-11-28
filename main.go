@@ -5,9 +5,9 @@ import (
 	"os"
 	"runtime/debug"
 
-	"example.com/pideck-v2/internal/client"
-	"example.com/pideck-v2/internal/crashlog"
-	_ "example.com/pideck-v2/locales"
+	"example.com/pideck/internal/client"
+	"example.com/pideck/internal/crashlog"
+	_ "example.com/pideck/locales"
 	"github.com/nsgo-dev/nsgo"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -17,7 +17,7 @@ func main() {
 	defer func() {
 		if r := recover(); r != nil {
 			if path, err := crashlog.WriteReport(crashlog.DataDir(), r, debug.Stack()); err == nil {
-				fmt.Fprintln(os.Stderr, "PiDeck V2: crash log written to", path)
+				fmt.Fprintln(os.Stderr, "PiDeck: crash log written to", path)
 			}
 			panic(r)
 		}

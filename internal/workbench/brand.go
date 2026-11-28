@@ -17,8 +17,8 @@ import (
 	"unicode"
 	"unicode/utf16"
 
-	"example.com/pideck-v2/internal/appinfo"
-	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck/internal/appinfo"
+	"example.com/pideck/internal/apptext"
 	"github.com/nsgo-dev/nsgo/core"
 	"golang.org/x/image/draw"
 	_ "golang.org/x/image/webp"

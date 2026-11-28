@@ -14,7 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck/internal/apptext"
 )
 
 // handleProject adds or removes a project folder on the desktop.

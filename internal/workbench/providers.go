@@ -22,7 +22,7 @@ import (
 	"sync"
 	"time"
 
-	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck/internal/apptext"
 )
 
 // providerInfo is one provider pi can talk to.

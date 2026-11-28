@@ -22,7 +22,7 @@ import (
 	"os"
 	"time"
 
-	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck/internal/apptext"
 )
 
 // contextEdit is one record's effect on an entry.

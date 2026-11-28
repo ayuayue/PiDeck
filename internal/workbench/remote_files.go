@@ -16,7 +16,7 @@ import (
 	"sort"
 	"time"
 
-	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck/internal/remotewire"
 )
 
 // handleGit reads a local project's repository for the phone.

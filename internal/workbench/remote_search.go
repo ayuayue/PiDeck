@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck/internal/remotewire"
 	qrcode "github.com/skip2/go-qrcode"
 )
 

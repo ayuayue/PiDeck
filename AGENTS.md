@@ -1,4 +1,4 @@
-# AGENTS.md — PiDeck V2 工程规范
+# AGENTS.md — PiDeck 工程规范
 
 本文件约束在本仓库工作的编码代理（含子代理）。它与 `ARCHITECTURE.md`（包边界与状态所有权）、
 `CONTRIBUTING.md`（提交与验证流程）配套。冲突时优先级：本次用户指令 > 本文件的硬约束 >

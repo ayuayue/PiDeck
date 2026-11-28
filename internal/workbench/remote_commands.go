@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-v2/internal/apptext"
-	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck/internal/apptext"
+	"example.com/pideck/internal/remotewire"
 )
 
 var errRemoteACPCommands = errors.New("ACP commands belong to the agent")

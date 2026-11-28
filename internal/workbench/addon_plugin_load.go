@@ -28,8 +28,8 @@ import (
 	"sort"
 	"strings"
 
-	"example.com/pideck-v2/internal/apptext"
-	"example.com/pideck-v2/internal/viewkit"
+	"example.com/pideck/internal/apptext"
+	"example.com/pideck/internal/viewkit"
 	yaml "go.yaml.in/yaml/v3"
 )
 

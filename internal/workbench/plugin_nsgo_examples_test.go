@@ -22,7 +22,7 @@ import (
 )
 
 // Editable sources and signing tools belong to tests. Only the prebuilt
-// session-tools package ships in V2; keys below are never saved.
+// session-tools package ships in PiDeck; keys below are never saved.
 //
 //go:embed plugin_examples/nsgo-ui plugin_examples/nsgo-functions plugin_examples/nsgo-session-tools
 var nsgoPluginExampleSources embed.FS

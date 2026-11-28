@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck/internal/remotewire"
 )
 
 // reviewWireItem is one row on the wire.

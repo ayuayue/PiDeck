@@ -6,7 +6,7 @@ package workbench
 // chat, and a drawer for the session's numbers and the project's files.
 
 import (
-	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck/internal/apptext"
 )
 
 // levelLabel names a thinking level in Chinese.

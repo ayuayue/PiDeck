@@ -18,8 +18,8 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-v2/internal/appinfo"
-	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck/internal/appinfo"
+	"example.com/pideck/internal/remotewire"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 	qrcode "github.com/skip2/go-qrcode"
@@ -28,7 +28,7 @@ import (
 // TestMobileConnect drives the phone screen against a fake desktop.
 func TestMobileConnect(t *testing.T) {
 	const token = "phone-token"
-	state := remotewire.Snapshot{Name: "PiDeck V2", Version: appinfo.Version, Host: "desk", Projects: []remotewire.Project{{
+	state := remotewire.Snapshot{Name: "PiDeck", Version: appinfo.Version, Host: "desk", Projects: []remotewire.Project{{
 		Path: "/tmp/project", Name: "电脑项目", Sessions: []remotewire.Session{
 			{ID: "s1", Title: "电脑上的会话", Status: "idle", Updated: time.Now().UnixMilli()},
 		},
@@ -77,7 +77,7 @@ func TestMobileConnect(t *testing.T) {
 
 func TestMobileConnectUsesEnteredTokenOverLinkToken(t *testing.T) {
 	const token = "fresh-connect-token"
-	state := remotewire.Snapshot{Name: "PiDeck V2", Host: "desk", Projects: []remotewire.Project{{
+	state := remotewire.Snapshot{Name: "PiDeck", Host: "desk", Projects: []remotewire.Project{{
 		Path: "/tmp/project", Name: "新令牌连接", Sessions: []remotewire.Session{{ID: "s1", Title: "连接会话"}},
 	}}}
 	server := newTestHTTPServer(t, token, state, remotewire.Transcript{ID: "s1"})
@@ -156,7 +156,7 @@ func newTestHTTPServer(t *testing.T, token string, state remotewire.Snapshot, tr
 	}
 	mux.HandleFunc("/api/ping", func(w http.ResponseWriter, r *http.Request) {
 		if check(w, r) {
-			_ = json.NewEncoder(w).Encode(map[string]any{"name": "PiDeck V2", "host": "desk"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"name": "PiDeck", "host": "desk"})
 		}
 	})
 	mux.HandleFunc("/api/state", func(w http.ResponseWriter, r *http.Request) {
@@ -254,7 +254,7 @@ func TestReadScanImageBoundsGalleryInput(t *testing.T) {
 // making the user take a separate photo first.
 func TestMobileLiveScanConnects(t *testing.T) {
 	const token = "scan-token"
-	state := remotewire.Snapshot{Name: "PiDeck V2", Host: "desk", Projects: []remotewire.Project{{
+	state := remotewire.Snapshot{Name: "PiDeck", Host: "desk", Projects: []remotewire.Project{{
 		Path: "/tmp/project", Name: "扫码项目", Sessions: []remotewire.Session{{ID: "s1", Title: "扫码会话"}},
 	}}}
 	server := newTestHTTPServer(t, token, state, remotewire.Transcript{ID: "s1"})
@@ -279,7 +279,7 @@ func TestMobileLiveScanConnects(t *testing.T) {
 // scanning an address-only code.
 func TestMobileLiveScanWithoutTokenKeepsAddress(t *testing.T) {
 	const token = "manual-scan-token"
-	state := remotewire.Snapshot{Name: "PiDeck V2", Host: "desk", Projects: []remotewire.Project{{
+	state := remotewire.Snapshot{Name: "PiDeck", Host: "desk", Projects: []remotewire.Project{{
 		Path: "/tmp/project", Name: "手动令牌项目", Sessions: []remotewire.Session{{ID: "s1", Title: "扫码会话"}},
 	}}}
 	server := newTestHTTPServer(t, token, state, remotewire.Transcript{ID: "s1"})
@@ -362,7 +362,7 @@ func TestMobileLiveScanRejectsUntrustedText(t *testing.T) {
 // camera but do not expose NSGo's live scanner.
 func TestMobilePhotoScanFallback(t *testing.T) {
 	const token = "photo-scan-token"
-	state := remotewire.Snapshot{Name: "PiDeck V2", Host: "desk", Projects: []remotewire.Project{{
+	state := remotewire.Snapshot{Name: "PiDeck", Host: "desk", Projects: []remotewire.Project{{
 		Path: "/tmp/project", Name: "拍照项目", Sessions: []remotewire.Session{{ID: "s1", Title: "拍照会话"}},
 	}}}
 	server := newTestHTTPServer(t, token, state, remotewire.Transcript{ID: "s1"})
@@ -451,7 +451,7 @@ func TestMobileRecentConnections(t *testing.T) {
 // restarting: the saved link alone does not fill the list.
 func TestMobileRecentAfterConnect(t *testing.T) {
 	const token = "phone-token"
-	state := remotewire.Snapshot{Name: "PiDeck V2", Host: "desk", Projects: []remotewire.Project{{
+	state := remotewire.Snapshot{Name: "PiDeck", Host: "desk", Projects: []remotewire.Project{{
 		Path: "/tmp/project", Name: "电脑项目", Sessions: []remotewire.Session{{ID: "s1", Title: "电脑上的会话"}},
 	}}}
 	server := newTestHTTPServer(t, token, state, remotewire.Transcript{ID: "s1"})
@@ -488,7 +488,7 @@ func TestMobileAsk(t *testing.T) {
 	var mu sync.Mutex
 	ask := &remotewire.Ask{Method: "confirm", Title: "允许运行 go test？", Message: "桌面在等你"}
 	var answered map[string]any
-	state := remotewire.Snapshot{Name: "PiDeck V2", Host: "desk", Projects: []remotewire.Project{{
+	state := remotewire.Snapshot{Name: "PiDeck", Host: "desk", Projects: []remotewire.Project{{
 		Path: "/tmp/project", Name: "电脑项目", Sessions: []remotewire.Session{{ID: "s1", Title: "电脑上的会话"}},
 	}}}
 	check := func(w http.ResponseWriter, r *http.Request) bool {
@@ -501,7 +501,7 @@ func TestMobileAsk(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/ping", func(w http.ResponseWriter, r *http.Request) {
 		if check(w, r) {
-			_ = json.NewEncoder(w).Encode(map[string]any{"name": "PiDeck V2", "host": "desk"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"name": "PiDeck", "host": "desk"})
 		}
 	})
 	mux.HandleFunc("/api/state", func(w http.ResponseWriter, r *http.Request) {

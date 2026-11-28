@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck/internal/apptext"
 )
 
 const (
@@ -15,7 +15,7 @@ const (
 )
 
 // normalizePluginIdentity migrates legacy identity in memory. It never
-// edits the manifest and never interprets a foreign runtime as V2.
+// edits the manifest and never interprets a foreign runtime as this application.
 func normalizePluginIdentity(p *plugin) bool {
 	p.Runtime = strings.TrimSpace(p.Runtime)
 	if p.Runtime == "" {

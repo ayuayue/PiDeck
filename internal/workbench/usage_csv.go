@@ -23,7 +23,7 @@ func usageCSV(r usageReport) string {
 	w := csv.NewWriter(&b)
 	row := func(cells ...string) { _ = w.Write(cells) }
 
-	row("PiDeck V2 用量", r.Since.Format("2006-01-02")+" ~ "+r.Until.Format("2006-01-02"))
+	row("PiDeck 用量", r.Since.Format("2006-01-02")+" ~ "+r.Until.Format("2006-01-02"))
 	row("会话", strconv.Itoa(r.Sessions), "回复", strconv.Itoa(r.Replies),
 		"输入", strconv.Itoa(r.Total.Input), "输出", strconv.Itoa(r.Total.Output),
 		"tokens", strconv.Itoa(r.Total.Total), "费用", fmt.Sprintf("%.4f", r.Total.Cost))

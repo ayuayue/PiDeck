@@ -12,7 +12,7 @@ import (
 	"regexp"
 	"strings"
 
-	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck/internal/remotewire"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 

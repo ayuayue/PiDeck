@@ -16,8 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-v2/internal/apptext"
-	"example.com/pideck-v2/internal/viewkit"
+	"example.com/pideck/internal/apptext"
+	"example.com/pideck/internal/viewkit"
 )
 
 // errNoGH tells the pane what to show when the target has no GitHub CLI.

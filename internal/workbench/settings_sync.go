@@ -24,7 +24,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck/internal/apptext"
 )
 
 const (
@@ -117,7 +117,7 @@ func (t settingsSyncTarget) upload(ctx context.Context, blob []byte) (string, er
 		path, method := "https://api.github.com/gists", http.MethodPost
 		payload := map[string]any{"files": map[string]any{settingsSyncFile: map[string]string{"content": base64.StdEncoding.EncodeToString(blob)}}}
 		if t.id == "" {
-			payload["public"], payload["description"] = false, "PiDeck V2 encrypted settings"
+			payload["public"], payload["description"] = false, "PiDeck encrypted settings"
 		} else {
 			path, method = path+"/"+t.id, http.MethodPatch
 		}

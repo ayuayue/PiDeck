@@ -5,7 +5,7 @@
   "name": "文档工作流示例",
   "version": "1.0.0",
   "description": "配置写作要求、准备文档提示词、选择文档智能体、切换配色；计划结束时显示会话大纲。",
-  "author": "PiDeck V2",
+  "author": "PiDeck",
   "themes": [
     {
       "name": "示例文档紫",

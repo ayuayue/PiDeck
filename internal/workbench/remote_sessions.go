@@ -14,8 +14,8 @@ import (
 	"net/url"
 	"strings"
 
-	"example.com/pideck-v2/internal/apptext"
-	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck/internal/apptext"
+	"example.com/pideck/internal/remotewire"
 )
 
 // handleSessionAction runs one operation on a session.

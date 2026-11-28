@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck/internal/remotewire"
 )
 
 // longThought is one reasoning block past a phone screen's worth, so the

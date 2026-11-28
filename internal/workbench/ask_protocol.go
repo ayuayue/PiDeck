@@ -13,9 +13,9 @@ import (
 	"fmt"
 	"strings"
 
-	"example.com/pideck-v2/internal/apptext"
-	"example.com/pideck-v2/internal/remotewire"
-	"example.com/pideck-v2/internal/viewkit"
+	"example.com/pideck/internal/apptext"
+	"example.com/pideck/internal/remotewire"
+	"example.com/pideck/internal/viewkit"
 )
 
 // askOption is one choice: what it shows, what it answers with, and the

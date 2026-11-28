@@ -1,6 +1,6 @@
-# PiDeck V2 architecture
+# PiDeck architecture
 
-PiDeck V2 has one Go program with two hosts. The desktop host owns pi and ACP processes, files, Git, terminals and the loopback HTTP service. Android, iOS and Web run the client host and use that HTTP API. Both hosts render with NSGo.
+PiDeck has one Go program with two hosts. The desktop host owns pi and ACP processes, files, Git, terminals and the loopback HTTP service. Android, iOS and Web run the client host and use that HTTP API. Both hosts render with NSGo.
 
 ## Package boundaries
 

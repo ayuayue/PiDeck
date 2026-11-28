@@ -19,7 +19,7 @@ import (
 	"net/url"
 	"strings"
 
-	"example.com/pideck-v2/internal/volcvoice"
+	"example.com/pideck/internal/volcvoice"
 )
 
 // maxVoiceBytes bounds a recording the phone may send: about four minutes

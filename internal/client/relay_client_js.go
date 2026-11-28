@@ -8,7 +8,7 @@ package client
 import (
 	"errors"
 
-	"example.com/pideck-v2/internal/relaywire"
+	"example.com/pideck/internal/relaywire"
 )
 
 func newRelayClient(link relaywire.Link, source string) (*remoteClient, string, error) {

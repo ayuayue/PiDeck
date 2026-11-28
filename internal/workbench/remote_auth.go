@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck/internal/remotewire"
 )
 
 // remoteTokenHeader carries the current token to a client that presented the

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/pideck-v2/internal/alerts"
+	"example.com/pideck/internal/alerts"
 	"github.com/nsgo-dev/nsgo/core"
 )
 

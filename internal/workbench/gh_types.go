@@ -11,7 +11,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"example.com/pideck-v2/internal/viewkit"
+	"example.com/pideck/internal/viewkit"
 )
 
 // The two things the pane lists.
