@@ -589,17 +589,20 @@ type app struct {
 	gitBlamePath *core.Signal[string]
 	gitBlameRev  *core.Signal[int]
 	gitBlameErr  *core.Signal[string]
+	gitBlameSeq  int
 	gitBlame     []blameRange
 	// gitFileHistoryOpen shows the commits that touched one path.
 	gitFileHistoryOpen *core.Signal[bool]
 	gitFileHistoryPath *core.Signal[string]
 	gitFileHistoryRev  *core.Signal[int]
 	gitFileHistoryErr  *core.Signal[string]
+	gitFileHistorySeq  int
 	gitFileHistory     []gitCommit
 	// gitUnpushedOpen shows the commits the upstream does not have.
 	gitUnpushedOpen *core.Signal[bool]
 	gitUnpushedRev  *core.Signal[int]
 	gitUnpushedErr  *core.Signal[string]
+	gitUnpushedSeq  int
 	gitUnpushed     []gitCommit
 	gitRemoteName   *core.Signal[string]
 	gitRemoteURL    *core.Signal[string]
