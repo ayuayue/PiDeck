@@ -69,6 +69,7 @@ func (a *app) openChatReference(s *session, ref chatReference, e core.PressEvent
 		}
 		target = filepath.Join(root, rel)
 	}
+	complete := a.chatFileReferenceResult(s, root, target, ref.line)
 	go func() {
 		path, err := filepath.EvalSymlinks(target)
 		if err == nil && relative {
@@ -86,15 +87,25 @@ func (a *app) openChatReference(s *session, ref chatReference, e core.PressEvent
 				err = os.ErrInvalid
 			}
 		}
-		a.cx.Post(func() {
-			if s.Target.remote() || s.WS != root || a.sessionOf(s.ID) != s {
-				return
-			}
-			if err != nil {
-				a.toast(ui.ToastError, apptext.T("无法读取文件"), filepath.Base(target))
-				return
-			}
-			a.openFileAt(root, path, ref.line)
-		})
+		a.cx.Post(func() { complete(path, err) })
 	}()
+}
+
+// chatFileReferenceResult applies a resolved reference only while its request
+// is still current. Tab and pane selection can change without opening a file.
+func (a *app) chatFileReferenceResult(s *session, root, target string, line int) func(string, error) {
+	a.editor.navigation++
+	navigation := a.editor.navigation
+	active, pane := a.editor.active.GetUntracked(), a.activePane.GetUntracked()
+	return func(path string, err error) {
+		if s.Target.remote() || s.WS != root || a.sessionOf(s.ID) != s || a.activeID.GetUntracked() != s.ID ||
+			a.editor.navigation != navigation || a.editor.active.GetUntracked() != active || a.activePane.GetUntracked() != pane {
+			return
+		}
+		if err != nil {
+			a.toast(ui.ToastError, apptext.T("无法读取文件"), filepath.Base(target))
+			return
+		}
+		a.openFileAt(root, path, line)
+	}
 }

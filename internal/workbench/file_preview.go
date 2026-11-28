@@ -137,6 +137,7 @@ func (p *filePreview) kindLabel() string {
 // openFilePreview shows a file in the preview pane, reading what the kind
 // needs off the UI thread.
 func (a *app) openFilePreview(path, kind string) {
+	a.editor.navigation++
 	a.closePreviewAudio()
 	state := &filePreview{path: path, kind: kind, loading: true}
 	a.preview.Set(state)
@@ -160,6 +161,7 @@ func (a *app) openFilePreview(path, kind string) {
 
 // closeFilePreview closes the preview and whatever it was playing.
 func (a *app) closeFilePreview() {
+	a.editor.navigation++
 	a.preview.Set(nil)
 	a.closePreviewAudio()
 }

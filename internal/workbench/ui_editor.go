@@ -198,7 +198,7 @@ func (a *app) editorStatus() core.Node {
 				return core.Text{Content: "", Style: core.Style{FlexGrow: 1}}
 			}
 			return core.Text{Content: shortPath(f.Path, 70), MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-				Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10, FlexGrow: 1}, StyleFunc: ui.Colored(colors.Faint)}
+				Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, StyleFunc: ui.Colored(colors.Faint)}
 		}),
 		core.Dynamic(func(*core.Scope) core.Node {
 			f := a.editor.activeFile()
@@ -210,7 +210,7 @@ func (a *app) editorStatus() core.Node {
 			if f.Dirty.Get() {
 				state, color = "未保存", colors.Accent()
 			}
-			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
+			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, FlexShrink: 0}, Children: []core.Node{
 				ui.Text(f.Lang, 9.5, ui.Regular, colors.Faint),
 				core.View{Style: core.Style{Width: core.Pt(4), Height: core.Pt(4), CornerRadius: 2, Background: color}},
 				core.Text{Content: state, Style: core.Style{FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},

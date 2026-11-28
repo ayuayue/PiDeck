@@ -57,6 +57,10 @@ type editorHost struct {
 	files  *core.Signal[[]*editorFile]
 	active *core.Signal[string]
 
+	// navigation invalidates unresolved file references when a newer file
+	// request opens or closes the file area. It only changes on the UI thread.
+	navigation uint64
+
 	// onResult reports a save or a failed read to the app's toasts.
 	onResult func(title string, err error)
 }
@@ -99,6 +103,7 @@ func (h *editorHost) openFile(root, path string) {
 }
 
 func (h *editorHost) openWorkspaceFile(display string, file workspaceFile) {
+	h.navigation++
 	key := display
 	if file.target.remote() {
 		key = file.target.key() + "|" + display
@@ -216,6 +221,7 @@ func (h *editorHost) close(path string) {
 	if idx < 0 {
 		return
 	}
+	h.navigation++
 	list = append(list[:idx], list[idx+1:]...)
 	h.files.Set(list)
 	if len(list) == 0 {
@@ -231,6 +237,7 @@ func (h *editorHost) close(path string) {
 
 // closeAll forgets every file.
 func (h *editorHost) closeAll() {
+	h.navigation++
 	h.files.Set(nil)
 	h.open.Set(false)
 	h.active.Set("")
@@ -494,7 +501,6 @@ func (a *app) jumpToLine() {
 	line := n - 1
 	f.ref.SetSelections([]editor.Selection{{Anchor: editor.Position{Line: line}, Head: editor.Position{Line: line}}})
 	f.ref.ScrollToLine(line)
-	f.ref.Focus()
 	a.gotoOpen.Set(false)
 }
 

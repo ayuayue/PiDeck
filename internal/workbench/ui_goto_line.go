@@ -19,9 +19,15 @@ func (a *app) gotoLineDialog() core.Node {
 		return ui.Dialog{
 			Open:         a.gotoOpen.Get,
 			OnOpenChange: func(open bool, _ base.Reason) { a.gotoOpen.Set(open) },
-			Title:        apptext.T("转到行"),
-			TestID:       "goto-line",
-			Style:        core.Style{Width: core.Pt(360)},
+			// The modal traps keyboard focus until it finishes closing.
+			OnClose: func() {
+				if f := a.editor.activeFile(); f != nil && f.ref != nil {
+					f.ref.Focus()
+				}
+			},
+			Title:  apptext.T("转到行"),
+			TestID: "goto-line",
+			Style:  core.Style{Width: core.Pt(360)},
 			Children: []core.Node{core.View{Style: core.Style{Gap: 8}, Children: []core.Node{
 				core.Text{Content: apptext.T("输入行号，回车跳到那一行。"), Style: core.Style{FontSize: 11.5},
 					StyleFunc: ui.Colored(colors.Muted)},
