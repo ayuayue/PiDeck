@@ -19,14 +19,11 @@ import { sessionMessagesCacheAtom } from "./session-state-atoms";
 
 /**
  * disk 来源历史消息数组的驻留上限（2026 内存排查：浏览历史时 atom 数组无界增长）。
- * 预算口径是**消息条数**，不是轮数：一轮（提问 + 回答 + 工具调用）在本机长会话实测约 33 条
- * 消息（5156 条 / 156 轮），所以 2400 条只够 72 轮 —— 2026-11 真机一份 156 轮会话从底跳顶
- * 时必然撞墙。取 8000 条 ≈ 240 轮 ≈ 16-64MB 封顶（单条均值 2-8KB）；
- * 超限时丢弃最旧溢出部分并把数值游标前移（页内下标连续：nextBefore = 页最旧下标），
- * 被丢弃段仍可通过「显示更早」从主进程缓存/文件重新拉取。
- * DOM 窗口由 turnRenderWindow 独立控制（TIMELINE_MOUNTED_TURN_LIMIT），此处只管数据层封顶。
+ * The 16,384-message budget covers the observed 694-turn sample (12,581 messages). Larger histories
+ * still require paging; the cache must not be treated as an unbounded source of truth.
  */
-export const DISK_HISTORY_MESSAGE_LIMIT = 8000;
+/** Historical message retention budget. VirtualRunList bounds DOM independently. */
+export const DISK_HISTORY_MESSAGE_LIMIT = 16_384;
 
 /**
  * runtime 会话历史前缀（history.messages）的条数驻留上限，与 disk 路径同预算（2026-12

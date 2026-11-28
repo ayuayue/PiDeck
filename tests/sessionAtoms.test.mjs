@@ -320,6 +320,12 @@ test("planSessionCacheTrim counts stopped open tabs as closed-class and reconcil
 	assert.deepEqual([...missing.retained], ["s1"]);
 	assert.deepEqual([...missing.evicted], ["ghost"]);
 });
+test("disk history retention covers the 694-turn long-session fixture without mounting its full DOM", () => {
+	const atoms = loadAtoms();
+	assert.equal(atoms.DISK_HISTORY_MESSAGE_LIMIT, 16_384);
+	assert.ok(atoms.DISK_HISTORY_MESSAGE_LIMIT > 12_581);
+	assert.equal(atoms.RUNTIME_HISTORY_PREFIX_MESSAGE_LIMIT, atoms.DISK_HISTORY_MESSAGE_LIMIT);
+});
 
 test("stopping a runtime stops protecting its open tab: over-budget stopped entries are evicted on trim", () => {
 	const atoms = loadAtoms();

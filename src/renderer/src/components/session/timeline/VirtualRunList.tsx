@@ -191,8 +191,10 @@ function pickHeightForWidth(buckets: ReadonlyMap<number, number>, width: number)
 }
 
 export interface VirtualRunListProps<T> {
-	/** 完整渲染列表（已按轮次窗口裁剪过的结果）。 */
+	/** Complete render list, with only the mounted DOM virtualized. */
 	runs: readonly T[];
+	/** Session identity; measured row heights and virtualizer keys are session-scoped. */
+	cacheKey?: string;
 	/** 时间线的滚动容器（.message-timeline），虚拟化以它为 viewport。 */
 	scrollRef: RefObject<HTMLElement | null>;
 	/** 每轮的渲染函数，只在真正要挂载这一行时调用。 */
@@ -262,7 +264,7 @@ export interface VirtualRunListProps<T> {
  *    在两种分支同在 .message-list 顶层、同 type 同 key，React 会复用。
  */
 export function VirtualRunList<T>(props: VirtualRunListProps<T>) {
-	const { runs, scrollRef, renderRun, getRunId, isAgentRun, isRenderable, solidTailCount, solid = false, onBeforeScrollCorrection, pinnedRunKeys } = props;
+	const { runs, scrollRef, renderRun, getRunId, isAgentRun, isRenderable, solidTailCount, solid = false, onBeforeScrollCorrection, pinnedRunKeys, cacheKey } = props;
 	/** 按宽度分桶的实测高度（唯一真值，来自 ref 初测 + 库的后续重测）。 */
 	const heightBucketsRef = useRef<HeightBuckets>(new Map());
 	/** 当前宽度下解算好的高度，供 estimateSize 直接查（避免每帧遍历分桶）。 */
@@ -345,14 +347,23 @@ export function VirtualRunList<T>(props: VirtualRunListProps<T>) {
 		resolvedHeightsRef.current = resolved;
 	}, []);
 
+	// 行 id 可能在不同会话中重复；旧测量会污染新会话的总高度和滚动条。
+	useLayoutEffect(() => {
+		heightBucketsRef.current.clear();
+		resolvedHeightsRef.current.clear();
+	}, [cacheKey]);
+
 	const estimateSize = useCallback((index: number) => {
 		const entry = entriesRef.current[index];
 		return resolveRunHeight(resolvedHeightsRef.current, entry ? getRunIdRef.current(entry.run) : "", VIRTUAL_ESTIMATED_RUN_HEIGHT);
 	}, []);
-	const getItemKey = useCallback((index: number) => {
-		const entry = entriesRef.current[index];
-		return entry ? getRunIdRef.current(entry.run) || index : index;
-	}, []);
+	const getItemKey = useCallback(
+		(index: number) => {
+			const entry = entriesRef.current[index];
+			return entry ? `${cacheKey ?? ""}:${getRunIdRef.current(entry.run) || index}` : index;
+		},
+		[cacheKey],
+	);
 
 	/**
 	 * 在默认可见范围之外，把钉住的行也加进来。

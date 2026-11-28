@@ -449,13 +449,14 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 		return groupToolMessagesCached(echoedPaginatedMessages, { agentBusy: isTurnRunning });
 	}, [groupedHistoryRuns, groupedWindowRuns, echoedPaginatedMessages, isTurnRunning]);
 	// 阶段0补强：对未变化的 run 复用旧对象引用，历史 run 的 memo 比较退化为 O(1)
-	const prevRenderedRunsRef = useRef<RenderMessage[] | undefined>(undefined);
+	// Reconcile within a session only; a session switch must not index the previous history.
+	const prevRenderedRunsRef = useRef<{ sessionId: string; runs: RenderMessage[] } | undefined>(undefined);
 	const reconciledRuns = useMemo(() => {
-		const next = reconcileRuns(prevRenderedRunsRef.current, renderedRuns);
-		prevRenderedRunsRef.current = next;
+		const previous = prevRenderedRunsRef.current;
+		const next = reconcileRuns(previous?.sessionId === sessionId ? previous.runs : undefined, renderedRuns);
+		prevRenderedRunsRef.current = { sessionId, runs: next };
 		return next;
-	}, [renderedRuns]);
-	// 状态条秒表（2026-10 由 TurnRow 末尾迁入）：取本轮最后一个 agent-run 的起点，
+	}, [renderedRuns, sessionId]);
 	// 口径与轮末固定耗时一致——startedAt + askWaitMs（等待用户回答不计），
 	// 阻塞提问期间冻结在 askPendingAt，避免把用户思考时间算成模型耗时。
 	// 只在轮内传：轮结束后由 TurnRow 末尾显示固定耗时，状态条不再读秒。
@@ -1060,6 +1061,7 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 					<VirtualRunList
 						runs={multiSelectOpen || retainFullRuns ? reconciledRuns : displayRuns}
 						scrollRef={timelineRef}
+						cacheKey={sessionId}
 						renderRun={renderRunItem}
 						getRunId={virtualRunId}
 						isAgentRun={isAgentRunItem}
