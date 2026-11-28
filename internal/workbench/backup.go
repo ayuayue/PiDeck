@@ -234,21 +234,23 @@ func (a *app) importSettings(path string) {
 	a.askConfirm("导入设置包",
 		fmt.Sprintf("将把 %d 个文件写进数据目录，同名文件会被覆盖。部分设置重启后生效。", len(names)),
 		"导入", func() {
-			if err := a.applySettingsZip(path); err != nil {
-				a.toast(ui.ToastError, "导入设置失败", err.Error())
-				return
-			}
-			if err := a.st.reload(); err != nil {
-				a.toast(ui.ToastError, "导入设置失败", err.Error())
-				return
-			}
-			a.cfg = a.st.config()
-			a.reloadSettingsAfterImport()
+			go func() {
+				err := a.applySettingsZip(path)
+				a.cx.Post(func() {
+					if err != nil {
+						a.toast(ui.ToastError, "导入设置失败", err.Error())
+						return
+					}
+					a.reloadSettingsAfterImport()
+				})
+			}()
 		})
 }
 
 func (a *app) reloadSettingsAfterImport() {
 	a.cfg = a.st.config()
+	a.pinned.Set(a.cfg.Pinned)
+	a.favModels.Set(a.cfg.FavModels)
 	org := readSessionOrganization(a.st.dir)
 	a.st.organizationMu.Lock()
 	a.st.organization = org
@@ -270,7 +272,7 @@ func (a *app) reloadSettingsAfterImport() {
 	a.toast(ui.ToastSuccess, "已导入设置包", "插件、主题与提示词已重新读取。")
 }
 
-// applySettingsZip extracts a validated settings zip over the data folder.
+// applySettingsZip restores files and reloads config under the config writer lock.
 func (a *app) applySettingsZip(path string) error {
 	if a.st == nil {
 		return errors.New("找不到数据目录")
@@ -280,7 +282,16 @@ func (a *app) applySettingsZip(path string) error {
 		return err
 	}
 	defer zr.Close()
-	return a.applySettingsArchive(&zr.Reader)
+	// Keep queued saves from writing a pre-import snapshot over the restored file.
+	a.st.writeMu.Lock()
+	defer a.st.writeMu.Unlock()
+	if err := a.applySettingsArchive(&zr.Reader); err != nil {
+		return err
+	}
+	if containsRestoredConfig(&zr.Reader) {
+		return a.st.reload()
+	}
+	return nil
 }
 
 func (a *app) applySettingsArchive(zr *zip.Reader) error {
