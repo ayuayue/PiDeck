@@ -42,6 +42,42 @@ func TestLoadTasksInterruptsRunning(t *testing.T) {
 	}
 }
 
+func TestLoadTasksSkipsNullEntries(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		tasks []*scheduledTask
+		want  int
+	}{
+		{name: "mixed", tasks: []*scheduledTask{nil, {ID: "valid", Name: "Daily", Cron: "0 9 * * *"}, nil}, want: 1},
+		{name: "only null", tasks: []*scheduledTask{nil}},
+		{name: "empty"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			st, err := newStore(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, err := json.Marshal(tasksFile{Version: 1, Tasks: tc.tasks})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "tasks.json"), raw, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			a := &app{st: st}
+			a.loadTasks()
+			got := a.taskList()
+			if len(got) != tc.want {
+				t.Fatalf("tasks = %+v, want %d valid tasks", got, tc.want)
+			}
+			if tc.want > 0 && (got[0].ID != "valid" || got[0].Backend != "pi" || got[0].CreatedAt.IsZero()) {
+				t.Fatalf("valid task was not preserved and normalized: %+v", got[0])
+			}
+		})
+	}
+}
+
 // TestTrimTaskRuns keeps the newest runs, newest first.
 func TestTrimTaskRuns(t *testing.T) {
 	base := time.Now()
