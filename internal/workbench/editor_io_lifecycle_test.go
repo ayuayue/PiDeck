@@ -18,6 +18,7 @@ func editorIOTestHost(t *testing.T) (*editorHost, func() func()) {
 	posts := make(chan func(), 8)
 	cx := core.NewRoot(core.RootOptions{
 		CheckCommits: true,
+		Clock:        core.NewManualClock(time.Unix(0, 0)),
 		Post:         func(fn func()) { posts <- fn },
 	})
 	t.Cleanup(cx.Dispose)

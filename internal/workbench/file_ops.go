@@ -127,6 +127,15 @@ func (a *app) renameFileNode(path string) {
 			a.toast(ui.ToastWarning, "已经有一个同名文件或文件夹", name)
 			return
 		}
+		if a.editor != nil {
+			for _, f := range a.editor.files.GetUntracked() {
+				if !f.file.target.remote() && f.busy.GetUntracked() &&
+					(f.Path == path || strings.HasPrefix(f.Path, path+string(filepath.Separator))) {
+					a.toast(ui.ToastWarning, "重命名失败", "正在保存…")
+					return
+				}
+			}
+		}
 		if err := os.Rename(path, next); err != nil {
 			a.toast(ui.ToastError, "重命名失败", err.Error())
 			return
