@@ -251,10 +251,14 @@ func (a *app) editorOpen() bool {
 	return a.editor != nil && a.editor.open.GetUntracked()
 }
 
-// openEditorFile shows a file in the middle of the window. Only local
-// files are editable: a remote project's tree is read over there, and
-// writing it through the editor would need a remote file channel.
+// openEditorFile shows a local file, using its preview when available.
 func (a *app) openEditorFile(root, path string) {
+	a.openFileAt(root, path, 0)
+}
+
+// openFileAt shows a local file and, when a line is requested, opens editable
+// text in the editor so the caret can land on that line after it loads.
+func (a *app) openFileAt(root, path string, line int) {
 	if a.editor == nil || path == "" {
 		return
 	}
@@ -265,13 +269,17 @@ func (a *app) openEditorFile(root, path string) {
 	if root == "" {
 		root = a.files.root.GetUntracked()
 	}
-	if kind := filePreviewKind(path); kind != "" {
+	if kind := filePreviewKind(path); kind != "" && (line < 1 || !(&filePreview{kind: kind}).editable()) {
 		a.openFilePreview(path, kind)
 		return
 	}
 	a.activePane.Set("")
 	a.editor.openFile(root, path)
 	a.rememberFile(path)
+	f := a.editor.activeFile()
+	if f != nil && f.Path == filepath.Clean(path) && line > 0 {
+		a.jumpWhenLoaded(f, line, 60)
+	}
 }
 
 // rememberFile keeps the editor's recent files, newest first.
@@ -285,17 +293,6 @@ func (a *app) rememberFile(path string) {
 	if a.st != nil {
 		a.st.edit(func(c *config) { c.RecentFiles = append([]string(nil), next...) })
 	}
-}
-
-// openFileAt shows a file and puts the caret on a line, once its text is
-// in: the editor's ref is not ready before the load lands.
-func (a *app) openFileAt(root, path string, line int) {
-	a.openEditorFile(root, path)
-	f := a.editor.activeFile()
-	if f == nil || line < 1 {
-		return
-	}
-	a.jumpWhenLoaded(f, line, 60)
 }
 
 // jumpWhenLoaded retries a jump for a while, so a large file has time to
@@ -359,21 +356,27 @@ func (h *editorHost) renamePath(old, next string) {
 		}
 		return p
 	}
-	for _, f := range h.files.GetUntracked() {
+	files := h.files.GetUntracked()
+	updated := false
+	for _, f := range files {
 		if f.file.target.remote() {
 			continue
 		}
-		updated := move(f.Path)
-		if updated == f.Path {
+		path := move(f.Path)
+		if path == f.Path {
 			continue
 		}
-		f.Path = updated
-		f.Key = updated
-		if rel, err := filepath.Rel(f.Root, updated); err == nil {
+		updated = true
+		f.Path = path
+		f.Key = path
+		if rel, err := filepath.Rel(f.Root, path); err == nil {
 			f.file.rel = filepath.ToSlash(rel)
 		}
-		f.Name = filepath.Base(updated)
-		f.Lang = editorLanguage(updated)
+		f.Name = filepath.Base(path)
+		f.Lang = editorLanguage(path)
+	}
+	if updated {
+		h.files.Set(append([]*editorFile(nil), files...))
 	}
 	if active := h.active.GetUntracked(); active != "" {
 		h.active.Set(move(active))
