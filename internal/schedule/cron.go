@@ -234,9 +234,6 @@ func (c *Schedule) next(after time.Time) time.Time {
 			}
 			if nextMinute < 0 {
 				candidate = time.Date(candidate.Year(), candidate.Month(), candidate.Day(), h+1, 0, 0, 0, loc)
-				if h == 23 {
-					candidate = time.Date(candidate.Year(), candidate.Month(), candidate.Day()+1, 0, 0, 0, 0, loc)
-				}
 				continue
 			}
 			candidate = time.Date(candidate.Year(), candidate.Month(), candidate.Day(), h, nextMinute, 0, 0, loc)

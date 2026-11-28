@@ -62,6 +62,58 @@ func TestNextTaskCron(t *testing.T) {
 	}
 }
 
+// TestNextTaskCronMidnight checks that exhausting the last hour's minutes
+// advances to the following day, including month, year and leap-day boundaries.
+func TestNextTaskCronMidnight(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		expr  string
+		after time.Time
+		want  time.Time
+	}{
+		{
+			name: "hourly", expr: "0 * * * *",
+			after: time.Date(2026, 11, 16, 23, 30, 0, 0, time.UTC),
+			want:  time.Date(2026, 11, 17, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			name: "quarter hour at month end", expr: "*/15 * * * *",
+			after: time.Date(2026, 11, 30, 23, 45, 0, 0, time.UTC),
+			want:  time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			name: "restricted hours at year end", expr: "0 0,23 * * *",
+			after: time.Date(2026, 12, 31, 23, 0, 0, 0, time.UTC),
+			want:  time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			name: "leap day", expr: "0 * * * *",
+			after: time.Date(2028, 2, 28, 23, 30, 0, 0, time.UTC),
+			want:  time.Date(2028, 2, 29, 0, 0, 0, 0, time.UTC),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := Next(tc.expr, tc.after)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !got.Equal(tc.want) {
+				t.Fatalf("Next(%q, %v) = %v, want %v", tc.expr, tc.after, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestLatestTaskOccurrenceAcrossMidnight(t *testing.T) {
+	last := time.Date(2026, 11, 16, 23, 30, 0, 0, time.UTC)
+	now := time.Date(2026, 11, 17, 0, 20, 0, 0, time.UTC)
+	want := time.Date(2026, 11, 17, 0, 0, 0, 0, time.UTC)
+	got, ok := LatestOccurrence("0 * * * *", last, now)
+	if !ok || !got.Equal(want) {
+		t.Fatalf("latest occurrence = %v, %v, want %v, true", got, ok, want)
+	}
+}
+
 // TestNextTaskCronWeekday checks that a weekday field skips the weekend.
 func TestNextTaskCronWeekday(t *testing.T) {
 	loc := time.Local
