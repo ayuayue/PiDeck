@@ -26,7 +26,7 @@ var dependencies = map[string][]string{
 	"extensions":              {},
 	"locales":                 {},
 	"webassets":               {},
-	"scripts":                 {},
+	"scripts":                 {"internal/appinfo"},
 	"cmd/pideck-relay":        {"internal/relay"},
 	"internal/alerts":         {"assets"},
 	"internal/architecture":   {},

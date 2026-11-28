@@ -9,6 +9,7 @@ Dependencies point down this list. A package may import a package below it when 
 | Package | Role | Local dependencies |
 | --- | --- | --- |
 | module root | NSGo bootstrap, platform-specific `Root`, window frame and shutdown | `client`, `crashlog`, `locales`, `workbench` |
+| `scripts` | Build and packaging commands, with the shared application version as fallback | `appinfo` |
 | `locales` | NSGo catalogs for native permission prompts | none |
 | `internal/client` | Android, iOS, Web and desktop mobile preview | `alerts`, `assets`, `appinfo`, `apptext`, `remotewire`, `viewkit`, `viewkit/brands` |
 | `internal/workbench` | Desktop application and loopback server | shared packages, `sessionimport`, `schedule` |
