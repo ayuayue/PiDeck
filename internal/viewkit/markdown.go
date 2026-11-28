@@ -47,6 +47,16 @@ type MarkdownBehavior struct {
 // MarkdownLive reparses changing text without remounting the surrounding view.
 func MarkdownLive(search *textview.Search, text func() string, streaming func() bool, size, line core.Points, tone core.Style, wrapCode func() bool, behavior ...MarkdownBehavior) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
+		activeSearch := search
+		if search != nil {
+			searching := core.NewMemo(cx, func() bool { return search.IsOpen() && search.Query() != "" })
+			if !searching.Get() {
+				// Each joined view invalidates the shared match list. Keep idle
+				// transcripts out of it; long histories otherwise recheck all text
+				// on every join, even though no highlights can be shown.
+				activeSearch = nil
+			}
+		}
 		styles := ui.TextViewStyles(cx)
 		font := size
 		if font <= 0 {
@@ -111,7 +121,7 @@ func MarkdownLive(search *textview.Search, text func() string, streaming func() 
 		view := ui.TextView{
 			MarkdownFunc:         markdown,
 			Styles:               styles,
-			Search:               search,
+			Search:               activeSearch,
 			Selectable:           true,
 			Highlighter:          hl,
 			OpenLinks:            true,
