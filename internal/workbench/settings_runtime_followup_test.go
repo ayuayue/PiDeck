@@ -19,7 +19,18 @@ func TestSettingsEnvironmentEditorActionsInline(t *testing.T) {
 	screen.WaitFor("text:VS Code", 5*time.Second)
 	for i, editor := range editors {
 		key := editorKey(editor.Command)
+		row := screen.Find("id:external-editor-" + key).Bounds()
 		label := screen.Find("text:" + editor.Name).Bounds()
+		path := screen.Find("id:editor-command-" + key).Bounds()
+		if i == 0 && label.Size.Width < 32 {
+			t.Errorf("editor name was squeezed out by the path: %+v", label)
+		}
+		if row.Size.Height > 40 {
+			t.Errorf("single-line editor row is too tall for %q: %+v", editor.Name, row)
+		}
+		if path.Size.Height > 20 || path.Origin.Y > label.Origin.Y+label.Size.Height || path.Origin.Y+path.Size.Height < label.Origin.Y {
+			t.Errorf("editor path is not a single inline detail: id=editor-command-%s name=%+v path=%+v", key, label, path)
+		}
 		actions := []string{"editor-remove-" + key}
 		if i > 0 {
 			actions = append(actions, "editor-default-"+key)

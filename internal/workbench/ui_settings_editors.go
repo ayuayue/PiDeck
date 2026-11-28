@@ -48,27 +48,30 @@ func (a *app) settingsExternalEditors() core.Node {
 				if i > 0 {
 					children = append(children, setDivider())
 				}
+				nameLabel := ui.Text(editor.Name, viewkit.PanelTextSize, ui.Medium, colors.Text)
+				nameLabel.MaxLines, nameLabel.EllipsizeMode = 1, core.EllipsizeTail
+				nameLabel.Style.MaxWidth = core.Pt(180)
+				pathLabel := core.Text{Content: editor.Command, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
+					Selectable: core.SelectableOn, Label: editor.Command, TestID: "editor-command-" + key,
+					Style:     core.Style{FontSize: viewkit.PanelCaptionSize, LineHeight: 18, FontFamily: viewkit.MonoFont(), FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
+					StyleFunc: ui.Colored(colors.Muted)}
 				children = append(children, core.View{TestID: "external-editor-" + key,
-					Style: core.Style{Direction: core.Row, AlignItems: core.AlignStart, Gap: 10, Padding: core.Symmetric(9, 0), MinWidth: core.Pt(0)}, Children: []core.Node{
+					Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Padding: core.Symmetric(4, 0), MinWidth: core.Pt(0)}, Children: []core.Node{
 						ui.IconOf(editorMarkOf(editor.Command), 18, colors.Text),
-						core.View{Style: core.Style{Gap: 5, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
-							core.View{Style: core.Style{Direction: core.Row, Gap: 8, AlignItems: core.AlignCenter, MinWidth: core.Pt(0)}, Children: []core.Node{
-								core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 8, AlignItems: core.AlignCenter, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
-									ui.Text(editor.Name, viewkit.PanelTextSize, ui.Medium, colors.Text),
-									core.Show{When: func() bool { return i == 0 }, Then: func(*core.Scope) core.Node {
-										return ui.Text(apptext.T("默认"), viewkit.PanelCaptionSize, ui.Medium, colors.Muted)
-									}},
-								}},
-								core.View{Style: core.Style{Direction: core.Row, Gap: 6, FlexShrink: 0}, Children: []core.Node{
-									core.Show{When: func() bool { return i > 0 }, Then: func(*core.Scope) core.Node {
-										return ui.Button{Text: apptext.T("设为默认"), TestID: "editor-default-" + key, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
-											OnPress: func() { a.saveExternalEditors(list, editor.Command) }}
-									}},
-									ui.Button{Text: apptext.T("删除"), TestID: "editor-remove-" + key, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
-										OnPress: func() { a.removeExternalEditor(editor.Command) }},
-								}},
+						core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
+							nameLabel,
+							core.Show{When: func() bool { return i == 0 }, Then: func(*core.Scope) core.Node {
+								return ui.Text(apptext.T("默认"), viewkit.PanelCaptionSize, ui.Medium, colors.Muted)
 							}},
-							core.Text{Content: editor.Command, Style: core.Style{FontSize: viewkit.PanelCaptionSize, LineHeight: 18, FontFamily: viewkit.MonoFont()}, StyleFunc: ui.Colored(colors.Muted)},
+							ui.Tooltip{Text: editor.Command, Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Trigger: pathLabel},
+						}},
+						core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2, FlexShrink: 0}, Children: []core.Node{
+							core.Show{When: func() bool { return i > 0 }, Then: func(*core.Scope) core.Node {
+								return ui.IconButton{Icon: lucide.Star, Label: apptext.T("设为默认"), TestID: "editor-default-" + key,
+									OnPress: func() { a.saveExternalEditors(list, editor.Command) }}
+							}},
+							ui.IconButton{Icon: lucide.Trash, Label: apptext.T("删除"), TestID: "editor-remove-" + key,
+								OnPress: func() { a.removeExternalEditor(editor.Command) }},
 						}},
 					}})
 			}
