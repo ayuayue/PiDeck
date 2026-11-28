@@ -1866,12 +1866,7 @@ export class AgentManager {
 	 * 页边界永远对齐完整轮次（单轮再大也整轮保留，至少保最后一轮）。
 	 */
 	private computeDisplayWindowStart(messages: ReadonlyArray<{ role?: string }>): number {
-		return boundTurnWindowStart(
-			messages.map((message) => ({ role: message.role, byteLength: 0 })),
-			messages.length,
-			AgentManager.DISPLAY_WINDOW_TURNS,
-			AgentManager.MAX_DISPLAY_WINDOW_ENTRIES,
-		);
+		return boundTurnWindowStart(messages, messages.length, AgentManager.DISPLAY_WINDOW_TURNS, AgentManager.MAX_DISPLAY_WINDOW_ENTRIES);
 	}
 
 	/** 压缩后重载的单飞锁随域迁入 RuntimeHistoryLoader。 */
@@ -4639,12 +4634,7 @@ export class AgentManager {
 		const list = this.messages.get(agentId);
 		if (!list || list.length === 0) return;
 		const summaryCards = leadingSummaryCards(list, list.length);
-		const trimmedStart = boundTurnWindowStart(
-			list.map((m) => ({ role: m.role, byteLength: 0 })),
-			list.length,
-			AgentManager.MAX_RUNTIME_CACHE_TURNS,
-			AgentManager.MAX_RUNTIME_CACHE_ENTRIES,
-		);
+		const trimmedStart = boundTurnWindowStart(list, list.length, AgentManager.MAX_RUNTIME_CACHE_TURNS, AgentManager.MAX_RUNTIME_CACHE_ENTRIES);
 		const trimmed = list.slice(trimmedStart);
 		const didTrim = trimmed.length !== list.length;
 		const currentWindowStart = this.messageEmit.windowStart(agentId);

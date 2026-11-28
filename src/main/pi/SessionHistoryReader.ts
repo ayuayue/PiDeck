@@ -16,7 +16,7 @@ import { contextEditTextOf, customEntryHeadline, INDEX_PREVIEW_MAX_CHARS, extrac
 import { boundTurnWindowStart, clampTurnWindowStart, findTurnPageStart, resolveTurnPageBefore } from "./sessionReader/sessionTurnWindow";
 import { SessionSubagentProjection } from "./sessionReader/sessionSubagentProjection";
 import { SessionCardProjector } from "./sessionReader/sessionCardProjection";
-import { SessionDisplayPaging } from "./sessionReader/sessionDisplayPaging";
+import { SessionDisplayPaging, indexActiveMessages } from "./sessionReader/sessionDisplayPaging";
 
 export {
 	applySessionContextEdits,
@@ -117,6 +117,7 @@ export type SessionDisplayIndex = {
 	activeBranch: SessionDisplayEntry[];
 	/** 活动分支中的消息条目（分页/轮次计算用，派生自 activeBranch） */
 	activeMessageEntries: SessionDisplayEntry[];
+	activeMessagePositionById: Map<string, number>;
 	/** 活动分支模型与思考档位；与索引一起生成，避免历史页读取后再次扫描摘要 */
 	metadata: SessionHistoryMetadata;
 	/** 活动分支上生效的 context_edit（pi 原生移除/改写记录）汇总（含改写文本，供展示替换正文）。 */
@@ -468,19 +469,14 @@ export class SessionHistoryReader {
 		return this.paging.readSessionDisplayTurnPage(sessionPath, agentId, before, turnCount, beforeEntryId, options);
 	}
 
-	/** entryId → 活动分支消息条目的绝对下标（文件下标空间）；不存在返回 undefined。 */
 	async resolveEntryPosition(sessionPath: string, entryId: string): Promise<number | undefined> {
 		if (!entryId) return undefined;
-		const index = await this.getSessionDisplayIndex(sessionPath);
-		const position = index.activeMessageEntries.findIndex((entry) => entry.id === entryId);
-		return position >= 0 ? position : undefined;
+		return (await this.getSessionDisplayIndex(sessionPath)).activeMessagePositionById.get(entryId);
 	}
 
 	/** 绝对下标（文件下标空间）→ entryId；越界/无条目返回 undefined。 */
 	async resolveEntryIdAtPosition(sessionPath: string, position: number): Promise<string | undefined> {
-		const index = await this.getSessionDisplayIndex(sessionPath);
-		const entry = index.activeMessageEntries[position];
-		return entry?.id;
+		return (await this.getSessionDisplayIndex(sessionPath)).activeMessageEntries[position]?.id;
 	}
 
 	/** 活动分支消息条目总数（SessionMessagePage.total 的文件口径）。 */
@@ -894,6 +890,7 @@ export class SessionHistoryReader {
 		for (const entry of inherited) entries.set(entry.id, entry);
 		for (const entry of own.entries.values()) entries.set(entry.id, entry);
 		const activeBranch = [...inherited, ...own.activeBranch];
+		const { activeMessageEntries, activeMessagePositionById } = indexActiveMessages(activeBranch);
 		return {
 			hostPath: own.hostPath,
 			size: version.size,
@@ -901,7 +898,8 @@ export class SessionHistoryReader {
 			hasCompaction: activeBranch.some((entry) => entry.type === "compaction"),
 			entries,
 			activeBranch,
-			activeMessageEntries: activeBranch.filter((entry) => entry.type === "message" && entry.hasMessage),
+			activeMessageEntries,
+			activeMessagePositionById,
 			metadata: deriveSessionHistoryMetadata(activeBranch),
 			contextEdits: collectSessionContextEdits(activeBranch),
 			endsWithNewline: own.endsWithNewline,
@@ -1046,6 +1044,7 @@ export class SessionHistoryReader {
 
 	/** 由分支 + 全量条目表组装最终索引（消息条目派生 + 压缩标记）。 */
 	private finishIndex(hostPath: string, version: { size: number; mtimeMs: number }, entries: Map<string, SessionDisplayEntry>, activeBranch: SessionDisplayEntry[], endsWithNewline: boolean): SessionDisplayIndex {
+		const { activeMessageEntries, activeMessagePositionById } = indexActiveMessages(activeBranch);
 		return {
 			hostPath,
 			size: version.size,
@@ -1055,7 +1054,8 @@ export class SessionHistoryReader {
 			hasCompaction: activeBranch.some((entry) => entry.type === "compaction"),
 			entries,
 			activeBranch,
-			activeMessageEntries: activeBranch.filter((entry) => entry.type === "message" && entry.hasMessage),
+			activeMessageEntries,
+			activeMessagePositionById,
 			metadata: deriveSessionHistoryMetadata(activeBranch),
 			contextEdits: collectSessionContextEdits(activeBranch),
 			endsWithNewline,

@@ -22,48 +22,57 @@
  * 注：轮数窗口无法限制单轮体量。需要「一次最多多少条」的硬上限时
  * 在本函数之上再叠 boundTurnWindowStart（#213）。
  */
-export function findTurnPageStart(entries: ReadonlyArray<{ role?: string; byteLength: number }>, before: number, turnCount: number): number {
-	if (before <= 0 || turnCount < 1) return 0;
-	// 预扫描 turn 起点（一次遍历，规则见上方注释）：
-	// 起点 = user 且其前最近的 user/assistant 边界不是 user。
-	const turnStartFlags = new Array<boolean>(before).fill(false);
-	let prevUserOrAssistantRole: "user" | "assistant" | undefined;
-	for (let i = 0; i < before; i += 1) {
-		const role = entries[i].role;
-		if (role === "user") {
-			// 连发 user：只有前一条是 assistant（或无实质消息）时才算新轮起点。
-			if (prevUserOrAssistantRole !== "user") turnStartFlags[i] = true;
-			prevUserOrAssistantRole = "user";
-		} else if (role === "assistant") {
-			prevUserOrAssistantRole = "assistant";
-		}
-		// system/error/toolResult 等其他 role：不改变边界（发言权仍归上一方）。
-	}
+type RoleEntry = { role?: string };
 
-	// 从 before-1 向前数第 turnCount 个 turn 起点
+/**
+ * user 前缀计数：只回答一个问题「start 之前还有 user 吗」（见下面的头部碎片合并）。
+ * 按数组引用缓存：同一份条目表反复翻页只建一次；数组换引用（增量追加）时自然重建。
+ */
+const userCountPrefixCache = new WeakMap<ReadonlyArray<RoleEntry>, Int32Array>();
+
+function userCountPrefix(entries: ReadonlyArray<RoleEntry>): Int32Array {
+	const cached = userCountPrefixCache.get(entries);
+	if (cached) return cached;
+	const prefix = new Int32Array(entries.length + 1);
+	for (let i = 0; i < entries.length; i += 1) prefix[i + 1] = prefix[i] + (entries[i]?.role === "user" ? 1 : 0);
+	userCountPrefixCache.set(entries, prefix);
+	return prefix;
+}
+
+/**
+ * 轮次分页起点计算（纯函数，2026-08 激活分页），语义见上方注释。
+ *
+ * 代价：后向扫描，只读到「最近 turnCount 轮」为止 —— 一次翻页/跳转的读数与被翻过的
+ * 轮内条目同阶，不再随 before 线性上涨。旧实现预建 `new Array(before)` 布尔表并从 0
+ * 扫到 before，在 700 轮会话里跳一次就是数万次读；语义由
+ * tests/turnPageStartBackwardScan.test.mjs 差分对齐（随机 role 序列 × 全部 before/turnCount）。
+ */
+export function findTurnPageStart(entries: ReadonlyArray<RoleEntry>, before: number, turnCount: number): number {
+	if (before <= 0 || turnCount < 1) return 0;
+	const limit = Math.min(before, entries.length);
+	// 后向扫描：一轮的起点是「user 连发里最早的那条」，它上面第一条真实角色必须是
+	// assistant（或没有）—— 与前向的 prevUserOrAssistantRole !== "user" 等价。
 	let turnsSeen = 0;
 	let start = 0;
-	for (let i = before - 1; i >= 0; i -= 1) {
-		if (!turnStartFlags[i]) continue;
-		turnsSeen += 1;
-		if (turnsSeen === turnCount) {
-			start = i;
-			break;
+	let pendingRunStart = -1;
+	for (let i = limit - 1; i >= 0; i -= 1) {
+		const role = entries[i]?.role;
+		if (role === "user") {
+			// 反向往上走，更早的 user 覆盖它，于是 pendingRunStart 停在连发的最早一条。
+			pendingRunStart = i;
+			continue;
 		}
+		// system/error/toolResult 等其他 role：不改变边界（发言权仍归上一方）。
+		if (role !== "assistant" || pendingRunStart < 0) continue;
+		turnsSeen += 1;
+		start = pendingRunStart;
+		pendingRunStart = -1;
+		if (turnsSeen === turnCount) break;
 	}
 	// 不足 turnCount 轮：从会话头起（开头的 system/碎片消息归入首轮）
-	if (turnsSeen < turnCount) start = 0;
+	if (turnsSeen < turnCount) return 0;
 	// 起点之前已无 user 消息（落在首个轮次起点）：开头碎片并入本页，避免碎片单独成页
-	else {
-		let hasEarlierUser = false;
-		for (let i = 0; i < start; i += 1) {
-			if (entries[i].role === "user") {
-				hasEarlierUser = true;
-				break;
-			}
-		}
-		if (!hasEarlierUser) start = 0;
-	}
+	if (start > 0 && userCountPrefix(entries)[start] === 0) return 0;
 	return start;
 }
 
@@ -86,10 +95,10 @@ export function clampTurnWindowStart(start: number, before: number): number {
  * 且没有数值游标时，旧写法让游标落回 total（文件尾部），表现是「点加载更多反而跳回最新」，
  * 比原地踏步更糟（#474 记录）。这里改成显式失败，让界面停下来而不是反向跳。
  */
-export function resolveTurnPageBefore(before: number | undefined, beforeEntryId: string | undefined, entries: ReadonlyArray<{ id: string }>, total: number): number | null {
+export function resolveTurnPageBefore(before: number | undefined, beforeEntryId: string | undefined, entries: ReadonlyArray<{ id: string }>, total: number, entryPositions?: ReadonlyMap<string, number>): number | null {
 	let resolved = before;
 	if (beforeEntryId) {
-		const position = entries.findIndex((entry) => entry.id === beforeEntryId);
+		const position = entryPositions ? (entryPositions.get(beforeEntryId) ?? -1) : entries.findIndex((entry) => entry.id === beforeEntryId);
 		if (position >= 0) resolved = position;
 		else if (!Number.isSafeInteger(resolved)) return null;
 	}
@@ -98,7 +107,7 @@ export function resolveTurnPageBefore(before: number | undefined, beforeEntryId:
 }
 
 /** 收集 [0, before) 内的 turn 起点下标（升序），规则与 findTurnPageStart 一致。 */
-export function collectTurnStartIndices(entries: ReadonlyArray<{ role?: string; byteLength: number }>, before: number): number[] {
+export function collectTurnStartIndices(entries: ReadonlyArray<RoleEntry>, before: number): number[] {
 	const starts: number[] = [];
 	let prevUserOrAssistantRole: "user" | "assistant" | undefined;
 	for (let i = 0; i < before; i += 1) {
@@ -130,7 +139,7 @@ export function collectTurnStartIndices(entries: ReadonlyArray<{ role?: string; 
  * - 无 user 轮次边界（纯 assistant/system 片段）：不裁剪，退回轮数窗口结果。
  * - maxEntries 非有限值或 <= 0 = 未启用预算，行为与 findTurnPageStart 完全一致。
  */
-export function boundTurnWindowStart(entries: ReadonlyArray<{ role?: string; byteLength: number }>, before: number, turnCount: number, maxEntries: number): number {
+export function boundTurnWindowStart(entries: ReadonlyArray<RoleEntry>, before: number, turnCount: number, maxEntries: number): number {
 	const turnStart = findTurnPageStart(entries, before, turnCount);
 	if (!Number.isFinite(maxEntries) || maxEntries <= 0) return turnStart;
 	if (before - turnStart <= maxEntries) return turnStart;
