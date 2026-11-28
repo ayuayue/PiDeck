@@ -25,7 +25,7 @@ test("API 类型下拉覆盖 pi 1.0.4 聊天协议全集", () => {
 });
 
 test("API 类型下拉不含生图 / 分类器协议", () => {
-	for (const nonChat of ["openrouter-images", "typesafe-system-one", "cloudflare-workers-ai-system-one", "llama-cpp-classify"]) {
+	for (const nonChat of ["openrouter-images", "pi-image", "typesafe-system-one", "cloudflare-workers-ai-system-one", "llama-cpp-classify"]) {
 		assert.ok(!PROVIDER_API_OPTIONS.includes(nonChat), `${nonChat} 不是聊天协议，不应出现在下拉里`);
 	}
 });

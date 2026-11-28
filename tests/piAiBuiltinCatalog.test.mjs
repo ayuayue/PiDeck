@@ -7,7 +7,7 @@
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -435,4 +435,35 @@ test("真实生成 catalog：逐模型 compat 只保留布尔键（Claude 新一
 	const fable = lookupPiAiCatalogEntry(index, "anthropic", "claude-fable-5");
 	assert.equal(fable?.compat?.forceAdaptiveThinking, true);
 	assert.equal(fable?.compat?.allowedFallbackModels, undefined, "allowedFallbackModels 是数组，必须被丢弃");
+});
+
+/**
+ * 1.7.0 目录变化（pi-ai 1.6.1 → 1.7.0）：锁的是「PiDeck 会读到的那部分事实」，
+ * 即模型 id、默认模型切换、思考档位映射与透传字段。上游重新增删模型时这些断言会一起响。
+ */
+test("真实生成 catalog：1.7.0 的上下架模型、默认切换与思考档位已随目录同步", () => {
+	const index = getPiAiCatalogIndex();
+	// ant-ling：Ring-2.6-1T 退役，默认改成 Ling-3.1-flash；compat 的 thinkingFormat 已改 deepseek
+	// （pi 仍把 "ant-ling" 当 deprecated 别名）。PiDeck 只透传、不解释该字符串，所以这里看 artifact 原值；
+	// 主进程条目仍按设计丢弃非布尔 compat。
+	const rawEntries = JSON.parse(readFileSync(join("resources", "pi-ai-catalog.json"), "utf8")).entries;
+	const rawLing = rawEntries.find((entry) => entry.provider === "ant-ling" && entry.id === "Ling-3.1-flash");
+	assert.ok(rawLing, "1.7.0 应包含 Ling-3.1-flash");
+	assert.equal(rawLing.compat?.thinkingFormat, "deepseek");
+	// 主进程条目按设计丢弃非布尔 compat（面板表达不了字符串枚举）
+	assert.equal(index.byProviderId.get("ant-ling")?.get("Ling-3.1-flash")?.compat?.thinkingFormat, undefined, "字符串枚举 compat 不进主进程条目");
+	// 下架判断必须查具体 provider：lookup 有跨 provider 的尾段兜底，会把同名他家中转条目兜回来
+	assert.equal(index.byProviderId.get("ant-ling")?.has("Ring-2.6-1T"), false, "Ring-2.6-1T 已退役");
+	// Cloudflare Workers AI / AI Gateway：默认模型换成 @cf/zai-org/glm-5.3，Kimi K2.6/K2.7 Code 下线
+	assert.ok(lookupPiAiCatalogEntry(index, "cloudflare-workers-ai", "@cf/zai-org/glm-5.3"), "新默认模型应在目录里");
+	assert.equal(index.byProviderId.get("cloudflare-workers-ai")?.has("@cf/moonshotai/kimi-k2.7-code"), false);
+	// Qwen Token Plan Individual：qwen4-max-preview 退役，换成 qwen4-max
+	assert.ok(lookupPiAiCatalogEntry(index, "qwen-token-plan-individual", "qwen4-max"), "qwen4-max 应上线");
+	assert.equal(index.byProviderId.get("qwen-token-plan-individual")?.has("qwen4-max-preview"), false);
+	// Bedrock 的 Kimi K3.1 / GLM 5.3 在 1.7.0 补上思考档位（此前选档无效）；PiDeck 直接读 thinkingLevelMap
+	const bedrockGlm = lookupPiAiCatalogEntry(index, "amazon-bedrock", "global.zai.glm-5.3");
+	assert.equal(bedrockGlm?.thinkingLevelMap?.high, "high");
+	assert.equal(bedrockGlm?.thinkingLevelMap?.off, null, "off 映射为 null = 不提供该档");
+	// 官方字段全量透传：1.7.0 新增的 promptCache 是 pi 自己的缓存 TTL（PiDeck 不消费），必须原样随目录存在
+	assert.ok(rawEntries.find((entry) => entry.provider === "github-copilot" && entry.id === "claude-sonnet-5")?.promptCache, "promptCache 应随目录透传");
 });
