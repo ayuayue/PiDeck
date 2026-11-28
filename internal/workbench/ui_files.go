@@ -22,14 +22,12 @@ func (a *app) drawerFiles() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
 		s := a.active()
-		if s != nil && s.Target.remote() {
-			if ws := a.workspaceFor(s.Target, s.WS); ws != nil {
-				return a.targetFileList(ws)
-			}
+		if ws := a.activeWorkspace(); ws != nil && ws.Target.remote() {
+			return a.targetFileList(ws)
 		}
 		root := a.files.root.Get()
-		if s != nil && s.WS != "" {
-			root = s.WS
+		if s != nil && (s.Target.remote() || !samePath(s.WS, root)) {
+			s = nil
 		}
 		if root == "" {
 			return core.View{Style: core.Style{Padding: core.All(16)}, Children: []core.Node{

@@ -135,11 +135,16 @@ func (a *app) allSessions() []*session {
 }
 
 // tick keeps a clock for elapsed labels and the active project's Git
-// status current, even while its drawer is closed or showing another tab.
+// status and file tree current, even while their drawer is closed.
 func (a *app) tick() {
 	a.cx.Effect(func() {
 		ws := a.activeWorkspace()
-		a.cx.Untrack(func() { a.git.attach(ws) })
+		a.cx.Untrack(func() {
+			a.git.attach(ws)
+			if ws != nil && !ws.Target.remote() {
+				a.files.watch(ws.Path)
+			}
+		})
 	})
 	beats := 0
 	var loop func()

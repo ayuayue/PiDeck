@@ -71,6 +71,7 @@ func (t *fileTree) watch(path string) {
 		return
 	}
 	t.root.Set(path)
+	t.nodes.Set(nil)
 	t.expanded = map[string]bool{}
 	t.dirs = map[string][]fileEntry{}
 	t.generation++
