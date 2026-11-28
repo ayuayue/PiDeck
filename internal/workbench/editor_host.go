@@ -44,6 +44,8 @@ type editorFile struct {
 
 	saved    string
 	revision string
+	// loadID identifies the latest read; it only changes on the UI thread.
+	loadID uint64
 	// crlf says the file used CRLF newlines; the editor works in LF and the
 	// file gets its CRLF back on save, so Git does not see the whole file
 	// change.
@@ -141,6 +143,8 @@ func (h *editorHost) load(f *editorFile) {
 	if f.busy.GetUntracked() {
 		return
 	}
+	f.loadID++
+	loadID := f.loadID
 	f.Loading.Set(true)
 	f.Err.Set("")
 	file := f.file
@@ -149,7 +153,13 @@ func (h *editorHost) load(f *editorFile) {
 		defer cancel()
 		data, err := file.read(ctx, maxEditorFile)
 		if err != nil {
-			h.cx.Post(func() { f.Loading.Set(false); f.Err.Set(fileEditorError(err)) })
+			h.cx.Post(func() {
+				if f.loadID != loadID {
+					return
+				}
+				f.Loading.Set(false)
+				f.Err.Set(fileEditorError(err))
+			})
 			return
 		}
 		text := string(data)
@@ -162,6 +172,9 @@ func (h *editorHost) load(f *editorFile) {
 		}
 		revision := workspaceRevision(data)
 		h.cx.Post(func() {
+			if f.loadID != loadID {
+				return
+			}
 			f.saved = text
 			f.revision = revision
 			f.crlf = crlf
