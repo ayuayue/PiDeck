@@ -1,4 +1,7 @@
 {
+  "正在检查 pi 版本…": "Vérification de la version de pi…",
+  "正在更新 pi…": "Mise à jour de pi…",
+  "更新 pi 失败": "Échec de la mise à jour de pi",
   "备份与恢复": "Sauvegarde et restauration",
   "备份设置": "Sauvegarder les réglages",
   "保存设置、主题、插件等，不含会话、收藏和定时任务。": "Enregistre les réglages, thèmes, extensions, etc. Les sessions, favoris et tâches planifiées sont exclus.",

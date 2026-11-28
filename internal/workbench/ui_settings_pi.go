@@ -58,8 +58,8 @@ func (a *app) settingsPiRuntime() core.Node {
 			}
 			rows = append(rows, core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 8, Margin: core.Edges{Top: 4}}, Children: []core.Node{
 				ui.Button{Text: apptext.T("重新检测"), TestID: "pi-recheck", Icon: lucide.RefreshCw, Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
-					Disabled: func() bool { return info.Probing }, OnPress: a.reprobePiRuntime},
-				ui.Button{Text: apptext.T("更换程序"), TestID: "pi-change", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() {
+					Disabled: func() bool { return info.Probing || a.piUpdate.Get().Updating }, OnPress: a.reprobePiRuntime},
+				ui.Button{Text: apptext.T("更换程序"), TestID: "pi-change", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, Disabled: func() bool { return a.piUpdate.Get().Updating }, OnPress: func() {
 					draft.Set(a.cfg.PiExecutable)
 					editing.Set(true)
 				}},
@@ -67,7 +67,7 @@ func (a *app) settingsPiRuntime() core.Node {
 					return ui.Button{Text: apptext.T("安装说明"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.cx.OpenURL("https://pi.dev/", nil) }}
 				}},
 				core.Show{When: func() bool { return a.cfg.PiExecutable != "" }, Then: func(*core.Scope) core.Node {
-					return ui.Button{Text: apptext.T("恢复自动检测"), TestID: "pi-auto", Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+					return ui.Button{Text: apptext.T("恢复自动检测"), TestID: "pi-auto", Variant: ui.ButtonGhost, Size: ui.SizeSmall, Disabled: func() bool { return a.piUpdate.Get().Updating },
 						OnPress: func() { editing.Set(false); a.setPiExecutable("") }}
 				}},
 			}})
@@ -94,7 +94,7 @@ func (a *app) settingsPiRuntime() core.Node {
 						})
 					}},
 					ui.Button{Text: apptext.T("应用并检测"), TestID: "pi-apply", Variant: ui.ButtonPrimary, Size: ui.SizeSmall,
-						Disabled: func() bool { return strings.TrimSpace(draft.Get()) == "" }, OnPress: func() { editing.Set(false); a.setPiExecutable(draft.GetUntracked()) }},
+						Disabled: func() bool { return a.piUpdate.Get().Updating || strings.TrimSpace(draft.Get()) == "" }, OnPress: func() { editing.Set(false); a.setPiExecutable(draft.GetUntracked()) }},
 					ui.Button{Text: apptext.T("取消"), TestID: "pi-cancel", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { editing.Set(false) }},
 				}},
 			}}

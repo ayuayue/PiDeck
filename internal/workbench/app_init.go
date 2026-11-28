@@ -55,7 +55,7 @@ func newApp(cx *core.Scope) *app {
 		trajectory:        core.NewSignal(cx, (*trajectoryView)(nil)),
 		delegationSession: core.NewSignal(cx, (*session)(nil)),
 		modelCatalogBusy:  core.NewSignal(cx, false),
-		piUpdateBusy:      core.NewSignal(cx, false),
+		piUpdate:          core.NewSignal(cx, piUpdateState{}),
 		providerQuery:     core.NewSignal(cx, ""),
 		reduceEffects:     core.NewSignal(cx, false),
 		codeWrap:          core.NewSignal(cx, false),

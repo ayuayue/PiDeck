@@ -52,21 +52,23 @@ func (a *app) settingsExternalEditors() core.Node {
 					Style: core.Style{Direction: core.Row, AlignItems: core.AlignStart, Gap: 10, Padding: core.Symmetric(9, 0), MinWidth: core.Pt(0)}, Children: []core.Node{
 						ui.IconOf(editorMarkOf(editor.Command), 18, colors.Text),
 						core.View{Style: core.Style{Gap: 5, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
-							core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 8, AlignItems: core.AlignCenter}, Children: []core.Node{
-								ui.Text(editor.Name, viewkit.PanelTextSize, ui.Medium, colors.Text),
-								core.Show{When: func() bool { return i == 0 }, Then: func(*core.Scope) core.Node {
-									return ui.Text(apptext.T("默认"), viewkit.PanelCaptionSize, ui.Medium, colors.Muted)
+							core.View{Style: core.Style{Direction: core.Row, Gap: 8, AlignItems: core.AlignCenter, MinWidth: core.Pt(0)}, Children: []core.Node{
+								core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 8, AlignItems: core.AlignCenter, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
+									ui.Text(editor.Name, viewkit.PanelTextSize, ui.Medium, colors.Text),
+									core.Show{When: func() bool { return i == 0 }, Then: func(*core.Scope) core.Node {
+										return ui.Text(apptext.T("默认"), viewkit.PanelCaptionSize, ui.Medium, colors.Muted)
+									}},
+								}},
+								core.View{Style: core.Style{Direction: core.Row, Gap: 6, FlexShrink: 0}, Children: []core.Node{
+									core.Show{When: func() bool { return i > 0 }, Then: func(*core.Scope) core.Node {
+										return ui.Button{Text: apptext.T("设为默认"), TestID: "editor-default-" + key, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+											OnPress: func() { a.saveExternalEditors(list, editor.Command) }}
+									}},
+									ui.Button{Text: apptext.T("删除"), TestID: "editor-remove-" + key, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+										OnPress: func() { a.removeExternalEditor(editor.Command) }},
 								}},
 							}},
 							core.Text{Content: editor.Command, Style: core.Style{FontSize: viewkit.PanelCaptionSize, LineHeight: 18, FontFamily: viewkit.MonoFont()}, StyleFunc: ui.Colored(colors.Muted)},
-							core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: []core.Node{
-								core.Show{When: func() bool { return i > 0 }, Then: func(*core.Scope) core.Node {
-									return ui.Button{Text: apptext.T("设为默认"), TestID: "editor-default-" + key, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
-										OnPress: func() { a.saveExternalEditors(list, editor.Command) }}
-								}},
-								ui.Button{Text: apptext.T("删除"), TestID: "editor-remove-" + key, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
-									OnPress: func() { a.removeExternalEditor(editor.Command) }},
-							}},
 						}},
 					}})
 			}

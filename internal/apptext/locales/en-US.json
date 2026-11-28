@@ -1,4 +1,7 @@
 {
+  "正在检查 pi 版本…": "Checking pi version…",
+  "正在更新 pi…": "Updating pi…",
+  "更新 pi 失败": "Could not update pi",
   "备份与恢复": "Backup & restore",
   "备份设置": "Back up settings",
   "保存设置、主题、插件等，不含会话、收藏和定时任务。": "Save settings, themes, plugins and more. Sessions, favorites and scheduled tasks are not included.",

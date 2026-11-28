@@ -71,7 +71,7 @@ type app struct {
 	delegationSession   *core.Signal[*session]
 	modelCatalogBusy    *core.Signal[bool]
 	modelOptions        map[string]*modelOptionsState
-	piUpdateBusy        *core.Signal[bool]
+	piUpdate            *core.Signal[piUpdateState]
 	providerQuery       *core.Signal[string]
 	reduceEffects       *core.Signal[bool]
 	codeWrap            *core.Signal[bool]

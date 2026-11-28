@@ -97,24 +97,31 @@ func latestPiVersion(ctx context.Context, endpoint string, client *http.Client) 
 }
 
 func (a *app) checkPiVersion() {
-	if a.piUpdateBusy.GetUntracked() {
+	if a.piUpdate.GetUntracked().busy() {
 		return
 	}
-	installed := a.env.GetUntracked().PiVersion
-	a.piUpdateBusy.Set(true)
+	info := a.env.GetUntracked()
+	if info.PiPath == "" || info.PiError != "" || info.Probing {
+		return
+	}
+	state := piUpdateState{Path: info.PiPath, Installed: info.PiVersion, Checking: true}
+	a.piUpdate.Set(state)
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		base := a.lifetime
+		if base == nil {
+			base = context.Background()
+		}
+		ctx, cancel := context.WithTimeout(base, 15*time.Second)
 		defer cancel()
 		latest, err := latestPiVersion(ctx, piVersionMetadata, appHTTPClient)
 		a.cx.Post(func() {
-			a.piUpdateBusy.Set(false)
+			state.Checking = false
 			if err != nil {
-				a.toast(ui.ToastError, "检查 pi 版本失败", err.Error())
-				return
+				state.Error = err.Error()
+			} else {
+				state.Latest = latest
 			}
-			a.toastAction(ui.ToastInfo, "pi 版本查询", apptext.T("已安装 %s，npm 最新版 %s。", installed, latest), "打开发布页", func() {
-				a.cx.OpenURL("https://www.npmjs.com/package/@earendil-works/pi-coding-agent", nil)
-			})
+			a.piUpdate.Set(state)
 		})
 	}()
 }
@@ -141,8 +148,37 @@ func (a *app) modelCatalogSettings() core.Node {
 }
 
 func (a *app) piUpdateSetting(piOK bool) core.Node {
-	return setRow("检查 pi 版本", "对比本机安装与 npm 最新发布。", ui.Button{
-		Text: apptext.T("检查 pi 版本"), TestID: "pi-version-check", Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
-		Disabled: func() bool { return !piOK || a.piUpdateBusy.Get() }, OnPress: a.checkPiVersion,
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		state, info := a.piUpdate.Get(), a.env.Get()
+		detail := apptext.T("对比本机安装与 npm 最新发布。")
+		if state.matches(info) && state.Latest != "" {
+			detail = apptext.T("已安装 %s，npm 最新版 %s。", info.PiVersion, state.Latest)
+		}
+		if state.Checking {
+			detail = apptext.T("正在检查 pi 版本…")
+		}
+		actions := []core.Node{ui.Button{
+			Text: apptext.T("检查 pi 版本"), TestID: "pi-version-check", Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+			Disabled: func() bool { return !piOK || state.busy() }, OnPress: a.checkPiVersion,
+		}}
+		if state.available(info) {
+			label := apptext.T("更新到 %s", state.Latest)
+			if state.Updating {
+				label = apptext.T("正在更新 pi…")
+			}
+			actions = append(actions, ui.Button{Text: label, TestID: "pi-version-update", Variant: ui.ButtonPrimary, Size: ui.SizeSmall,
+				Disabled: state.busy, OnPress: a.updatePiRuntime})
+		}
+		children := []core.Node{setRow("检查 pi 版本", detail,
+			core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: actions})}
+		if state.matches(info) && state.Error != "" {
+			title := apptext.T("检查 pi 版本失败")
+			if state.Latest != "" {
+				title = apptext.T("更新 pi 失败")
+			}
+			children = append(children, core.Text{TestID: "pi-update-error", Content: title + "\n" + state.Error,
+				Style: core.Style{FontSize: viewkit.PanelCaptionSize, LineHeight: 18, MinWidth: core.Pt(0)}, StyleFunc: ui.Colored(ui.ColorsOf(cx).Danger)})
+		}
+		return core.View{Style: core.Style{Gap: 6, MinWidth: core.Pt(0)}, Children: children}
 	})
 }

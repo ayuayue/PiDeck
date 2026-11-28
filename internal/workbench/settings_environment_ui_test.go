@@ -37,7 +37,7 @@ func settingsEnvironmentFixture(t *testing.T, dark bool, language string) (*nsgo
 		cfg := config{Language: language}
 		built = &app{cx: cx, cfg: cfg,
 			st:          &store{dir: home, path: filepath.Join(home, "config.json"), c: &cfg},
-			settingsRev: core.NewSignal(cx, 0), piUpdateBusy: core.NewSignal(cx, false),
+			settingsRev: core.NewSignal(cx, 0), piUpdate: core.NewSignal(cx, piUpdateState{}),
 			externalEditors: core.NewSignalFunc(cx, []extEditor(nil), nil),
 			env: core.NewSignalFunc(cx, envInfo{PiPath: "pi", PiVersion: "test", SessionsDir: home,
 				WSL: []wslDistro{
