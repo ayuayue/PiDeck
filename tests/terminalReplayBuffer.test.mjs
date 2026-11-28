@@ -3,7 +3,7 @@
  *
  * 契约（见 terminalReplayBuffer.ts 头注释）：
  * 1. 追加是 O(1) 摊还——上限附近不再每个 chunk 都整段拷贝；
- * 2. 总长有界（<= MAX + 最老一段），封顶常驻内存的目的不变；
+ * 2. 总长有固定上界（< MAX + 4096），不随终端存续时间增长；
  * 3. join 出的回放文本尾部与全量拼接结果一致（重建 xterm 不能丢最近内容）。
  */
 import assert from "node:assert/strict";
@@ -28,6 +28,17 @@ test("未达上限时原样保留（顺序不变）", () => {
 	assert.equal(buffer.length, 4);
 });
 
+test("持续短片段的回放长度有固定上界，并保留最近的输出", () => {
+	const buffer = createTerminalReplayBuffer();
+	const parts = Array.from({ length: 1600 }, (_, i) => String(i).padEnd(256, "."));
+	for (const part of parts) appendTerminalReplay(buffer, part);
+	const replay = terminalReplayText(buffer);
+	assert.ok(buffer.length < MAX_TERMINAL_REPLAY_BUFFER + 4096, `retained ${buffer.length} characters`);
+	assert.equal(replay.length, buffer.length);
+	assert.ok(replay.length >= MAX_TERMINAL_REPLAY_BUFFER);
+	assert.equal(replay, parts.join("").slice(-replay.length));
+});
+
 test("超限后丢整段头部，回放文本尾部与全量拼接一致", () => {
 	const buffer = createTerminalReplayBuffer();
 	const full = [];
@@ -39,9 +50,7 @@ test("超限后丢整段头部，回放文本尾部与全量拼接一致", () =>
 	}
 	const text = terminalReplayText(buffer);
 	const expected = full.join("");
-	// 上界：MAX + 当前最老一段（压实后最老段可能是合并 blob，按实际值断言；
-	// 丢头部的前提是丢完后仍有 >= MAX 的内容，所以总长不可能超过 MAX + 最老段）
-	assert.ok(text.length <= MAX_TERMINAL_REPLAY_BUFFER + (buffer.chunks[0]?.length ?? 0), "总长不得超过上限+最老一段");
+	assert.ok(text.length < MAX_TERMINAL_REPLAY_BUFFER + 4096, "首块只能额外保留不到 4096 字符");
 	assert.ok(text.length >= MAX_TERMINAL_REPLAY_BUFFER, "不应丢掉还有效的近期内容");
 	// 尾部一致性：回放必须与全量拼接的尾部完全一致（重建 scrollback 不能错位）
 	assert.equal(text, expected.slice(expected.length - text.length));
