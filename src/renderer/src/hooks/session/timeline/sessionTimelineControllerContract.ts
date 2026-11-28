@@ -90,6 +90,8 @@ export type SessionTimelineController = {
 	navBlockingVirtualization: boolean;
 	/** 当前钉住行的 messageId（浏览态）；无钉行时为 null。读 ref，不触发渲染。 */
 	readPinnedMessageId: () => string | null;
+	/** 跳转锚点（state）：窗口依它切到目标轮，ref 变化不会触发渲染。 */
+	jumpAnchorMessageId: string | null;
 	/** 跳转在途：贴底跟随的窗口压缩要让位，否则流式期间目标轮挂不上。 */
 	jumpPending: boolean;
 	/** 顶部插入收尾：渲染层做完 pin 补偿后调用，解除整表渲染。 */

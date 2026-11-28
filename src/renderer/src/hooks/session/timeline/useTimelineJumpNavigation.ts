@@ -1,7 +1,7 @@
 import { type Dispatch, type RefObject, type SetStateAction, useCallback, useEffect, useRef } from "react";
 import type { ChatMessage } from "../../../../../shared/types";
 import type { MessageScrollerScrollApi } from "../../../components/agents/message-scroller";
-import { estimateJumpExpandTurns, resolveJumpFallbackEntry } from "../../../components/session/timeline/jumpWindowPolicy";
+import { resolveJumpFallbackEntry } from "../../../components/session/timeline/jumpWindowPolicy";
 import { planJumpSettleStep } from "../../../components/session/timeline/jumpSettle";
 import { resolveJumpMessageIndex, resolveJumpScrollTarget } from "../../../components/session/timeline/jumpTarget";
 import { revealInNestedScrollers } from "../../../components/session/timeline/nestedScrollerReveal";
@@ -14,6 +14,10 @@ export type TimelineJumpRequest = {
 	expandAttempts: number;
 	loadAttempts: number;
 	nonce: number;
+	/** 已向目标所在轮发出展开请求，避免每次 effect 重复写 atom。 */
+	revealRequested?: boolean;
+	/** 目标轮已挂载但折叠揭示仍在提交，最多等待若干帧。 */
+	domWaitFrames?: number;
 	/** 已经按 entryId 取过一次页：失败也不再取，交给扩窗与放弃（否则每次 effect 重跑都发一次 IPC）。 */
 	pageFetched?: boolean;
 };
@@ -39,9 +43,10 @@ export interface TimelineJumpNavigationOptions {
 	highlightMessage: (element: HTMLElement, expectedOwnerKey: string) => void;
 	requestTimelineReveal: (messageId: string) => void;
 	clearTimelineReveal: () => void;
-	expandWindowBatched: (turns?: number) => void;
 	setShowScrollToBottom: (show: boolean) => void;
 	setPendingJump: Dispatch<SetStateAction<TaggedTimelineJumpRequest | undefined>>;
+	/** 将命中的目标身份写入 state，驱动锚点窗口切片。 */
+	setJumpAnchorMessageId: (id: string | null) => void;
 }
 
 export interface TimelineJumpNavigation {
@@ -79,9 +84,9 @@ export function useTimelineJumpNavigation(options: TimelineJumpNavigationOptions
 		highlightMessage,
 		requestTimelineReveal,
 		clearTimelineReveal,
-		expandWindowBatched,
 		setShowScrollToBottom,
 		setPendingJump,
+		setJumpAnchorMessageId,
 	} = options;
 
 	/**
@@ -216,8 +221,15 @@ export function useTimelineJumpNavigation(options: TimelineJumpNavigationOptions
 			// 入口给的是**会话文件条目 id**（会话内查找、刻度命中都是），不是投影消息 id。
 			// 直接按 meta.entryId 认，不走「先在一堆已加载消息里查下标」那条路，
 			// 目标没加载时必然 -1，于是掉进「补一页、看看在不在、不在再补」的逐页逼近。
+			// 目标在当前数据中时立即切到锚点窗口；目标未加载则先清旧锚点，取页完成后再写。
+			setJumpAnchorMessageId(null);
 			const index = resolveJumpMessageIndex(combinedMessages, { kind: "unknown", id: messageId });
 			const targetNodeId = index >= 0 ? combinedMessages[index].id : messageId;
+			if (index >= 0) {
+				browsePinRef.current = { messageId: targetNodeId, expectedViewportTop: 0 };
+				browsePinFrozenRef.current = true;
+			}
+			if (index >= 0) setJumpAnchorMessageId(targetNodeId);
 			const existing = timeline.querySelector(`[data-message-id="${CSS.escape(targetNodeId)}"]`) as HTMLElement | null;
 			if (existing) {
 				skipBrowsePinRef.current = false;
@@ -244,18 +256,14 @@ export function useTimelineJumpNavigation(options: TimelineJumpNavigationOptions
 			// 目标可能在贴底 turn 窗口外（先取消跟随以展开挂载），也可能在尚未加载的
 			// 历史页里：挂起跳转，由 pendingJump effect 按策略补页/扩窗直到完成。
 			setShowScrollToBottom(true);
-			if (index >= 0) {
-				// 一次到位：按目标轮次估算窗口需求并整批排入分帧扩窗（避免单帧全量渲染）。
-				// 批次消费完前 pendingJump effect 挂起等待（见 effect 内 pendingExpandTurnsRef 守卫）。
-				expandWindowBatched(estimateJumpExpandTurns(combinedMessages, index));
-			}
+			// 锚点窗口已直接挂载目标附近的固定半径，不再按目标距尾部扩整窗。
 			jumpNonceRef.current += 1;
 			setPendingJump({
 				ownerKey: requestOwnerKey,
 				value: { messageId, expandAttempts: 0, loadAttempts: 0, nonce: jumpNonceRef.current },
 			});
 		},
-		[clearTimelineReveal, combinedMessages, escapeAutoScroll, expandWindowBatched, hasEarlierPages, highlightMessage, isSurfaceLoading, ownerKey, requestTimelineReveal, scrollJumpTargetIntoView, settleJumpTarget],
+		[clearTimelineReveal, combinedMessages, escapeAutoScroll, hasEarlierPages, highlightMessage, isSurfaceLoading, ownerKey, requestTimelineReveal, scrollJumpTargetIntoView, settleJumpTarget],
 	);
 
 	/**

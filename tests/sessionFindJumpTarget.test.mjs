@@ -69,3 +69,21 @@ test("隐藏又没有轮次行祖先时退回元素本身（不抛、不死循�
 	const hidden = fakeElement({ visible: false, turnRow: null });
 	assert.equal(resolveJumpScrollTarget(hidden), hidden);
 });
+
+test("同一份消息数组重复跳转只建一次身份表：查找读数不随会话长度增加", () => {
+	const messages = [];
+	for (let index = 0; index < 12000; index += 1) messages.push(projectedMessage("e" + index));
+	let reads = 0;
+	const counted = new Proxy(messages, {
+		get(target, key, receiver) {
+			if (typeof key === "string" && /^\d+$/.test(key)) reads += 1;
+			return Reflect.get(target, key, receiver);
+		},
+	});
+	const before = reads;
+	assert.equal(resolveJumpMessageIndex(counted, { kind: "unknown", id: "e11999" }), 11999);
+	const firstBuildReads = reads - before;
+	assert.equal(resolveJumpMessageIndex(counted, { kind: "unknown", id: "e0" }), 0);
+	assert.equal(reads - before, firstBuildReads, "第二次命中必须复用 WeakMap 索引，不能再次扫 12000 条");
+	assert.ok(firstBuildReads <= 12000 + 2, "首次建表最多扫一遍，实际读数 " + firstBuildReads);
+});

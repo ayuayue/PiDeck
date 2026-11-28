@@ -86,6 +86,8 @@ const timeline = compile("src/renderer/src/hooks/useSessionTimelineController.ts
 	"./session/timeline/useTimelineScrollAnchor": {},
 	// 跳转落位/收敛与滚动所有权（2026-12 从控制器提出）：本测试不驱动 hook 本体，给空实现即可。
 	"./session/timeline/useTimelineJumpNavigation": {},
+	// 跳转状态已从控制器拆出；本测试只调用控制器纯函数，不驱动该 hook。
+	"./session/timeline/useTimelineJumpState": { JUMP_DOM_WAIT_MAX_FRAMES: 60, useTimelineJumpState: () => ({}) },
 	"./session/timeline/useTimelineScrollOwnership": {},
 	// 纯策略模块（2026-12 从控制器提出：贴底判定 / 顶部补偿 / 浏览钉选择 / 首屏读盘跳过）。
 	// 里面有纯函数行为用例（assert 直接打控制器导出的这些函数），编译真模块而不是 stub。

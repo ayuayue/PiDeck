@@ -5,7 +5,6 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { flushSync } from "react-dom";
 import type { ComponentProps, ReactNode, Ref, RefObject } from "react";
 import type { ChatMessage, ImageContent } from "../../../../shared/types";
-import { MarkdownStream } from "./MarkdownStream";
 import { replaceExpandedRefBlocksWithLabels } from "./composer/quoteChip";
 import { Button } from "../ui-shadcn/button";
 import { DiagnosticMessageCard, EmptyState, MultiSelectModal, RespondingIndicator, TurnRow, UserBubble, stripMarkdown } from "./SurfaceParts";
@@ -46,7 +45,7 @@ import { resolveFreshTailIds } from "../../lib/pinTurnScroll";
 import { chatContentWidthStyle } from "./chatContentWidth";
 import { useSessionVisionBridgeExpected } from "../../hooks/useSessionVisionBridgeExpected";
 import { useAcpHistoryRestorePending } from "../../hooks/useAcpRestoreHint";
-import { countAgentRunItems, selectTimelineTurnWindow, shouldWindowTimelineTurns, TIMELINE_MOUNTED_TURN_LIMIT } from "./timeline/turnRenderWindow";
+import { countAgentRunItems, findAgentRunIndexByItemId, resolveAnchoredTurnWindow, shouldWindowTimelineTurns, TIMELINE_MOUNTED_TURN_LIMIT } from "./timeline/turnRenderWindow";
 import { VirtualRunList } from "./timeline/VirtualRunList";
 import { isRenderableRunItem } from "./timeline/virtualTimelinePolicy";
 import { REVEAL_TIMELINE_ENTRY_EVENT, REVEAL_TIMELINE_ENTRY_TIMEOUT_MS } from "../../hooks/timeline/timelineRevealChannel";
@@ -56,8 +55,6 @@ type UserBubbleProps = ComponentProps<typeof UserBubble>;
 
 /** 一轮结束后、用户无操作的自动收起等待时间。 */
 const TURN_SETTLE_IDLE_COLLAPSE_MS = 1500;
-/** 折叠高度动画基本结束后再做「拉到中上方」定位，避免用折叠前的高度计算目标。 */
-const TURN_SETTLE_SCROLL_DELAY_MS = 320;
 
 // 失败/重试 toast 去重必须放模块级：分屏多栏、切走再切回都会重挂 effect。
 // 重试签名尤其不能放组件 ref——旧实现 lastRetryToastRef 在 sessionId 变化时被清空，
@@ -162,7 +159,6 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 	const timelineRef = props.timelineRef ?? controller.timelineRef;
 	const activeMessages = controller.messages;
 	const paginatedMessages = controller.visibleMessages;
-	const totalMessageCount = controller.totalMessageCount;
 	const hasMoreMessages = controller.hasMoreMessages;
 	const isLoadingMoreMessages = controller.isLoadingMoreMessages;
 	const hasActiveConversation = Boolean(session);
@@ -487,7 +483,8 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 	// （2026-11 真机：吐 token 时点刻度没反应）。
 	const followingForTurnWindow = controller.autoScroll && !controller.jumpPending;
 	const turnWindowTurns = followingForTurnWindow ? TIMELINE_MOUNTED_TURN_LIMIT : controller.scrolledWindowTurns;
-	const displayRuns = useMemo(() => selectTimelineTurnWindow(reconciledRuns, turnWindowTurns), [reconciledRuns, turnWindowTurns]);
+	const windowAnchorId = controller.jumpAnchorMessageId ?? controller.readPinnedMessageId?.() ?? null;
+	const displayRuns = useMemo(() => resolveAnchoredTurnWindow(reconciledRuns, turnWindowTurns, windowAnchorId), [reconciledRuns, turnWindowTurns, windowAnchorId]);
 	useEffect(() => {
 		// 多选关闭且回到底部后才允许缩回 turn 窗口：回底时锚点必在尾部窗口内，缩回不会丢行。
 		if (!multiSelectOpen && followingForTurnWindow) setRetainFullRuns(false);
@@ -784,15 +781,8 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 	// 与 renderRunItem 首行、VirtualRunList 的 entries 共用同一份「是否产出 DOM」判据：
 	// 判定放宽会为空行多吃一条行距，收紧会把卡片从虚拟区静默丢掉（#401 评审）。
 	const isRenderableItem = useCallback((item: RenderMessage) => isRenderableRunItem(item), []);
-	/** 这一轮是否包含指定消息：钉行的 messageId 要映射到它所在的 run。 */
-	const runContainsMessageId = useCallback((item: RenderMessage, messageId: string): boolean => {
-		if (item.kind === "agent-run") {
-			// MessageItem 用 message.id；其余 group 类型的 id 与触发它的消息 id 一致（见 AppUtils）。
-			return item.items.some((sub) => (sub.kind === "message" ? sub.message.id === messageId : sub.id === messageId));
-		}
-		if (item.kind === "message") return item.message.id === messageId;
-		return item.id === messageId;
-	}, []);
+	// 锚点索引与窗口选择共用同一份 reconciledRuns；不存在时返回 -1，不猜轮次。
+	const readPinnedIndex = useCallback((messageId: string) => findAgentRunIndexByItemId(displayRuns, messageId), [displayRuns]);
 	// 恢复锚点 / 挂起跳转在途：这两条路径按 [data-message-id] 查 DOM，虚拟区外的行不在 DOM 里。
 	// 交给 VirtualRunList 的 solid 模式（同一组件内整表真实渲染），不换组件类型 ——
 	// 换类型会整棵卸载，heightsRef 的高度缓存丢失，恢复完成后按估值重排会跳位。
@@ -802,7 +792,8 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 	const pinnedRunKeys: readonly string[] = (() => {
 		const pinnedId = props.controller.readPinnedMessageId?.();
 		if (!pinnedId) return [];
-		const hit = displayRuns.find((item) => runContainsMessageId(item, pinnedId));
+		const pinnedIndex = readPinnedIndex(pinnedId);
+		const hit = pinnedIndex >= 0 ? displayRuns[pinnedIndex] : undefined;
 		return hit ? [virtualRunId(hit)] : [];
 	})();
 	// 宿主插件按 entryId 导航：目标轮可能在虚拟区外（没有 DOM）。hook 派发渲染层事件，

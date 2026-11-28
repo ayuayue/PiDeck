@@ -5,8 +5,8 @@
  * JSONL 行的顶层 `id`，在渲染层消息上落在 `meta.entryId`。而时间线节点/消息的
  * `id` 是投影 id（`${agentId}-history-${entryId}`，见 AgentMessageProjector）。
  * 两者不相等，直接拿命中 id 当消息 id 去查 `[data-message-id]` 永远查不到 →
- * 点击命中「什么都没发生」（2027-02 用户反馈）。这里统一归一：先按消息 id 精确
- * 匹配（刻度/大纲等调用方传的就是投影 id），再按条目 id 匹配（会话内查找命中）。
+ * 点击命中「什么都没发生」（2027-02 用户反馈）。这里统一归一：未知空间先按稳定的
+ * `entryId` 匹配，再按投影 `messageId` 匹配；显式空间只匹配自己的身份。
  */
 /**
  * 从消息 meta 里读条目 id。`ChatMessage.meta` 是 `Record<string, unknown> & I18nDescriptor`，
@@ -130,21 +130,38 @@ export type JumpTargetId =
 	/** 入口拿到的不确定空间 id：先 entryId 后 messageId，命中即用 */
 	| { kind: "unknown"; id: string };
 
-export function resolveJumpMessageIndex(messages: ReadonlyArray<{ id: string; meta?: unknown }>, target: JumpTargetId): number {
+type JumpMessage = { id: string; meta?: unknown };
+type JumpMessageIndex = { entry: Map<string, number>; message: Map<string, number> };
+
+/** 同一份 combinedMessages 只建一次身份表；数组换引用时 WeakMap 自然失效。 */
+const jumpMessageIndexCache = new WeakMap<ReadonlyArray<JumpMessage>, JumpMessageIndex>();
+
+function buildJumpMessageIndex(messages: ReadonlyArray<JumpMessage>): JumpMessageIndex {
+	const cached = jumpMessageIndexCache.get(messages);
+	if (cached) return cached;
+	const index: JumpMessageIndex = { entry: new Map(), message: new Map() };
+	for (let position = 0; position < messages.length; position += 1) {
+		const message = messages[position];
+		// findIndex 的既有契约是首个命中；Map 不能被后来的重投影残影覆盖。
+		if (!index.message.has(message.id)) index.message.set(message.id, position);
+		const entryId = readEntryId(message.meta);
+		if (entryId && !index.entry.has(entryId)) index.entry.set(entryId, position);
+	}
+	jumpMessageIndexCache.set(messages, index);
+	return index;
+}
+
+export function resolveJumpMessageIndex(messages: ReadonlyArray<JumpMessage>, target: JumpTargetId): number {
 	if (!target.id) return -1;
-	const byEntry = (id: string): number => messages.findIndex((message) => readEntryId(message.meta) === id);
-	const byMessage = (id: string): number => messages.findIndex((message) => message.id === id);
+	const index = buildJumpMessageIndex(messages);
 	switch (target.kind) {
 		case "entry":
-			return byEntry(target.id);
+			return index.entry.get(target.id) ?? -1;
 		case "message":
-			return byMessage(target.id);
-		default: {
+			return index.message.get(target.id) ?? -1;
+		default:
 			// entryId 优先：它是文件里的稳定身份；messageId 是投影 id，重投影会变。
-			const byEntryIndex = byEntry(target.id);
-			if (byEntryIndex >= 0) return byEntryIndex;
-			return byMessage(target.id);
-		}
+			return index.entry.get(target.id) ?? index.message.get(target.id) ?? -1;
 	}
 }
 

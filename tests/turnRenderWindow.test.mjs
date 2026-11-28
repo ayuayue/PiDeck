@@ -63,12 +63,11 @@ test("selectTimelineTurnWindow returns same reference when under the window", ()
 
 test("timeline wires the turn mount window helper", () => {
 	const source = readFileSync("src/renderer/src/components/session/SessionMessageTimeline.tsx", "utf8");
-	assert.match(source, /selectTimelineTurnWindow/);
+	assert.match(source, /resolveAnchoredTurnWindow/);
 	assert.match(source, /TIMELINE_MOUNTED_TURN_LIMIT/);
 	assert.doesNotMatch(source, /TIMELINE_SCROLLED_MAX_ITEMS/, "item budget removed in turn-centric protocol");
-	// 跟随、恢复与普通历史浏览都必须走同一 tail-window 参数，不能在恢复时
-	// 临时全量挂载后再收缩，否则已恢复的 scrollTop 会因高度缩小被截断。
-	assert.match(source, /selectTimelineTurnWindow\(reconciledRuns, turnWindowTurns\)/);
+	// 跟随、恢复与普通历史浏览都必须使用有界窗口；跳转时窗口锚到目标，未命中才退回尾窗。
+	assert.match(source, /resolveAnchoredTurnWindow\(reconciledRuns, turnWindowTurns, windowAnchorId\)/);
 	assert.doesNotMatch(source, /Number\.MAX_SAFE_INTEGER/);
 	assert.match(source, /displayRuns\.map/);
 });

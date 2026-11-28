@@ -172,9 +172,8 @@ test("turn-window expansion pins the visible row instead of native scrollTop", (
 test("timeline keeps the same turn window through anchor restoration", () => {
 	const timelineSource = readFileSync("src/renderer/src/components/session/SessionMessageTimeline.tsx", "utf8");
 	const controllerSource = sessionTimelineControllerSource;
-	// 保存、恢复和正常历史浏览必须都按同一个 tail-window 裁剪。恢复期若改成全量，
-	// restoreAt 后再收回小窗口会让浏览器把 scrollTop 截断到新的最大值。
-	assert.match(timelineSource, /selectTimelineTurnWindow\(reconciledRuns, turnWindowTurns\)/);
+	// 保存、恢复和正常历史浏览都必须使用有界窗口；跳转时窗口锚到目标，未命中才退回尾窗。
+	assert.match(timelineSource, /resolveAnchoredTurnWindow\(reconciledRuns, turnWindowTurns, windowAnchorId\)/);
 	assert.doesNotMatch(timelineSource, /isRestoringScrollAnchor/);
 	assert.doesNotMatch(timelineSource, /jumpNavigationActive/);
 	assert.doesNotMatch(timelineSource, /Number\.MAX_SAFE_INTEGER/);

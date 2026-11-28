@@ -10,6 +10,11 @@
 
 /** 贴底时最多挂载的 agent-run 轮数。 */
 export const TIMELINE_MOUNTED_TURN_LIMIT = 3;
+
+/** 跳转锚点窗口每侧的默认轮数；挂载量与目标距尾部无关。 */
+export const JUMP_WINDOW_RUNS_EACH_SIDE = 6;
+/** 锚点窗口的安全上限，防止错误身份把整份会话挂进 DOM。 */
+export const JUMP_WINDOW_RUNS_MAX = 40;
 /** 上滚查看历史时的基础渲染窗口轮数：与贴底同为 3，避免脱离贴底瞬间挂载隐藏历史。 */
 export const TIMELINE_SCROLLED_TURN_LIMIT = 3;
 /** 本地 DOM 扩窗 / 数据翻页的统一 cohort 大小；主进程 12 轮 = atom 9 轮 + 一页 3 轮。 */
@@ -137,6 +142,82 @@ export function shouldWindowTimelineTurns(agentRunCount: number, windowTurns: nu
 }
 
 /** 按窗口轮数决定展示列表；未裁剪时返回原数组引用。 */
+/**
+ * 跳转目标的渲染身份索引。一次建立后，同一份 reconciledRuns 上的点击是 O(1) 查找；
+ * 数组引用变化时自动失效。索引同时收录顶层消息、MessageItem、工具/思考组及其 messages。
+ */
+const jumpRunIndexCache = new WeakMap<readonly unknown[], { message: Map<string, number>; entry: Map<string, number> }>();
+
+function readJumpEntryId(meta: unknown): string | undefined {
+	if (meta === null || typeof meta !== "object" || !("entryId" in meta)) return undefined;
+	const entryId = meta.entryId;
+	return typeof entryId === "string" && entryId.length > 0 ? entryId : undefined;
+}
+
+function collectJumpIds(value: unknown, itemIndex: number, index: { message: Map<string, number>; entry: Map<string, number> }): void {
+	if (value === null || typeof value !== "object") return;
+	const record = value as { id?: unknown; meta?: unknown; message?: unknown; items?: unknown; messages?: unknown };
+	if (typeof record.id === "string" && record.id.length > 0 && !index.message.has(record.id)) index.message.set(record.id, itemIndex);
+	const entryId = readJumpEntryId(record.meta);
+	if (entryId && !index.entry.has(entryId)) index.entry.set(entryId, itemIndex);
+	if (record.message !== undefined) collectJumpIds(record.message, itemIndex, index);
+	const nested = Array.isArray(record.items) ? record.items : record.messages;
+	if (Array.isArray(nested)) for (const child of nested) collectJumpIds(child, itemIndex, index);
+}
+
+function buildJumpRunIndex(items: readonly { kind: string; items?: readonly unknown[] }[]): { message: Map<string, number>; entry: Map<string, number> } {
+	const cached = jumpRunIndexCache.get(items);
+	if (cached) return cached;
+	const index = { message: new Map<string, number>(), entry: new Map<string, number>() };
+	for (let position = 0; position < items.length; position += 1) collectJumpIds(items[position], position, index);
+	jumpRunIndexCache.set(items, index);
+	return index;
+}
+
+export function findAgentRunIndexByItemId(items: ReadonlyArray<{ kind: string; id?: string; items?: readonly unknown[] }>, itemId: string | null | undefined): number {
+	if (!itemId) return -1;
+	const index = buildJumpRunIndex(items);
+	// 文件条目身份跨重投影稳定；未知入口优先 entryId，和 jumpTarget.ts 同一契约。
+	return index.entry.get(itemId) ?? index.message.get(itemId) ?? -1;
+}
+
+/** 以锚点为中心取有界窗口；窗口外的 700 轮不会因跳转被复制进 DOM。 */
+export function sliceAgentRunsAround<T extends { kind: string; items?: readonly unknown[] }>(items: readonly T[], anchorIndex: number, beforeRuns = 1, afterRuns = 3): T[] | null {
+	if (anchorIndex < 0 || anchorIndex >= items.length) return null;
+	const anchor = items[anchorIndex];
+	if (!anchor || (anchor.kind !== "agent-run" && anchor.kind !== "message")) return null;
+	let start = anchorIndex;
+	let seen = 0;
+	while (start > 0 && seen < beforeRuns) {
+		start -= 1;
+		if (items[start]?.kind === "agent-run") seen += 1;
+	}
+	// 轮首的用户提问通常是紧邻 agent-run 的顶层 message；不能把它切掉。
+	while (start < anchorIndex && items[start]?.kind !== "agent-run" && items[start]?.kind !== "message") start += 1;
+	let end = anchorIndex;
+	seen = 0;
+	while (end < items.length - 1 && seen < afterRuns) {
+		end += 1;
+		if (items[end]?.kind === "agent-run") seen += 1;
+	}
+	return items.slice(start, end + 1) as T[];
+}
+
+/** 有锚点走固定半径；锚点不在当前投影时安全退回尾窗，绝不返回全量。 */
+export function resolveAnchoredTurnWindow<T extends { kind: string; items?: readonly unknown[] }>(items: readonly T[], windowTurns: number, pinnedMessageId: string | null | undefined, perSideRuns = JUMP_WINDOW_RUNS_EACH_SIDE): T[] {
+	if (pinnedMessageId) {
+		const anchorIndex = findAgentRunIndexByItemId(items, pinnedMessageId);
+		if (anchorIndex >= 0) {
+			const perSide = Math.min(JUMP_WINDOW_RUNS_MAX, Math.max(1, Number.isFinite(perSideRuns) ? Math.trunc(perSideRuns) : JUMP_WINDOW_RUNS_EACH_SIDE));
+			const before = Math.min(perSide, anchorIndex);
+			const after = Math.min(perSide, items.length - 1 - anchorIndex);
+			const around = sliceAgentRunsAround(items, anchorIndex, before + Math.max(0, 2 * perSide - before - after), after);
+			if (around) return around;
+		}
+	}
+	return selectTimelineTurnWindow(items, windowTurns);
+}
+
 export function selectTimelineTurnWindow<T extends { kind: string } & { items?: readonly unknown[] }>(
 	items: readonly T[],
 	windowTurns: number,
