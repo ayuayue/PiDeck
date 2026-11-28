@@ -351,13 +351,14 @@ func (a *app) loadHistoryFromFile(s *session) {
 	s.historyLoading = true
 	file, target := s.File, s.Target
 	go func() {
-		var msgs []piMessage
+		var entry historyEntry
 		var err error
 		if target.remote() {
-			msgs, err = targetHistoryMessages(target, file)
+			entry, err = targetSessionHistory(target, file)
 		} else {
-			msgs, err = sessionFileMessages(file)
+			entry, err = sessionFileHistory(file)
 		}
+		msgs := entry.view
 		history, items := turnsFromMessages(msgs), todosFromMessages(msgs)
 		a.cx.Post(func() {
 			if s.historyGeneration != generation || a.byID[s.ID] != s {
@@ -374,6 +375,21 @@ func (a *app) loadHistoryFromFile(s *session) {
 			}
 			if a.activeID.GetUntracked() == s.ID {
 				a.animateNextLayout()
+			}
+			if !s.readySig.GetUntracked() {
+				// A choice made while the file was loading takes precedence.
+				if !s.modelSelection.model && entry.model.ID != "" {
+					s.model.Set(entry.model)
+					s.levels.Set(nil)
+				}
+				if !s.modelSelection.thinking && entry.thinking != "" {
+					s.thinking.Set(entry.thinking)
+				}
+				if !target.remote() {
+					if options := a.modelOptions[s.WS]; options != nil {
+						a.publishSessionModelOptions(s, options)
+					}
+				}
 			}
 			a.publishHistoryPerf(s, msgs)
 			a.fillHistory(s, history, items, false)

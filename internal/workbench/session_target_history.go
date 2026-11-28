@@ -150,42 +150,46 @@ find "$dir" -type f -name '*.jsonl' -exec sh -c '
 }
 
 func targetHistoryMessages(t target, file string) ([]piMessage, error) {
+	entry, err := targetSessionHistory(t, file)
+	return entry.msgs, err
+}
+
+func targetSessionHistory(t target, file string) (historyEntry, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()
 	if !validTargetSessionFile(file) {
-		return nil, errFilePath
+		return historyEntry{}, errFilePath
 	}
 	const limit = 32 << 20
 	cmd, err := t.workspaceCommand(ctx, "/", targetSessionGuard+`head -c 33554433 "$file"`, file)
 	if err != nil {
-		return nil, err
+		return historyEntry{}, err
 	}
 	r, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, err
+		return historyEntry{}, err
 	}
 	if err := cmd.Start(); err != nil {
-		return nil, err
+		return historyEntry{}, err
 	}
 	data, err := readTextFile(r, limit)
 	if err != nil {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
-		return nil, err
+		return historyEntry{}, err
 	}
 	if err := targetFileError(cmd.Wait()); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil
+			return historyEntry{}, nil
 		}
-		return nil, err
+		return historyEntry{}, err
 	}
-	var msgs []piMessage
+	var entry historyEntry
 	for line := range bytes.SplitSeq(data, []byte("\n")) {
-		if msg, ok := historyLineMessage(line); ok {
-			msgs = append(msgs, msg)
-		}
+		entry.readLine(line)
 	}
-	return msgs, nil
+	entry.view = entry.msgs
+	return entry, nil
 }
 
 func validTargetSessionFile(file string) bool {

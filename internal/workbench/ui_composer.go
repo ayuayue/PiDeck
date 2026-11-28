@@ -295,7 +295,20 @@ func (a *app) effortPicker(s *session) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		levels := s.levels.Get()
 		if len(levels) == 0 {
-			return nil
+			level := s.thinking.Get()
+			if level == "" {
+				return nil
+			}
+			// The file records the selection, not the model's supported levels.
+			colors := ui.ColorsOf(cx)
+			return core.View{TestID: "effort-picker", Label: apptext.T("思考等级 · %s", levelLabel(level)),
+				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5,
+					Height: core.Pt(26), Padding: core.Symmetric(0, 7)},
+				Children: []core.Node{
+					ui.Icon(lucide.Brain, 12, colors.Muted),
+					core.Text{Content: levelLabel(level), MaxLines: 1,
+						Style: core.Style{FontSize: 11.5}, StyleFunc: ui.Colored(colors.Text)},
+				}}
 		}
 		options := make([]chat.Option, 0, len(levels))
 		for _, l := range levels {

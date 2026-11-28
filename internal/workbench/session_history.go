@@ -27,9 +27,11 @@ const historyCacheMax = 8
 // historyEntry is one file's parsed messages, and how much of the file that
 // parse covers.
 type historyEntry struct {
-	size    int64
-	modTime time.Time
-	msgs    []piMessage
+	size     int64
+	modTime  time.Time
+	msgs     []piMessage
+	model    modelInfo
+	thinking string
 	// view is msgs as the session's context edits leave it: entries taken
 	// out of the context are gone, rewritten ones carry their new text.
 	view  []piMessage
@@ -118,52 +120,84 @@ func sessionFileHistory(path string) (historyEntry, error) {
 	if seen {
 		start = prev.tail.resumeAt(path, info.Size())
 	}
-	msgs, edits, tail, err := readSessionMessages(path, start)
+	entry, err := readSessionMessages(path, start)
 	if err != nil {
 		return historyEntry{}, err
 	}
 	if start > 0 {
-		joined := make([]piMessage, 0, len(prev.msgs)+len(msgs))
+		joined := make([]piMessage, 0, len(prev.msgs)+len(entry.msgs))
 		joined = append(joined, prev.msgs...)
-		msgs = append(joined, msgs...)
+		entry.msgs = append(joined, entry.msgs...)
+		if entry.model.ID == "" {
+			entry.model = prev.model
+		}
+		if entry.thinking == "" {
+			entry.thinking = prev.thinking
+		}
 		// An edit appended later still speaks about messages read earlier.
 		merged := maps.Clone(prev.edits)
 		if merged == nil {
 			merged = map[string]contextEdit{}
 		}
-		maps.Copy(merged, edits)
-		edits = merged
+		maps.Copy(merged, entry.edits)
+		entry.edits = merged
 	}
-	view := applyContextEdits(msgs, edits)
-	entry := historyEntry{msgs: msgs, view: view, edits: edits, tail: tail, phone: sync.OnceValue(func() []turn {
+	view := applyContextEdits(entry.msgs, entry.edits)
+	entry.view = view
+	entry.phone = sync.OnceValue(func() []turn {
 		return turnsFromMessages(view[max(0, len(view)-4000):])
-	})}
+	})
 	sessionHistory.put(path, info, entry)
 	return entry, nil
 }
 
-// readSessionMessages reads the message entries of a pi session file from
-// start, and reports where it stopped.
-func readSessionMessages(path string, start int64) ([]piMessage, map[string]contextEdit, parsedTail, error) {
-	var msgs []piMessage
-	var edits map[string]contextEdit
+// readSessionMessages reads the transcript and saved settings from start,
+// and reports where it stopped.
+func readSessionMessages(path string, start int64) (historyEntry, error) {
+	var entry historyEntry
 	tail, err := readTail(path, start, func(line []byte) error {
-		if msg, ok := historyLineMessage(line); ok {
-			msgs = append(msgs, msg)
-			return nil
-		}
-		if edit, ok := historyLineContextEdit(line); ok {
-			if edits == nil {
-				edits = map[string]contextEdit{}
-			}
-			edits[edit.Target] = edit
-		}
+		entry.readLine(line)
 		return nil
 	})
-	if err != nil {
-		return nil, nil, tail, err
+	entry.tail = tail
+	return entry, err
+}
+
+// readLine keeps settings in file order, including changes after the last reply.
+func (entry *historyEntry) readLine(line []byte) {
+	if msg, ok := historyLineMessage(line); ok {
+		entry.msgs = append(entry.msgs, msg)
+		if msg.Role == "assistant" && msg.Model != "" {
+			entry.model = modelInfo{ID: msg.Model, Provider: msg.Provider}
+		}
+		return
 	}
-	return msgs, edits, tail, nil
+	if edit, ok := historyLineContextEdit(line); ok {
+		if entry.edits == nil {
+			entry.edits = map[string]contextEdit{}
+		}
+		entry.edits[edit.Target] = edit
+		return
+	}
+	var change struct {
+		Type          string `json:"type"`
+		Provider      string `json:"provider"`
+		ModelID       string `json:"modelId"`
+		ThinkingLevel string `json:"thinkingLevel"`
+	}
+	if json.Unmarshal(line, &change) != nil {
+		return
+	}
+	switch change.Type {
+	case "model_change":
+		if change.ModelID != "" {
+			entry.model = modelInfo{ID: change.ModelID, Provider: change.Provider}
+		}
+	case "thinking_level_change":
+		if change.ThinkingLevel != "" {
+			entry.thinking = change.ThinkingLevel
+		}
+	}
 }
 
 // historyLineContextEdit reads one of pi's context_edit records: the entry
