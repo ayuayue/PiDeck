@@ -70,6 +70,7 @@ function createMockDeps(store) {
 		},
 		abortRuntime: async (target) => {
 			abortedTargets.push(target);
+			return { ok: true, value: { target, value: undefined } };
 		},
 		stopRuntime: async (target) => {
 			stoppedTargets.push(target);
@@ -407,6 +408,56 @@ test("AutomationRunCoordinator enforces token budget and aborts runtime when bud
 		await removeFixtureDir(dir);
 	}
 });
+
+for (const stage of ["draft", "send", "send-fallback", "send-rejected", "send-throws"]) {
+	test(`abort while starting preserves the terminal state (${stage})`, async (t) => {
+		const dir = await mkdtemp(join(tmpdir(), "pideck-coord-starting-abort-"));
+		const store = new AutomationStore(join(dir, "automation.json"));
+		const deps = createMockDeps(store);
+		const coordinator = new AutomationRunCoordinator(deps);
+		const entered = Promise.withResolvers();
+		const resume = Promise.withResolvers();
+		// enqueue detaches startup. Join that exact promise before checking for late effects.
+		const startup = t.mock.method(coordinator, "executeRun");
+		try {
+			await store.load();
+			const task = await store.createTask({ name: "Cancel during startup", projectId: "p1", prompt: "check", schedule: { type: "manual" } });
+			const owner = stage === "draft" ? deps.catalog : deps.sessionRuntimeCoordinator;
+			const method = stage === "draft" ? "createDraft" : "send";
+			const original = owner[method].bind(owner);
+			t.mock.method(owner, method, async (input) => {
+				entered.resolve();
+				await resume.promise;
+				if (stage === "send-throws") throw new Error("late dispatch failure");
+				if (stage === "send-rejected") return { accepted: false, error: "late rejection" };
+				const result = await original(input);
+				return stage === "send-fallback" ? { accepted: true } : result;
+			});
+			deps.sessionRuntimeCoordinator.getTarget = (sessionId) => ({ sessionId, agentId: "agent-123", runtimeGeneration: 1 });
+
+			const run = await coordinator.enqueueRun(task, undefined, "manual");
+			await entered.promise;
+			assert.equal(await coordinator.abortRun(run.id), true);
+			resume.resolve();
+			await startup.mock.calls[0].result;
+
+			const final = store.getRun(run.id);
+			assert.equal(final.status, "aborted");
+			assert.equal(final.events.at(-1).type, "aborted");
+			if (stage === "draft") assert.equal(deps.sentPrompts.length, 0);
+			if (stage === "send" || stage === "send-fallback") {
+				assert.equal(deps.abortedTargets.length, 1);
+				assert.equal(deps.abortedTargets[0].sessionId, deps.createdSessions[0].id);
+				assert.equal(deps.abortedTargets[0].runtimeGeneration, 1);
+			}
+		} finally {
+			resume.resolve();
+			coordinator.dispose();
+			await store.flush();
+			await removeFixtureDir(dir);
+		}
+	});
+}
 
 test("AutomationRunCoordinator supports manual abortRun", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "pideck-coord-abort-"));

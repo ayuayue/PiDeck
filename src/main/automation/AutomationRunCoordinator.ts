@@ -148,20 +148,19 @@ export class AutomationRunCoordinator {
 		const tracker = this.activeTrackers.get(runId);
 		if (tracker?.timeoutHandle) clearTimeout(tracker.timeoutHandle);
 
-		if (tracker?.target) {
-			try {
-				await this.sessionRuntimeCoordinator.abortRuntime(tracker.target);
-			} catch (err) {
-				void this.logger?.warn("automation", "Failed to abort runtime target", {
-					runId,
-					target: tracker.target,
-					error: String(err),
-				});
-			}
-		}
+		if (tracker?.target) await this.abortRunTarget(runId, tracker.target);
 
 		await this.finalizeRun(runId, "aborted", reason, { at: Date.now() });
 		return true;
+	}
+
+	private async abortRunTarget(runId: string, target: SessionRuntimeTarget): Promise<void> {
+		try {
+			const result = await this.sessionRuntimeCoordinator.abortRuntime(target);
+			if (!result.ok) void this.logger?.warn("automation", "Failed to abort runtime target", { runId, target, error: result.error });
+		} catch (err) {
+			void this.logger?.warn("automation", "Failed to abort runtime target", { runId, target, error: String(err) });
+		}
 	}
 
 	observeRuntimeEvent(event: SessionRuntimeEvent): void {
@@ -270,6 +269,8 @@ export class AutomationRunCoordinator {
 			},
 			{ type: "starting", at: now },
 		);
+		// 创建草稿和发送都可能跨越一次取消；每个启动阶段在接手下一步前重查同一个 tracker。
+		if (this.disposed || tracker.completed) return;
 
 		const project = this.projectStore.get(task.projectId);
 		if (!project) {
@@ -283,9 +284,6 @@ export class AutomationRunCoordinator {
 
 		let sessionDraft: import("../../shared/types").SessionRecord;
 		try {
-			// 建草稿会写 catalog：dispose 后必须停在这里，否则会留下「进程已退出但会话多出来」
-			// 的孤儿条目（比 unhandledRejection 更难排查）。
-			if (this.disposed) return;
 			sessionDraft = await this.catalog.createDraft({
 				projectId: project.id,
 				title,
@@ -299,12 +297,12 @@ export class AutomationRunCoordinator {
 				permissionPreset: task.permissionPreset,
 			});
 		} catch (err) {
-			await this.finalizeRun(runId, "failed", `Failed to create session: ${err instanceof Error ? err.message : String(err)}`, { at: Date.now() });
+			if (!tracker.completed) await this.finalizeRun(runId, "failed", `Failed to create session: ${err instanceof Error ? err.message : String(err)}`, { at: Date.now() });
 			return;
 		}
 
 		const sessionId = sessionDraft.id;
-		if (this.disposed) return;
+		if (this.disposed || tracker.completed) return;
 		// 新 draft 已落 catalog：广播刷新让侧栏立即出现会话行（catalog 无内部广播机制，
 		// 不广播的话渲染层要等下一次交互才会拉到，且期间 DSH agent 行会先落成孤儿条目）。
 		this.notifySessionCatalogChanged?.(project.id);
@@ -316,6 +314,7 @@ export class AutomationRunCoordinator {
 			},
 			{ type: "session-created", message: `Session ${sessionId} created`, at: Date.now() },
 		);
+		if (this.disposed || tracker.completed) return;
 
 		// Setup timeout watch：timeoutMs 缺省（留空不限）时不挂 watch——
 		// 若对 undefined 直接 setTimeout，事件循环按 0ms 立即触发，会把运行误杀成 timed-out。
@@ -330,9 +329,6 @@ export class AutomationRunCoordinator {
 
 		const requestId = randomUUID();
 		try {
-			// dispose 后不再派发：send 会拉起 pi/DSH 子进程，退出路径上再起进程
-			// 会变成没有任何人回收的孤儿进程。
-			if (this.disposed) return;
 			// message 是用户可见原文（会话气泡），agentMessage 是实际发给 pi 的载荷。
 			// AgentManager.sendPrompt 里 agentMessage 非空时会**整体替换** message，
 			// 所以宿主指令必须与任务提示词拼接，不能只放指令——否则定时任务的提示词
@@ -364,52 +360,24 @@ export class AutomationRunCoordinator {
 						}),
 			});
 
+			if (this.disposed) return;
 			if (!result.accepted) {
-				await this.finalizeRun(runId, "failed", result.error || "Prompt dispatch rejected", { at: Date.now() });
+				if (!tracker.completed) await this.finalizeRun(runId, "failed", result.error || "Prompt dispatch rejected", { at: Date.now() });
 				return;
 			}
 
-			if (result.agentId && result.runtimeGeneration !== undefined) {
-				tracker.target = {
-					sessionId,
-					agentId: result.agentId,
-					runtimeGeneration: result.runtimeGeneration,
-				};
-				if (this.disposed) return;
-				// dispatch 已接受、attachRuntime 在 sendOnce 内异步回写 dshSessionId：
-				// 再广播一次，让渲染层重拉到 promoteToActive 后的会话状态。
-				this.notifySessionCatalogChanged?.(project.id);
-				await this.store.updateRun(
-					runId,
-					{
-						status: "running",
-						agentId: result.agentId,
-						runtimeGeneration: result.runtimeGeneration,
-						updatedAt: Date.now(),
-					},
-					{ type: "prompt-accepted", at: Date.now() },
-				);
-			} else {
-				// Query target if omitted from result
-				const target = this.sessionRuntimeCoordinator.getTarget(sessionId);
-				if (target) {
-					tracker.target = target;
-					if (this.disposed) return;
-					this.notifySessionCatalogChanged?.(project.id);
-					await this.store.updateRun(
-						runId,
-						{
-							status: "running",
-							agentId: target.agentId,
-							runtimeGeneration: target.runtimeGeneration,
-							updatedAt: Date.now(),
-						},
-						{ type: "prompt-accepted", at: Date.now() },
-					);
-				}
+			const target = result.agentId && result.runtimeGeneration !== undefined ? { sessionId, agentId: result.agentId, runtimeGeneration: result.runtimeGeneration } : this.sessionRuntimeCoordinator.getTarget(sessionId);
+			if (!target) return;
+			// send 在途时取消/超时还拿不到 target。只中止迟到的这一代运行，不再推进已结束的任务。
+			if (tracker.completed) {
+				await this.abortRunTarget(runId, target);
+				return;
 			}
+			tracker.target = target;
+			this.notifySessionCatalogChanged?.(project.id);
+			await this.store.updateRun(runId, { status: "running", agentId: target.agentId, runtimeGeneration: target.runtimeGeneration, updatedAt: Date.now() }, { type: "prompt-accepted", at: Date.now() });
 		} catch (err) {
-			await this.finalizeRun(runId, "failed", err instanceof Error ? err.message : String(err), { at: Date.now() });
+			if (!tracker.completed) await this.finalizeRun(runId, "failed", err instanceof Error ? err.message : String(err), { at: Date.now() });
 		}
 	}
 
