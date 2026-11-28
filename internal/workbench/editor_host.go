@@ -360,6 +360,21 @@ func (a *app) reloadActiveFile() {
 	a.editor.load(f)
 }
 
+// savingPath reports whether moving a local path would interrupt a save.
+func (h *editorHost) savingPath(path string) bool {
+	if h == nil {
+		return false
+	}
+	path = filepath.Clean(path)
+	for _, f := range h.files.GetUntracked() {
+		if !f.file.target.remote() && f.busy.GetUntracked() &&
+			(f.Path == path || strings.HasPrefix(f.Path, path+string(filepath.Separator))) {
+			return true
+		}
+	}
+	return false
+}
+
 // renamePath follows a file or folder renamed on disk: open tabs, their
 // names and languages, and the active tab.
 func (h *editorHost) renamePath(old, next string) {

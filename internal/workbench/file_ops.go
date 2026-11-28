@@ -127,14 +127,9 @@ func (a *app) renameFileNode(path string) {
 			a.toast(ui.ToastWarning, "已经有一个同名文件或文件夹", name)
 			return
 		}
-		if a.editor != nil {
-			for _, f := range a.editor.files.GetUntracked() {
-				if !f.file.target.remote() && f.busy.GetUntracked() &&
-					(f.Path == path || strings.HasPrefix(f.Path, path+string(filepath.Separator))) {
-					a.toast(ui.ToastWarning, "重命名失败", "正在保存…")
-					return
-				}
-			}
+		if a.editor.savingPath(path) {
+			a.toast(ui.ToastWarning, "重命名失败", "正在保存…")
+			return
 		}
 		if err := os.Rename(path, next); err != nil {
 			a.toast(ui.ToastError, "重命名失败", err.Error())
@@ -223,6 +218,9 @@ func (a *app) trashFile(path string) {
 func (a *app) moveToTrash(path string) (string, error) {
 	if a.st == nil {
 		return "", fmt.Errorf("找不到数据目录")
+	}
+	if a.editor.savingPath(path) {
+		return "", fmt.Errorf("正在保存…")
 	}
 	dir := filepath.Join(a.st.dir, "trash", "files")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
