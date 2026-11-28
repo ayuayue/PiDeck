@@ -3412,6 +3412,7 @@
   "自定义请求头": "En-têtes de requête personnalisés",
   "供应商级兼容性：默认继承 pi 判断；仅在供应商文档要求时覆盖。": "Compatibilité au niveau du fournisseur : déterminée par pi par défaut. Ne la remplacez que si la documentation du fournisseur l’exige.",
   "继承内置配置": "Hériter de la configuration intégrée",
+  "退出或重启会丢失未保存的文件修改。可以先取消，保存后再继续。": "Quitter ou redémarrer entraînera la perte des modifications non enregistrées des fichiers. Annulez pour les enregistrer avant de continuer.",
   "有未保存的更改": "Modifications non enregistrées",
   "保存连接": "Enregistrer la connexion",
   "返回模型列表": "Retour à la liste des modèles",

@@ -14,6 +14,7 @@ import (
 	"example.com/pideck/assets"
 	"example.com/pideck/internal/apptext"
 	"example.com/pideck/internal/viewkit"
+	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/desktop"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -28,6 +29,7 @@ func (a *app) setupDesktop() {
 	if !desktop.IsAvailable(a.cx) {
 		return
 	}
+	a.setupQuitGuard()
 	a.attachMainWindow()
 	// A menu bar draws its icons as shapes in its own colors, so it takes
 	// the glyph alone; Windows and Linux show the app's mark in color.
@@ -141,10 +143,37 @@ func (a *app) showMainWindow() {
 	a.cx.AfterFunc(windowRestoreDelay, a.restoreWindowMaximized)
 }
 
+// setupQuitGuard keeps unsaved files open until a user accepts losing them.
+func (a *app) setupQuitGuard() {
+	a.cx.OnQuitRequest(func(q *core.QuitRequest) {
+		if q.Forced() || a.editor == nil || !a.editor.anyDirty() {
+			a.quitting = true
+			return
+		}
+		answer := q.Defer()
+		a.showMainWindow()
+		discard := apptext.T("放弃修改")
+		base.ShowAlertDialog(a.cx, base.AlertDialog{
+			Title:         apptext.T("有未保存的更改"),
+			Description:   apptext.T("退出或重启会丢失未保存的文件修改。可以先取消，保存后再继续。"),
+			CloseOnEscape: core.ToggleOn,
+			Actions: []core.AlertAction{
+				{Label: apptext.T("取消"), Role: core.AlertCancel},
+				{Label: discard, Role: core.AlertDestructive},
+			},
+		}, func(label string) {
+			quit := label == discard
+			if quit {
+				a.quitting = true
+			}
+			answer(quit)
+		})
+	})
+}
+
 // quitApp ends the app even when close-to-tray would keep it.
 func (a *app) quitApp() {
-	a.quitting = true
-	a.cx.Quit()
+	a.cx.RequestQuit()
 }
 
 // updateTray puts the running count in the tooltip, keeps the computer

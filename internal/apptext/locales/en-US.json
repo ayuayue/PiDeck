@@ -3412,6 +3412,7 @@
   "自定义请求头": "Custom request headers",
   "供应商级兼容性：默认继承 pi 判断；仅在供应商文档要求时覆盖。": "Provider-level compatibility: use pi's defaults unless the provider's documentation requires overrides.",
   "继承内置配置": "Inherit built-in configuration",
+  "退出或重启会丢失未保存的文件修改。可以先取消，保存后再继续。": "Quitting or restarting will discard unsaved file changes. Cancel to save your changes before continuing.",
   "有未保存的更改": "Unsaved changes",
   "保存连接": "Save connection",
   "返回模型列表": "Back to model list",
