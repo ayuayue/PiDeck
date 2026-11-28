@@ -80,12 +80,6 @@ func (a *app) chatWidthPct() int {
 	return pct
 }
 
-// dialogWidth is a modal's width: the same share of the window as the
-// chat column.
-func (a *app) dialogWidth() core.Length {
-	return core.Pct(float32(a.chatWidthPct()))
-}
-
 // setChatWidthPct narrows or widens the transcript and composer; the
 // default is stored as unset. The views read the signal, so they follow a
 // drag at once, and only the file write waits for the value to rest.

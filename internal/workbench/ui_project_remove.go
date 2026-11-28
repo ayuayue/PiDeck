@@ -29,7 +29,10 @@ func (a *app) projectRemoveDialog() core.Node {
 			OnOpenChange: func(on bool, _ base.Reason) { a.projectRemoveOpen.Set(on) }, Style: core.Style{Width: a.dialogWidth()},
 			Children: []core.Node{
 				ui.Text(apptext.T("选中的项目会从侧栏移除，项目文件和会话仍保留。"), 12, ui.Regular, colors.Muted),
-				core.List{Style: core.Style{Height: core.Pt(260), Padding: core.Edges{Right: viewkit.PanelInset}}, Count: func() int { return len(projects.Get()) }, EstimatedSize: 34,
+				core.List{TestID: "project-remove-list", Style: core.Style{FlexShrink: 1, MinHeight: core.Pt(0), Padding: core.Edges{Right: viewkit.PanelInset}},
+					StyleFunc: func() core.Style {
+						return core.Style{Height: dialogBodyHeight(cx, min(core.Points(max(1, len(projects.Get())))*40, viewkit.DialogListMaxHeight))}
+					}, Count: func() int { return len(projects.Get()) }, EstimatedSize: 40,
 					Key: func(i int) any { return trustKey(projects.Get()[i]) },
 					Row: func(cx *core.Scope, row core.ListRow) core.Node {
 						return core.Dynamic(func(cx *core.Scope) core.Node {

@@ -43,7 +43,7 @@ func (a *app) parallelAskDialog() core.Node {
 				}})}},
 			}}
 		}
-		buttonRow := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
+		buttonRow := core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
 			ui.Button{Text: apptext.T("开始问"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "ask-start",
 				Disabled: func() bool { return !canStart }, OnPress: func() { a.startAsk() }},
 			ui.Button{Text: apptext.T("插入到输入框"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "ask-insert",
@@ -65,7 +65,9 @@ func (a *app) parallelAskDialog() core.Node {
 			},
 			Title:  apptext.T("并行问询"),
 			TestID: "ask-dialog",
-			Style:  core.Style{Width: a.dialogWidth(), Height: core.Pt(560)},
+			StyleFunc: func() core.Style {
+				return core.Style{Width: a.dialogWidth(viewkit.DialogEditorWidth), Height: dialogHeight(cx, viewkit.DialogEditorHeight)}
+			},
 			Children: []core.Node{a.scrollStashFor("parallelAskDialog:2").Bind(cx, core.Scroll{Style: ui.FillRest, Children: []core.Node{
 				core.View{Style: core.Style{Gap: 12, Padding: core.Edges{Right: viewkit.PanelInset}}, Children: []core.Node{
 					core.View{Style: core.Style{Gap: 4}, Children: []core.Node{

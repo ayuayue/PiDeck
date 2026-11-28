@@ -25,8 +25,10 @@ func (a *app) shortcutsDialog() core.Node {
 			OnOpenChange: func(open bool, _ base.Reason) { a.shortcutsOpen.Set(open) },
 			Title:        apptext.T("键盘快捷键"),
 			TestID:       "shortcuts",
-			Style:        core.Style{Width: a.dialogWidth(), Height: core.Pt(600)},
-			Children: []core.Node{core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0), Gap: 8}, Children: []core.Node{
+			StyleFunc: func() core.Style {
+				return core.Style{Width: a.dialogWidth(viewkit.DialogEditorWidth), Height: dialogHeight(cx, viewkit.DialogEditorHeight)}
+			},
+			Children: []core.Node{core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Gap: 8}, Children: []core.Node{
 				core.Input{Value: a.shortcutsQuery.Get, OnChange: a.shortcutsQuery.Set, Placeholder: apptext.T("搜索命令或键位…"),
 					Label: apptext.T("搜索快捷键"), TestID: "shortcuts-search", AutoFocus: true,
 					Style: core.Style{Height: core.Pt(32), Padding: core.Symmetric(0, 9), CornerRadius: 7,

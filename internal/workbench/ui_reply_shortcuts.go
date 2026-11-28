@@ -51,8 +51,10 @@ func (a *app) replyShortcutSettingsDialog() core.Node {
 		}
 		colors := ui.ColorsOf(cx)
 		return ui.Dialog{Title: apptext.T("快捷短语与回复规则"), TestID: "reply-shortcuts-dialog",
-			Style: core.Style{Width: core.Pt(640), Height: core.Pt(520)},
-			Open:  func() bool { return q.form.Get() != nil }, OnOpenChange: func(open bool, _ base.Reason) {
+			StyleFunc: func() core.Style {
+				return core.Style{Width: a.dialogWidth(viewkit.DialogEditorWidth), Height: dialogHeight(cx, viewkit.DialogEditorHeight)}
+			},
+			Open: func() bool { return q.form.Get() != nil }, OnOpenChange: func(open bool, _ base.Reason) {
 				if !open && !f.busy.GetUntracked() {
 					q.form.Set(nil)
 				}

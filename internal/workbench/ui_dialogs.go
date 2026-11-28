@@ -9,6 +9,7 @@ import (
 	"runtime"
 
 	"example.com/pideck/internal/apptext"
+	"example.com/pideck/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -48,6 +49,7 @@ func (a *app) renameDialog() core.Node {
 		OnOpenChange: func(open bool, _ base.Reason) { a.renameOpen.Set(open) },
 		Title:        apptext.T("重命名会话"),
 		TestID:       "rename",
+		Style:        core.Style{Width: core.Pt(viewkit.DialogCompactWidth)},
 		Children: []core.Node{core.Input{
 			Value: a.renameText.Get, OnChange: a.renameText.Set, Placeholder: apptext.T("会话名称"), Label: apptext.T("会话名称"), AutoFocus: true,
 			OnSubmit: func(string) { a.rename() },
@@ -76,7 +78,7 @@ func (a *app) confirmDialog() core.Node {
 			Open:         a.confirmOpen.Get,
 			OnOpenChange: func(open bool, _ base.Reason) { a.confirmOpen.Set(open) },
 			TestID:       "confirm",
-			Style:        core.Style{Width: core.Pt(380)},
+			Style:        core.Style{Width: core.Pt(viewkit.DialogCompactWidth)},
 			Children: []core.Node{
 				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10}, Children: []core.Node{
 					core.View{StyleFunc: func() core.Style {

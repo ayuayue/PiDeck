@@ -236,34 +236,30 @@ func TestPaneWidthsFitTheirContent(t *testing.T) {
 	}
 }
 
-// TestDialogWidthSharesTheChatColumn checks a modal takes the same share
-// of the window as the chat column: the task form follows the setting
-// instead of keeping a fixed 780 points.
-func TestDialogWidthSharesTheChatColumn(t *testing.T) {
+// A form keeps a readable width when the transcript setting or window changes.
+func TestDialogWidthIndependentOfChatColumn(t *testing.T) {
 	built, screen, _ := newAskApp(t)
-	const windowWidth = 1280
+	screen.SetEnvironment(core.Environment{OS: core.OSWindows, Idiom: core.IdiomDesktop})
 	built.chatWidthPctSig.Set(70)
 	built.openTaskForm()
-	screen.Advance(80 * time.Millisecond)
 	screen.WaitFor("id:task-form", 5*time.Second)
-
-	at := func(pct int) float64 {
-		t.Helper()
-		want := windowWidth * float64(pct) / 100
-		got := float64(screen.Find("id:task-form").Frame.Size.Width)
-		if diff := math.Abs(got - want); diff > 2 {
-			t.Fatalf("task form at %d%% is %.1f wide, want %.1f of the window (off by %.1f)",
-				pct, got, want, diff)
-		}
-		return got
+	width := screen.Find("id:task-form").Bounds().Size.Width
+	if width > 680 {
+		t.Fatalf("task form is too wide for a single-column editor: %.1f", width)
 	}
-	narrow := at(70)
-
-	built.chatWidthPctSig.Set(80)
-	screen.Advance(80 * time.Millisecond)
-	wider := at(80)
-	if wider <= narrow {
-		t.Fatalf("task form at 80%% is %.1f wide, not wider than %.1f at 70%%", wider, narrow)
+	for _, pct := range []int{50, 100} {
+		built.chatWidthPctSig.Set(pct)
+		screen.Settle()
+		got := screen.Find("id:task-form").Bounds().Size.Width
+		if math.Abs(float64(got-width)) > 1 {
+			t.Fatalf("chat width %d%% changed the dialog from %.1f to %.1f", pct, width, got)
+		}
+	}
+	screen.Resize(600, 640)
+	screen.Settle()
+	bounds := screen.Find("id:task-form").Bounds()
+	if bounds.Origin.X < 0 || bounds.Origin.X+bounds.Size.Width > 600 || bounds.Size.Width >= width {
+		t.Fatalf("dialog did not adapt to the narrow window: %+v", bounds)
 	}
 }
 

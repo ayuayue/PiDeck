@@ -115,8 +115,9 @@ func (a *app) promptDialog() core.Node {
 			OnOpenChange: func(open bool, _ base.Reason) { a.promptOpen.Set(open) },
 			Title:        apptext.T("提示词库"),
 			TestID:       "prompt-library",
-			Style:        core.Style{Width: a.dialogWidth(), Height: core.Pt(620)},
-			Children: []core.Node{core.View{Style: core.Style{Direction: core.Row, Height: core.Pt(430), MinHeight: core.Pt(0), Gap: 10},
+			Style:        core.Style{Width: a.dialogWidth(viewkit.DialogWideWidth)},
+			Children: []core.Node{core.View{Style: core.Style{Direction: core.Row, FlexShrink: 1, MinHeight: core.Pt(0), Gap: 10},
+				StyleFunc: func() core.Style { return core.Style{Height: dialogBodyHeight(cx, viewkit.DialogManagerBodyHeight)} },
 				Children: []core.Node{
 					core.View{StyleFunc: func() core.Style {
 						return core.Style{Width: core.Pt(156), FlexShrink: 0, Padding: core.Symmetric(6, 2), Gap: 1,

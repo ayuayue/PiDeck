@@ -236,7 +236,7 @@ func (a *app) taskFormDialog() core.Node {
 			OnOpenChange: func(open bool, _ base.Reason) { a.taskFormOpen.Set(open) },
 			Title:        title,
 			TestID:       "task-form",
-			Style:        core.Style{Width: a.dialogWidth(), MaxWidth: core.Pt(760)},
+			Style:        core.Style{Width: a.dialogWidth(viewkit.DialogEditorWidth)},
 			Children: []core.Node{core.Scroll{TestID: "task-form-scroll", Style: core.Style{MinHeight: core.Pt(0), FlexShrink: 1}, Children: []core.Node{
 				core.View{Style: core.Style{Gap: 12, Padding: core.Edges{Right: scrollbarGutter, Bottom: 4}}, Children: []core.Node{
 					core.View{Style: core.Style{Gap: 4}, Children: []core.Node{

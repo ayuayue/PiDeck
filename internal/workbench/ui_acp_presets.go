@@ -94,10 +94,15 @@ func (a *app) acpPresetManagerDialog() core.Node {
 				list = append(list, core.Text{Content: apptext.T("正在读取预设…"), Style: core.Style{FontSize: 11, Padding: core.Symmetric(6, 4)},
 					StyleFunc: ui.Colored(colors.Faint)})
 			}
-			return a.scrollStashFor("acpPresetList:1").Bind(cx, core.Scroll{TestID: "acp-preset-list", Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0), MaxHeight: core.Pt(430)},
+			return a.scrollStashFor("acpPresetList:1").Bind(cx, core.Scroll{TestID: "acp-preset-list", Style: ui.FillRest,
 				Children: []core.Node{core.View{Style: core.Style{Gap: 1, Padding: core.Edges{Right: viewkit.PanelInset}}, Children: list}}})
 		})
-		list := core.View{Style: core.Style{Width: core.Pt(236), Gap: 4, FlexShrink: 0}, Children: []core.Node{
+		list := core.View{Style: core.Style{Gap: 4, MinHeight: core.Pt(0), FlexShrink: 0}, StyleFunc: func() core.Style {
+			if cx.Env().Window().Width < 720 {
+				return core.Style{Height: core.Pt(120)}
+			}
+			return core.Style{Width: core.Pt(208)}
+		}, Children: []core.Node{
 			ui.Button{Text: apptext.T("新增预设"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "acp-preset-new",
 				OnPress: a.newACPPreset},
 			rows,
@@ -107,9 +112,15 @@ func (a *app) acpPresetManagerDialog() core.Node {
 			OnOpenChange: func(open bool, _ base.Reason) { a.acpManageOpen.Set(open) },
 			Title:        apptext.T("管理 ACP 预设"),
 			TestID:       "acp-preset-manager",
-			Style:        core.Style{Width: a.dialogWidth(), MaxHeight: core.Pt(700)},
-			Children: []core.Node{core.View{Style: core.Style{Direction: core.Row, Gap: 12, Height: core.Pt(470)},
-				Children: []core.Node{list, a.acpPresetEditor(cx)}}},
+			Style:        core.Style{Width: a.dialogWidth(viewkit.DialogWideWidth)},
+			Children: []core.Node{core.View{Style: core.Style{Direction: core.Row, Gap: 12, FlexShrink: 1, MinHeight: core.Pt(0)},
+				StyleFunc: func() core.Style {
+					st := core.Style{Height: dialogBodyHeight(cx, viewkit.DialogManagerBodyHeight)}
+					if cx.Env().Window().Width < 720 {
+						st.Direction = core.Column
+					}
+					return st
+				}, Children: []core.Node{list, a.acpPresetEditor(cx)}}},
 			Footer: []core.Node{
 				ui.Button{Text: apptext.T("检测"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
 					TestID: "acp-preset-check", OnPress: a.refreshACPManager},
@@ -216,20 +227,20 @@ func (a *app) acpPresetEditor(cx *core.Scope) core.Node {
 					StyleFunc: ui.Colored(colors.Danger)}
 			}},
 		}},
-		core.View{Style: core.Style{FlexGrow: 1}},
-		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Wrap: core.Wrap}, Children: append([]core.Node{
-			ui.Button{Text: apptext.T("保存"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "acp-preset-save",
-				Disabled: a.acpManageBusy.Get, OnPress: a.saveACPPresetEdit},
-		}, actions...)},
 	}}
 	access := a.acpPresetAccessPane(cx, preset)
 	var pane core.Node
+	var footer core.Node = core.Group{}
 	if a.acpPresetTab.Get() == "access" {
 		pane = access
 	} else {
 		pane = launch
+		footer = core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Wrap: core.Wrap, FlexShrink: 0}, Children: append([]core.Node{
+			ui.Button{Text: apptext.T("保存"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "acp-preset-save",
+				Disabled: a.acpManageBusy.Get, OnPress: a.saveACPPresetEdit},
+		}, actions...)}
 	}
-	return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 8}, Children: []core.Node{
+	return core.View{Style: ui.FillRest.Merge(core.Style{Gap: 8}), Children: []core.Node{
 		core.View{Style: core.Style{Gap: 1}, Children: []core.Node{
 			core.Text{Content: title, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 				Style: core.Style{FontSize: 13}, StyleFunc: ui.Colored(colors.Text)},
@@ -237,7 +248,10 @@ func (a *app) acpPresetEditor(cx *core.Scope) core.Node {
 				Style: core.Style{FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
 		}},
 		a.acpPresetTabs(cx),
-		pane,
+		core.Scroll{TestID: "acp-preset-editor", Style: ui.FillRest, Children: []core.Node{
+			core.View{Style: core.Style{Padding: core.Edges{Right: viewkit.PanelInset}}, Children: []core.Node{pane}},
+		}},
+		footer,
 	}}
 }
 
@@ -316,8 +330,7 @@ func (a *app) acpPresetAccessPane(cx *core.Scope, preset *acpPreset) core.Node {
 		}
 		rows = append(rows, core.View{Style: core.Style{Height: core.Pt(1), Margin: core.Symmetric(8, 0)}, StyleFunc: ui.Filled(colors.Line)},
 			ui.Text(apptext.T("已记住的选项"), 10.5, ui.Medium, colors.Muted),
-			core.Scroll{Style: core.Style{MaxHeight: core.Pt(220)}, Children: []core.Node{
-				core.View{Style: core.Style{Gap: 2, Padding: core.Edges{Right: viewkit.PanelInset}}, Children: remembered}}})
+			core.View{Style: core.Style{Gap: 2}, Children: remembered})
 	}
 	rows = append(rows, core.Text{Content: apptext.T("预设改动写在 acp/presets.json；内置预设被改过后显示为「已修改」，随时可以恢复默认。"),
 		MaxLines: 3, Style: core.Style{FontSize: 10.5, LineHeight: 15}, StyleFunc: ui.Colored(colors.Faint)})

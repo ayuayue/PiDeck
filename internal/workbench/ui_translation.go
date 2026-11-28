@@ -116,7 +116,7 @@ func (a *app) translationDialog() core.Node {
 				}
 			},
 			Title: apptext.T("翻译文本…"), Description: apptext.T("选中文字或整条回复，翻译成目标语言"), TestID: "translate-dialog",
-			Style: core.Style{Width: a.dialogWidth(), MaxWidth: core.Pt(860)},
+			Style: core.Style{Width: a.dialogWidth(viewkit.DialogEditorWidth)},
 			Children: []core.Node{core.View{Style: core.Style{Gap: 10, MinHeight: core.Pt(0), FlexShrink: 1}, Children: []core.Node{
 				core.Show{When: missingModel, Then: func(*core.Scope) core.Node {
 					return core.View{Style: core.Style{Gap: 6, AlignItems: core.AlignStart}, Children: []core.Node{

@@ -320,9 +320,11 @@ func (a *app) imageDialog() core.Node {
 			OnOpenChange: func(open bool, _ base.Reason) { a.imageOpen.Set(open) },
 			Title:        apptext.T("生成图片"),
 			TestID:       "image-dialog",
-			Style:        core.Style{Width: a.dialogWidth(), MaxHeight: core.Pt(680)},
-			Children: []core.Node{a.scrollStashFor("imageDialog:1").Bind(cx, core.Scroll{TestID: "image-scroll", Style: core.Style{MaxHeight: core.Pt(540)}, Children: []core.Node{
-				core.View{Style: core.Style{Gap: 12, Padding: core.Edges{Right: scrollbarGutter, Bottom: 8}}, Children: body}}})},
+			Style:        core.Style{Width: a.dialogWidth(viewkit.DialogEditorWidth)},
+			Children: []core.Node{a.scrollStashFor("imageDialog:1").Bind(cx, core.Scroll{TestID: "image-scroll", Style: core.Style{MinHeight: core.Pt(0), FlexShrink: 1},
+				StyleFunc: func() core.Style { return core.Style{MaxHeight: dialogBodyHeight(cx, viewkit.DialogManagerBodyHeight)} },
+				Children: []core.Node{
+					core.View{Style: core.Style{Gap: 12, Padding: core.Edges{Right: scrollbarGutter, Bottom: 8}}, Children: body}}})},
 			Footer: footer,
 		}
 	})

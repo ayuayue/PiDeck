@@ -4,6 +4,7 @@ package workbench
 
 import (
 	"example.com/pideck/internal/apptext"
+	"example.com/pideck/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -70,7 +71,7 @@ func (a *app) promptTemplateDialog() core.Node {
 			return nil
 		}
 		colors := ui.ColorsOf(cx)
-		return ui.Dialog{Title: apptext.T("提示词增强模板"), TestID: "prompt-template-dialog", Style: core.Style{Width: a.dialogWidth()},
+		return ui.Dialog{Title: apptext.T("提示词增强模板"), TestID: "prompt-template-dialog", Style: core.Style{Width: a.dialogWidth(viewkit.DialogEditorWidth)},
 			Open: func() bool { return a.promptTemplate.Get() != nil }, OnOpenChange: func(open bool, _ base.Reason) {
 				if !open && !form.busy.GetUntracked() {
 					a.promptTemplate.Set(nil)

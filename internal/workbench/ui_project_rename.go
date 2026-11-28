@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"example.com/pideck/internal/apptext"
+	"example.com/pideck/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -47,7 +48,7 @@ func (a *app) workspaceRenameDialog() core.Node {
 			OnOpenChange: func(open bool, _ base.Reason) { a.wsRenameOpen.Set(open) },
 			Title:        apptext.T("重命名项目"),
 			TestID:       "ws-rename",
-			Style:        core.Style{Width: core.Pt(420)},
+			Style:        core.Style{Width: core.Pt(viewkit.DialogCompactWidth)},
 			Children: []core.Node{core.View{Style: core.Style{Gap: 10}, Children: []core.Node{
 				core.Text{Content: apptext.T("给项目起一个显示名；留空就用文件夹名。"), Style: core.Style{FontSize: 11.5},
 					StyleFunc: ui.Colored(colors.Muted)},

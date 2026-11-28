@@ -29,7 +29,9 @@ func (a *app) searchDialog() core.Node {
 			},
 			Title:  apptext.T("搜索会话"),
 			TestID: "session-search",
-			Style:  core.Style{Width: a.dialogWidth(), Height: core.Pt(580)},
+			StyleFunc: func() core.Style {
+				return core.Style{Width: a.dialogWidth(viewkit.DialogEditorWidth), Height: dialogHeight(cx, viewkit.DialogEditorHeight)}
+			},
 			Children: []core.Node{core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Gap: 8}, Children: []core.Node{
 				a.searchBar(colors),
 				choiceChips([]choice[string]{{"", "全部"}, {"title", "标题"}, {"body", "正文"}},
