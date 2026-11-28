@@ -19,7 +19,7 @@ import (
 
 // sourceCodex reads Codex CLI's rollout files.
 var Codex = &Source{
-	Key: "codex", Label: "Codex CLI", Version: 1,
+	Key: "codex", Label: "Codex CLI", Version: 2,
 	Roots: func() []string { return []string{importRoot("codex", ".codex", "sessions")} },
 	Scan:  scanCodex,
 	Read:  readCodex,
@@ -216,19 +216,20 @@ func readCodex(path string) (Session, error) {
 			buf = append([]Block{{Kind: "thinking", Thinking: strings.Join(thinking, "\n\n")}}, buf...)
 			thinking = nil
 		}
-		if len(buf) > 0 {
-			out.Messages = append(out.Messages, Message{Role: "assistant", Timestamp: bufAt, Blocks: buf,
-				Provider: orDefault(bufProvider, "codex"), Model: orDefault(bufModel, "codex"),
-				StopReason: importStopReason("", len(calls) > 0)})
+		if len(buf) == 0 {
+			return
 		}
-		pending = map[string]bool{}
+		out.Messages = append(out.Messages, Message{Role: "assistant", Timestamp: bufAt, Blocks: buf,
+			Provider: orDefault(bufProvider, "codex"), Model: orDefault(bufModel, "codex"),
+			StopReason: importStopReason("", len(calls) > 0)})
 		for _, id := range calls {
 			pending[id] = true
 		}
 		buf, calls = nil, nil
+		bufAt = time.Time{}
 		bufModel, bufProvider = "", ""
 	}
-	addCall := func(id, name string, args json.RawMessage, at time.Time) {
+	addCall := func(id, name string, args json.RawMessage, at time.Time) string {
 		if id == "" {
 			id = importToken(name + at.String())
 		}
@@ -238,6 +239,7 @@ func readCodex(path string) (Session, error) {
 		buf = append(buf, Block{Kind: "toolCall", ID: id, Name: name, Arguments: args})
 		calls = append(calls, id)
 		names[id] = name
+		return id
 	}
 	result := func(id, name, text string, isError bool, at time.Time) {
 		if id != "" && pending[id] {
@@ -314,6 +316,9 @@ func readCodex(path string) (Session, error) {
 				text = codexSummaryText(e.Payload.Summary)
 			}
 			if strings.TrimSpace(text) != "" {
+				if bufAt.IsZero() {
+					bufAt = at
+				}
 				thinking = append(thinking, text)
 			}
 		case "function_call":
@@ -326,20 +331,23 @@ func readCodex(path string) (Session, error) {
 			addCall(firstNonEmpty(e.Payload.CallID, e.Payload.ID), orDefault(e.Payload.Name, "shell"),
 				importArguments(e.Payload.Arguments), at)
 		case "web_search_call":
-			addCall(firstNonEmpty(e.Payload.CallID, e.Payload.ID), "web_search", codexSearchArguments(e.Payload.Action), at)
-			result(e.Payload.CallID, "web_search", "（Codex 未在会话文件中保存联网检索结果正文）", false, at)
+			id := addCall(firstNonEmpty(e.Payload.CallID, e.Payload.ID), "web_search", codexSearchArguments(e.Payload.Action), at)
+			flush()
+			result(id, "web_search", "（Codex 未在会话文件中保存联网检索结果正文）", false, at)
 		case "tool_search_call":
 			addCall(firstNonEmpty(e.Payload.CallID, e.Payload.ID), "tool_search",
 				importArguments(e.Payload.Arguments), at)
 		case "image_generation_call":
 			args := importArguments(map[string]any{"prompt": firstNonEmpty(e.Payload.RevisedPrompt, e.Payload.Prompt)})
-			addCall(firstNonEmpty(e.Payload.CallID, e.Payload.ID), "image_generation", args, at)
-			result(e.Payload.CallID, "image_generation", codexGeneratedImage(e.Payload.Result), false, at)
+			id := addCall(firstNonEmpty(e.Payload.CallID, e.Payload.ID), "image_generation", args, at)
+			flush()
+			result(id, "image_generation", codexGeneratedImage(e.Payload.Result), false, at)
 		case "agent_message":
-			addCall(firstNonEmpty(e.Payload.CallID, e.Payload.ID), "agent_message",
+			id := addCall(firstNonEmpty(e.Payload.CallID, e.Payload.ID), "agent_message",
 				importArguments(map[string]any{"author": e.Payload.Author, "recipient": e.Payload.Recipient}), at)
 			if text := codexMessageText(e.Payload.Content); strings.TrimSpace(text) != "" {
-				result(e.Payload.CallID, "agent_message", text, false, at)
+				flush()
+				result(id, "agent_message", text, false, at)
 			}
 		case "function_call_output", "custom_tool_call_output", "local_shell_call_output":
 			id := firstNonEmpty(e.Payload.CallID, e.Payload.ID)

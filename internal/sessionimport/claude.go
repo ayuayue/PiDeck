@@ -45,7 +45,7 @@ var Qoder = claudeSource(familyQoder)
 // claudeSource builds the import source for one tool of this shape.
 func claudeSource(f claudeFamily) *Source {
 	return &Source{
-		Key: f.key, Label: f.label, Version: 1,
+		Key: f.key, Label: f.label, Version: 2,
 		Roots: func() []string { return []string{f.root()} },
 		Scan: func(root string) ([]Candidate, error) {
 			return scanClaudeFamily(root, f)
@@ -322,15 +322,16 @@ func convertClaude(path string, f claudeFamily, chain map[string]bool, filtered 
 	// entries are one turn: the source splits a turn at every content
 	// block, and pi keeps it whole.
 	flush := func() {
-		if len(buffered) > 0 {
-			out.Messages = append(out.Messages, Message{Role: "assistant", Blocks: buffered, Timestamp: bufferedAt,
-				Model: bufferedModel, Provider: f.provider, StopReason: importStopReason(bufferedStop, len(bufferedIDs) > 0)})
+		if len(buffered) == 0 {
+			return
 		}
-		pending = map[string]bool{}
+		out.Messages = append(out.Messages, Message{Role: "assistant", Blocks: buffered, Timestamp: bufferedAt,
+			Model: bufferedModel, Provider: f.provider, StopReason: importStopReason(bufferedStop, len(bufferedIDs) > 0)})
 		for _, id := range bufferedIDs {
 			pending[id] = true
 		}
 		buffered, bufferedIDs = nil, nil
+		bufferedAt = time.Time{}
 		bufferedModel, bufferedStop = "", ""
 	}
 	result := func(r map[string]any, at time.Time) {
